@@ -1,7 +1,7 @@
 'use client'
 // Smart Prep v2 — left-pane suggestion row (design PPSuggRow). The urgency step
 // is computed live from stock; evidence is icons + the on-hand/par numbers.
-import { AlertTriangle, Check, Plus } from 'lucide-react'
+import { AlertTriangle, Check, Plus, Flame } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import {
   PLAN_URG_META, effectiveUrgency, suggestedDraftQty,
@@ -21,7 +21,9 @@ export function SuggestionRow({ item, locked, onOpen, onAdd, onRemove }: {
   const sugg = suggestedDraftQty(item)
   const nb = suggestedBatches(item)
   const short = (item.ingredientShortCount ?? 0) > 0
-  const stockOut = (item.parLevel ?? 0) > 0 && (item.onHand ?? 0) <= 0
+  // A job in flight is pipeline stock, not a stock-out — the chip replaces the triangle.
+  const pipeline = item.pipeline ?? null
+  const stockOut = !pipeline && (item.parLevel ?? 0) > 0 && (item.onHand ?? 0) <= 0
   return (
     // Name-first layout: no par-level bar and no reason text (unreadable at
     // 9px on narrow panes) — a red triangle by the name flags stock-out, the
@@ -37,6 +39,11 @@ export function SuggestionRow({ item, locked, onOpen, onAdd, onRemove }: {
           {stockOut && (
             <span title="Stock out — 0 on hand" className="inline-flex shrink-0">
               <AlertTriangle size={11} className="text-red" />
+            </span>
+          )}
+          {pipeline && (
+            <span title={whyLabel(item)} className="inline-flex items-center gap-1 shrink-0 font-mono text-[8.5px] font-bold uppercase tracking-[0.04em] bg-gold-soft text-gold-2 px-1.5 py-[1px] rounded-full">
+              <Flame size={9} /> in flight
             </span>
           )}
           {short && (

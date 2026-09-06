@@ -9,7 +9,7 @@ import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/li
 import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
 import { prepDayRange } from '@/lib/prep-day'
 import { NEWEST_LOG } from '@/lib/prep-plan-server'
-import { isLiveLog } from '@/lib/prep-plan'
+import { isLiveLog, pipelineOf } from '@/lib/prep-plan'
 import { resolveStages } from '@/lib/prep-stages'
 
 // GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
@@ -236,6 +236,25 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // A job in flight is pipeline stock to the planner (evidence + exclusion;
+    // the step still reads the stock — DONE is the only credit).
+    const stages = resolveStages(item.linkedRecipe)
+    const pipeline = liveLog
+      ? pipelineOf({
+          onHand, parLevel, minThreshold, targetToday, unit: item.unit,
+          manualPriorityOverride: item.manualPriorityOverride,
+          activeMinutes, passiveMinutes, estimatedPrepTime: item.estimatedPrepTime ?? null,
+          linkedRecipe: item.linkedRecipe ? { stages, baseYieldQty: Number(item.linkedRecipe.baseYieldQty), yieldUnit: item.linkedRecipe.yieldUnit } : null,
+          todayLog: {
+            status: liveLog.status,
+            startedAt: liveLog.startedAt?.toISOString() ?? null,
+            stageIndex: liveLog.stageIndex,
+            stageEnteredAt: liveLog.stageEnteredAt?.toISOString() ?? null,
+            requiredQty: liveLog.requiredQty == null ? null : Number(liveLog.requiredQty),
+          },
+        }, Date.now())
+      : null
+
     return {
       id: item.id,
       name: item.name,
@@ -272,6 +291,7 @@ export async function GET(req: NextRequest) {
       ingredientTotalCount,
       ingredientShortCount,
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
+      pipeline,
       revenueCenterId: item.revenueCenterId ?? null,
       // RAW overrides, alongside the resolved activeMinutes/passiveMinutes above.
       // The edit form needs both: the resolved value is what the run sheet uses,

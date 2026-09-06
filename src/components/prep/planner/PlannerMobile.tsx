@@ -79,13 +79,14 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
   )
 }
 
-export function PlannerMobile({ items, allItems, cooks, stations, services, nowMin, canPlan, post, handlers }: {
+export function PlannerMobile({ items, allItems, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
   items: PrepItemRich[]
   allItems: PrepItemRich[]
   cooks: Cook[]
   stations: string[]
   services: RcService[]
   nowMin: number
+  nowMs?: number
   canPlan: boolean
   post: PrepPostInfo | null
   handlers: PlannerHandlers
@@ -98,7 +99,7 @@ export function PlannerMobile({ items, allItems, cooks, stations, services, nowM
   const onToggleBatch = (item: PrepItemRich, next: boolean) =>
     setBatchToggles(prev => new Map(prev).set(item.id, next))
 
-  const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
+  const ctx = useMemo(() => planDayContext(services, nowMin, nowMs), [services, nowMin, nowMs])
   const draft = useMemo(() => allItems.filter(i => i.isOnList), [allItems])
   const sched = useMemo<Map<string, PlanSlot>>(
     () => (ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map()),

@@ -28,7 +28,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, defaultDraftQty, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
@@ -707,7 +707,8 @@ export default function PrepPage() {
       // Staged prep: Start enters stage 0 / Stop clears it, mirroring the server
       // (empty for an unstaged item — see stageFieldsForStatus).
       const stageFields = stageFieldsForStatus(i, newStatus, now)
-      return {
+      // `pipeline` (a job in flight, see pipelineOf) follows the status.
+      return withPipeline({
         ...recomputed,
         isOnList: nextOnList,
         todayLog: existingLog
@@ -732,7 +733,7 @@ export default function PrepPage() {
               postedAt: null,
               ...stageFields,
             },
-      }
+      })
     }))
     markSaving(itemId, true)
 
@@ -808,7 +809,7 @@ export default function PrepPage() {
           inventoryAdjusted: false, createdAt: now, updatedAt: now, startedAt: null, completedAt: null, listOrder: null, postedAt: null,
         },
       }
-      return { ...applyStageToItem(seeded, stageIndex, now), isOnList: true }
+      return withPipeline({ ...applyStageToItem(seeded, stageIndex, now), isOnList: true })
     }))
     markSaving(item.id, true)
 
@@ -1286,7 +1287,8 @@ export default function PrepPage() {
   }
 
   function handleAddAllCritical() {
-    items.filter(i => effectivePriority(i) === '911' && !i.isOnList).forEach(handleAddToDraft)
+    // A job in the pipeline is being made — it is not a critical stock-out to add.
+    items.filter(i => effectivePriority(i) === '911' && !i.isOnList && !i.pipeline).forEach(handleAddToDraft)
   }
 
   function handleAcceptSuggested() {
@@ -1864,6 +1866,7 @@ export default function PrepPage() {
               cooks={cooks}
               services={rcServices}
               nowMin={nowMin}
+              nowMs={nowMs}
               canPlan={canPlan}
               post={plan.post}
               search={search}
@@ -1979,6 +1982,7 @@ export default function PrepPage() {
                 stations={stations}
                 services={rcServices}
                 nowMin={nowMin}
+                nowMs={nowMs}
                 canPlan={canPlan}
                 post={plan.post}
                 handlers={plannerHandlers}

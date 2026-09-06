@@ -12,7 +12,7 @@ import {
 import { convertQty, sameDimension } from './uom'
 import { fmtClock } from './prep-runsheet'
 import {
-  resolveStages, currentStage, nextActiveStage, stageReadyAt, restState, appendStageEvent,
+  resolveStages, currentStage, nextActiveStage, stageReadyAt, restState, appendStageEvent, remainingChain,
   type RecipeStage, type StageAt, type RestState, type StageEvent,
 } from './prep-stages'
 
@@ -28,6 +28,94 @@ export interface PlanFields {
   manualPriorityOverride: string | null
   unit: string
   shelfLifeDays?: number | null
+  /** A job already in flight (see `pipelineOf`) — evidence, not a stock credit. */
+  pipeline?: PipelineInfo | null
+}
+
+// ─── the pipeline: a job in flight is not a stock-out ──────────────────────
+// Stock is credited at DONE only, so to the stock maths a curing item is still
+// out. To the PLANNER it is in the pipeline: `/api/prep/items` attaches this
+// for any live IN_PROGRESS log (staged or not), the suggestion row shows it
+// instead of the stock-out triangle, "Add all critical" and the band's
+// critical count leave it alone, and the schedule charges only the hands-on
+// minutes still to come, from the time the next hands-on stage is due.
+// `autoUrgency` itself is untouched — the step still reads the stock.
+
+export interface PipelineInfo {
+  /** the planned qty of the job in flight (the chef's requiredQty, else the suggestion) */
+  qty: number
+  /** when the whole job is expected to be done — ISO; null when the clock is unknown */
+  readyAt: string | null
+  /** the current stage's name (staged jobs), else null */
+  stageName: string | null
+  /** hands-on minutes still to come */
+  remainingActiveMinutes: number
+  /** unattended minutes still to come */
+  remainingPassiveMinutes: number
+  /** when the next hands-on work can begin — now for a hands-on stage, the rest's ready time otherwise */
+  nextActiveAt: string | null
+}
+
+const RESTAURANT_TZ = 'America/Los_Angeles'
+
+/** "07:30" today, "Thu 07:30" another day — the restaurant's clock. */
+export function fmtPipelineReady(iso: string, nowMs: number = Date.now()): string {
+  const d = new Date(iso)
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: RESTAURANT_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const clock = new Intl.DateTimeFormat('en-GB', { timeZone: RESTAURANT_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(d)
+  if (day.format(d) === day.format(new Date(nowMs))) return clock
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: RESTAURANT_TZ, weekday: 'short' }).format(d)
+  return `${wd} ${clock}`
+}
+
+export function pipelineOf(
+  t: PlanFields & {
+    activeMinutes?: number | null
+    passiveMinutes?: number | null
+    estimatedPrepTime?: number | null
+    linkedRecipe?: { stages?: RecipeStage[] | null; baseYieldQty?: number; yieldUnit?: string } | null
+    todayLog?: (StageLogShape & { requiredQty?: number | string | null; actualPrepQty?: number | null }) | null
+  },
+  nowMs: number,
+): PipelineInfo | null {
+  const log = t.todayLog
+  if (!log || log.status !== 'IN_PROGRESS') return null
+  const qty = draftQty(t) || (t.targetToday ?? t.parLevel)
+  const stages = resolveStages(t.linkedRecipe)
+  const cur = stages ? currentStage(stages, log) : null
+  if (stages && cur) {
+    const rem = remainingChain(stages, log, nowMs)!
+    const resting = cur.stage.kind === 'PASSIVE'
+    const readyAtMs = resting ? stageReadyAt(log, cur.stage) : null
+    return {
+      qty,
+      readyAt: new Date(rem.readyAtMs).toISOString(),
+      stageName: cur.stage.name,
+      remainingActiveMinutes: rem.active,
+      remainingPassiveMinutes: rem.passive,
+      nextActiveAt: resting && readyAtMs != null ? new Date(readyAtMs).toISOString() : new Date(nowMs).toISOString(),
+    }
+  }
+  // Unstaged: one hands-on job carrying active + passive from its start.
+  const active = t.activeMinutes ?? t.estimatedPrepTime ?? 0
+  const passive = t.passiveMinutes ?? 0
+  const started = log.startedAt ? new Date(log.startedAt).getTime() : NaN
+  const elapsed = Number.isFinite(started) ? Math.max(0, Math.floor((nowMs - started) / 60_000)) : 0
+  const remainingActive = Math.max(0, active - elapsed)
+  const remainingPassive = Math.max(0, active + passive - Math.max(elapsed, active))
+  return {
+    qty,
+    readyAt: Number.isFinite(started) ? new Date(started + (active + passive) * 60_000).toISOString() : null,
+    stageName: null,
+    remainingActiveMinutes: remainingActive,
+    remainingPassiveMinutes: remainingPassive,
+    nextActiveAt: new Date(nowMs).toISOString(),
+  }
+}
+
+/** Re-derive `pipeline` after an optimistic status / stage change. */
+export function withPipeline<T extends Parameters<typeof pipelineOf>[0]>(t: T, nowMs: number = Date.now()): T & { pipeline: PipelineInfo | null } {
+  return { ...t, pipeline: pipelineOf(t, nowMs) }
 }
 
 export const PLAN_URG_META: Record<PrepUrgency, {
@@ -83,6 +171,10 @@ const fmtQ = (q: number, u: string) => `${q % 1 === 0 ? q : +q.toFixed(2)} ${u}`
 /** Read-only evidence: why the system put the item at its step. */
 export function whyLabel(t: PlanFields): string {
   const oh = t.onHand ?? 0, par = t.parLevel ?? 0
+  if (t.pipeline) {
+    const when = t.pipeline.readyAt ? ` · ready ${fmtPipelineReady(t.pipeline.readyAt)}` : ''
+    return `in the pipeline${t.pipeline.stageName ? ` (${t.pipeline.stageName.toLowerCase()})` : ''}${when}`
+  }
   const override = normalizeUrgency(t.manualPriorityOverride)
   if (override) return `chef moved it to ${PLAN_URG_META[override].label.toLowerCase()}`
   if (par > 0 && oh <= 0) return 'stock out'
@@ -265,6 +357,9 @@ export interface PlanDayContext {
   /** 0 while the day is still on, 1440 once it has rolled to tomorrow — added to
    *  an item's OWN service start so its deadline rolls with the day */
   roll: number
+  /** the epoch instant `shiftStart` corresponds to — lets the schedule place a
+   *  pipeline job's `nextActiveAt` on the minute axis. Absent ⇒ slot from shiftStart. */
+  nowMs?: number
 }
 
 const DEFAULT_CLOSE = 22 * 60
@@ -289,6 +384,7 @@ const DEFAULT_CLOSE = 22 * 60
 export function planDayContext(
   services: Array<{ timeMinutes: number; endMinutes: number | null }>,
   nowMin: number,
+  nowMs?: number,
 ): PlanDayContext | null {
   if (!services.length) return null
   const starts = services.map(s => s.timeMinutes).sort((a, b) => a - b)
@@ -304,7 +400,7 @@ export function planDayContext(
   const doorsOpen = roll
     ? starts[0] + roll
     : (starts.find(s => s >= nowMin) ?? starts[0])
-  return { doorsOpen, close, shiftStart: nowMin, roll }
+  return { doorsOpen, close, shiftStart: nowMin, roll, ...(nowMs != null ? { nowMs } : {}) }
 }
 
 const MID_OFFSET = 120
@@ -345,12 +441,21 @@ interface SchedulableItem extends PlanFields {
   service?: { timeMinutes: number } | null
 }
 
-const activeMin = (t: SchedulableItem) => t.activeMinutes ?? t.estimatedPrepTime ?? 0
-const passiveMin = (t: SchedulableItem) => t.passiveMinutes ?? 0
+const activeMin = (t: SchedulableItem) => t.pipeline ? t.pipeline.remainingActiveMinutes : (t.activeMinutes ?? t.estimatedPrepTime ?? 0)
+const passiveMin = (t: SchedulableItem) => t.pipeline ? t.pipeline.remainingPassiveMinutes : (t.passiveMinutes ?? 0)
+
+/** The earliest minute a job in flight can take a cook again (shift start otherwise). */
+function earliestStart(t: SchedulableItem, ctx: PlanDayContext): number {
+  const at = t.pipeline?.nextActiveAt
+  if (!at || ctx.nowMs == null) return ctx.shiftStart
+  return Math.max(ctx.shiftStart, msToLadderMin(new Date(at).getTime(), { nowMs: ctx.nowMs, nowMin: ctx.shiftStart }))
+}
 
 /**
  * Sequence each station's draft through the crew actually on it: each item gets
- * its own slot; passive time doesn't hold a cook. Deadline-first order.
+ * its own slot; passive time doesn't hold a cook. Deadline-first order. A job
+ * already in flight is charged only its REMAINING hands-on minutes, from the
+ * time its next hands-on stage is due — not from shift start.
  */
 export function planSchedule<T extends SchedulableItem>(
   draft: T[],
@@ -369,11 +474,14 @@ export function planSchedule<T extends SchedulableItem>(
       .sort((a, b) =>
         a.dl - b.dl ||
         PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(a.t)) - PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(b.t)) ||
+        // within a deadline, what can start now goes before a job still resting
+        // (every ordinary row ties here at shift start, so their order is unchanged)
+        earliestStart(a.t, ctx) - earliestStart(b.t, ctx) ||
         ord(a.t) - ord(b.t))
       .forEach(({ t, dl }) => {
         let i = 0
         cursors.forEach((c, j) => { if (c < cursors[i]) i = j })
-        const start = cursors[i]
+        const start = Math.max(cursors[i], earliestStart(t, ctx))
         cursors[i] = start + activeMin(t)
         const end = start + activeMin(t) + passiveMin(t)
         map.set(t.id, { start, end, deadline: dl, fits: end <= dl, over: Math.max(0, end - dl) })

@@ -1,6 +1,6 @@
 import type { PrepPriority } from '@/lib/prep-utils'
 import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
-import type { RestInfo } from '@/lib/prep-plan'
+import type { RestInfo, PipelineInfo } from '@/lib/prep-plan'
 
 export type { PrepPriority }
 
@@ -104,6 +104,8 @@ export interface PrepItemRich {
   /** A staged job resting in an unattended stage — attached by `withLadderTimes`
    *  on the run sheet (null = hands-on or unstaged); absent on API payloads. */
   rest?: RestInfo | null
+  /** A job in flight (any live IN_PROGRESS log) — planner evidence, never a stock credit. */
+  pipeline?: PipelineInfo | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
   /** RAW item-level overrides — what the edit form binds to. Distinct from the
    *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back
