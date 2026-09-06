@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computePriority, computeSuggestedQty, numOrNull, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { numOrNull, urgencyToPriority, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
 import { convertQty, UnitError } from '@/lib/uom'
 import { resolvePrepUnit } from '@/lib/prep-sync'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
-import { prepDayRange } from '@/lib/prep-day'
+import { prepDayRange, prepDaysAgo } from '@/lib/prep-day'
 import { NEWEST_LOG } from '@/lib/prep-plan-server'
-import { isLiveLog, pipelineOf } from '@/lib/prep-plan'
+import { isLiveLog, pipelineOf, effectiveUrgency, cappedSuggestedQty } from '@/lib/prep-plan'
 import { resolveStages } from '@/lib/prep-stages'
+import { cadenceStats, CADENCE_WINDOW_DAYS } from '@/lib/prep-cadence'
 
 // GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
 // read is ever refactored away, a prerendered route would serve GET only and
@@ -123,6 +124,25 @@ export async function GET(req: NextRequest) {
     if (g._max.logDate) lastMadeByItem.set(g.prepItemId, g._max.logDate.toISOString())
   }
 
+  // Cadence (prep-cadence.ts): the completed logs of the last 60 days, one
+  // narrow scan for every item — interval between makes, typical batch, and a
+  // usage proxy. `lastMadeAt` above stays as the all-time value.
+  const now = new Date()
+  const recentDone = await prisma.prepLog.findMany({
+    where: {
+      prepItemId: { in: prepItemIds },
+      status: { in: ['DONE', 'PARTIAL'] },
+      logDate: { gte: prepDaysAgo(CADENCE_WINDOW_DAYS, now) },
+      actualPrepQty: { gt: 0 },
+    },
+    select: { prepItemId: true, logDate: true, actualPrepQty: true },
+  })
+  const recentByItem = new Map<string, Array<{ logDate: Date; actualPrepQty: number }>>()
+  for (const r of recentDone) {
+    if (!recentByItem.has(r.prepItemId)) recentByItem.set(r.prepItemId, [])
+    recentByItem.get(r.prepItemId)!.push({ logDate: r.logDate, actualPrepQty: Number(r.actualPrepQty) })
+  }
+
   // Build theoretical stock maps grouped by revenueCenterId (batched, not per-item).
   // Prep items span multiple RCs (including null = global/shared), so we group by RC,
   // fetch one map per distinct RC, then look each item up in its RC's map.
@@ -174,8 +194,17 @@ export async function GET(req: NextRequest) {
     const minThreshold = parseFloat(String(item.minThreshold))
     const targetToday  = item.targetToday ? parseFloat(String(item.targetToday)) : null
 
-    const priority     = computePriority(onHand, parLevel, minThreshold, targetToday, item.manualPriorityOverride)
-    const suggestedQty = computeSuggestedQty(onHand, parLevel, targetToday)
+    // Step + suggestion through the same helpers the planner uses client-side,
+    // so the cadence nudge (TMRW → CLOSE when due by rhythm) and the shelf-life
+    // cap agree on both ends. Without cadence these are the old computePriority /
+    // computeSuggestedQty exactly.
+    const cadence = cadenceStats(recentByItem.get(item.id) ?? [], now)
+    const planFields = {
+      onHand, parLevel, minThreshold, targetToday, unit: item.unit,
+      manualPriorityOverride: item.manualPriorityOverride, shelfLifeDays: item.shelfLifeDays, cadence,
+    }
+    const priority     = urgencyToPriority(effectiveUrgency(planFields, now.getTime()))
+    const suggestedQty = cappedSuggestedQty(planFields)
 
     // Run-sheet fields: effective active/passive time (override > linked recipe),
     // target service, computed start-by, and the cook assigned to today's log.
@@ -292,6 +321,7 @@ export async function GET(req: NextRequest) {
       ingredientShortCount,
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
       pipeline,
+      cadence,
       revenueCenterId: item.revenueCenterId ?? null,
       // RAW overrides, alongside the resolved activeMinutes/passiveMinutes above.
       // The edit form needs both: the resolved value is what the run sheet uses,

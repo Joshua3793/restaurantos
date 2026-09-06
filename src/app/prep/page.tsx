@@ -28,7 +28,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
@@ -591,6 +591,9 @@ export default function PrepPage() {
     [activeRc],
   )
 
+  // The planner's day anchors — what "Start today for …" and the long-lead seed
+  // count back from (same derivation the planners use).
+  const dayCtx = useMemo(() => planDayContext(rcServices, nowMin, nowMs), [rcServices, nowMin, nowMs])
   const svcStatus = useMemo(
     () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
     [activeRc, rcServices, nowMin],
@@ -1282,13 +1285,18 @@ export default function PrepPage() {
   function handleAddToDraft(item: PrepItemRich) {
     handleToggleOnList(item.id, true)
     const hasQty = item.todayLog?.requiredQty != null && Number(item.todayLog.requiredQty) > 0
-    const sugg = defaultDraftQty(item)
+    // A long-lead item (must start today for a later deadline) is seeded with
+    // the most that will keep, not the par gap — the effort is per batch.
+    const sugg = mustStartToday(item, dayCtx, nowMin) ? longLeadQty(item) : defaultDraftQty(item)
     if (!hasQty && sugg > 0) handleDraftEdit(item, { requiredQty: sugg })
   }
 
   function handleAddAllCritical() {
-    // A job in the pipeline is being made — it is not a critical stock-out to add.
-    items.filter(i => effectivePriority(i) === '911' && !i.isOnList && !i.pipeline).forEach(handleAddToDraft)
+    // A job in the pipeline is being made — it is not a critical stock-out to
+    // add. A long-lead item that must start today for a later deadline is.
+    items
+      .filter(i => !i.isOnList && !i.pipeline && (effectivePriority(i) === '911' || mustStartToday(i, dayCtx, nowMin)))
+      .forEach(handleAddToDraft)
   }
 
   function handleAcceptSuggested() {

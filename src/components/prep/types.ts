@@ -1,6 +1,7 @@
 import type { PrepPriority } from '@/lib/prep-utils'
 import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
 import type { RestInfo, PipelineInfo } from '@/lib/prep-plan'
+import type { CadenceStats } from '@/lib/prep-cadence'
 
 export type { PrepPriority }
 
@@ -106,6 +107,8 @@ export interface PrepItemRich {
   rest?: RestInfo | null
   /** A job in flight (any live IN_PROGRESS log) — planner evidence, never a stock credit. */
   pipeline?: PipelineInfo | null
+  /** The make history over the last 60 days (see prep-cadence.ts). */
+  cadence?: CadenceStats | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
   /** RAW item-level overrides — what the edit form binds to. Distinct from the
    *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back

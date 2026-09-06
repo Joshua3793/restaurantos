@@ -15,6 +15,7 @@ import {
   resolveStages, currentStage, nextActiveStage, stageReadyAt, restState, appendStageEvent, remainingChain,
   type RecipeStage, type StageAt, type RestState, type StageEvent,
 } from './prep-stages'
+import { cadenceNudge, shelfLifeCap, keepableQty, type CadenceStats } from './prep-cadence'
 
 export type { PrepUrgency }
 export { urgencyToPriority }
@@ -30,6 +31,8 @@ export interface PlanFields {
   shelfLifeDays?: number | null
   /** A job already in flight (see `pipelineOf`) — evidence, not a stock credit. */
   pipeline?: PipelineInfo | null
+  /** The make history (see prep-cadence.ts) — may raise TMRW → CLOSE and cap a suggestion. */
+  cadence?: CadenceStats | null
 }
 
 // ─── the pipeline: a job in flight is not a stock-out ──────────────────────
@@ -133,17 +136,42 @@ export const PLAN_URG_META: Record<PrepUrgency, {
   TMRW:  { label: 'Tomorrow',               short: 'TMRW',  stock: 'at par — building ahead',             when: 'for tomorrow’s service',  hex: '#16a34a', dotClass: 'bg-green', softClass: 'bg-green-soft', textClass: 'text-green-text', barClass: 'bg-green' },
 }
 
-export const effectiveUrgency = (t: PlanFields): PrepUrgency =>
-  normalizeUrgency(t.manualPriorityOverride) ?? autoUrgency(t.onHand, t.parLevel, t.targetToday)
+// Cadence sits AFTER autoUrgency and only ever raises TMRW → CLOSE (see
+// cadenceNudge); a manual override is never nudged. `now` defaults to the wall
+// clock so every call site keeps its one-argument shape — pass a fixed instant
+// in tests. Without `cadence` on the item every one of these is byte-identical
+// to the pre-cadence rule.
+const nudged = (t: PlanFields, now: number) =>
+  cadenceNudge(autoUrgency(t.onHand, t.parLevel, t.targetToday), t.cadence, new Date(now))
 
-export const autoUrgencyOf = (t: PlanFields): PrepUrgency =>
-  autoUrgency(t.onHand, t.parLevel, t.targetToday)
+export const autoUrgencyOf = (t: PlanFields, now: number = Date.now()): PrepUrgency =>
+  nudged(t, now).urgency
 
-export const autoPriority = (t: PlanFields): PrepPriority =>
-  computePriority(t.onHand, t.parLevel, t.minThreshold, t.targetToday, null)
+export const effectiveUrgency = (t: PlanFields, now: number = Date.now()): PrepUrgency =>
+  normalizeUrgency(t.manualPriorityOverride) ?? autoUrgencyOf(t, now)
 
-export const effectivePriority = (t: PlanFields): PrepPriority =>
-  computePriority(t.onHand, t.parLevel, t.minThreshold, t.targetToday, t.manualPriorityOverride)
+/** The cadence sentence when it raised the step (null when it did not, or an override stands). */
+export const cadenceReason = (t: PlanFields, now: number = Date.now()): string | null =>
+  normalizeUrgency(t.manualPriorityOverride) ? null : nudged(t, now).reason
+
+export const autoPriority = (t: PlanFields, now: number = Date.now()): PrepPriority =>
+  urgencyToPriority(autoUrgencyOf(t, now))
+
+export const effectivePriority = (t: PlanFields, now: number = Date.now()): PrepPriority =>
+  urgencyToPriority(effectiveUrgency(t, now))
+
+/**
+ * The par-gap suggestion, capped at what will keep (usage × shelf life) when
+ * the cadence gives a usage estimate — never below one step. Identical to
+ * `computeSuggestedQty` without cadence.
+ */
+export function cappedSuggestedQty(t: PlanFields): number {
+  const raw = computeSuggestedQty(t.onHand, t.parLevel, t.targetToday)
+  return shelfLifeCap(raw, t.shelfLifeDays, t.cadence?.usagePerDayEst, prepStep(t.unit))
+}
+
+export const isShelfCapped = (t: PlanFields): boolean =>
+  cappedSuggestedQty(t) < computeSuggestedQty(t.onHand, t.parLevel, t.targetToday) - 1e-9
 
 /** Sensible stepper increment per unit. */
 export function prepStep(unit: string): number {
@@ -161,7 +189,7 @@ export function roundPrepQty(v: number, unit: string): number {
 
 /** Rounded make-suggestion in the item's UOM: 0 at/above par, otherwise ≥ one step. */
 export function suggestedDraftQty(t: PlanFields): number {
-  const raw = computeSuggestedQty(t.onHand, t.parLevel, t.targetToday)
+  const raw = cappedSuggestedQty(t)
   if (raw <= 0) return 0
   return Math.max(prepStep(t.unit), roundPrepQty(raw, t.unit))
 }
@@ -169,7 +197,7 @@ export function suggestedDraftQty(t: PlanFields): number {
 const fmtQ = (q: number, u: string) => `${q % 1 === 0 ? q : +q.toFixed(2)} ${u}`
 
 /** Read-only evidence: why the system put the item at its step. */
-export function whyLabel(t: PlanFields): string {
+export function whyLabel(t: PlanFields, now: number = Date.now()): string {
   const oh = t.onHand ?? 0, par = t.parLevel ?? 0
   if (t.pipeline) {
     const when = t.pipeline.readyAt ? ` · ready ${fmtPipelineReady(t.pipeline.readyAt)}` : ''
@@ -177,11 +205,18 @@ export function whyLabel(t: PlanFields): string {
   }
   const override = normalizeUrgency(t.manualPriorityOverride)
   if (override) return `chef moved it to ${PLAN_URG_META[override].label.toLowerCase()}`
-  if (par > 0 && oh <= 0) return 'stock out'
-  if (t.targetToday != null && oh < t.targetToday) return `under today's target ${fmtQ(t.targetToday, t.unit)}`
-  if (par > 0 && oh < par * 0.5) return `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
-  if (oh < par) return `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
-  return t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
+  const stock =
+    par > 0 && oh <= 0 ? 'stock out'
+    : t.targetToday != null && oh < t.targetToday ? `under today's target ${fmtQ(t.targetToday, t.unit)}`
+    : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
+    : oh < par ? `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
+    : t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
+  // Cadence evidence appends: the rhythm that raised the step, and a shelf-life cap.
+  const extras: string[] = []
+  const rhythm = cadenceReason(t, now)
+  if (rhythm) extras.push(rhythm)
+  if (isShelfCapped(t)) extras.push(`capped to ${t.shelfLifeDays}d shelf life`)
+  return extras.length ? `${stock} · ${extras.join(' · ')}` : stock
 }
 
 const COMPLETE = new Set(['DONE', 'PARTIAL'])
@@ -205,12 +240,23 @@ export function applyStatusToItem<T extends PlanFields & {
   if (completing) onHand += (actualQty ?? prevQty) - prevQty
   else onHand -= prevQty
   const manualPriorityOverride = completing ? null : item.manualPriorityOverride
+  // Just made: the cadence's "last made" is now, so it is not due again until
+  // one rhythm from now — otherwise a stale `dueByCadenceAt` would raise the
+  // item straight back to Before close.
+  const cadence = completing && item.cadence
+    ? {
+        ...item.cadence,
+        lastMadeAt: new Date().toISOString(),
+        dueByCadenceAt: item.cadence.medianIntervalDays
+          ? new Date(Date.now() + item.cadence.medianIntervalDays * 86_400_000).toISOString()
+          : null,
+      }
+    : item.cadence
+  const next = { ...item, onHand, manualPriorityOverride, ...(cadence !== undefined ? { cadence } : {}) }
   return {
-    ...item,
-    onHand,
-    manualPriorityOverride,
-    priority: computePriority(onHand, item.parLevel, item.minThreshold, item.targetToday, manualPriorityOverride),
-    suggestedQty: computeSuggestedQty(onHand, item.parLevel, item.targetToday),
+    ...next,
+    priority: effectivePriority(next),
+    suggestedQty: cappedSuggestedQty(next),
   }
 }
 
@@ -320,9 +366,23 @@ export function batchesToQty(t: BatchFields, n: number): number {
 export function suggestedBatches(t: BatchFields): number | null {
   const b = batchYield(t)
   if (!b) return null
-  const raw = computeSuggestedQty(t.onHand, t.parLevel, t.targetToday)
+  const raw = cappedSuggestedQty(t)
   if (raw <= 0) return 0
   return Math.max(0.5, Math.ceil((raw / b) * 2) / 2)
+}
+
+/**
+ * The qty for a LONG-LEAD job (one that must start today for a later
+ * deadline): the most that will keep — usage × shelf life — since the effort
+ * is per batch. Falls back to the ordinary suggestion when either is unknown.
+ * Batch items round up to the half batch, like every other seed.
+ */
+export function longLeadQty(t: BatchFields): number {
+  const keep = keepableQty(t.shelfLifeDays, t.cadence?.usagePerDayEst)
+  if (keep == null) return defaultDraftQty(t)
+  const b = batchYield(t)
+  if (b) return batchesToQty(t, Math.max(0.5, Math.ceil((keep / b) * 2) / 2))
+  return Math.max(prepStep(t.unit), roundPrepQty(keep, t.unit))
 }
 
 export const fmtBatch = (n: number) => `×${n % 1 === 0 ? n : n.toFixed(1)}`
@@ -432,17 +492,21 @@ export interface PlanSlot {
   over: number
 }
 
-interface SchedulableItem extends PlanFields {
-  id: string
-  station: string | null
+/** What the ladder needs to time a row — the planner's row shape, minus identity. */
+export interface TimedFields extends PlanFields {
   activeMinutes?: number | null
   passiveMinutes?: number | null
   estimatedPrepTime?: number | null
   service?: { timeMinutes: number } | null
 }
 
-const activeMin = (t: SchedulableItem) => t.pipeline ? t.pipeline.remainingActiveMinutes : (t.activeMinutes ?? t.estimatedPrepTime ?? 0)
-const passiveMin = (t: SchedulableItem) => t.pipeline ? t.pipeline.remainingPassiveMinutes : (t.passiveMinutes ?? 0)
+interface SchedulableItem extends TimedFields {
+  id: string
+  station: string | null
+}
+
+const activeMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingActiveMinutes : (t.activeMinutes ?? t.estimatedPrepTime ?? 0)
+const passiveMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingPassiveMinutes : (t.passiveMinutes ?? 0)
 
 /** The earliest minute a job in flight can take a cook again (shift start otherwise). */
 function earliestStart(t: SchedulableItem, ctx: PlanDayContext): number {
@@ -535,10 +599,34 @@ export interface PlanGroup<T> {
   rows: T[]
 }
 
+// ─── lead-time promotion (Layer C(1)) ──────────────────────────────────────
+// An item whose FULL lead (Σ stages, or active + passive) exceeds the runway
+// to its step deadline must start today, whatever its stock: a 3-day cure for
+// Thursday is a today job. The item's own step deadline is the anchor — for a
+// TMRW item that is tomorrow's doors — so one test covers both spec cases.
+// A job already in flight is not promoted, and a step whose deadline has
+// already passed is simply late (the ladder says so), not "start today for".
+
+export function mustStartToday(t: TimedFields, ctx: PlanDayContext | null, nowMin: number): boolean {
+  if (!ctx || t.pipeline) return false
+  const lead = activeMin(t) + passiveMin(t)
+  if (lead <= 0) return false
+  const { deadline, startBy } = ladderTimes(t, ctx)
+  return deadline != null && startBy != null && deadline > nowMin && startBy < nowMin
+}
+
+export const START_TODAY_KEY = 'START'
+
 export function planGroups<T extends PlanFields & { station: string | null; category: string }>(
   rows: T[],
   by: 'urgency' | 'station' | 'category',
-  opts: { stations?: string[]; crew?: Array<{ homeStation: string | null }>; ord?: (t: T) => number } = {},
+  opts: {
+    stations?: string[]
+    crew?: Array<{ homeStation: string | null }>
+    ord?: (t: T) => number
+    /** urgency grouping only: lift the long-lead items into a "Start today for …" group above the steps */
+    startToday?: { ctx: PlanDayContext | null; nowMin: number }
+  } = {},
 ): Array<PlanGroup<T>> {
   const ord = opts.ord ?? (() => 0)
   const byUrg = (a: T, b: T) =>
@@ -561,15 +649,39 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
       .map(c => ({ key: c, label: c, rows: rows.filter(t => t.category === c).sort(byUrg) }))
       .filter(g => g.rows.length)
   }
-  return PLAN_URG_ORDER_LOCAL
-    .map(u => ({
-      key: u,
-      label: PLAN_URG_META[u].label,
-      sub: PLAN_URG_META[u].stock,
-      urg: u,
-      rows: rows.filter(t => effectiveUrgency(t) === u).sort((a, b) => ord(a) - ord(b)),
-    }))
-    .filter(g => g.rows.length)
+  const groups: Array<PlanGroup<T>> = []
+  let pool = rows
+  if (opts.startToday) {
+    const { ctx, nowMin } = opts.startToday
+    const must = rows
+      .filter(t => mustStartToday(t as unknown as TimedFields, ctx, nowMin))
+      .map(t => ({ t, dl: ladderTimes(t as unknown as TimedFields, ctx).deadline ?? Infinity }))
+      .sort((a, b) => a.dl - b.dl || ord(a.t) - ord(b.t))
+    if (must.length) {
+      const first = must[0].dl
+      const same = must.every(m => m.dl === first)
+      groups.push({
+        key: START_TODAY_KEY,
+        label: 'Start today for …',
+        sub: Number.isFinite(first) ? `lead time runs past the runway · by ${fmtDeadline(first, fmtClock)}${same ? '' : ' and later'}` : undefined,
+        rows: must.map(m => m.t),
+      })
+      const lifted = new Set(must.map(m => m.t))
+      pool = rows.filter(t => !lifted.has(t))
+    }
+  }
+  return [
+    ...groups,
+    ...PLAN_URG_ORDER_LOCAL
+      .map(u => ({
+        key: u,
+        label: PLAN_URG_META[u].label,
+        sub: PLAN_URG_META[u].stock,
+        urg: u,
+        rows: pool.filter(t => effectiveUrgency(t) === u).sort((a, b) => ord(a) - ord(b)),
+      }))
+      .filter(g => g.rows.length),
+  ]
 }
 
 // ─── the unified ladder (the To Do reads the plan the chef posted) ─────────
@@ -580,7 +692,7 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
 
 export interface LadderTimes { deadline: number | null; startBy: number | null }
 
-export function ladderTimes<T extends SchedulableItem>(t: T, ctx: PlanDayContext | null): LadderTimes {
+export function ladderTimes(t: TimedFields, ctx: PlanDayContext | null): LadderTimes {
   if (!ctx) return { deadline: null, startBy: null }
   const deadline = urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null)
   return { deadline, startBy: deadline - activeMin(t) - passiveMin(t) }

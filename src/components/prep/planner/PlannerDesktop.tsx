@@ -10,6 +10,7 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { RcService } from '@/lib/service-hours'
 import {
   effectiveUrgency, planDayContext, planSchedule, stationLoad, planGroups, batchYield,
+  mustStartToday, START_TODAY_KEY,
   draftListOrder as draftOrd,
   type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
@@ -118,8 +119,9 @@ export function PlannerDesktop({
   const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits).length
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
   const openCount = draft.filter(t => !t.todayLog?.assignedTo).length
-  // A job in the pipeline is being made — not a critical stock-out to add.
-  const urgent = allItems.filter(t => effectiveUrgency(t) === 'PASS' && !t.isOnList && !t.pipeline).length
+  // A job in the pipeline is being made — not a critical stock-out to add. A
+  // long-lead item that must start today counts (and "Add all critical" adds it).
+  const urgent = allItems.filter(t => !t.isOnList && !t.pipeline && (effectiveUrgency(t) === 'PASS' || mustStartToday(t, ctx, nowMin))).length
   const clean = post != null && !post.dirty
 
   const flagWarn = (k: string) => { setWarn(k); setTimeout(() => setWarn(null), 1800) }
@@ -194,12 +196,12 @@ export function PlannerDesktop({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-3 pb-3.5 pt-0.5 min-h-0">
-            {planGroups(pool, suggBy, groupOpts).map(g => (
+            {planGroups(pool, suggBy, { ...groupOpts, startToday: { ctx, nowMin } }).map(g => (
               <div key={g.key}>
                 <GroupHead g={g} count={g.rows.length} />
                 <div className="flex flex-col gap-1.5">
                   {g.rows.map(t => (
-                    <SuggestionRow key={t.id} item={t} locked={locked}
+                    <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY}
                       onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
                   ))}
                 </div>
