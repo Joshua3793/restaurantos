@@ -26,6 +26,7 @@ export default function TempChartsPage() {
   const [view, setView] = useState<'today' | 'history'>('today')
   const [addOpen, setAddOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
 
   const [history, setHistory] = useState<HistoryReading[]>([])
   const [histLoading, setHistLoading] = useState(false)
@@ -40,7 +41,9 @@ export default function TempChartsPage() {
     try {
       const p = new URLSearchParams({ date: TODAY })
       setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
-      const res = await fetch(`/api/temps/units?${p.toString()}`)
+      // no-store: the route sends max-age=5, which let a reload right after
+      // logging or Read serve the pre-write response (0/13 after 378 inserts).
+      const res = await fetch(`/api/temps/units?${p.toString()}`, { cache: 'no-store' })
       const data = await res.json()
       setUnits(Array.isArray(data) ? data : [])
     } catch {
@@ -176,6 +179,41 @@ export default function TempChartsPage() {
     }
   }
 
+  // "Read" — auto-fill random readings for every visible unit, from its last
+  // logged day through today (idempotent; days already holding 2 readings are
+  // left alone). Backed by src/lib/temps/backfill.ts, the same code as the CLI.
+  const onBackfill = async () => {
+    if (backfilling) return
+    setBackfilling(true)
+    try {
+      const body: Record<string, string> = {}
+      const p = new URLSearchParams()
+      setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
+      p.forEach((v, k) => { body[k] = v })
+      if (recordedBy) body.recordedBy = recordedBy
+      const res = await fetch('/api/temps/readings/backfill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        showToast(data?.error ? `Read failed — ${data.error}` : 'Read failed — try again')
+        return
+      }
+      await load()
+      if (view === 'history') await loadHistory()
+      const n = Number(data?.inserted ?? 0)
+      showToast(n === 0
+        ? 'Every unit is already read through today'
+        : `Read ${n} reading${n === 1 ? '' : 's'} · ${data.from} → ${data.to}`)
+    } catch {
+      showToast('Read failed — try again')
+    } finally {
+      setBackfilling(false)
+    }
+  }
+
   return (
     <div className="space-y-3 md:space-y-5">
       <TempDesktop
@@ -201,6 +239,8 @@ export default function TempChartsPage() {
         histView={histView}
         setHistView={setHistView}
         onExport={onExport}
+        onBackfill={onBackfill}
+        backfilling={backfilling}
         histDays={histDays}
       />
 
@@ -214,6 +254,8 @@ export default function TempChartsPage() {
         histLoading={histLoading}
         ensureHistory={ensureHistory}
         onExport={onExport}
+        onBackfill={onBackfill}
+        backfilling={backfilling}
         histView={histView}
         setHistView={setHistView}
         histRange={histRange}

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import {
-  Plus, Minus, X, Trash2, Clock, Download, ArrowRight, AlertTriangle, Check, ChevronDown, ChevronRight,
+  Plus, Minus, X, Trash2, Clock, Download, ArrowRight, AlertTriangle, Check, ChevronDown, ChevronRight, Wand2,
 } from 'lucide-react'
 import { Sheet } from './Sheet'
 import {
@@ -26,6 +26,8 @@ export interface TempMobileProps {
   histLoading: boolean
   ensureHistory: (o?: { range?: string; from?: string; to?: string }) => void
   onExport: () => void
+  onBackfill: () => void
+  backfilling: boolean
   histView: 'day' | 'equipment'
   setHistView: (v: 'day' | 'equipment') => void
   histRange: string
@@ -52,12 +54,21 @@ export function TempMobile(p: TempMobileProps) {
             {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · Log
           </p>
         </div>
-        <button
-          onClick={() => { p.ensureHistory(); setSheet({ kind: 'history' }) }}
-          className="h-[38px] px-3 rounded-full bg-paper border border-line inline-flex items-center gap-1.5 text-ink-2 text-[12.5px] font-medium"
-        >
-          <Clock size={15} className="text-ink-3" /> History
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={p.onBackfill}
+            disabled={p.backfilling}
+            className="h-[38px] px-3 rounded-full bg-paper border border-line inline-flex items-center gap-1.5 text-ink-2 text-[12.5px] font-medium disabled:opacity-50"
+          >
+            <Wand2 size={15} className="text-gold-2" /> {p.backfilling ? 'Reading…' : 'Read'}
+          </button>
+          <button
+            onClick={() => { p.ensureHistory(); setSheet({ kind: 'history' }) }}
+            className="h-[38px] px-3 rounded-full bg-paper border border-line inline-flex items-center gap-1.5 text-ink-2 text-[12.5px] font-medium"
+          >
+            <Clock size={15} className="text-ink-3" /> History
+          </button>
+        </div>
       </div>
 
       {/* rollup spine */}

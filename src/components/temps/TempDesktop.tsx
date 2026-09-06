@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import {
-  Plus, X, Trash2, Clock, Download, Thermometer, Snowflake, Flame,
+  Plus, X, Trash2, Clock, Download, Thermometer, Snowflake, Flame, Wand2,
 } from 'lucide-react'
 import {
   TEMP_TYPES, TEMP_GROUPS, groupOf, isSafe, rangeText, unitStatus, fmtTemp, nowHM, prettyDate,
@@ -46,6 +46,9 @@ export interface TempDesktopProps {
   histView: 'day' | 'equipment'
   setHistView: (v: 'day' | 'equipment') => void
   onExport: () => void
+  /** "Read" — auto-fill random readings for every unit from its last logged day through today. */
+  onBackfill: () => void
+  backfilling: boolean
   histDays: number
 }
 
@@ -92,6 +95,14 @@ export function TempDesktop(p: TempDesktopProps) {
         </div>
         <div className="flex gap-2 items-center shrink-0">
           {/* Export lives in the History view only — the log page doesn't export. */}
+          <button
+            onClick={p.onBackfill}
+            disabled={p.backfilling}
+            title="Fill random readings for every unit, from its last logged day through today"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium border border-line bg-paper text-ink-2 hover:border-ink-3 disabled:opacity-50 disabled:cursor-wait"
+          >
+            <Wand2 size={13} className="text-gold-2" /> {p.backfilling ? 'Reading…' : 'Read'}
+          </button>
           <button
             onClick={() => p.setAddOpen(!p.addOpen)}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium bg-ink text-paper border border-ink hover:bg-[#18181b]"
