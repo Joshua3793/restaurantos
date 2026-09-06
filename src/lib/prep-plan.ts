@@ -11,6 +11,10 @@ import {
 } from './prep-utils'
 import { convertQty, sameDimension } from './uom'
 import { fmtClock } from './prep-runsheet'
+import {
+  resolveStages, currentStage, nextActiveStage, stageReadyAt, restState, appendStageEvent,
+  type RecipeStage, type StageAt, type RestState, type StageEvent,
+} from './prep-stages'
 
 export type { PrepUrgency }
 export { urgencyToPriority }
@@ -116,6 +120,67 @@ export function applyStatusToItem<T extends PlanFields & {
     priority: computePriority(onHand, item.parLevel, item.minThreshold, item.targetToday, manualPriorityOverride),
     suggestedQty: computeSuggestedQty(onHand, item.parLevel, item.targetToday),
   }
+}
+
+// ─── staged prep — the live log's stage, optimistically ────────────────────
+// Stage progress rides the item's ONE live log. These mirror the server rules
+// in PUT /api/prep/logs/[id] so the row moves before the request lands.
+
+export interface StageLogShape {
+  status?: string
+  startedAt?: string | null
+  stageIndex?: number | null
+  stageEnteredAt?: string | null
+  stageHistory?: StageEvent[] | null
+}
+
+/** Just the stage columns — never `status`, so a spread cannot widen a typed log. */
+export type StageFields = Partial<Pick<StageLogShape, 'stageIndex' | 'stageEnteredAt' | 'stageHistory'>>
+
+/** The log fields a status change writes on a STAGED item (empty for an unstaged one). */
+export function stageFieldsForStatus(
+  item: { linkedRecipe?: { stages?: RecipeStage[] | null } | null; todayLog?: StageLogShape | null },
+  newStatus: string,
+  nowIso: string,
+): StageFields {
+  const stages = resolveStages(item.linkedRecipe)
+  if (!stages) return {}
+  const log = item.todayLog
+  if (newStatus === 'NOT_STARTED') return { stageIndex: null, stageEnteredAt: null }
+  if (newStatus === 'IN_PROGRESS' && log?.status !== 'IN_PROGRESS') {
+    const index = log?.stageIndex ?? 0
+    const stage = stages[index] ?? stages[0]
+    return {
+      stageIndex: stages[index] ? index : 0,
+      stageEnteredAt: nowIso,
+      stageHistory: appendStageEvent(log?.stageHistory, { index: stages[index] ? index : 0, key: stage.key, enteredAt: nowIso }),
+    }
+  }
+  return {}
+}
+
+/**
+ * Move the live log to `stageIndex` (Next / Back): status becomes IN_PROGRESS,
+ * the stage clock restarts, and the move is appended to the history. Stock is
+ * untouched — only DONE credits it.
+ */
+export function applyStageToItem<T extends { linkedRecipe?: { stages?: RecipeStage[] | null } | null; todayLog?: (StageLogShape & { id: string }) | null }>(
+  item: T,
+  stageIndex: number,
+  nowIso: string,
+): T {
+  const stages = resolveStages(item.linkedRecipe)
+  if (!stages || !stages[stageIndex] || !item.todayLog) return item
+  const log = item.todayLog
+  const todayLog = {
+    ...log,
+    status: 'IN_PROGRESS',
+    startedAt: log.startedAt ?? nowIso,
+    stageIndex,
+    stageEnteredAt: nowIso,
+    stageHistory: appendStageEvent(log.stageHistory, { index: stageIndex, key: stages[stageIndex].key, enteredAt: nowIso }),
+  } as NonNullable<T['todayLog']>
+  return { ...item, todayLog }
 }
 
 /** Chef's within-bucket order for a draft row (unordered rows sink). */
@@ -417,19 +482,92 @@ export interface LadderItem extends SchedulableItem {
   name: string
   startByMinutes: number | null
   deadlineMinutes?: number | null
-  todayLog?: { listOrder?: number | null } | null
+  todayLog?: { listOrder?: number | null; status?: string; stageIndex?: number | null; stageEnteredAt?: string | null } | null
+  linkedRecipe?: { stages?: RecipeStage[] | null } | null
+  /** Attached by `withLadderTimes` when the job is resting in a PASSIVE stage. */
+  rest?: RestInfo | null
+}
+
+// ─── rest rows ─────────────────────────────────────────────────────────────
+// A staged job whose CURRENT stage is unattended leaves Working On and sits in
+// the ladder at the time its next hands-on stage is due. The clock is EPOCH
+// MS (a proof entered last evening is ready this morning); `readyAtMin` is
+// that instant on the run sheet's minute-of-day axis, so it sorts against
+// ordinary start-by values and formats through fmtStartBy with a day offset.
+
+export interface RestInfo {
+  index: number
+  stage: RecipeStage
+  total: number
+  /** the stage the cook advances to (null only for a malformed chain) */
+  next: StageAt | null
+  readyAtMs: number
+  readyAtMin: number
+  state: RestState
+}
+
+/** The run sheet's "now" — both bases, so epoch instants can sit on the minute axis. */
+export interface LadderNow { nowMs: number; nowMin: number }
+
+export const msToLadderMin = (ms: number, now: LadderNow): number =>
+  Math.round(now.nowMin + (ms - now.nowMs) / 60_000)
+
+export function restInfo(t: LadderItem, now: LadderNow): RestInfo | null {
+  const log = t.todayLog
+  if (!log || log.status !== 'IN_PROGRESS') return null
+  const stages = resolveStages(t.linkedRecipe)
+  if (!stages) return null
+  const cur = currentStage(stages, log)
+  if (!cur || cur.stage.kind !== 'PASSIVE') return null
+  const readyAtMs = stageReadyAt(log, cur.stage)
+  if (readyAtMs == null) return null
+  return {
+    index: cur.index,
+    stage: cur.stage,
+    total: stages.length,
+    next: nextActiveStage(stages, cur.index),
+    readyAtMs,
+    readyAtMin: msToLadderMin(readyAtMs, now),
+    state: restState(readyAtMs, now.nowMs),
+  }
 }
 
 /**
  * Overwrite `startByMinutes` with the step-aware value (and attach the deadline)
  * so every row, strip and count on the run sheet reads ONE number. Without a
  * day context (on-demand RC) the API's own value is kept.
+ *
+ * With `now`, a resting job gets `rest` attached and its `startByMinutes`
+ * becomes the rest's ready time, so `ladderOrder` places it without a second
+ * rule. Callers that pass no `now` get the pre-stages behaviour exactly.
  */
-export function withLadderTimes<T extends LadderItem>(items: T[], ctx: PlanDayContext | null): Array<T & { deadlineMinutes: number | null }> {
+export function withLadderTimes<T extends LadderItem>(
+  items: T[],
+  ctx: PlanDayContext | null,
+  now?: LadderNow,
+): Array<T & { deadlineMinutes: number | null; rest?: RestInfo | null }> {
   return items.map(t => {
     const { deadline, startBy } = ladderTimes(t, ctx)
-    return { ...t, startByMinutes: ctx ? startBy : t.startByMinutes, deadlineMinutes: deadline }
+    const base = { ...t, startByMinutes: ctx ? startBy : t.startByMinutes, deadlineMinutes: deadline }
+    if (!now) return base
+    const rest = restInfo(t, now)
+    return rest ? { ...base, startByMinutes: rest.readyAtMin, rest } : { ...base, rest: null }
   })
+}
+
+/**
+ * Late to start — the ONE test the ladder's section, the status band and the
+ * crew strip share. A rest row is late only once it is `overdue` (past
+ * readyAt + REST_GRACE_MINUTES); merely ready is not late.
+ */
+export function lateToStart(t: LadderItem, nowMin: number): boolean {
+  if (t.rest) return t.rest.state === 'overdue'
+  return t.startByMinutes != null && t.startByMinutes < nowMin
+}
+
+/** `lateToStart` gated on a day context — without one there is no "Late to start" section. */
+export function isLateToStart(t: LadderItem, nowMin: number, ctx: PlanDayContext | null): boolean {
+  return ctx != null && lateToStart(t, nowMin)
 }
 
 const orInf = (v: number | null | undefined) => (v == null ? Infinity : v)
@@ -455,7 +593,7 @@ export function runSheetGroups<T extends LadderItem>(
   ctx: PlanDayContext | null,
   nowMin: number,
 ): Array<LadderGroup<T>> {
-  const isLate = (t: T) => ctx != null && t.startByMinutes != null && t.startByMinutes < nowMin
+  const isLate = (t: T) => isLateToStart(t, nowMin, ctx)
   const late = rows.filter(isLate).sort(ladderOrder)
   const rest = rows.filter(t => !isLate(t))
   const groups: Array<LadderGroup<T>> = []

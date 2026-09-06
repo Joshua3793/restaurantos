@@ -9,14 +9,15 @@
 // — start-by is meaningless once a job has started, and elapsed/remaining is the
 // number a cook actually wants.
 import { useRef, useState } from 'react'
-import { Flame, RotateCcw } from 'lucide-react'
+import { Flame, RotateCcw, ArrowRight } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag } from './atoms'
+import { StationTag, StageChip } from './atoms'
 import { IcCheck, IcRecipe } from '@/components/prep/icons'
 import { minutesBetween, fmtMins, fmtQty } from '@/lib/prep-runsheet'
+import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 
 export function WorkingRow({
   item,
@@ -26,6 +27,7 @@ export function WorkingRow({
   onLog,
   onStop,
   onOpenRecipe,
+  onStage,
 }: {
   item: PrepItemRich
   nowMs: number
@@ -35,13 +37,23 @@ export function WorkingRow({
   /** Abandon an in-progress prep (no yield logged) → back onto the run sheet. */
   onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** Staged prep — move the live log to the next stage. */
+  onStage?: (item: PrepItemRich, stageIndex: number) => void
 }) {
   const [claimOpen, setClaimOpen] = useState(false)
   const claimAnchor = useRef<HTMLDivElement>(null)
 
-  const startedAt = item.todayLog?.startedAt
-  const elapsed = startedAt ? minutesBetween(new Date(startedAt).getTime(), nowMs) : 0
-  const remaining = (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0) - elapsed
+  // Staged: the timer is the STAGE's own (elapsed since it began vs its
+  // minutes — "over by" applies to the stage, not the job) and the primary
+  // button is Next: <stage> until the last stage, where it is Done. Unstaged
+  // rows keep today's clock exactly.
+  const stages = resolveStages(item.linkedRecipe)
+  const cur = stages ? currentStage(stages, item.todayLog) : null
+  const next = stages && cur && cur.index < stages.length - 1 ? { index: cur.index + 1, stage: stages[cur.index + 1] } : null
+  const clockFrom = cur ? item.todayLog?.stageEnteredAt : item.todayLog?.startedAt
+  const elapsed = clockFrom ? minutesBetween(new Date(clockFrom).getTime(), nowMs) : 0
+  const budget = cur ? cur.stage.minutes : (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0)
+  const remaining = budget - elapsed
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const batch = batchLabel(item, qty)
 
@@ -85,10 +97,11 @@ export function WorkingRow({
             {batch ? `${batch} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit)}
           </span>
           {item.station && <StationTag>{item.station}</StationTag>}
+          {stages && cur && <StageChip label={stageLabel(cur.index, stages.length, cur.stage)} />}
         </div>
       </div>
 
-      {/* claim · recipe · stop · done */}
+      {/* claim · recipe · stop · next / done */}
       <div className="col-start-2 lg:col-start-3 flex items-center gap-[7px] justify-start lg:justify-end">
         {onClaim ? (
           <div ref={claimAnchor} className="relative shrink-0">
@@ -123,12 +136,21 @@ export function WorkingRow({
         >
           <RotateCcw size={13} /> Stop
         </button>
-        <button
-          onClick={() => onLog(item)}
-          className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0"
-        >
-          <IcCheck size={13} className="text-gold" strokeWidth={2.8} /> Done
-        </button>
+        {next && onStage ? (
+          <button
+            onClick={() => onStage(item, next.index)}
+            className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0"
+          >
+            Next: {next.stage.name} <ArrowRight size={12} className="text-gold" />
+          </button>
+        ) : (
+          <button
+            onClick={() => onLog(item)}
+            className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0"
+          >
+            <IcCheck size={13} className="text-gold" strokeWidth={2.8} /> Done
+          </button>
+        )}
       </div>
     </div>
   )

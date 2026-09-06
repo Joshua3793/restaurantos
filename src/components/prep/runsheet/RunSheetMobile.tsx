@@ -19,6 +19,7 @@ import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
+import { RestRowMobile } from './RestRowMobile'
 import { WorkingRowMobile } from './WorkingRowMobile'
 import { NextUpHero } from './NextUpHero'
 import { GroupHead } from './GroupHead'
@@ -26,7 +27,7 @@ import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
 import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
-import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, PLAN_URG_META } from '@/lib/prep-plan'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
@@ -40,7 +41,8 @@ const MOBILE_GUTTER = 'pr-[22px]'
 // PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
 // treat it as todo.
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
+// Hands-on jobs only — a resting staged job (`rest`) takes a rest row in the queue instead.
+const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.rest
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
 
 // Empty state for My-station mode. Module scope (not inline) so it doesn't
@@ -70,6 +72,7 @@ export function RunSheetMobile({
   onStop,
   onClaim,
   onOpenRecipe,
+  onStage,
   onRemove,
 }: {
   items: PrepItemRich[]
@@ -86,6 +89,8 @@ export function RunSheetMobile({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** Staged prep — move an item's live log to a stage (Next on a working / rest row). */
+  onStage: (item: PrepItemRich, stageIndex: number) => void
   /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
   onRemove?: (item: PrepItemRich) => void
 }) {
@@ -97,7 +102,7 @@ export function RunSheetMobile({
   const pickMode = (m: Mode) => { modeTouched.current = true; setMode(m) }
 
   const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
-  const items = useMemo(() => withLadderTimes(rawItems, ctx), [rawItems, ctx])
+  const items = useMemo(() => withLadderTimes(rawItems, ctx, { nowMs, nowMin }), [rawItems, ctx, nowMs, nowMin])
 
   // `cooks` can arrive after mount (async fetch) — same null-guard the desktop
   // RunSheet uses so My-station isn't stuck with cook === null forever.
@@ -134,9 +139,10 @@ export function RunSheetMobile({
   // Kitchen-mode badge = late-to-start count across the whole brigade.
   // Same test as the ladder's "Late to start" section (see RunSheet.lateN).
   const lateN = useMemo(
-    () => todoAll.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin).length,
+    () => todoAll.filter(i => lateToStart(i, nowMin)).length,
     [todoAll, nowMin],
   )
+  const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
   // The service caption on the NOW line. Same derivation as the desktop RunSheet's
   // status band and /prep's page header: `serviceStatus` over the RC's CONFIGURED
@@ -169,7 +175,18 @@ export function RunSheetMobile({
 
   const rows = (list: PrepItemRich[], kitchen: boolean) => (
     <div className={`flex flex-col gap-[7px] ${MOBILE_GUTTER}`}>
-      {list.map(i => (
+      {list.map(i => i.rest ? (
+        <RestRowMobile
+          key={i.id}
+          item={i}
+          nowMin={nowMin}
+          nowMs={nowMs}
+          kitchen={kitchen}
+          onClaim={claimTap}
+          onOpenRecipe={onOpenRecipe}
+          onStage={onStage}
+        />
+      ) : (
         <RunRowMobile
           key={i.id}
           item={i}
@@ -222,6 +239,7 @@ export function RunSheetMobile({
       <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 pt-0.5 pb-2.5">
         NOW {fmtClock(nowMin)}
         {svcCaption ? ` · ${svcCaption}` : ''}
+        {readyN > 0 && <span className="text-green-text"> · {readyN} ready to move</span>}
       </div>
 
       <Segmented<Mode>
@@ -269,6 +287,7 @@ export function RunSheetMobile({
                 onLog={onLog}
                 onStop={onStop}
                 onOpenRecipe={onOpenRecipe}
+                onStage={onStage}
               />
             ))}
           </div>
@@ -278,7 +297,7 @@ export function RunSheetMobile({
       {mode === 'station' ? (
         <>
           {hero ? (
-            <NextUpHero item={hero} nowMin={nowMin} onStart={onStart} onOpenRecipe={onOpenRecipe} />
+            <NextUpHero item={hero} nowMin={nowMin} nowMs={nowMs} onStart={onStart} onStage={onStage} onOpenRecipe={onOpenRecipe} />
           ) : (
             <StationClear />
           )}

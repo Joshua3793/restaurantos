@@ -17,7 +17,7 @@ export interface DraftPatch {
 export interface OfflineMutation {
   id:         string
   ts:         number
-  type:       'isOnList_toggle' | 'status' | 'priority' | 'draft_edit' | 'post' | 'remove_item'
+  type:       'isOnList_toggle' | 'status' | 'priority' | 'draft_edit' | 'post' | 'remove_item' | 'stage'
   /** '' for `post`, which is RC-scoped rather than item-scoped. */
   itemId:     string
   /**
@@ -32,6 +32,8 @@ export interface OfflineMutation {
   status?:    string
   actualQty?: number
   priority?:  string
+  /** For `stage` — the stage index the cook moved the live log to (Next / Back). */
+  stageIndex?: number
   revenueCenterId?: string | null   // active RC captured at enqueue time
   patch?:     DraftPatch      // for draft_edit
   restore?:   boolean         // for remove_item — true puts the item back (with `isOnList`)
@@ -140,8 +142,8 @@ export function clearQueue(): void {
 //
 // Four rules, one pass, order preserved:
 //
-//  · status / priority — keep the LAST per item. The final value is the only one
-//    that matters, and neither field is read by `plan/post`.
+//  · status / priority / stage — keep the LAST per item. The final value is the
+//    only one that matters, and none of these fields is read by `plan/post`.
 //  · post — keep the LAST per revenue center.
 //  · draft_edit — MERGE per item, field by field, in enqueue order. Keeping only
 //    the last mutation would drop a qty edit as soon as a note edit followed it.
@@ -367,6 +369,15 @@ async function runMutation(m: OfflineMutation): Promise<Outcome> {
       status: m.status,
       ...(m.actualQty !== undefined ? { actualPrepQty: m.actualQty } : {}),
     }))
+    return put.outcome
+  }
+
+  if (m.type === 'stage') {
+    // A stage move on a log that never reached the server: create it, then PUT
+    // the index — the route forces IN_PROGRESS on an open log, same as online.
+    const { id: logId, outcome } = await ensureLogId(m)
+    if (!logId) return outcome
+    const put = await send(`/api/prep/logs/${logId}`, json('PUT', { stageIndex: m.stageIndex }))
     return put.outcome
   }
 

@@ -1,5 +1,6 @@
 import type { PrepPriority } from '@/lib/prep-utils'
 import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
+import type { RestInfo } from '@/lib/prep-plan'
 
 export type { PrepPriority }
 
@@ -100,6 +101,9 @@ export interface PrepItemRich {
   /** The step's deadline for the day (minute-of-day, ≥1440 ⇒ tomorrow). Attached
    *  on the run sheet by `withLadderTimes`; absent on API payloads. */
   deadlineMinutes?: number | null
+  /** A staged job resting in an unattended stage — attached by `withLadderTimes`
+   *  on the run sheet (null = hands-on or unstaged); absent on API payloads. */
+  rest?: RestInfo | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
   /** RAW item-level overrides — what the edit form binds to. Distinct from the
    *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back

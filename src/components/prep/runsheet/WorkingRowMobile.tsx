@@ -9,12 +9,14 @@
 // RunRowMobile has room for ONE 44px action button; this row needs two (Stop and
 // Done), so there is no room for a recipe button — the name is the recipe-open
 // target, exactly as it is on RunRowMobile.
-import { Flame, RotateCcw } from 'lucide-react'
+import { Flame, RotateCcw, ArrowRight } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
+import { StageChip } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
 import { minutesBetween, fmtMins, fmtQty } from '@/lib/prep-runsheet'
+import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 
 export function WorkingRowMobile({
   item,
@@ -23,6 +25,7 @@ export function WorkingRowMobile({
   onLog,
   onStop,
   onOpenRecipe,
+  onStage,
 }: {
   item: PrepItemRich
   nowMs: number
@@ -32,10 +35,17 @@ export function WorkingRowMobile({
   /** Abandon an in-progress prep (no yield logged) → back onto the run sheet. */
   onStop: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** Staged prep — move the live log to the next stage. */
+  onStage?: (item: PrepItemRich, stageIndex: number) => void
 }) {
-  const startedAt = item.todayLog?.startedAt
-  const elapsed = startedAt ? minutesBetween(new Date(startedAt).getTime(), nowMs) : 0
-  const remaining = (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0) - elapsed
+  // Staged: the stage's own timer and a Next button (see WorkingRow).
+  const stages = resolveStages(item.linkedRecipe)
+  const cur = stages ? currentStage(stages, item.todayLog) : null
+  const next = stages && cur && cur.index < stages.length - 1 ? { index: cur.index + 1, stage: stages[cur.index + 1] } : null
+  const clockFrom = cur ? item.todayLog?.stageEnteredAt : item.todayLog?.startedAt
+  const elapsed = clockFrom ? minutesBetween(new Date(clockFrom).getTime(), nowMs) : 0
+  const budget = cur ? cur.stage.minutes : (item.activeMinutes ?? 0) + (item.passiveMinutes ?? 0)
+  const remaining = budget - elapsed
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const batch = batchLabel(item, qty)
 
@@ -74,6 +84,7 @@ export function WorkingRowMobile({
         {/* stopPropagation so tapping the chip claims the item instead of opening
             the recipe (the whole block above is the recipe-open target). */}
         <div className="flex items-center gap-2 flex-wrap font-mono text-[9.5px] text-gold-2 mt-[3px]">
+          {stages && cur && <StageChip label={stageLabel(cur.index, stages.length, cur.stage)} />}
           {item.station && <span>{item.station}</span>}
           <span onClick={e => e.stopPropagation()}>
             <AssigneeChip cook={item.assignedCook} size="sm" onClick={onClaim ? () => onClaim(item) : undefined} />
@@ -89,13 +100,24 @@ export function WorkingRowMobile({
       >
         <RotateCcw size={15} />
       </button>
-      <button
-        onClick={() => onLog(item)}
-        aria-label="Done — log yield"
-        className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
-      >
-        <IcCheck size={15} className="text-gold" strokeWidth={2.8} />
-      </button>
+      {next && onStage ? (
+        <button
+          onClick={() => onStage(item, next.index)}
+          aria-label={`Next: ${next.stage.name}`}
+          title={`Next: ${next.stage.name}`}
+          className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
+        >
+          <ArrowRight size={15} className="text-gold" />
+        </button>
+      ) : (
+        <button
+          onClick={() => onLog(item)}
+          aria-label="Done — log yield"
+          className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
+        >
+          <IcCheck size={15} className="text-gold" strokeWidth={2.8} />
+        </button>
+      )}
     </div>
   )
 }

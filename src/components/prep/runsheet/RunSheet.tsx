@@ -21,13 +21,14 @@ import { RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
+import { RestRow } from './RestRow'
 import { WorkingRow } from './WorkingRow'
 import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
-import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, PLAN_URG_META } from '@/lib/prep-plan'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
@@ -49,7 +50,10 @@ function minuteOfDay(iso: string): number {
 const RUN_GUTTER = 'pr-[30px]'
 
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
+// Working On holds HANDS-ON jobs only. A staged job resting in an unattended
+// stage (`rest`, attached by withLadderTimes) is in flight but not "doing" —
+// it takes a rest row in the ladder at the time its next stage is due.
+const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.rest
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
 
 export function RunSheet({
@@ -65,6 +69,7 @@ export function RunSheet({
   onStop,
   onClaim,
   onOpenRecipe,
+  onStage,
   onRemove,
 }: {
   items: PrepItemRich[]
@@ -82,6 +87,8 @@ export function RunSheet({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
+  /** Staged prep — move an item's live log to a stage (Next on a working / rest row). */
+  onStage: (item: PrepItemRich, stageIndex: number) => void
   /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
   onRemove?: (item: PrepItemRich) => void
 }) {
@@ -102,7 +109,7 @@ export function RunSheet({
   // its STEP. From here on `items` carries the step-aware start-by + deadline,
   // so the counts, the crew strip and the rows all read the same number.
   const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
-  const items = useMemo(() => withLadderTimes(rawItems, ctx), [rawItems, ctx])
+  const items = useMemo(() => withLadderTimes(rawItems, ctx, { nowMs, nowMin }), [rawItems, ctx, nowMs, nowMin])
 
   // Stations present in the current dataset (the prototype's static PT_STATIONS).
   const stations = useMemo(
@@ -133,10 +140,12 @@ export function RunSheet({
   // 'blocked' wins over 'overdue', which had the band saying "3 late" above a
   // section holding 5.
   const lateN = useMemo(
-    () => items.filter(i => isTodo(i) && i.startByMinutes != null && i.startByMinutes < nowMin).length,
+    () => items.filter(i => isTodo(i) && lateToStart(i, nowMin)).length,
     [items, nowMin],
   )
   const blockedN = todo.filter(i => i.isBlocked || !!i.blockedReason).length
+  // Rest rows whose timer has run out — the cook can move them on.
+  const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
   // The service caption in the status band. Source of truth is the RC's configured
   // services via `serviceStatus` — the SAME answer /prep's page header, /pass and
@@ -172,7 +181,9 @@ export function RunSheet({
   const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
   const rows = (list: PrepItemRich[]) => (
     <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
-      {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}
+      {list.map(i => i.rest
+        ? <RestRow key={i.id} item={i} nowMin={nowMin} nowMs={nowMs} cooks={cooks} onStage={onStage} onOpenRecipe={onOpenRecipe} onClaim={onClaim} />
+        : <RunRow key={i.id} item={i} {...rowProps} />)}
     </div>
   )
 
@@ -181,7 +192,7 @@ export function RunSheet({
       return stations.map(s => {
         const grp = todo.filter(i => i.station === s)
         if (!grp.length) return null
-        const late = grp.filter(i => i.startByMinutes != null && i.startByMinutes < nowMin).length
+        const late = grp.filter(i => lateToStart(i, nowMin)).length
         return (
           <div key={s}>
             <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={late ? `${late} late to start` : null} />
@@ -265,6 +276,7 @@ export function RunSheet({
           <div className="flex gap-3.5 mt-[9px] font-mono text-[10px] text-ink-3">
             <span><b className="text-gold-2 font-semibold">{doing.length}</b> in progress</span>
             <span><b className={`font-semibold ${lateN ? 'text-red-text' : 'text-ink'}`}>{lateN}</b> late to start</span>
+            {readyN > 0 && <span><b className="text-green-text font-semibold">{readyN}</b> ready to move</span>}
             <span><b className="text-ink font-semibold">{blockedN}</b> low on stock</span>
           </div>
         </div>
@@ -278,7 +290,7 @@ export function RunSheet({
 
       {/* crew (kitchen) or cook picker (station) */}
       {mode === 'kitchen' ? (
-        cooks.length > 0 && <CrewStrip cooks={cooks} items={items} nowMin={nowMin} />
+        cooks.length > 0 && <CrewStrip cooks={cooks} items={items} nowMin={nowMin} nowMs={nowMs} />
       ) : (
         <div className="flex items-center gap-2 mb-[18px] flex-wrap">
           <span className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 mr-1">COOK</span>
@@ -350,6 +362,7 @@ export function RunSheet({
                 onLog={onLog}
                 onStop={onStop}
                 onOpenRecipe={onOpenRecipe}
+                onStage={onStage}
               />
             ))}
           </div>
