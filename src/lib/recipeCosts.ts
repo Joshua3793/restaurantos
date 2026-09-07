@@ -52,6 +52,11 @@ export interface RecipeWithCost {
   isActive: boolean
   notes: string | null
   steps: string[]
+  activeMinutes: number | null
+  passiveMinutes: number | null
+  passiveNote: string | null
+  /** RecipeStage[] as stored (Json) — null when the recipe is unstaged. */
+  stages: unknown
   createdAt: Date
   updatedAt: Date
   ingredients: IngredientWithCost[]
@@ -288,6 +293,14 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     isActive: recipe.isActive,
     notes: recipe.notes,
     steps: recipe.steps,
+    // Run-sheet timing + the staged-prep chain. This response is hand-built,
+    // so a column added to the model is invisible to the recipe panel until it
+    // is listed here — the Stages editor re-seeds from the PATCH reply and
+    // silently emptied itself while these were missing.
+    activeMinutes: recipe.activeMinutes,
+    passiveMinutes: recipe.passiveMinutes,
+    passiveNote: recipe.passiveNote,
+    stages: recipe.stages,
     createdAt: recipe.createdAt,
     updatedAt: recipe.updatedAt,
     ingredients,
