@@ -10,6 +10,8 @@
 //
 // Design: docs/superpowers/specs/2026-09-06-staged-prep-and-cadence-suggestions-design.md
 
+import { parseMethod, methodToChain } from './recipe-method'
+
 export type StageKind = 'ACTIVE' | 'PASSIVE'
 
 export interface RecipeStage {
@@ -114,15 +116,16 @@ export function validateStages(input: unknown): StagesValidation {
 }
 
 /**
- * The chain for an item, or null when it is UNSTAGED. Only the recipe carries
- * stages in this pass (no per-PrepItem override) — `_item` is accepted so the
- * call shape is ready for one.
+ * The chain for an item, or null when it is UNSTAGED. The recipe's Method
+ * (`method`, with waits) derives the chain; the legacy `stages` column is the
+ * read-only fallback for one release. Only the recipe carries a chain (no
+ * per-PrepItem override) — `_item` is accepted so the call shape is ready for one.
  */
 export function resolveStages(
-  recipe: { stages?: unknown } | null | undefined,
+  recipe: { stages?: unknown; method?: unknown } | null | undefined,
   _item?: unknown,
 ): RecipeStage[] | null {
-  return parseStages(recipe?.stages)
+  return methodToChain(parseMethod(recipe?.method)) ?? parseStages(recipe?.stages)
 }
 
 /** Σ ACTIVE and Σ PASSIVE minutes — what `resolveActive`/`resolvePassive` derive. */

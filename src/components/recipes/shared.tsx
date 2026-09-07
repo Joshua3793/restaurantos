@@ -12,7 +12,8 @@ import {
   Link2, Package, ExternalLink, Printer, Star, Share2,
   Hand, Hourglass, ArrowUp, ArrowDown,
 } from 'lucide-react'
-import { validateStages, stageTotals, newStageKey, type RecipeStage } from '@/lib/prep-stages'
+import { validateStages, stageTotals, newStageKey, resolveStages, type RecipeStage } from '@/lib/prep-stages'
+import type { MethodStep } from '@/lib/recipe-method'
 import { fmtMins } from '@/lib/prep-runsheet'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
@@ -113,8 +114,10 @@ export interface Recipe {
   activeMinutes?: number | null
   passiveMinutes?: number | null
   passiveNote?: string | null
-  /** Staged prep chain (null = unstaged). When set, the timing totals derive from it. */
+  /** Staged prep chain (legacy, null = unstaged). When set, the timing totals derive from it. */
   stages?: RecipeStage[] | null
+  /** One Method, with waits (MethodStep[]); the run-sheet chain derives from it. */
+  method?: MethodStep[] | null
   createdAt: string
   updatedAt: string
   ingredients: IngredientWithCost[]
@@ -1572,7 +1575,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
               one the recipe carries its own two numbers, which the run sheet counts
               back from (PrepItem overrides sit above either). */}
           {!isMenu && (() => {
-            const chain = recipe.stages && recipe.stages.length > 0 ? recipe.stages : null
+            const chain = resolveStages(recipe)
             const totals = chain ? stageTotals(chain) : null
             return (
               <div className="mt-5">

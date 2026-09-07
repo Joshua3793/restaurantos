@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     },
     include: {
       // `stages` so the History tab can name a staged log's stage events.
-      prepItem: { select: { id: true, name: true, unit: true, linkedRecipe: { select: { stages: true } } } },
+      prepItem: { select: { id: true, name: true, unit: true, linkedRecipe: { select: { stages: true, method: true } } } },
     },
     orderBy: { createdAt: 'asc' },
   })

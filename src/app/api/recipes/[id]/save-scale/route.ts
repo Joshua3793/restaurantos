@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@prisma/client'
 import { resyncPrepRecipe } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { dimensionOf } from '@/lib/item-model'
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       isActive: true,
       revenueCenterId: source.revenueCenterId,
       steps: source.steps,
+      // The Method (with waits) rides along unchanged — timing is per batch, not per kg.
+      ...(source.method != null ? { method: source.method as Prisma.InputJsonValue } : {}),
       ingredients: {
         create: source.ingredients.map((ing, i) => ({
           inventoryItemId: ing.inventoryItemId,

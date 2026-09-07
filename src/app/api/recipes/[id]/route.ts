@@ -5,6 +5,7 @@ import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { Prisma } from '@prisma/client'
 import { validateStages } from '@/lib/prep-stages'
+import { validateMethod } from '@/lib/recipe-method'
 import { numOrNull } from '@/lib/prep-utils'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -29,6 +30,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // Run-sheet timing on the recipe itself (the PrepItem overrides sit above these),
     // and the staged-prep chain. `stages: null` / `[]` clears the chain.
     activeMinutes, passiveMinutes, passiveNote, stages,
+    // One Method, with waits — supersedes `steps` + `stages` (both still accepted for a release).
+    method,
   } = body
 
   // Validate + normalize units when they're being changed.
@@ -52,6 +55,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
 
+  // The method is validated by the lib; the one rule a chef can trip is a wait on
+  // the last step, and the message says what to do. null / [] clears it.
+  let methodData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined
+  if (method !== undefined) {
+    const v = validateMethod(method)
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+    methodData = v.method.length ? (v.method as unknown as Prisma.InputJsonValue) : Prisma.DbNull
+  }
+
   await prisma.recipe.update({
     where: { id: params.id },
     data: {
@@ -72,6 +84,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(passiveMinutes !== undefined ? { passiveMinutes: numOrNull(passiveMinutes) } : {}),
       ...(passiveNote    !== undefined ? { passiveNote: passiveNote || null } : {}),
       ...(stagesData     !== undefined ? { stages: stagesData } : {}),
+      ...(methodData     !== undefined ? { method: methodData } : {}),
     },
   })
 
