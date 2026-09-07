@@ -52,9 +52,11 @@ const RUN_GUTTER = 'pr-[30px]'
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
 // Working On holds HANDS-ON jobs only. A staged job resting in an unattended
 // stage (`rest`, attached by withLadderTimes) is in flight but not "doing" —
-// it takes a rest row in the ladder at the time its next stage is due.
+// it sits in the WAITING section above Working On, blue, ordered by the time
+// its next hands-on step is due. The ladder holds only what has not started.
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.rest
-const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
+const isWaiting = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !!i.rest
+const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i) && !isWaiting(i)
 
 export function RunSheet({
   items: rawItems,
@@ -128,6 +130,11 @@ export function RunSheet({
     mode === 'station' ? isMine(i) : stFilter === 'all' || i.station === stFilter
 
   const doing = useMemo(() => items.filter(i => isDoing(i) && inScope(i)), [items, mode, cook, stFilter, member])
+  // Waiting — jobs resting in an unattended stage, soonest ready first.
+  const waiting = useMemo(
+    () => items.filter(i => isWaiting(i) && inScope(i)).sort((a, b) => a.rest!.readyAtMin - b.rest!.readyAtMin),
+    [items, mode, cook, stFilter, member],
+  )
   const done = useMemo(() => items.filter(isDone), [items])
   const todo = useMemo(
     () => items.filter(i => isTodo(i) && inScope(i)).sort(ladderOrder),
@@ -140,7 +147,7 @@ export function RunSheet({
   // 'blocked' wins over 'overdue', which had the band saying "3 late" above a
   // section holding 5.
   const lateN = useMemo(
-    () => items.filter(i => isTodo(i) && lateToStart(i, nowMin)).length,
+    () => items.filter(i => (isTodo(i) || isWaiting(i)) && lateToStart(i, nowMin)).length,
     [items, nowMin],
   )
   const blockedN = todo.filter(i => i.isBlocked || !!i.blockedReason).length
@@ -181,9 +188,7 @@ export function RunSheet({
   const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
   const rows = (list: PrepItemRich[]) => (
     <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
-      {list.map(i => i.rest
-        ? <RestRow key={i.id} item={i} nowMin={nowMin} nowMs={nowMs} cooks={cooks} onStage={onStage} onOpenRecipe={onOpenRecipe} onClaim={onClaim} />
-        : <RunRow key={i.id} item={i} {...rowProps} />)}
+      {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}
     </div>
   )
 
@@ -345,6 +350,25 @@ export function RunSheet({
           />
         </div>
       </div>
+
+      {/* Waiting — jobs resting in an unattended stage (a cure, a proof, a smoke),
+          above everything: they are in flight, they hold no cook, and the only
+          thing to do is move them on when the timer is up. Blue is their colour. */}
+      {waiting.length > 0 && (
+        <>
+          <GroupHead
+            dot="bg-blue"
+            title="Waiting"
+            count={waiting.length}
+            sub={readyN ? `${readyN} ready to move` : 'resting — nothing to do until the timer is up'}
+          />
+          <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
+            {waiting.map(i => (
+              <RestRow key={i.id} item={i} nowMin={nowMin} nowMs={nowMs} cooks={cooks} onStage={onStage} onOpenRecipe={onOpenRecipe} onClaim={onClaim} />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Working On — full-width rows on the ladder's own grid, above every
           ladder group in all three groupings. */}

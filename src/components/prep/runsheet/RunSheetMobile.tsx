@@ -41,9 +41,11 @@ const MOBILE_GUTTER = 'pr-[22px]'
 // PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
 // treat it as todo.
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-// Hands-on jobs only — a resting staged job (`rest`) takes a rest row in the queue instead.
+// Hands-on jobs only — a resting staged job (`rest`) sits in the WAITING section
+// above Working On instead, blue, soonest ready first.
 const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.rest
-const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i)
+const isWaiting = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !!i.rest
+const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i) && !isWaiting(i)
 
 // Empty state for My-station mode. Module scope (not inline) so it doesn't
 // remount on every render — see CLAUDE.md's client-component note.
@@ -120,10 +122,12 @@ export function RunSheetMobile({
 
   const todoAll = useMemo(() => items.filter(isTodo).sort(ladderOrder), [items])
   const doingAll = useMemo(() => items.filter(isDoing), [items])
+  const waitingAll = useMemo(() => items.filter(isWaiting).sort((a, b) => a.rest!.readyAtMin - b.rest!.readyAtMin), [items])
   const done = useMemo(() => items.filter(isDone), [items])
 
   const myTodo = useMemo(() => todoAll.filter(isMine), [todoAll, cook, member])
   const doing = mode === 'station' ? doingAll.filter(isMine) : doingAll
+  const waiting = mode === 'station' ? waitingAll.filter(isMine) : waitingAll
   const hero = myTodo[0]
   const queue = myTodo.slice(1)
 
@@ -139,8 +143,8 @@ export function RunSheetMobile({
   // Kitchen-mode badge = late-to-start count across the whole brigade.
   // Same test as the ladder's "Late to start" section (see RunSheet.lateN).
   const lateN = useMemo(
-    () => todoAll.filter(i => lateToStart(i, nowMin)).length,
-    [todoAll, nowMin],
+    () => [...todoAll, ...waitingAll].filter(i => lateToStart(i, nowMin)).length,
+    [todoAll, waitingAll, nowMin],
   )
   const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
@@ -175,18 +179,7 @@ export function RunSheetMobile({
 
   const rows = (list: PrepItemRich[], kitchen: boolean) => (
     <div className={`flex flex-col gap-[7px] ${MOBILE_GUTTER}`}>
-      {list.map(i => i.rest ? (
-        <RestRowMobile
-          key={i.id}
-          item={i}
-          nowMin={nowMin}
-          nowMs={nowMs}
-          kitchen={kitchen}
-          onClaim={claimTap}
-          onOpenRecipe={onOpenRecipe}
-          onStage={onStage}
-        />
-      ) : (
+      {list.map(i => (
         <RunRowMobile
           key={i.id}
           item={i}
@@ -271,6 +264,27 @@ export function RunSheetMobile({
             )
           })}
         </div>
+      )}
+
+      {/* Waiting — jobs resting in an unattended stage, above everything, blue. */}
+      {waiting.length > 0 && (
+        <>
+          <GroupHead dot="bg-blue" title="Waiting" count={waiting.length} sub={readyN ? `${readyN} ready to move` : 'resting'} />
+          <div className={`flex flex-col gap-2 ${MOBILE_GUTTER}`}>
+            {waiting.map(i => (
+              <RestRowMobile
+                key={i.id}
+                item={i}
+                nowMin={nowMin}
+                nowMs={nowMs}
+                kitchen={mode === 'kitchen'}
+                onClaim={claimTap}
+                onOpenRecipe={onOpenRecipe}
+                onStage={onStage}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {/* Working On — full-width rows, above every ladder group. */}
