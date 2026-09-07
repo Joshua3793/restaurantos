@@ -320,6 +320,8 @@ export default function PrepDrawer({
                     makeQty={makeQty}
                     onMakeQtyChange={onMakeQtyChange}
                     onOpenSubRecipe={onOpenSubRecipe}
+                    log={item.todayLog ?? null}
+                    onStage={onStage && stateKey === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
                   />
                 </div>
               )}

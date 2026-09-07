@@ -1,5 +1,6 @@
 import type { PrepPriority } from '@/lib/prep-utils'
 import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
+import type { MethodStep } from '@/lib/recipe-method'
 import type { RestInfo, PipelineInfo } from '@/lib/prep-plan'
 import type { CadenceStats } from '@/lib/prep-cadence'
 
@@ -134,8 +135,11 @@ export interface IngredientAvailability {
 export interface RecipeStepsData {
   id: string
   name: string
+  /** Plain instruction lines — derived from `method` when one exists (kept for readers that only want text). */
   steps: string[]
-  /** Staged prep chain (null/undefined = unstaged) — the drawer lists it with the current stage lit. */
+  /** One Method, with waits — the cook-along groups it by phase and lights the current block. */
+  method?: MethodStep[] | null
+  /** The resolved chain (null/undefined = unstaged) — the drawer lists it with the current stage lit. */
   stages?: RecipeStage[] | null
   baseYieldQty: number
   yieldUnit: string

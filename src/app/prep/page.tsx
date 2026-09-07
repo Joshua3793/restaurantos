@@ -30,6 +30,7 @@ import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
 import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
+import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
 import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
@@ -1487,6 +1488,7 @@ export default function PrepPage() {
       id: item.linkedRecipeId,
       name: item.linkedRecipe?.name ?? item.name,
       steps: [],
+      method: null,
       stages: item.linkedRecipe?.stages ?? null,
       baseYieldQty: Number(item.linkedRecipe?.baseYieldQty) || 0,
       yieldUnit: item.linkedRecipe?.yieldUnit ?? item.unit,
@@ -1503,19 +1505,13 @@ export default function PrepPage() {
       const d: PrepItemDetail | null = dRes.ok ? await dRes.json() : null
       if (d) setDrawerDetail(d)
       if (!r) { setDrawerRecipeLoading(false); return }
-      // Steps may be a structured array; otherwise fall back to parsing the recipe's
-      // free-text notes (e.g. "Instructions: 1. … 2. …") so the method is always shown.
-      const parsedSteps: string[] = (() => {
-        if (Array.isArray(r.steps) && r.steps.length > 0) return r.steps.map(String)
-        const notes: string = typeof r.notes === 'string' ? r.notes : ''
-        if (!notes.trim()) return []
-        const body = notes.replace(/^\s*(?:instructions?|method|steps)\s*:?\s*/i, '')
-        let parts = body.split(/(?=\d+[.)]\s)/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean)
-        if (parts.length <= 1) parts = body.split(/\n+/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean)
-        return parts
-      })()
+      // The Method (with waits) is the canonical instruction list; a recipe still
+      // carrying only legacy steps / stages is shown converted, exactly as the
+      // recipe panel shows it. The old "parse numbered notes" fallback is gone —
+      // the method is where instructions live now.
+      const method = parseMethod(r.method) ?? legacyToMethod(resolveStages({ stages: r.stages }), Array.isArray(r.steps) ? r.steps.map(String) : null)
       const recipe: RecipeStepsData = {
-        id: r.id, name: r.name, steps: parsedSteps,
+        id: r.id, name: r.name, steps: methodTexts(method), method,
         stages: resolveStages(r),
         baseYieldQty: Number(r.baseYieldQty) || 0, yieldUnit: r.yieldUnit ?? item.unit,
         totalCost: Number(r.totalCost) || 0,
