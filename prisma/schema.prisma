@@ -223,7 +223,11 @@ model Recipe {
   passiveNote     String?
   // Staged prep: RecipeStage[] (see src/lib/prep-stages.ts). null = no stages —
   // the item is one implicit hands-on job carrying activeMinutes + passiveMinutes.
+  // RETIRING: `method` below supersedes it (and `steps`); read-only fallback for one release.
   stages          Json?
+  // One Method, with waits: MethodStep[] (see src/lib/recipe-method.ts). The
+  // run-sheet chain is DERIVED from it (methodToChain). null = no method authored.
+  method          Json?
   prepItems       PrepItem[]         @relation("PrepItemRecipe")
   category        RecipeCategory     @relation(fields: [categoryId], references: [id])
   inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])

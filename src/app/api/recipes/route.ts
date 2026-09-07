@@ -6,6 +6,8 @@ import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopedRcWhere, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
+import type { Prisma } from '@prisma/client'
+import { validateMethod } from '@/lib/recipe-method'
 
 export async function GET(req: NextRequest) {
   let user
@@ -186,6 +188,14 @@ export async function POST(req: NextRequest) {
     canonPortion = portionUnit ? assertKnownUnit(portionUnit, 'portion unit') : null
   } catch (e) { if (e instanceof UnitError) return NextResponse.json({ error: e.message }, { status: 400 }); throw e }
 
+  // One Method, with waits (see PATCH /api/recipes/[id]) — optional on create.
+  let methodData: Prisma.InputJsonValue | undefined
+  if (body.method !== undefined && body.method !== null) {
+    const v = validateMethod(body.method)
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 })
+    if (v.method.length) methodData = v.method as unknown as Prisma.InputJsonValue
+  }
+
   const recipe = await prisma.recipe.create({
     data: {
       name,
@@ -201,6 +211,7 @@ export async function POST(req: NextRequest) {
       // PREP and MENU both carry an RC now; null = Shared (visible in all RCs).
       revenueCenterId: revenueCenterId || null,
       steps: Array.isArray(steps) ? steps.filter((s: unknown) => typeof s === 'string') : [],
+      ...(methodData !== undefined ? { method: methodData } : {}),
     },
   })
 

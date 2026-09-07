@@ -9,8 +9,9 @@ export type RunItemTimes = {
     activeMinutes: number | null
     passiveMinutes: number | null
     passiveNote: string | null
-    /** `Recipe.stages` (Json) — when it resolves to a chain, the totals derive from it. */
+    /** `Recipe.stages` (Json, legacy) / `Recipe.method` (Json) — when they resolve to a chain, the totals derive from it. */
     stages?: unknown
+    method?: unknown
   } | null
 }
 

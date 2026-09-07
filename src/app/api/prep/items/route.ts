@@ -29,6 +29,7 @@ const recipeInclude = {
     passiveMinutes: true,
     passiveNote: true,
     stages: true,
+    method: true,
     inventoryItem: {
       select: { id: true, stockOnHand: true, baseUnit: true },
     },
@@ -213,7 +214,7 @@ export async function GET(req: NextRequest) {
       passiveMinutesOverride: item.passiveMinutesOverride,
       passiveNoteOverride: item.passiveNoteOverride,
       linkedRecipe: item.linkedRecipe
-        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote, stages: item.linkedRecipe.stages }
+        ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote, stages: item.linkedRecipe.stages, method: item.linkedRecipe.method }
         : null,
     }
     const activeMinutes  = resolveActive(times)

@@ -12,8 +12,10 @@ import {
   Link2, Package, ExternalLink, Printer, Star, Share2,
   Hand, Hourglass, ArrowUp, ArrowDown,
 } from 'lucide-react'
-import { validateStages, stageTotals, newStageKey, type RecipeStage } from '@/lib/prep-stages'
+import { stageTotals, resolveStages, type RecipeStage } from '@/lib/prep-stages'
+import { validateMethod, parseMethod, legacyToMethod, newStepKey, methodTotals, type MethodStep } from '@/lib/recipe-method'
 import { fmtMins } from '@/lib/prep-runsheet'
+import { MethodView } from '@/components/recipes/MethodView'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
@@ -113,8 +115,10 @@ export interface Recipe {
   activeMinutes?: number | null
   passiveMinutes?: number | null
   passiveNote?: string | null
-  /** Staged prep chain (null = unstaged). When set, the timing totals derive from it. */
+  /** Staged prep chain (legacy, null = unstaged). When set, the timing totals derive from it. */
   stages?: RecipeStage[] | null
+  /** One Method, with waits (MethodStep[]); the run-sheet chain derives from it. */
+  method?: MethodStep[] | null
   createdAt: string
   updatedAt: string
   ingredients: IngredientWithCost[]
@@ -590,10 +594,19 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
             )}
           </div>
 
-          {/* Method notes */}
+          {/* Method — the steps with their waits, then the free-text notes */}
+          {(() => {
+            const method = parseMethod(recipe.method) ?? legacyToMethod(resolveStages({ stages: recipe.stages }), recipe.steps)
+            return method ? (
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-2">Method</h2>
+                <MethodView method={method} />
+              </div>
+            ) : null
+          })()}
           {recipe.notes && (
             <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-2">Method</h2>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-2">Notes</h2>
               <p className="text-sm text-ink-2 leading-relaxed">{renderMarkdown(recipe.notes)}</p>
             </div>
           )}
@@ -887,100 +900,147 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 })
 
 // ─── RecipePanel ──────────────────────────────────────────────────────────────
-// ─── Stages editor (staged prep) ─────────────────────────────────────────────
-// A chain of hands-on / unattended stages on the recipe (Recipe.stages). Held as
-// a LOCAL draft: a half-edited chain (the last stage flipped to unattended before
-// the next hands-on one is added) would be rejected by the PATCH mid-edit, so it
-// saves the moment the chain validates and says why when it does not. Rows are
-// keyed by stage key and their inputs are uncontrolled, so a reorder remounts
-// them with the right values instead of dragging stale text along.
-function StageRow({ stage, index, total, onPatch, onMove, onRemove }: {
-  stage: RecipeStage
+// ─── Method editor (one Method, with waits) ──────────────────────────────────
+// ONE ordered list. A row is an instruction with an optional phase label,
+// optional hands-on minutes and an optional WAIT after it (the unattended span
+// a cure, a proof, a smoke). The run-sheet chain is derived from this list
+// (methodToChain) — there is no kind toggle and nothing to author twice.
+// Held as a LOCAL draft that saves the moment it validates and says why when it
+// does not (the one reachable case: a wait on the last step). Rows are keyed by
+// step key with uncontrolled inputs, so a reorder remounts them with the right
+// values instead of dragging stale text along.
+function MethodRow({ step, index, total, timed, phaseSuggestions, onPatch, onMove, onRemove }: {
+  step: MethodStep
   index: number
   total: number
-  onPatch: (p: Partial<RecipeStage>) => void
+  /** PREP recipes: show the hands-on minutes and the wait controls. */
+  timed: boolean
+  phaseSuggestions: string[]
+  onPatch: (p: Partial<MethodStep>) => void
   onMove: (dir: -1 | 1) => void
   onRemove: () => void
 }) {
-  const passive = stage.kind === 'PASSIVE'
+  const [phaseOpen, setPhaseOpen] = useState(!!step.phase)
+  const [waitOpen, setWaitOpen] = useState(!!step.wait)
   return (
     <li className="border border-line rounded-lg px-2.5 py-2 bg-paper">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[11px] font-semibold text-gold-2 bg-gold-soft w-[22px] h-[22px] rounded-[7px] grid place-items-center shrink-0">{index + 1}</span>
-        <input
-          defaultValue={stage.name}
-          onBlur={e => { if (e.target.value.trim() !== stage.name) onPatch({ name: e.target.value }) }}
-          placeholder="Stage name"
-          className="flex-1 min-w-0 text-sm border border-line rounded-lg px-2.5 py-1.5 outline-none focus:border-ink-3"
-        />
-        <button
-          type="button"
-          onClick={() => onPatch({ kind: passive ? 'ACTIVE' : 'PASSIVE' })}
-          title={passive ? 'Unattended — the job rests; click for hands-on' : 'Hands-on — a cook is working; click for unattended'}
-          className={`inline-flex items-center gap-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.04em] rounded-full px-2 py-1 border shrink-0 ${
-            passive ? 'bg-blue-soft text-blue-text border-transparent' : 'bg-ink text-paper border-ink'
-          }`}
-        >
-          {passive ? <Hourglass size={11} /> : <Hand size={11} />}
-          {passive ? 'Unattended' : 'Hands-on'}
-        </button>
-        <span className="inline-flex items-center gap-1 shrink-0">
+      {phaseOpen && (
+        <div className="flex items-center gap-2 mb-1.5 pl-[30px]">
+          <span className="font-mono text-[9.5px] uppercase tracking-[0.05em] text-ink-4 shrink-0">Phase</span>
           <input
-            type="number" min={0} step={1} inputMode="numeric"
-            defaultValue={stage.minutes}
-            onBlur={e => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n) && n !== stage.minutes) onPatch({ minutes: n }) }}
-            className="w-[64px] text-sm font-mono border border-line rounded-lg px-2 py-1.5 outline-none focus:border-ink-3 text-right"
+            defaultValue={step.phase ?? ''}
+            list={`phase-suggestions-${step.key}`}
+            placeholder="e.g. Curing"
+            onBlur={e => { const v = e.target.value.trim() || undefined; if (v !== step.phase) onPatch({ phase: v }) }}
+            className="flex-1 min-w-0 text-[12px] font-semibold text-ink border border-line rounded-md px-2 py-1 outline-none focus:border-ink-3"
           />
-          <span className="font-mono text-[10px] text-ink-4">min</span>
-        </span>
-      </div>
-      <div className="flex items-center gap-2 mt-1.5 pl-[30px]">
-        <input
-          defaultValue={stage.note ?? ''}
-          onBlur={e => { if ((e.target.value.trim() || undefined) !== stage.note) onPatch({ note: e.target.value.trim() || undefined }) }}
-          placeholder={passive ? 'note — e.g. overnight in the walk-in' : 'note (optional)'}
-          className="flex-1 min-w-0 text-[12px] text-ink-2 bg-transparent border-0 border-b border-line py-1 outline-none placeholder:text-ink-4 focus:border-ink-3"
+          <datalist id={`phase-suggestions-${step.key}`}>
+            {phaseSuggestions.map(ph => <option key={ph} value={ph} />)}
+          </datalist>
+          <button type="button" onClick={() => { setPhaseOpen(false); if (step.phase) onPatch({ phase: undefined }) }} aria-label="Remove phase label"
+            className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-red-text"><X size={12} /></button>
+        </div>
+      )}
+      <div className="flex items-start gap-2">
+        <span className="font-mono text-[11px] font-semibold text-gold-2 bg-gold-soft w-[22px] h-[22px] rounded-[7px] grid place-items-center shrink-0 mt-1">{index + 1}</span>
+        <textarea
+          defaultValue={step.text}
+          rows={2}
+          placeholder="What the cook does"
+          onBlur={e => { if (e.target.value.trim() !== step.text) onPatch({ text: e.target.value }) }}
+          className="flex-1 min-w-0 text-sm border border-line rounded-lg px-2.5 py-1.5 resize-y outline-none focus:border-ink-3"
         />
+        {timed && (
+          <span className="inline-flex items-center gap-1 shrink-0 mt-1">
+            <input
+              type="number" min={0} step={1} inputMode="numeric"
+              defaultValue={step.minutes ?? ''}
+              placeholder="min"
+              title="Hands-on minutes for this step (optional)"
+              onBlur={e => { const v = e.target.value; const n = v === '' ? undefined : parseInt(v, 10); if (n !== step.minutes && (n === undefined || Number.isFinite(n))) onPatch({ minutes: n }) }}
+              className="w-[58px] text-sm font-mono border border-line rounded-lg px-2 py-1.5 outline-none focus:border-ink-3 text-right placeholder:text-ink-4"
+            />
+            <Hand size={11} className="text-ink-4" />
+          </span>
+        )}
+      </div>
+      {timed && waitOpen && (
+        <div className="flex items-center gap-2 mt-1.5 ml-[30px] bg-blue-soft rounded-lg px-2.5 py-1.5">
+          <Hourglass size={12} className="text-blue-text shrink-0" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.04em] text-blue-text shrink-0">then wait</span>
+          <input
+            type="number" min={1} step={1} inputMode="numeric"
+            defaultValue={step.wait?.minutes ?? ''}
+            placeholder="min"
+            onBlur={e => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n) && n >= 1 && n !== step.wait?.minutes) onPatch({ wait: { ...(step.wait ?? {}), minutes: n } }) }}
+            className="w-[64px] text-sm font-mono bg-paper border border-line rounded-md px-2 py-1 outline-none focus:border-ink-3 text-right placeholder:text-ink-4"
+          />
+          <span className="font-mono text-[10px] text-blue-text">min</span>
+          <input
+            defaultValue={step.wait?.note ?? ''}
+            placeholder="e.g. uncovered in the walk-in"
+            onBlur={e => { const note = e.target.value.trim() || undefined; if (note !== step.wait?.note) onPatch({ wait: { minutes: step.wait?.minutes ?? 1, ...(note ? { note } : {}) } }) }}
+            className="flex-1 min-w-0 text-[12px] bg-transparent border-0 border-b border-blue-text/30 py-0.5 outline-none placeholder:text-blue-text/60"
+          />
+          <button type="button" onClick={() => { setWaitOpen(false); if (step.wait) onPatch({ wait: undefined }) }} aria-label="Remove wait"
+            className="w-6 h-6 rounded-md grid place-items-center text-blue-text hover:text-red-text"><X size={12} /></button>
+        </div>
+      )}
+      <div className="flex items-center gap-1 mt-1.5 pl-[30px]">
+        {!phaseOpen && (
+          <button type="button" onClick={() => setPhaseOpen(true)} className="font-mono text-[10px] uppercase tracking-[0.04em] text-ink-4 hover:text-ink px-1.5 py-0.5 rounded">
+            + phase
+          </button>
+        )}
+        {timed && !waitOpen && index < total - 1 && (
+          <button type="button" onClick={() => setWaitOpen(true)} className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.04em] text-blue-text hover:text-ink px-1.5 py-0.5 rounded">
+            <Hourglass size={10} /> + wait after this
+          </button>
+        )}
+        {timed && !waitOpen && index === total - 1 && (
+          <span className="font-mono text-[10px] text-ink-4 px-1.5">last step — ends with the yield log</span>
+        )}
+        <span className="flex-1" />
         <button type="button" onClick={() => onMove(-1)} disabled={index === 0} aria-label="Move up"
-          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-ink disabled:opacity-30">
-          <ArrowUp size={12} />
-        </button>
+          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-ink disabled:opacity-30"><ArrowUp size={12} /></button>
         <button type="button" onClick={() => onMove(1)} disabled={index === total - 1} aria-label="Move down"
-          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-ink disabled:opacity-30">
-          <ArrowDown size={12} />
-        </button>
-        <button type="button" onClick={onRemove} aria-label="Remove stage"
-          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-red-text">
-          <X size={13} />
-        </button>
+          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-ink disabled:opacity-30"><ArrowDown size={12} /></button>
+        <button type="button" onClick={onRemove} aria-label="Remove step"
+          className="w-6 h-6 rounded-md grid place-items-center text-ink-3 hover:text-red-text"><X size={13} /></button>
       </div>
     </li>
   )
 }
 
-function StagesEditor({ stages, onSave, onClear }: {
-  stages: RecipeStage[] | null
-  onSave: (stages: RecipeStage[]) => void
-  onClear: () => void
+function MethodEditor({ method, timed, onSave }: {
+  /** The saved method, or the one the legacy steps/stages imply (seed only — saved on the first edit). */
+  method: MethodStep[]
+  timed: boolean
+  onSave: (method: MethodStep[]) => void
 }) {
-  const [draft, setDraft] = useState<RecipeStage[]>(stages ?? [])
+  const [draft, setDraft] = useState<MethodStep[]>(method)
   const [err, setErr] = useState<string | null>(null)
-  // Re-seed only when the SERVER value changes (a reload, another save landing) —
-  // never on our own optimistic echo, which would drop an in-flight invalid edit.
-  const seeded = useRef(JSON.stringify(stages ?? []))
+  // Re-seed only when the SERVER value changes — never on our own optimistic
+  // echo, which would drop an in-flight invalid edit.
+  const seeded = useRef(JSON.stringify(method))
   useEffect(() => {
-    const next = JSON.stringify(stages ?? [])
-    if (next !== seeded.current) { seeded.current = next; setDraft(stages ?? []); setErr(null) }
-  }, [stages])
+    const next = JSON.stringify(method)
+    if (next !== seeded.current) { seeded.current = next; setDraft(method); setErr(null) }
+  }, [method])
 
-  const commit = (next: RecipeStage[]) => {
+  const commit = (next: MethodStep[]) => {
     setDraft(next)
-    if (next.length === 0) { setErr(null); seeded.current = '[]'; onClear(); return }
-    const v = validateStages(next)
-    if (v.ok) { setErr(null); seeded.current = JSON.stringify(v.stages); onSave(v.stages) }
+    const v = validateMethod(next)
+    if (v.ok) { setErr(null); seeded.current = JSON.stringify(v.method); onSave(v.method) }
     else setErr(v.error)
   }
-  const patch = (i: number, p: Partial<RecipeStage>) => commit(draft.map((st, j) => (j === i ? { ...st, ...p } : st)))
+  const patch = (i: number, p: Partial<MethodStep>) => commit(draft.map((st, j) => {
+    if (j !== i) return st
+    const next = { ...st, ...p }
+    // `undefined` means "remove the field" — keep the row clean for the validator.
+    ;(Object.keys(next) as Array<keyof MethodStep>).forEach(k => { if (next[k] === undefined) delete next[k] })
+    return next
+  }))
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir
     if (j < 0 || j >= draft.length) return
@@ -988,25 +1048,28 @@ function StagesEditor({ stages, onSave, onClear }: {
     commit(next)
   }
   const remove = (i: number) => commit(draft.filter((_, j) => j !== i))
-  const add = () => commit([...draft, { key: newStageKey(), name: `Stage ${draft.length + 1}`, kind: 'ACTIVE', minutes: 0 }])
+  const add = () => commit([...draft, { key: newStepKey(), text: `Step ${draft.length + 1}` }])
+  const phaseSuggestions = [...new Set(draft.map(s => s.phase).filter((x): x is string => !!x))]
 
   return (
     <div>
       {draft.length > 0 && (
         <ol className="flex flex-col gap-2">
           {draft.map((st, i) => (
-            <StageRow key={st.key} stage={st} index={i} total={draft.length}
+            <MethodRow key={st.key} step={st} index={i} total={draft.length} timed={timed} phaseSuggestions={phaseSuggestions}
               onPatch={p => patch(i, p)} onMove={dir => move(i, dir)} onRemove={() => remove(i)} />
           ))}
         </ol>
       )}
       {err && <div className="mt-2 text-[12px] text-red-text">{err} — not saved yet.</div>}
       <button type="button" onClick={add} className="mt-2 text-[12.5px] font-medium text-ink-2 hover:text-ink">
-        + Add stage
+        + Add step
       </button>
       {draft.length === 0 && (
         <p className="font-mono text-[10.5px] text-ink-4 mt-1 tracking-[0.01em]">
-          For a method that spans days (cure, proof, hang): each stage is hands-on or unattended. Unstaged recipes are one job carrying the timing above.
+          {timed
+            ? 'Write the method as you would tell a cook. Where the job sits — a cure, a proof, a smoke — add a wait after that step; the run sheet works out the rest.'
+            : 'Write the method as you would tell a cook.'}
         </p>
       )}
     </div>
@@ -1537,81 +1600,64 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
             )}
           </div>
 
-          {/* Method steps — ordered, persists via patchRecipe */}
-          <div className="mt-5">
-            <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">Method · steps</div>
-            <ol className="flex flex-col gap-2">
-              {(recipe.steps ?? []).map((s, i) => (
-                <li key={i} className="flex gap-2 items-start">
-                  <span className="font-mono text-[11px] font-semibold text-gold-2 bg-gold-soft w-[22px] h-[22px] rounded-[7px] grid place-items-center shrink-0">{i + 1}</span>
-                  <textarea
-                    defaultValue={s}
-                    rows={2}
-                    onBlur={e => {
-                      const next = [...(recipe.steps ?? [])]; next[i] = e.target.value
-                      patchRecipe({ steps: next.filter(x => x.trim() !== '') })
-                    }}
-                    className="flex-1 text-sm border border-line rounded-lg px-3 py-2 resize-y outline-none focus:border-ink-3"
-                  />
-                  <button
-                    onClick={() => patchRecipe({ steps: (recipe.steps ?? []).filter((_, j) => j !== i) })}
-                    className="text-ink-3 hover:text-red-text px-2 py-1"
-                    aria-label="Remove step"
-                  >✕</button>
-                </li>
-              ))}
-            </ol>
-            <button
-              onClick={() => patchRecipe({ steps: [...(recipe.steps ?? []), ''] })}
-              className="mt-2 text-[12.5px] font-medium text-ink-2 hover:text-ink"
-            >+ Add step</button>
-          </div>
-
-          {/* Timing + stages — prep recipes only. With a stage chain the hands-on /
-              unattended totals are DERIVED from it (read-only, "from stages"); without
-              one the recipe carries its own two numbers, which the run sheet counts
-              back from (PrepItem overrides sit above either). */}
-          {!isMenu && (() => {
-            const chain = recipe.stages && recipe.stages.length > 0 ? recipe.stages : null
+          {/* One Method, with waits — replaces the free-text steps and the stage chain.
+              The saved `method` seeds the editor; a recipe that still carries only
+              the legacy `steps` / `stages` is shown converted and saved as a method
+              on the first edit. The run-sheet chain derives from it. */}
+          {(() => {
+            const saved = parseMethod(recipe.method)
+            const seed = saved ?? legacyToMethod(resolveStages({ stages: recipe.stages }), recipe.steps) ?? []
+            const chain = resolveStages(recipe)
             const totals = chain ? stageTotals(chain) : null
+            const mt = methodTotals(seed)
+            const untimedMethod = !chain && (mt.active > 0 || mt.passive > 0)
             return (
-              <div className="mt-5">
-                <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">Timing</div>
-                {totals ? (
-                  <div className="flex items-center gap-4 text-[12.5px] text-ink-2 bg-bg rounded-lg px-3 py-2">
-                    <span>Hands-on <b className="font-mono text-ink">{fmtMins(totals.active)}</b></span>
-                    <span>Unattended <b className="font-mono text-ink">{fmtMins(totals.passive)}</b></span>
-                    <span className="ml-auto font-mono text-[10px] text-ink-4 uppercase tracking-[0.04em]">from stages</span>
+              <>
+                <div className="mt-5">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">
+                    Method{seed.length ? ` · ${seed.length} step${seed.length === 1 ? '' : 's'}` : ''}
+                    {!saved && seed.length > 0 && <span className="text-gold-2 normal-case tracking-normal"> · from the old steps — edit to keep</span>}
                   </div>
-                ) : (
-                  <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
-                    <label className="flex flex-col gap-1">
-                      <span className="font-mono text-[9.5px] uppercase text-ink-4">Hands-on · min</span>
-                      <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.activeMinutes ?? ''}
-                        onBlur={e => { const v = e.target.value; if (v !== String(recipe.activeMinutes ?? '')) patchRecipe({ activeMinutes: v }) }}
-                        className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended · min</span>
-                      <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.passiveMinutes ?? ''}
-                        onBlur={e => { const v = e.target.value; if (v !== String(recipe.passiveMinutes ?? '')) patchRecipe({ passiveMinutes: v }) }}
-                        className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended is…</span>
-                      <input defaultValue={recipe.passiveNote ?? ''} placeholder="rest, cool, proof…"
-                        onBlur={e => { if (e.target.value !== (recipe.passiveNote ?? '')) patchRecipe({ passiveNote: e.target.value || null }) }}
-                        className="border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ink-3" />
-                    </label>
+                  <MethodEditor method={seed} timed={!isMenu} onSave={method => patchRecipe({ method })} />
+                </div>
+
+                {!isMenu && (
+                  <div className="mt-5">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">Timing</div>
+                    {totals ? (
+                      <div className="flex items-center gap-4 text-[12.5px] text-ink-2 bg-bg rounded-lg px-3 py-2">
+                        <span>Hands-on <b className="font-mono text-ink">{fmtMins(totals.active)}</b></span>
+                        <span>Unattended <b className="font-mono text-ink">{fmtMins(totals.passive)}</b></span>
+                        <span className="ml-auto font-mono text-[10px] text-ink-4 uppercase tracking-[0.04em]">from the method</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
+                        <label className="flex flex-col gap-1">
+                          <span className="font-mono text-[9.5px] uppercase text-ink-4">Hands-on · min</span>
+                          <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.activeMinutes ?? ''}
+                            onBlur={e => { const v = e.target.value; if (v !== String(recipe.activeMinutes ?? '')) patchRecipe({ activeMinutes: v }) }}
+                            className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended · min</span>
+                          <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.passiveMinutes ?? ''}
+                            onBlur={e => { const v = e.target.value; if (v !== String(recipe.passiveMinutes ?? '')) patchRecipe({ passiveMinutes: v }) }}
+                            className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended is…</span>
+                          <input defaultValue={recipe.passiveNote ?? ''} placeholder="rest, cool, proof…"
+                            onBlur={e => { if (e.target.value !== (recipe.passiveNote ?? '')) patchRecipe({ passiveNote: e.target.value || null }) }}
+                            className="border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ink-3" />
+                        </label>
+                      </div>
+                    )}
+                    {untimedMethod && (
+                      <p className="font-mono text-[10.5px] text-ink-4 mt-1.5">The method has timing but has not been saved yet — edit a step to keep it.</p>
+                    )}
                   </div>
                 )}
-                <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mt-4 mb-2">Stages{chain ? ` · ${chain.length}` : ''}</div>
-                <StagesEditor
-                  stages={chain}
-                  onSave={stages => patchRecipe({ stages })}
-                  onClear={() => patchRecipe({ stages: null })}
-                />
-              </div>
+              </>
             )
           })()}
 

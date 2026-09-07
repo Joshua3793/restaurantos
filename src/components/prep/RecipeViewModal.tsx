@@ -6,6 +6,9 @@
 import { useEffect, useState } from 'react'
 import { X, Minus, Plus, ChefHat, AlertTriangle } from 'lucide-react'
 import { computeBakersPercents } from '@/lib/bakers-percent'
+import { parseMethod, legacyToMethod } from '@/lib/recipe-method'
+import { resolveStages } from '@/lib/prep-stages'
+import { MethodView } from '@/components/recipes/MethodView'
 
 interface Ingredient {
   id: string
@@ -23,6 +26,10 @@ interface Recipe {
   baseYieldQty: number
   yieldUnit: string
   notes: string | null
+  /** One Method, with waits (Json) — and the legacy steps / stages it may still carry. */
+  method?: unknown
+  steps?: string[]
+  stages?: unknown
   allergens: string[]
   totalCost: number
   ingredients: Ingredient[]
@@ -249,6 +256,17 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
                   </div>
                 </div>
               )}
+
+              {/* Method — steps with their waits */}
+              {(() => {
+                const method = parseMethod(recipe.method) ?? legacyToMethod(resolveStages({ stages: recipe.stages }), recipe.steps)
+                return method ? (
+                  <div className="px-5 py-3 border-t border-line">
+                    <p className="text-xs text-ink-3 font-semibold uppercase tracking-wide mb-2">Method</p>
+                    <MethodView method={method} compact />
+                  </div>
+                ) : null
+              })()}
 
               {/* Notes */}
               {recipe.notes && (

@@ -54,7 +54,7 @@ export async function PUT(
   if (stageIndex !== undefined || status !== undefined) {
     const owner = await prisma.prepItem.findUnique({
       where: { id: existing.prepItemId },
-      select: { linkedRecipe: { select: { stages: true } } },
+      select: { linkedRecipe: { select: { stages: true, method: true } } },
     })
     const stages = resolveStages(owner?.linkedRecipe)
     const nowIso = new Date().toISOString()

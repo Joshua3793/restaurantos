@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     select: {
       id: true, estimatedPrepTime: true,
       activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
-      linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true, stages: true } },
+      linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true, stages: true, method: true } },
     },
   })
   if (draft.length === 0) return NextResponse.json({ error: 'Nothing on the list to post' }, { status: 400 })

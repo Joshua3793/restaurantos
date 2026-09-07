@@ -156,6 +156,8 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                     makeQty={makeQty}
                     onMakeQtyChange={onMakeQtyChange}
                     onOpenSubRecipe={onOpenSubRecipe}
+                    log={item.todayLog ?? null}
+                    onStage={onStage && view !== 'smart' && r.status === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
                   />
                 </div>
               )}

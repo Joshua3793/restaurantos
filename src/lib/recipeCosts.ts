@@ -55,8 +55,10 @@ export interface RecipeWithCost {
   activeMinutes: number | null
   passiveMinutes: number | null
   passiveNote: string | null
-  /** RecipeStage[] as stored (Json) — null when the recipe is unstaged. */
+  /** RecipeStage[] as stored (Json, legacy) — null when the recipe is unstaged. */
   stages: unknown
+  /** MethodStep[] as stored (Json) — one Method, with waits; null when none authored. */
+  method: unknown
   createdAt: Date
   updatedAt: Date
   ingredients: IngredientWithCost[]
@@ -301,6 +303,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     passiveMinutes: recipe.passiveMinutes,
     passiveNote: recipe.passiveNote,
     stages: recipe.stages,
+    method: recipe.method,
     createdAt: recipe.createdAt,
     updatedAt: recipe.updatedAt,
     ingredients,

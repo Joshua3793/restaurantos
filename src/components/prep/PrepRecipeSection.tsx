@@ -1,12 +1,16 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Plus } from 'lucide-react'
+import { Minus, Plus, Hourglass, ArrowRight } from 'lucide-react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
 import { convertQty } from '@/lib/uom'
-import { stepFactor } from '@/lib/prep-runsheet'
+import { stepFactor, fmtMins, fmtClock } from '@/lib/prep-runsheet'
 import { computeBakersPercents } from '@/lib/bakers-percent'
+import { chainBlocks, type MethodStep } from '@/lib/recipe-method'
+import { stageElapsed } from '@/lib/prep-stages'
+import type { StageLogShape } from '@/lib/prep-plan'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 
 /**
  * The cook-along body — upscale slider, scaled ingredient check-off, and tickable
@@ -29,6 +33,10 @@ interface PrepRecipeSectionProps {
   onMakeQtyChange: (qty: number) => void
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe?: (recipeId: string, name: string) => void
+  /** The item's live log — lights the current block of a timed method and shows its wait clock. */
+  log?: StageLogShape | null
+  /** Move the live log to a chain index. Ticking the last step of the current block calls it (the Next tap). */
+  onStage?: (stageIndex: number) => void
 }
 
 const SLIDER_MIN = 0.25
@@ -153,23 +161,57 @@ interface StepRowProps {
   text: string
   done: boolean
   onToggle: () => void
+  /** 'now' = in the current block of a job in flight; 'past' = a block already advanced past. */
+  state?: 'past' | 'now' | 'todo'
+  /** hands-on minutes on the step, when the method carries them */
+  minutes?: number
+  /** the last step of the current block: ticking it is the Next tap */
+  advances?: boolean
 }
 
-function StepRow({ index, text, done, onToggle }: StepRowProps) {
+function StepRow({ index, text, done, onToggle, state, minutes, advances }: StepRowProps) {
+  const settled = done || state === 'past'
   return (
     <li
       onClick={onToggle}
-      className="flex gap-3.5 items-start px-2.5 py-3 rounded-[10px] cursor-pointer hover:bg-bg"
+      className={`flex gap-3.5 items-start px-2.5 py-3 rounded-[10px] cursor-pointer hover:bg-bg ${state === 'now' ? 'bg-gold-soft/60' : ''} ${state === 'past' ? 'opacity-60' : ''}`}
     >
       <span
         className={`w-[27px] h-[27px] rounded-lg font-mono text-xs font-semibold grid place-items-center flex-shrink-0 ${
-          done ? 'bg-green text-white' : 'bg-gold-soft text-gold-2'
+          settled ? 'bg-green text-white' : state === 'now' ? 'bg-ink text-gold' : 'bg-gold-soft text-gold-2'
         }`}
       >
-        {done ? <IcCheck size={14} strokeWidth={3} /> : index + 1}
+        {settled ? <IcCheck size={14} strokeWidth={3} /> : index + 1}
       </span>
-      <span className={`text-[13.5px] leading-[1.5] pt-0.5 ${done ? 'text-ink-4 line-through' : 'text-ink-2'}`}>
+      <span className={`flex-1 min-w-0 text-[13.5px] leading-[1.5] pt-0.5 whitespace-pre-wrap ${settled ? 'text-ink-4 line-through' : 'text-ink-2'}`}>
         {text}
+        {minutes ? <span className="font-mono text-[10.5px] text-ink-4 ml-2 whitespace-nowrap no-underline">{fmtMins(minutes)}</span> : null}
+        {advances && !settled && (
+          <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.04em] text-gold-2 ml-2 whitespace-nowrap">
+            tick to move on <ArrowRight size={10} />
+          </span>
+        )}
+      </span>
+    </li>
+  )
+}
+
+/** The wait after a step: muted normally; the live clock when the job is in that wait. */
+function WaitRow({ step, live, enteredAt, nowMs }: { step: MethodStep; live: boolean; enteredAt?: string | null; nowMs: number }) {
+  const w = step.wait!
+  const elapsed = live && enteredAt ? stageElapsed({ stageEnteredAt: enteredAt }, nowMs) : 0
+  const ready = live && elapsed >= w.minutes
+  const since = enteredAt ? new Date(enteredAt) : null
+  return (
+    <li className={`flex items-center gap-2 ml-[42px] mr-2.5 my-0.5 rounded-lg px-2.5 py-1.5 font-mono text-[10.5px] ${
+      live ? (ready ? 'bg-green-soft text-green-text' : 'bg-blue-soft text-blue-text') : 'text-blue-text/80'
+    }`}>
+      <Hourglass size={11} className="shrink-0" />
+      <span className="min-w-0">
+        {live
+          ? `${ready ? 'ready' : 'resting'} · ${fmtMins(elapsed)} of ${fmtMins(w.minutes)}${since ? ` · since ${fmtClock(since.getHours() * 60 + since.getMinutes())}` : ''}`
+          : `wait ${fmtMins(w.minutes)}`}
+        {w.note ? ` · ${w.note}` : ''}
       </span>
     </li>
   )
@@ -183,9 +225,12 @@ export default function PrepRecipeSection({
   makeQty,
   onMakeQtyChange,
   onOpenSubRecipe,
+  log,
+  onStage,
 }: PrepRecipeSectionProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set())
   const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set())
+  const { nowMs } = useNowMinute()
 
   // Reset the cook-along whenever the recipe changes: clear check-off state. The host owns
   // makeQty and seeds it with the item's suggested make (already in the item's unit), so we
@@ -236,6 +281,29 @@ export default function PrepRecipeSection({
   const stepTotal = recipe.steps.length
   const stepDone = doneSteps.size
 
+  // A timed method: which chain index each step belongs to, and where the live
+  // log is. Steps in blocks the job has advanced past read done; the current
+  // block is lit; ticking its LAST step is the Next tap (nothing advances on
+  // its own — the cook does it, here or on the run-sheet row).
+  const method = recipe.method ?? null
+  const blocks = method ? chainBlocks(method) : []
+  const chainIndexOf = new Map<string, number>()
+  for (const b of blocks) for (const k of b.stepKeys) if (!chainIndexOf.has(k)) chainIndexOf.set(k, b.index)
+  const inFlight = log?.status === 'IN_PROGRESS' && log.stageIndex != null && blocks.length > 0
+  const current = inFlight ? (log!.stageIndex as number) : -1
+  const currentBlock = inFlight ? blocks[current] ?? null : null
+  const stepState = (key: string): 'past' | 'now' | 'todo' | undefined => {
+    if (!inFlight) return undefined
+    const ci = chainIndexOf.get(key)
+    if (ci == null) return undefined
+    if (ci < current) return 'past'
+    if (ci === current) return 'now'
+    return 'todo'
+  }
+  const lastStepOfCurrentBlock = currentBlock && currentBlock.kind === 'ACTIVE'
+    ? currentBlock.stepKeys[currentBlock.stepKeys.length - 1]
+    : null
+
   const toggleIngredient = (idx: number) =>
     setCheckedIngredients((prev) => {
       const next = new Set(prev)
@@ -251,6 +319,14 @@ export default function PrepRecipeSection({
       else next.add(idx)
       return next
     })
+  // Ticking the last step of the current hands-on block moves the job on —
+  // into the wait that follows it (a rest row on the ladder) or the next block.
+  const tickMethodStep = (idx: number, key: string) => {
+    if (onStage && inFlight && key === lastStepOfCurrentBlock && !doneSteps.has(idx) && current < blocks.length - 1) {
+      onStage(current + 1)
+    }
+    toggleStep(idx)
+  }
 
   const toggleAllIngredients = () =>
     setCheckedIngredients(allChecked ? new Set() : new Set(ingredients.map((_, i) => i)))
@@ -394,9 +470,33 @@ export default function PrepRecipeSection({
             </span>
           </div>
           <ol className="m-0 p-0 list-none flex flex-col gap-[3px]">
-            {recipe.steps.map((step, idx) => (
-              <StepRow key={idx} index={idx} text={step} done={doneSteps.has(idx)} onToggle={() => toggleStep(idx)} />
-            ))}
+            {method
+              ? (() => {
+                  let phase: string | undefined
+                  return method.map((step, idx) => {
+                    const newPhase = step.phase && step.phase !== phase ? step.phase : null
+                    if (step.phase) phase = step.phase
+                    const st = stepState(step.key)
+                    const waitIndex = step.wait ? (chainIndexOf.get(step.key) ?? -1) + 1 : -1
+                    const waitLive = inFlight && step.wait != null && waitIndex === current
+                    return (
+                      <li key={step.key} className="list-none">
+                        {newPhase && (
+                          <div className={`font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 px-2.5 ${idx === 0 ? 'pt-1' : 'pt-3'} pb-1`}>{newPhase}</div>
+                        )}
+                        <ol className="m-0 p-0 list-none">
+                          <StepRow index={idx} text={step.text} done={doneSteps.has(idx)} state={st} minutes={step.minutes}
+                            advances={!!onStage && inFlight && step.key === lastStepOfCurrentBlock}
+                            onToggle={() => tickMethodStep(idx, step.key)} />
+                          {step.wait && <WaitRow step={step} live={waitLive} enteredAt={waitLive ? (log?.stageEnteredAt ?? null) : null} nowMs={nowMs} />}
+                        </ol>
+                      </li>
+                    )
+                  })
+                })()
+              : recipe.steps.map((step, idx) => (
+                  <StepRow key={idx} index={idx} text={step} done={doneSteps.has(idx)} onToggle={() => toggleStep(idx)} />
+                ))}
           </ol>
         </div>
       )}
