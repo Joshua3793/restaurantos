@@ -12,26 +12,12 @@ import {
   Link2, Package, ExternalLink, Printer, Star, Share2,
   Hand, Hourglass, ArrowUp, ArrowDown,
 } from 'lucide-react'
-import { stageTotals, resolveStages, type RecipeStage } from '@/lib/prep-stages'
-import { validateMethod, parseMethod, legacyToMethod, newStepKey, methodTotals, type MethodStep } from '@/lib/recipe-method'
-import { fmtMins } from '@/lib/prep-runsheet'
+import { resolveStages, type RecipeStage } from '@/lib/prep-stages'
+import { validateMethod, parseMethod, legacyToMethod, newStepKey, type MethodStep } from '@/lib/recipe-method'
 import { MethodView } from '@/components/recipes/MethodView'
 import { AllergenBadges } from '@/components/AllergenBadges'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
-
-// ─── Markdown renderer (bold + italic only) ───────────────────────────────────
-function renderMarkdown(text: string) {
-  return text.split('\n').map((line, li, lines) => {
-    const parts = line.split(/(\*\*[\s\S]+?\*\*|\*[^*]+?\*|_[^_]+?_)/)
-    const nodes = parts.map((part, i) => {
-      if (/^\*\*[\s\S]+?\*\*$/.test(part)) return <strong key={i}>{part.slice(2, -2)}</strong>
-      if (/^\*[^*]+?\*$/.test(part) || /^_[^_]+?_$/.test(part)) return <em key={i}>{part.slice(1, -1)}</em>
-      return part
-    })
-    return <span key={li}>{nodes}{li < lines.length - 1 && <br />}</span>
-  })
-}
 
 // ─── Dimension-conflict surfaces ───────────────────────────────────────────────
 // An ingredient whose unit is a different physical dimension than the item's base
@@ -594,7 +580,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
             )}
           </div>
 
-          {/* Method — the steps with their waits, then the free-text notes */}
+          {/* Method — the steps with their waits */}
           {(() => {
             const method = parseMethod(recipe.method) ?? legacyToMethod(resolveStages({ stages: recipe.stages }), recipe.steps)
             return method ? (
@@ -604,12 +590,6 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
               </div>
             ) : null
           })()}
-          {recipe.notes && (
-            <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-4 mb-2">Notes</h2>
-              <p className="text-sm text-ink-2 leading-relaxed">{renderMarkdown(recipe.notes)}</p>
-            </div>
-          )}
 
           {/* Footer */}
           <div className="mt-8 pt-4 border-t border-line flex justify-between text-xs text-ink-4 print:block">
@@ -1089,7 +1069,6 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
   const [searchQ, setSearchQ] = useState('')
   const [searchResults, setSearchResults] = useState<IngredientSearchResult[]>([])
   const [showSearch, setShowSearch] = useState(false)
-  const [showNotes, setShowNotes] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showSaveScale, setShowSaveScale] = useState(false)
@@ -1581,86 +1560,6 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
             </div>
           )}
 
-          <div>
-            <button onClick={() => setShowNotes(s => !s)} className="flex items-center gap-1.5 text-xs text-ink-3 hover:text-ink-2">
-              {showNotes ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              Notes {recipe.notes && <span className="text-blue">•</span>}
-            </button>
-            {showNotes && (
-              <div className="mt-2 space-y-2">
-                {recipe.notes && (
-                  <div className="text-sm text-ink-2 leading-relaxed px-3 py-2 bg-bg rounded-lg">
-                    {renderMarkdown(recipe.notes)}
-                  </div>
-                )}
-                <textarea defaultValue={recipe.notes ?? ''} onBlur={e => patchRecipe({ notes: e.target.value || null })} rows={3}
-                  className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold resize-none"
-                  placeholder="Recipe notes, storage instructions…" />
-              </div>
-            )}
-          </div>
-
-          {/* One Method, with waits — replaces the free-text steps and the stage chain.
-              The saved `method` seeds the editor; a recipe that still carries only
-              the legacy `steps` / `stages` is shown converted and saved as a method
-              on the first edit. The run-sheet chain derives from it. */}
-          {(() => {
-            const saved = parseMethod(recipe.method)
-            const seed = saved ?? legacyToMethod(resolveStages({ stages: recipe.stages }), recipe.steps) ?? []
-            const chain = resolveStages(recipe)
-            const totals = chain ? stageTotals(chain) : null
-            const mt = methodTotals(seed)
-            const untimedMethod = !chain && (mt.active > 0 || mt.passive > 0)
-            return (
-              <>
-                <div className="mt-5">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">
-                    Method{seed.length ? ` · ${seed.length} step${seed.length === 1 ? '' : 's'}` : ''}
-                    {!saved && seed.length > 0 && <span className="text-gold-2 normal-case tracking-normal"> · from the old steps — edit to keep</span>}
-                  </div>
-                  <MethodEditor method={seed} timed={!isMenu} onSave={method => patchRecipe({ method })} />
-                </div>
-
-                {!isMenu && (
-                  <div className="mt-5">
-                    <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">Timing</div>
-                    {totals ? (
-                      <div className="flex items-center gap-4 text-[12.5px] text-ink-2 bg-bg rounded-lg px-3 py-2">
-                        <span>Hands-on <b className="font-mono text-ink">{fmtMins(totals.active)}</b></span>
-                        <span>Unattended <b className="font-mono text-ink">{fmtMins(totals.passive)}</b></span>
-                        <span className="ml-auto font-mono text-[10px] text-ink-4 uppercase tracking-[0.04em]">from the method</span>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
-                        <label className="flex flex-col gap-1">
-                          <span className="font-mono text-[9.5px] uppercase text-ink-4">Hands-on · min</span>
-                          <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.activeMinutes ?? ''}
-                            onBlur={e => { const v = e.target.value; if (v !== String(recipe.activeMinutes ?? '')) patchRecipe({ activeMinutes: v }) }}
-                            className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended · min</span>
-                          <input type="number" min={0} step={1} inputMode="numeric" defaultValue={recipe.passiveMinutes ?? ''}
-                            onBlur={e => { const v = e.target.value; if (v !== String(recipe.passiveMinutes ?? '')) patchRecipe({ passiveMinutes: v }) }}
-                            className="border border-line rounded-lg px-2.5 py-1.5 text-sm font-mono outline-none focus:border-ink-3" />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                          <span className="font-mono text-[9.5px] uppercase text-ink-4">Unattended is…</span>
-                          <input defaultValue={recipe.passiveNote ?? ''} placeholder="rest, cool, proof…"
-                            onBlur={e => { if (e.target.value !== (recipe.passiveNote ?? '')) patchRecipe({ passiveNote: e.target.value || null }) }}
-                            className="border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ink-3" />
-                        </label>
-                      </div>
-                    )}
-                    {untimedMethod && (
-                      <p className="font-mono text-[10.5px] text-ink-4 mt-1.5">The method has timing but has not been saved yet — edit a step to keep it.</p>
-                    )}
-                  </div>
-                )}
-              </>
-            )
-          })()}
-
           {!isMenu && (
             <div className="bg-paper border border-line rounded-[12px] p-5">
               <div className="flex items-center justify-between mb-3">
@@ -1884,6 +1783,25 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
               </div>
             )}
           </div>
+
+          {/* One Method, with waits — sits BELOW the ingredients so they stay in view
+              while the method is edited. The saved `method` seeds the editor; a recipe
+              that still carries only the legacy `steps` / `stages` is shown converted
+              and saved as a method on the first edit. Timing lives on the steps —
+              there is no separate timing section. */}
+          {(() => {
+            const saved = parseMethod(recipe.method)
+            const seed = saved ?? legacyToMethod(resolveStages({ stages: recipe.stages }), recipe.steps) ?? []
+            return (
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 mb-2">
+                  Method{seed.length ? ` · ${seed.length} step${seed.length === 1 ? '' : 's'}` : ''}
+                  {!saved && seed.length > 0 && <span className="text-gold-2 normal-case tracking-normal"> · from the old steps — edit to keep</span>}
+                </div>
+                <MethodEditor method={seed} timed={!isMenu} onSave={method => patchRecipe({ method })} />
+              </div>
+            )
+          })()}
         </div>
     </EditorDrawer>
 
