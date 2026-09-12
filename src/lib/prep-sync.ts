@@ -31,8 +31,8 @@ export async function resolvePrepUnit(
 }
 
 /**
- * Ensure the PrepItem for a PREP recipe exists and matches the recipe
- * (name / category / unit / linked inventory item / active state), and that the recipe's
+ * Ensure the PrepItem for a PREP recipe exists and matches the recipe (name / category /
+ * unit / linked inventory item / revenue center / active state), and that the recipe's
  * category is present in PrepSettings.categories (the recipe-managed category list).
  * Single entry point for prep task-row sync — reused by the recipe-mutation hooks and the
  * headless bulk endpoint.
@@ -48,6 +48,7 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
     select: {
       id: true, name: true, type: true, isActive: true, yieldUnit: true,
       inventoryItemId: true,
+      revenueCenterId: true,
       category: { select: { name: true } },
       prepItems: { select: { id: true }, take: 1 },
     },
@@ -74,6 +75,7 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
         category: categoryName,
         unit: recipe.yieldUnit,
         linkedInventoryItemId: recipe.inventoryItemId ?? null,
+        revenueCenterId: recipe.revenueCenterId ?? null,
         isActive: true,
       },
     })
@@ -83,6 +85,7 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
         name: recipe.name,
         linkedRecipeId: recipe.id,
         linkedInventoryItemId: recipe.inventoryItemId ?? null,
+        revenueCenterId: recipe.revenueCenterId ?? null,
         unit: recipe.yieldUnit,
         category: categoryName,
         parLevel: 0,

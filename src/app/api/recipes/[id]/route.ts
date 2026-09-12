@@ -95,7 +95,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   // Keep the PrepItem task-row in step when its source fields change — including
   // isActive, so deactivating/reactivating a recipe flows to its prep task row.
-  const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined || isActive !== undefined
+  const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined || isActive !== undefined || revenueCenterId !== undefined
   if (prepItemAffecting) await syncPrepItemFromRecipe(params.id).catch(e => console.error('[recipe PATCH] prep-item sync', e))
 
   const updated = await fetchRecipeWithCost(params.id)

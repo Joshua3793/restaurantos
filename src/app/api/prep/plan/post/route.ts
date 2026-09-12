@@ -48,7 +48,6 @@ export async function POST(req: NextRequest) {
     },
     select: {
       id: true, estimatedPrepTime: true,
-      activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
       linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true, stages: true, method: true } },
     },
   })

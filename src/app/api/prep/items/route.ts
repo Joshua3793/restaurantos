@@ -1,21 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { numOrNull, urgencyToPriority, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
+import { urgencyToPriority, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
 import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
-import { convertQty, UnitError } from '@/lib/uom'
-import { resolvePrepUnit } from '@/lib/prep-sync'
+import { convertQty } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
-import { resolveScopedRcIds, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
-import { resolveActive, resolvePassive, resolvePassiveNote, startByMinutes } from '@/lib/prep-runsheet'
+import { resolveScopedRcIds, resolveLocationRcIds } from '@/lib/rc-scope'
+import { resolveActive, resolvePassive, resolvePassiveNote } from '@/lib/prep-runsheet'
 import { prepDayRange, prepDaysAgo } from '@/lib/prep-day'
 import { NEWEST_LOG } from '@/lib/prep-plan-server'
-import { isLiveLog, pipelineOf, effectiveUrgency, cappedSuggestedQty } from '@/lib/prep-plan'
+import { isLiveLog, pipelineOf, effectiveUrgency, cappedSuggestedQty, stationLabel } from '@/lib/prep-plan'
 import { resolveStages } from '@/lib/prep-stages'
 import { cadenceStats, CADENCE_WINDOW_DAYS } from '@/lib/prep-cadence'
 
-// GET is dynamic by usage (it reads req.url), but declare it explicitly: if that
-// read is ever refactored away, a prerendered route would serve GET only and
-// return 405 for POST.
+// GET reads req.url so it is dynamic by usage; declare it so a refactor can never prerender it.
 export const dynamic = 'force-dynamic'
 
 const recipeInclude = {
@@ -85,13 +82,6 @@ export async function GET(req: NextRequest) {
       linkedRecipe: recipeInclude,
       linkedInventoryItem: {
         select: { id: true, itemName: true, stockOnHand: true, baseUnit: true },
-      },
-      targetService: {
-        // `isActive` + `endMinutes` are selected so the caller can tell a soft-removed
-        // service from a live one, and an underway service from an upcoming one.
-        // Without them a service removed in the RC editor kept showing up on the run
-        // sheet for as long as any PrepItem still pointed at it.
-        select: { id: true, name: true, timeMinutes: true, endMinutes: true, isActive: true },
       },
       // The item's NEWEST log — `isLiveLog` below decides whether it still counts
       // as the item's live job. Not "today's log": the kitchen posts the next
@@ -207,12 +197,8 @@ export async function GET(req: NextRequest) {
     const priority     = urgencyToPriority(effectiveUrgency(planFields, now.getTime()))
     const suggestedQty = cappedSuggestedQty(planFields)
 
-    // Run-sheet fields: effective active/passive time (override > linked recipe),
-    // target service, computed start-by, and the cook assigned to today's log.
+    // Run-sheet timing: the recipe method, else the recipe's minute columns.
     const times = {
-      activeMinutesOverride: item.activeMinutesOverride,
-      passiveMinutesOverride: item.passiveMinutesOverride,
-      passiveNoteOverride: item.passiveNoteOverride,
       linkedRecipe: item.linkedRecipe
         ? { activeMinutes: item.linkedRecipe.activeMinutes, passiveMinutes: item.linkedRecipe.passiveMinutes, passiveNote: item.linkedRecipe.passiveNote, stages: item.linkedRecipe.stages, method: item.linkedRecipe.method }
         : null,
@@ -220,22 +206,6 @@ export async function GET(req: NextRequest) {
     const activeMinutes  = resolveActive(times)
     const passiveMinutes = resolvePassive(times)
     const passiveNote    = resolvePassiveNote(times)
-    // A soft-removed service (isActive:false) must not be NAMED anywhere — it is
-    // gone from the RC's configuration, so surfacing "for Dinner" on a row (or
-    // letting it drive a run-sheet caption) advertises a service that no longer
-    // exists. Null it out of the display payload.
-    const svc = item.targetService
-    const service = svc && svc.isActive
-      ? { id: svc.id, name: svc.name, timeMinutes: svc.timeMinutes, endMinutes: svc.endMinutes }
-      : null
-
-    // DELIBERATE: start-by still anchors on the stored target-service time even when
-    // that service is now inactive. `PrepItem.targetServiceId` semantics are out of
-    // scope here, and re-anchoring (or dropping the item) would silently reshuffle
-    // the board's ordering — or hide work — the moment a manager edits an RC. So the
-    // item keeps counting back from the time it was scheduled against; it just stops
-    // naming the retired service. Note this reads `svc`, NOT `service`.
-    const startByMin = startByMinutes(svc?.timeMinutes ?? null, activeMinutes, passiveMinutes)
     // The item's live job: its newest log, kept only while `isLiveLog` holds —
     // today's row, or an unfinished one the kitchen was posted earlier. Once the
     // newest row is a completed one from an earlier day, the item has no live job.
@@ -289,7 +259,10 @@ export async function GET(req: NextRequest) {
       id: item.id,
       name: item.name,
       category: item.category,
-      station: item.station,
+      // `stations` is the truth (empty = any station); `station` is the display
+      // label every row/tag reads — see stationLabel in prep-plan.ts.
+      stations: item.stations,
+      station: stationLabel(item),
       parLevel,
       unit: item.unit,
       minThreshold,
@@ -324,19 +297,12 @@ export async function GET(req: NextRequest) {
       pipeline,
       cadence,
       revenueCenterId: item.revenueCenterId ?? null,
-      // RAW overrides, alongside the resolved activeMinutes/passiveMinutes above.
-      // The edit form needs both: the resolved value is what the run sheet uses,
-      // but the form must edit the OVERRIDE — prefilling an inherited recipe time
-      // into the input would silently bake it in as an item-level override on save.
-      targetServiceId: item.targetServiceId ?? null,
-      activeMinutesOverride: item.activeMinutesOverride ?? null,
-      passiveMinutesOverride: item.passiveMinutesOverride ?? null,
-      passiveNoteOverride: item.passiveNoteOverride ?? null,
       activeMinutes,
       passiveMinutes,
       passiveNote,
-      service,
-      startByMinutes: startByMin,
+      // The step-aware start-by is computed on the run sheet by withLadderTimes;
+      // the API has no per-item anchor any more.
+      startByMinutes: null,
       assignedCook,
       todayLog: liveLog,
       createdAt: item.createdAt,
@@ -361,68 +327,4 @@ export async function GET(req: NextRequest) {
     console.error('[prep/items GET]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-}
-
-export async function POST(req: NextRequest) {
-  let user
-  try { user = await requireSession() }
-  catch (e) {
-    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
-    throw e
-  }
-
-  const body = await req.json()
-  const {
-    name, linkedRecipeId, linkedInventoryItemId,
-    category, station, parLevel, unit, minThreshold,
-    targetToday, shelfLifeDays, estimatedPrepTime, notes, manualPriorityOverride,
-    revenueCenterId,
-    // Run-sheet timing + target service — the inputs `startByMinutes` counts back
-    // from. See the PATCH sibling for why `0` must survive but `''` must not.
-    targetServiceId, activeMinutesOverride, passiveMinutesOverride, passiveNoteOverride,
-  } = body
-
-  if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
-
-  // Prep items may be Shared (revenueCenterId null) — only guard when one is set.
-  if (revenueCenterId) {
-    try { await assertRcWritable(user, revenueCenterId) }
-    catch (e) {
-      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
-      throw e
-    }
-  }
-
-  let resolvedUnit: string
-  try {
-    resolvedUnit = await resolvePrepUnit(linkedRecipeId || null, unit)
-  } catch (err) {
-    if (err instanceof UnitError) return NextResponse.json({ error: err.message }, { status: 400 })
-    throw err
-  }
-
-  const item = await prisma.prepItem.create({
-    data: {
-      name,
-      linkedRecipeId:        linkedRecipeId        || null,
-      linkedInventoryItemId: linkedInventoryItemId || null,
-      category:              category              || 'MISC',
-      station:               station               || null,
-      parLevel:              parLevel   ? parseFloat(String(parLevel))   : 0,
-      unit:                  resolvedUnit,
-      minThreshold:          minThreshold ? parseFloat(String(minThreshold)) : 0,
-      targetToday:           targetToday  ? parseFloat(String(targetToday))  : null,
-      shelfLifeDays:         shelfLifeDays ? parseInt(String(shelfLifeDays)) : null,
-      estimatedPrepTime:     estimatedPrepTime ? parseInt(String(estimatedPrepTime)) : null,
-      notes:                 notes || null,
-      manualPriorityOverride: manualPriorityOverride || null,
-      revenueCenterId:        revenueCenterId        || null,
-      targetServiceId:        targetServiceId        || null,
-      activeMinutesOverride:  numOrNull(activeMinutesOverride),
-      passiveMinutesOverride: numOrNull(passiveMinutesOverride),
-      passiveNoteOverride:    passiveNoteOverride    || null,
-    },
-  })
-
-  return NextResponse.json(item, { status: 201 })
 }
