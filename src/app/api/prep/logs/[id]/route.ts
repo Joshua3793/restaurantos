@@ -6,7 +6,8 @@ import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { markPlanDirty, prepDayStart, postedOpenWhere } from '@/lib/prep-plan-server'
 import { isOpenPrepStatus } from '@/lib/prep-plan'
 import { resolveStages, appendStageEvent, STAGE_DONE_KEY } from '@/lib/prep-stages'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { parseProgress } from '@/lib/prep-progress'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -25,7 +26,7 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex } = body
+  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex, progress } = body
   let { status } = body
 
   // Planner draft fields (planned qty, chef note, bucket order) are the chef's:
@@ -86,6 +87,22 @@ export async function PUT(
       }) as unknown as Prisma.InputJsonValue
     }
   }
+
+  // ── Cook-along progress ─────────────────────────────────────────────────
+  // Scale + ticked ingredients + ticked method steps ride this live log while
+  // the item is on the To Do (src/lib/prep-progress.ts). No LEAD gate — it is
+  // the cook's own working. `null` clears; a completion or skip clears it too,
+  // so a re-added item starts from a clean sheet. Stop (NOT_STARTED) keeps it.
+  let progressData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined
+  if (progress !== undefined) {
+    if (progress === null) progressData = Prisma.DbNull
+    else {
+      const parsed = parseProgress(progress)
+      if (!parsed) return NextResponse.json({ error: 'progress must be an object' }, { status: 400 })
+      progressData = parsed as unknown as Prisma.InputJsonValue
+    }
+  }
+  if (status !== undefined && (COMPLETION_STATUSES.has(status) || status === 'SKIPPED')) progressData = Prisma.DbNull
 
   // Require actualPrepQty when completing
   const qty =
@@ -158,6 +175,7 @@ export async function PUT(
       ...(listOrder     !== undefined && { listOrder }),
       ...stamp,
       ...stageStamp,
+      ...(progressData !== undefined && { progress: progressData }),
     },
   })
 

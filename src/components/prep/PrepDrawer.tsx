@@ -14,6 +14,7 @@ import { PREP_STATE_META, formatShortAge, PrepCountdown } from '@/lib/prep-utils
 import { whyLabel, effectiveUrgency, ANY_STATION } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
+import type { PrepProgress } from '@/lib/prep-progress'
 import { StageList } from '@/components/prep/StageList'
 
 interface PrepDrawerProps {
@@ -41,6 +42,9 @@ interface PrepDrawerProps {
   onRemove?: (item: PrepItemRich) => void
   /** Staged prep — move the live log to a stage (Back / Next in the stage list). */
   onStage?: (item: PrepItemRich, stageIndex: number) => void
+  /** Saved cook-along state for the item's live log (kept while it is on the To Do). */
+  progress?: PrepProgress | null
+  onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
 }
 
 type StateKey = 'not-started' | 'in-progress' | 'done' | 'skipped'
@@ -157,6 +161,8 @@ export default function PrepDrawer({
   onOpenSubRecipe,
   onRemove,
   onStage,
+  progress,
+  onProgressChange,
 }: PrepDrawerProps) {
   const open = item !== null
 
@@ -322,6 +328,8 @@ export default function PrepDrawer({
                     onOpenSubRecipe={onOpenSubRecipe}
                     log={item.todayLog ?? null}
                     onStage={onStage && stateKey === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
+                    progress={progress}
+                    onProgressChange={onProgressChange}
                   />
                 </div>
               )}

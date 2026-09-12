@@ -3,6 +3,7 @@ import type { RecipeStage, StageEvent } from '@/lib/prep-stages'
 import type { MethodStep } from '@/lib/recipe-method'
 import type { RestInfo, PipelineInfo } from '@/lib/prep-plan'
 import type { CadenceStats } from '@/lib/prep-cadence'
+import type { PrepProgress } from '@/lib/prep-progress'
 
 export type { PrepPriority }
 
@@ -40,6 +41,8 @@ export interface PrepLogData {
   stageEnteredAt?: string | null
   /** Append-only StageEvent[] (a correction is recorded, not erased). */
   stageHistory?: StageEvent[] | null
+  /** Cook-along progress kept while the item is on the To Do (see src/lib/prep-progress.ts). */
+  progress?: PrepProgress | null
 }
 
 /** Header row for a posted prep list (PrepPost) — the To Do provenance band. */
