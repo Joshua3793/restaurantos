@@ -195,10 +195,12 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
               {view !== 'smart' && r.status === 'in-progress' && (
                 <button className="btn" onClick={() => { onStatusChange(item, 'NOT_STARTED'); onClose() }}><span className="ic">↩</span> Stop</button>
               )}
-              <button className="btn" onClick={() => onEdit(item)}>
-                <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
-                Edit
-              </button>
+              {item.linkedRecipeId && (
+                <button className="btn" onClick={() => onEdit(item)} title="Par, shelf life and stations live on the recipe">
+                  <span className="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                  Edit recipe
+                </button>
+              )}
             </div>
           </>
         )}
