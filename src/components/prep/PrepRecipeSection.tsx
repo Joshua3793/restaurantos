@@ -10,6 +10,7 @@ import { computeBakersPercents } from '@/lib/bakers-percent'
 import { chainBlocks, type MethodStep } from '@/lib/recipe-method'
 import { stageElapsed } from '@/lib/prep-stages'
 import type { StageLogShape } from '@/lib/prep-plan'
+import { stepKeyAt, type PrepProgress } from '@/lib/prep-progress'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 
 /**
@@ -18,8 +19,9 @@ import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
  * the item drawer at both breakpoints. Header + completion footer live in the host drawer.
  *
  * `makeQty` is CONTROLLED by the host (it drives the drawer's "Done · add X" action);
- * ingredient checks and step ticks are internal (they don't affect completion). All reset
- * when the recipe changes.
+ * ingredient checks and step ticks are internal state SEEDED from `progress` and reported
+ * through `onProgressChange`, so the host can keep them on the item's live log while it
+ * is on the To Do (src/lib/prep-progress.ts). They re-seed when the recipe changes.
  */
 interface PrepRecipeSectionProps {
   recipe: RecipeStepsData | null
@@ -37,6 +39,10 @@ interface PrepRecipeSectionProps {
   log?: StageLogShape | null
   /** Move the live log to a chain index. Ticking the last step of the current block calls it (the Next tap). */
   onStage?: (stageIndex: number) => void
+  /** Saved cook-along state for this item's live log (null = start clean). */
+  progress?: PrepProgress | null
+  /** Report ticks so the host can persist them — only the lists that changed. */
+  onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
 }
 
 const SLIDER_MIN = 0.25
@@ -227,9 +233,13 @@ export default function PrepRecipeSection({
   onOpenSubRecipe,
   log,
   onStage,
+  progress,
+  onProgressChange,
 }: PrepRecipeSectionProps) {
-  const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set())
-  const [doneSteps, setDoneSteps] = useState<Set<number>>(new Set())
+  // Keyed by RecipeIngredient id / method step key (see stepKeyAt) — never by
+  // position, so a recipe edit does not move a cook's ticks onto another row.
+  const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set(progress?.ingredients ?? []))
+  const [doneSteps, setDoneSteps] = useState<Set<string>>(new Set(progress?.steps ?? []))
   const { nowMs } = useNowMinute()
 
   // Reset the cook-along whenever the recipe changes: clear check-off state. The host owns
@@ -246,11 +256,20 @@ export default function PrepRecipeSection({
     if (!recipe || recipe.baseYieldQty <= 0) return
     if (lastResetId.current === recipe.id) return
     lastResetId.current = recipe.id
-    setCheckedIngredients(new Set())
-    setDoneSteps(new Set())
+    setCheckedIngredients(new Set(progress?.ingredients ?? []))
+    setDoneSteps(new Set(progress?.steps ?? []))
     if (!(makeQty > 0)) onMakeQtyChange(convertQty(recipe.baseYieldQty, recipe.yieldUnit, unit))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe?.id, recipe?.baseYieldQty])
+
+  // Saved progress can arrive AFTER mount (the host opened on a cache-first row
+  // and the live row landed later): adopt it whenever the prop changes. A tick
+  // reports the same lists straight back, so this is idempotent on our own writes.
+  useEffect(() => {
+    if (!progress) return
+    setCheckedIngredients(new Set(progress.ingredients))
+    setDoneSteps(new Set(progress.steps))
+  }, [progress])
 
   if (!recipe) return null
 
@@ -275,17 +294,20 @@ export default function PrepRecipeSection({
     : null
 
   const ingTotal = ingredients.length
-  const ingChecked = checkedIngredients.size
+  // Count only rows that still exist — a saved tick for an ingredient since removed
+  // from the recipe must not make "3 / 2".
+  const ingChecked = ingredients.filter((i) => checkedIngredients.has(i.id)).length
   const allChecked = ingTotal > 0 && ingChecked === ingTotal
 
   const stepTotal = recipe.steps.length
-  const stepDone = doneSteps.size
 
   // A timed method: which chain index each step belongs to, and where the live
   // log is. Steps in blocks the job has advanced past read done; the current
   // block is lit; ticking its LAST step is the Next tap (nothing advances on
   // its own — the cook does it, here or on the run-sheet row).
   const method = recipe.method ?? null
+  const stepKeys = method ? method.map((s) => s.key) : recipe.steps.map((_, i) => stepKeyAt(null, i))
+  const stepDone = stepKeys.filter((k) => doneSteps.has(k)).length
   const blocks = method ? chainBlocks(method) : []
   const chainIndexOf = new Map<string, number>()
   for (const b of blocks) for (const k of b.stepKeys) if (!chainIndexOf.has(k)) chainIndexOf.set(k, b.index)
@@ -304,32 +326,41 @@ export default function PrepRecipeSection({
     ? currentBlock.stepKeys[currentBlock.stepKeys.length - 1]
     : null
 
-  const toggleIngredient = (idx: number) =>
-    setCheckedIngredients((prev) => {
-      const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx)
-      else next.add(idx)
-      return next
-    })
+  // Ticks update local state and are reported in the same tick, so the host can
+  // persist them; computed from the current sets (not inside an updater) so the
+  // report is a pure value.
+  const setIngredientTicks = (next: Set<string>) => {
+    setCheckedIngredients(next)
+    onProgressChange?.({ ingredients: [...next] })
+  }
+  const setStepTicks = (next: Set<string>) => {
+    setDoneSteps(next)
+    onProgressChange?.({ steps: [...next] })
+  }
+  const toggleIngredient = (id: string) => {
+    const next = new Set(checkedIngredients)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setIngredientTicks(next)
+  }
 
-  const toggleStep = (idx: number) =>
-    setDoneSteps((prev) => {
-      const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx)
-      else next.add(idx)
-      return next
-    })
+  const toggleStep = (key: string) => {
+    const next = new Set(doneSteps)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setStepTicks(next)
+  }
   // Ticking the last step of the current hands-on block moves the job on —
   // into the wait that follows it (a rest row on the ladder) or the next block.
-  const tickMethodStep = (idx: number, key: string) => {
-    if (onStage && inFlight && key === lastStepOfCurrentBlock && !doneSteps.has(idx) && current < blocks.length - 1) {
+  const tickMethodStep = (key: string) => {
+    if (onStage && inFlight && key === lastStepOfCurrentBlock && !doneSteps.has(key) && current < blocks.length - 1) {
       onStage(current + 1)
     }
-    toggleStep(idx)
+    toggleStep(key)
   }
 
   const toggleAllIngredients = () =>
-    setCheckedIngredients(allChecked ? new Set() : new Set(ingredients.map((_, i) => i)))
+    setIngredientTicks(allChecked ? new Set<string>() : new Set(ingredients.map((i) => i.id)))
 
   return (
     <div>
@@ -435,13 +466,13 @@ export default function PrepRecipeSection({
         <div className="flex flex-col">
           {loading && ingredients.length === 0
             ? Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)
-            : ingredients.map((ing, idx) => (
+            : ingredients.map((ing) => (
                 <IngRow
                   key={ing.id}
                   ing={ing}
                   factor={factor}
-                  checked={checkedIngredients.has(idx)}
-                  onToggle={() => toggleIngredient(idx)}
+                  checked={checkedIngredients.has(ing.id)}
+                  onToggle={() => toggleIngredient(ing.id)}
                   onOpenSubRecipe={onOpenSubRecipe}
                   pct={showBakers ? bakersPercents[ing.id] ?? null : undefined}
                   isBasePct={ing.id === recipe.baseIngredientId}
@@ -485,9 +516,9 @@ export default function PrepRecipeSection({
                           <div className={`font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3 px-2.5 ${idx === 0 ? 'pt-1' : 'pt-3'} pb-1`}>{newPhase}</div>
                         )}
                         <ol className="m-0 p-0 list-none">
-                          <StepRow index={idx} text={step.text} done={doneSteps.has(idx)} state={st} minutes={step.minutes}
+                          <StepRow index={idx} text={step.text} done={doneSteps.has(step.key)} state={st} minutes={step.minutes}
                             advances={!!onStage && inFlight && step.key === lastStepOfCurrentBlock}
-                            onToggle={() => tickMethodStep(idx, step.key)} />
+                            onToggle={() => tickMethodStep(step.key)} />
                           {step.wait && <WaitRow step={step} live={waitLive} enteredAt={waitLive ? (log?.stageEnteredAt ?? null) : null} nowMs={nowMs} />}
                         </ol>
                       </li>
@@ -495,7 +526,7 @@ export default function PrepRecipeSection({
                   })
                 })()
               : recipe.steps.map((step, idx) => (
-                  <StepRow key={idx} index={idx} text={step} done={doneSteps.has(idx)} onToggle={() => toggleStep(idx)} />
+                  <StepRow key={idx} index={idx} text={step} done={doneSteps.has(stepKeyAt(null, idx))} onToggle={() => toggleStep(stepKeyAt(null, idx))} />
                 ))}
           </ol>
         </div>

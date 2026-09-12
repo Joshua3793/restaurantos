@@ -6,6 +6,7 @@ import { effectiveUrgency, autoUrgencyOf, whyLabel } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 import { StageList } from '@/components/prep/StageList'
+import type { PrepProgress } from '@/lib/prep-progress'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
 
@@ -30,9 +31,12 @@ export interface DrawerProps {
   onEdit: (item: PrepItemRich) => void
   /** Staged prep — move the live log to a stage (Back / Next in the stage list). */
   onStage?: (item: PrepItemRich, stageIndex: number) => void
+  /** Saved cook-along state for the item's live log (kept while it is on the To Do). */
+  progress?: PrepProgress | null
+  onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
 }
 
-export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage }: DrawerProps) {
+export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage, progress, onProgressChange }: DrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
@@ -158,6 +162,8 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                     onOpenSubRecipe={onOpenSubRecipe}
                     log={item.todayLog ?? null}
                     onStage={onStage && view !== 'smart' && r.status === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
+                    progress={progress}
+                    onProgressChange={onProgressChange}
                   />
                 </div>
               )}

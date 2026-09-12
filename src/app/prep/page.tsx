@@ -30,6 +30,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
 import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
 import { prepDayKey } from '@/lib/prep-day'
@@ -45,6 +46,13 @@ import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/
 
 // Lazy-load conditional components — only mount when user opens them
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
+
+/** The live-log id cook-along progress is kept under — a real server id only.
+ *  An offline `_opt_` id or no log at all means the drawer stays ephemeral. */
+function progressLogId(item: PrepItemRich | null | undefined): string | null {
+  const id = item?.todayLog?.id
+  return id && !id.startsWith('_opt_') ? id : null
+}
 
 export default function PrepPage() {
   const router = useRouter()
@@ -95,6 +103,14 @@ export default function PrepPage() {
   // Make quantity from the drawer's upscale slider — the single source of the yield that
   // "Done · add X" credits. PrepRecipeSection resets it to the base batch on recipe load.
   const [drawerMakeQty, setDrawerMakeQty] = useState(0)
+  // Cook-along progress for the open drawer (src/lib/prep-progress.ts). The ref
+  // is the session cache keyed by live-log id — it wins over the polled
+  // `todayLog.progress`, which can lag a write by a poll; the state is what the
+  // drawer renders. Persisted with a short debounce per log; dropped on
+  // completion, skip or removal so a re-added item starts from a clean sheet.
+  const [drawerProgress, setDrawerProgress] = useState<PrepProgress | null>(null)
+  const progressRef = useRef(new Map<string, PrepProgress>())
+  const progressTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   // Cache fetched cook-along data per prep item so reopening the drawer is instant.
   const recipeCache = useRef<Map<string, { recipe: RecipeStepsData; ings: IngredientAvailability[] }>>(new Map())
   // Sub-recipe peek (e.g. opening "Custard" linked inside French Toast)
@@ -695,6 +711,8 @@ export default function PrepPage() {
 
     const now = new Date().toISOString()
     const completingNow = newStatus === 'DONE' || newStatus === 'PARTIAL'
+    // Leaving the list (done / partial / skipped) resets the cook-along; Stop keeps it.
+    if (completingNow || newStatus === 'SKIPPED') forgetProgress(progressLogId(item))
     // Mirror the server's status→isOnList rule optimistically: completing/removing
     // clears the item from the list, starting/resetting re-arms it.
     const nextOnList = newStatus === 'NOT_STARTED' || newStatus === 'IN_PROGRESS'
@@ -1066,6 +1084,7 @@ export default function PrepPage() {
     const nextIsOnList = restore ? undoDraftFlag(liveIsOnList, priorIsOnList) : false
 
     mutationSeq.current++
+    if (!restore) forgetProgress(progressLogId(item))
     const stamp = restore ? new Date().toISOString() : null
     setItems(prev => prev.map(i => (
       i.id === item.id
@@ -1471,7 +1490,12 @@ export default function PrepPage() {
   const openDrawer = useCallback(async (item: PrepItemRich) => {
     setDrawerItem(item)
     setDrawerDetail(null)
-    setDrawerMakeQty(item.suggestedQty)
+    // Reopen where the cook left off: session cache, else the live log's saved
+    // progress, else the suggestion.
+    const logId = progressLogId(item)
+    const saved = logId ? (progressRef.current.get(logId) ?? parseProgress(item.todayLog?.progress)) : null
+    setDrawerProgress(saved)
+    setDrawerMakeQty(saved?.makeQty ?? item.suggestedQty)
 
     if (!item.linkedRecipeId) {
       setDrawerRecipe(null)
@@ -1527,8 +1551,44 @@ export default function PrepPage() {
   }, [])
 
   const closeDrawer = useCallback(() => {
-    setDrawerItem(null); setDrawerDetail(null); setDrawerRecipe(null); setDrawerRecipeLoading(false)
+    setDrawerItem(null); setDrawerDetail(null); setDrawerRecipe(null); setDrawerRecipeLoading(false); setDrawerProgress(null)
   }, [])
+
+  // ── Cook-along progress persistence ──────────────────────────────────────
+  const writeProgress = (logId: string, next: PrepProgress) => {
+    progressRef.current.set(logId, next)
+    setDrawerProgress(next)
+    const pending = progressTimers.current.get(logId)
+    if (pending) clearTimeout(pending)
+    progressTimers.current.set(logId, setTimeout(() => {
+      progressTimers.current.delete(logId)
+      if (!navigator.onLine) return   // session cache only until the next online tick
+      fetch(`/api/prep/logs/${logId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progress: next }),
+      }).catch(() => { /* best effort — the cache still carries it this session */ })
+    }, 500))
+  }
+  const forgetProgress = (logId: string | null) => {
+    if (!logId) return
+    progressRef.current.delete(logId)
+    const pending = progressTimers.current.get(logId)
+    if (pending) { clearTimeout(pending); progressTimers.current.delete(logId) }
+  }
+  const currentProgress = (item: PrepItemRich): PrepProgress => {
+    const logId = progressLogId(item)
+    return (logId ? progressRef.current.get(logId) : undefined) ?? parseProgress(item.todayLog?.progress) ?? EMPTY_PROGRESS
+  }
+  const onProgressPatch = (item: PrepItemRich, patch: { ingredients?: string[]; steps?: string[] }) => {
+    const next = { ...currentProgress(item), ...patch }
+    const logId = progressLogId(item)
+    if (!logId) { setDrawerProgress(next); return }   // no live log yet: ephemeral, as before
+    writeProgress(logId, next)
+  }
+  const onDrawerMakeQtyChange = (qty: number) => {
+    setDrawerMakeQty(qty)
+    const logId = progressLogId(drawerItem)
+    if (drawerItem && logId && qty > 0) writeProgress(logId, { ...currentProgress(drawerItem), makeQty: qty })
+  }
 
   // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)
   // NOT memoized: must use the current handleStatusChange closure (which reads
@@ -1557,7 +1617,20 @@ export default function PrepPage() {
   useEffect(() => {
     if (!drawerItem) return
     const fresh = items.find(i => i.id === drawerItem.id)
-    if (fresh && fresh !== drawerItem) setDrawerItem(fresh)
+    if (!fresh || fresh === drawerItem) return
+    setDrawerItem(fresh)
+    // The drawer may have opened on a cache-first row (the page paints the last
+    // saved list before the live one lands), whose saved progress was not yet
+    // known. Once the live row arrives — and nothing has been ticked in this
+    // session — seed from it exactly as openDrawer would have.
+    const logId = progressLogId(fresh)
+    if (logId && !progressRef.current.has(logId) && drawerProgress === null) {
+      const saved = parseProgress(fresh.todayLog?.progress)
+      if (saved) {
+        setDrawerProgress(saved)
+        if (saved.makeQty) setDrawerMakeQty(saved.makeQty)
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items])
 
@@ -2114,7 +2187,9 @@ export default function PrepPage() {
           recipe={drawerRecipe}
           recipeLoading={drawerRecipeLoading}
           makeQty={drawerMakeQty}
-          onMakeQtyChange={setDrawerMakeQty}
+          onMakeQtyChange={onDrawerMakeQtyChange}
+          progress={drawerProgress}
+          onProgressChange={(patch) => { if (drawerItem) onProgressPatch(drawerItem, patch) }}
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
           onStage={handleStageChange}
@@ -2152,7 +2227,9 @@ export default function PrepPage() {
           recipe={drawerRecipe}
           recipeLoading={drawerRecipeLoading}
           makeQty={drawerMakeQty}
-          onMakeQtyChange={setDrawerMakeQty}
+          onMakeQtyChange={onDrawerMakeQtyChange}
+          progress={drawerProgress}
+          onProgressChange={(patch) => { if (drawerItem) onProgressPatch(drawerItem, patch) }}
           onComplete={onDrawerComplete}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           onClose={closeDrawer}

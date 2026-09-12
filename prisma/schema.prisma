@@ -633,6 +633,10 @@ model PrepLog {
   stageIndex        Int?       // index into the recipe's resolved stage chain; null when not staged
   stageEnteredAt    DateTime?  // when the current stage began (epoch instant, not minute-of-day)
   stageHistory      Json?      // StageEvent[] — [{ index, key, enteredAt, byCookId? }]
+  // ── Cook-along progress (PrepProgress, see src/lib/prep-progress.ts) — the scale,
+  // ticked ingredients and ticked method steps a cook has made while the item sits
+  // on the To Do. Null once the job completes / is skipped / leaves the list.
+  progress          Json?
   prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
   revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
@@ -179,7 +179,8 @@ export async function POST(req: NextRequest) {
     // what Recall is for.
     const cleared = await tx.prepLog.updateMany({
       where: { ...logScope, ...postedOpenWhere },
-      data: { postedAt: null },
+      // Leaving the list resets the cook-along (scale / ticks) — a re-add starts clean.
+      data: { postedAt: null, progress: Prisma.DbNull },
     })
     // updateMany, not update — see the restore path.
     await tx.prepItem.updateMany({ where: { id: prepItemId }, data: { isOnList: false } })
