@@ -32,6 +32,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     activeMinutes, passiveMinutes, passiveNote, stages,
     // One Method, with waits — supersedes `steps` + `stages` (both still accepted for a release).
     method,
+    prep,
   } = body
 
   // Validate + normalize units when they're being changed.
@@ -64,6 +65,31 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     methodData = v.method.length ? (v.method as unknown as Prisma.InputJsonValue) : Prisma.DbNull
   }
 
+  // Line settings live on the prep task row (par / shelf life / stations) — the
+  // recipe editor is their only writer. Each key is optional; the row is
+  // matched by linkedRecipeId so a PREP recipe without a row is a no-op.
+  let prepData: { parLevel?: number; shelfLifeDays?: number | null; stations?: string[] } | undefined
+  if (prep !== undefined) {
+    if (!prep || typeof prep !== 'object') return NextResponse.json({ error: 'prep must be an object' }, { status: 400 })
+    prepData = {}
+    if (prep.parLevel !== undefined) {
+      const n = Number(prep.parLevel)
+      if (!Number.isFinite(n) || n < 0) return NextResponse.json({ error: 'prep.parLevel must be a number ≥ 0' }, { status: 400 })
+      prepData.parLevel = n
+    }
+    if (prep.shelfLifeDays !== undefined) {
+      const n = numOrNull(prep.shelfLifeDays)
+      if (n != null && n < 0) return NextResponse.json({ error: 'prep.shelfLifeDays must be ≥ 0' }, { status: 400 })
+      prepData.shelfLifeDays = n
+    }
+    if (prep.stations !== undefined) {
+      if (!Array.isArray(prep.stations) || !prep.stations.every((s: unknown) => typeof s === 'string')) {
+        return NextResponse.json({ error: 'prep.stations must be a list of station names' }, { status: 400 })
+      }
+      prepData.stations = [...new Set((prep.stations as string[]).map(s => s.trim()).filter(Boolean))]
+    }
+  }
+
   await prisma.recipe.update({
     where: { id: params.id },
     data: {
@@ -87,6 +113,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ...(methodData     !== undefined ? { method: methodData } : {}),
     },
   })
+
+  if (prepData && Object.keys(prepData).length) {
+    await prisma.prepItem.updateMany({ where: { linkedRecipeId: params.id }, data: prepData })
+  }
 
   // Re-sync the linked item (and dependents) when cost- or name-affecting fields change.
   // name flows to the PREPD item's itemName; yield qty/unit drive cost.
