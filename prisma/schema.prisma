@@ -593,6 +593,8 @@ model PrepItem {
   manualPriorityOverride String?
   isActive               Boolean        @default(true)
   isOnList               Boolean        @default(false)
+  /// Chef's switch: false keeps the item off Smart Prep / the To Do while the recipe stays active. Sync never writes it.
+  prepEnabled            Boolean        @default(true)
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
   estimatedPrepTime      Int?
