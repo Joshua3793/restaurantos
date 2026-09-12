@@ -79,7 +79,7 @@ describe('rest rows — a resting job sits in the ladder at its ready time', () 
   const ctx = planDayContext(brunch, 420)!
   const mk = (id: string, log: object | null, extra: object = {}) => ({
     ...base, id, name: id, stations: ['Prep'], category: 'MISC', onHand: 0, activeMinutes: 35, passiveMinutes: 4320,
-    estimatedPrepTime: null, service: null, startByMinutes: null as number | null,
+    estimatedPrepTime: null, startByMinutes: null as number | null,
     linkedRecipe: { stages: cure }, todayLog: log as never, ...extra,
   })
 

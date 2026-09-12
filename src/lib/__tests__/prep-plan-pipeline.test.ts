@@ -73,7 +73,7 @@ describe('the schedule charges a job in flight for what is left, from when it ca
   const svcs = [{ timeMinutes: 690, endMinutes: 840 }]
   const mk = (id: string, extra: object = {}) => ({
     ...base, id, stations: ['Sauces'], category: 'SAUCE', onHand: 0, activeMinutes: 200, passiveMinutes: 0,
-    estimatedPrepTime: null, service: null, ...extra,
+    estimatedPrepTime: null, ...extra,
   })
   const crew = [{ homeStation: 'Sauces' }]
 

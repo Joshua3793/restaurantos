@@ -91,7 +91,7 @@ describe('long-lead promotion — "Start today for …"', () => {
   // Brunch 09:00–16:00; the chef plans at 10:00.
   const ctx = planDayContext([{ timeMinutes: 540, endMinutes: 960 }], 600, now)!
   const mk = (id: string, extra: object = {}) => ({
-    ...base, id, name: id, stations: ['Prep'], category: 'MISC', estimatedPrepTime: null, service: null, ...extra,
+    ...base, id, name: id, stations: ['Prep'], category: 'MISC', estimatedPrepTime: null, ...extra,
   })
   const cure = mk('cure', { activeMinutes: 35, passiveMinutes: 4320, shelfLifeDays: 10, cadence: every3(1) })   // at par → TMRW; 3d lead
   const aioli = mk('aioli', { onHand: 2, activeMinutes: 45, passiveMinutes: 0 })                                // MID, 45 min

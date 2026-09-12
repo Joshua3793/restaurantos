@@ -414,8 +414,7 @@ export interface PlanDayContext {
   close: number
   /** when prep hands become available — schedule cursors start here */
   shiftStart: number
-  /** 0 while the day is still on, 1440 once it has rolled to tomorrow — added to
-   *  an item's OWN service start so its deadline rolls with the day */
+  /** 0 while the day is still on, 1440 once it has rolled to tomorrow */
   roll: number
   /** the epoch instant `shiftStart` corresponds to — lets the schedule place a
    *  pipeline job's `nextActiveAt` on the minute axis. Absent ⇒ slot from shiftStart. */
@@ -465,12 +464,11 @@ export function planDayContext(
 
 const MID_OFFSET = 120
 
-/** The step's deadline, minute-of-day (≥1440 ⇒ tomorrow). `svcStart` is the
- *  item's own target-service start when it has one; it rolls with the day. */
-export function urgencyDeadline(u: PrepUrgency, ctx: PlanDayContext, svcStart?: number | null): number {
-  const doors = svcStart != null ? svcStart + ctx.roll : ctx.doorsOpen
-  if (u === 'PASS') return doors
-  if (u === 'MID') return doors + MID_OFFSET
+/** The step's deadline, minute-of-day (≥1440 ⇒ tomorrow). Every item counts
+ *  back from the RC's doors — there is no per-item service any more. */
+export function urgencyDeadline(u: PrepUrgency, ctx: PlanDayContext): number {
+  if (u === 'PASS') return ctx.doorsOpen
+  if (u === 'MID') return ctx.doorsOpen + MID_OFFSET
   if (u === 'CLOSE') return ctx.close
   // "Tomorrow" is relative to the chef's now: once the day has rolled, tomorrow
   // IS the planned doors — don't double-roll past them.
@@ -497,7 +495,6 @@ export interface TimedFields extends PlanFields {
   activeMinutes?: number | null
   passiveMinutes?: number | null
   estimatedPrepTime?: number | null
-  service?: { timeMinutes: number } | null
 }
 
 // ─── stations: who can make it ─────────────────────────────────────────────
@@ -727,7 +724,7 @@ export interface LadderTimes { deadline: number | null; startBy: number | null }
 
 export function ladderTimes(t: TimedFields, ctx: PlanDayContext | null): LadderTimes {
   if (!ctx) return { deadline: null, startBy: null }
-  const deadline = urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null)
+  const deadline = urgencyDeadline(effectiveUrgency(t), ctx)
   return { deadline, startBy: deadline - activeMin(t) - passiveMin(t) }
 }
 

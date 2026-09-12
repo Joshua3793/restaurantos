@@ -178,9 +178,7 @@ describe('deadlines + schedule', () => {
     expect(night.doorsOpen).toBe(690 + 1440)  // TMRW 11:30
     expect(night.close).toBe(1290 + 1440)
     expect(urgencyDeadline('PASS', night)).toBe(690 + 1440)
-    // an item's OWN service start rolls with the day…
-    expect(urgencyDeadline('PASS', night, 540)).toBe(540 + 1440)
-    // …and TMRW doesn't double-roll past tomorrow's doors
+    // TMRW doesn't double-roll past tomorrow's doors
     expect(urgencyDeadline('TMRW', night)).toBe(690 + 1440)
   })
   it('the live kitchen: Brunch 09:00–16:00, chef posts at 17:21 — close rolls WITH doors', () => {
@@ -199,7 +197,6 @@ describe('deadlines + schedule', () => {
     expect(noon.roll).toBe(0)
     expect(noon.doorsOpen).toBe(540)          // already open — a Critical item is late, not for tomorrow
     expect(noon.close).toBe(960)
-    expect(urgencyDeadline('PASS', noon, 540)).toBe(540)
     expect(urgencyDeadline('CLOSE', noon)).toBe(960)
     expect(urgencyDeadline('TMRW', noon)).toBe(540 + 1440)
   })
@@ -208,14 +205,13 @@ describe('deadlines + schedule', () => {
     expect(urgencyDeadline('MID', ctx)).toBe(810)
     expect(urgencyDeadline('CLOSE', ctx)).toBe(1290)
     expect(urgencyDeadline('TMRW', ctx)).toBe(690 + 1440)
-    expect(urgencyDeadline('PASS', ctx, 1020)).toBe(1020) // item's own service wins
     expect(fmtDeadline(690 + 1440, fmtClock)).toBe('TMRW 11:30')
     expect(fmtDeadline(690 + 2880, fmtClock)).toBe('+2d 11:30')
   })
   it('planSchedule sequences a station through its crew and flags what won’t fit', () => {
     const mk = (id: string, active: number, onHand = 0) => ({
       ...base, id, onHand, stations: ['Sauces'], activeMinutes: active, passiveMinutes: 0,
-      estimatedPrepTime: null, service: null, category: 'SAUCE',
+      estimatedPrepTime: null, category: 'SAUCE',
     })
     // one cook on Sauces, doors at 690, shift starts 420 → 270 crew-minutes
     const crew = [{ homeStation: 'Sauces' }]
@@ -228,8 +224,8 @@ describe('deadlines + schedule', () => {
   })
   it('stationLoad measures PASS+MID hands-on against pre-doors capacity', () => {
     const rows = [
-      { ...base, id: 'a', onHand: 0, stations: ['Sauces'], activeMinutes: 90, passiveMinutes: 0, estimatedPrepTime: null, service: null, category: 'SAUCE' },  // PASS
-      { ...base, id: 'b', onHand: 8, stations: ['Sauces'], activeMinutes: 60, passiveMinutes: 0, estimatedPrepTime: null, service: null, category: 'SAUCE' },  // TMRW
+      { ...base, id: 'a', onHand: 0, stations: ['Sauces'], activeMinutes: 90, passiveMinutes: 0, estimatedPrepTime: null, category: 'SAUCE' },  // PASS
+      { ...base, id: 'b', onHand: 8, stations: ['Sauces'], activeMinutes: 60, passiveMinutes: 0, estimatedPrepTime: null, category: 'SAUCE' },  // TMRW
     ]
     const [load] = stationLoad(rows, [{ homeStation: 'Sauces' }], ctx)
     expect(load).toMatchObject({ station: 'Sauces', crew: 1, cap: 270, forService: 90, total: 150, n: 2 })
@@ -257,11 +253,10 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
   // Brunch 09:00–16:00, the cook opens the To Do at 07:30.
   const brunch = [{ timeMinutes: 540, endMinutes: 960 }]
   const ctx = planDayContext(brunch, 450)!
-  const svc = { timeMinutes: 540 }
   const mk = (id: string, name: string, over: string | null, active: number, extra: object = {}) => ({
     ...base, id, name, stations: ['Prep'], category: 'MISC', onHand: 0,
     manualPriorityOverride: over, activeMinutes: active, passiveMinutes: 0, estimatedPrepTime: null,
-    service: svc, todayLog: null, startByMinutes: null as number | null, ...extra,
+    todayLog: null, startByMinutes: null as number | null, ...extra,
   })
 
   it('start-by counts back from the STEP deadline, not the service', () => {
@@ -283,7 +278,7 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
 
   it('orders by deadline, then start-by, then the chef’s listOrder, then name', () => {
     const rows = withLadderTimes([
-      mk('z', 'Zucchini', 'MID', 0, { service: null }),                       // MID, no service → deadline 660, startBy 660
+      mk('z', 'Zucchini', 'MID', 0),                                          // MID → deadline 660, startBy 660
       mk('p', 'Pickle Apples', 'MID', 120, { todayLog: { listOrder: 1 } }),   // startBy 540
       mk('s', 'Corn Salsa', 'MID', 120, { todayLog: { listOrder: 0 } }),      // startBy 540 — chef put it first
       mk('a', 'Aioli', 'CLOSE', 45),                                          // CLOSE, deadline 960

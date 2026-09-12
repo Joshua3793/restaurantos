@@ -144,7 +144,7 @@ describe('resolveStages reads the method first, then the legacy stages', () => {
     expect(resolveStages({ method: [{ key: 'a', text: 'Mix' }], stages: null })).toBeNull()
   })
   it('the timing totals the run sheet counts back from come from the derived chain', () => {
-    const i = { activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: { activeMinutes: 40, passiveMinutes: 2820, passiveNote: 'smoke', method: brisket } }
+    const i = { linkedRecipe: { activeMinutes: 40, passiveMinutes: 2820, passiveNote: 'smoke', method: brisket } }
     expect(resolveActive(i)).toBe(105)
     expect(resolvePassive(i)).toBe(1320)
   })
