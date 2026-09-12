@@ -1,41 +1,32 @@
 import { describe, it, expect } from 'vitest'
 import {
-  resolveActive, resolvePassive, resolvePassiveNote, startByMinutes,
+  resolveActive, resolvePassive, resolvePassiveNote,
   runState, minutesBetween, fmtClock, fmtMins, stepFor, scaleRound, scaleQtyLabel,
   dayOffset, fmtStartBy, fmtQty, stepFactor,
 } from '../prep-runsheet'
 
 const rec = (a: number|null, p: number|null, n: string|null) => ({ activeMinutes: a, passiveMinutes: p, passiveNote: n })
 
-describe('effective times: override wins, else recipe, else null', () => {
-  it('uses recipe when no override', () => {
-    const i = { activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: rec(45, 30, 'cool') }
+describe('effective times: the method, else the recipe columns, else null', () => {
+  it('reads the recipe columns when there is no method', () => {
+    const i = { linkedRecipe: rec(45, 30, 'cool') }
     expect(resolveActive(i)).toBe(45)
     expect(resolvePassive(i)).toBe(30)
     expect(resolvePassiveNote(i)).toBe('cool')
   })
-  it('override wins over recipe', () => {
-    const i = { activeMinutesOverride: 20, passiveMinutesOverride: 0, passiveNoteOverride: 'oven', linkedRecipe: rec(45, 30, 'cool') }
-    expect(resolveActive(i)).toBe(20)
-    expect(resolvePassive(i)).toBe(0)
-    expect(resolvePassiveNote(i)).toBe('oven')
+  it('a method with waits beats the columns', () => {
+    const method = [
+      { key: 'a', text: 'Mix', minutes: 15, wait: { minutes: 120 } },
+      { key: 'b', text: 'Portion', minutes: 4 },
+    ]
+    const i = { linkedRecipe: { ...rec(180, 0, null), method } }
+    expect(resolveActive(i)).toBe(19)
+    expect(resolvePassive(i)).toBe(120)
   })
-  it('null when neither', () => {
-    const i = { activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null, linkedRecipe: null }
-    expect(resolveActive(i)).toBeNull()
-    expect(resolvePassive(i)).toBeNull()
-  })
-})
-
-describe('startByMinutes', () => {
-  it('service − active − passive', () => {
-    expect(startByMinutes(690, 45, 30)).toBe(615) // 11:30 − 75m = 10:15
-  })
-  it('treats null active/passive as 0', () => {
-    expect(startByMinutes(690, null, null)).toBe(690)
-  })
-  it('null service → null', () => {
-    expect(startByMinutes(null, 45, 30)).toBeNull()
+  it('null when there is no recipe', () => {
+    expect(resolveActive({ linkedRecipe: null })).toBeNull()
+    expect(resolvePassive({ linkedRecipe: null })).toBeNull()
+    expect(resolvePassiveNote({ linkedRecipe: null })).toBeNull()
   })
 })
 

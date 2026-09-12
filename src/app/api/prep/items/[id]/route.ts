@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
-import { computePriority, computeSuggestedQty, numOrNull } from '@/lib/prep-utils'
-import { convertQty, UnitError } from '@/lib/uom'
-import { resolvePrepUnit } from '@/lib/prep-sync'
+import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
+import { convertQty } from '@/lib/uom'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { markPlanDirty } from '@/lib/prep-plan-server'
+import { stationLabel } from '@/lib/prep-plan'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -120,6 +120,7 @@ export async function GET(
 
   return NextResponse.json({
     ...item,
+    station: stationLabel(item),
     parLevel,
     minThreshold,
     targetToday,
@@ -157,6 +158,9 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
+  // The prep item's identity and line settings (name, unit, category, par, shelf
+  // life, stations, revenue center) are written by the RECIPE — recipe sync and
+  // PATCH /api/recipes/[id] { prep }. This route owns only the planner state.
   // Planner fields are the chef's: draft membership + priority override = LEAD+.
   // Cooks still start/finish/claim (those flow through the prep-logs routes).
   if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined) {
@@ -167,71 +171,23 @@ export async function PUT(
     }
   }
 
-  // Mirrors the RC guard that POST /api/prep/items already performs. Without it a
-  // scoped user could edit an item belonging to an RC they cannot write — and, by
-  // sending revenueCenterId, move an item INTO or OUT OF one. Both the current
-  // owner and the target are checked; a Shared item (null RC) has no owner to check.
+  // A scoped user may only touch items in an RC they can write; a Shared item
+  // (null RC) has no owner to check.
   try {
     const current = await prisma.prepItem.findUnique({
       where: { id: params.id },
       select: { revenueCenterId: true },
     })
     if (current?.revenueCenterId) await assertRcWritable(user, current.revenueCenterId)
-    if (body.revenueCenterId) await assertRcWritable(user, body.revenueCenterId)
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
 
-  // Resolve the unit defensively: a recipe-linked item inherits the recipe's yield
-  // unit; a free-standing item's unit must be a known canonical token. This closes
-  // the dimension-mismatch hole regardless of what the client sends.
-  let unitToWrite: string | undefined
-  if (body.unit !== undefined || body.linkedRecipeId !== undefined) {
-    const effectiveRecipeId =
-      body.linkedRecipeId !== undefined
-        ? (body.linkedRecipeId || null)
-        : (await prisma.prepItem.findUnique({
-            where: { id: params.id },
-            select: { linkedRecipeId: true },
-          }))?.linkedRecipeId ?? null
-    // Only recompute the unit when the caller touched it or re-linked a recipe.
-    if (body.unit !== undefined || effectiveRecipeId) {
-      try {
-        unitToWrite = await resolvePrepUnit(effectiveRecipeId, body.unit)
-      } catch (err) {
-        if (err instanceof UnitError) return NextResponse.json({ error: err.message }, { status: 400 })
-        throw err
-      }
-    }
-  }
-
   const item = await prisma.prepItem.update({
     where: { id: params.id },
     data: {
-      ...(body.name                   !== undefined && { name: body.name }),
-      ...(body.linkedRecipeId         !== undefined && { linkedRecipeId: body.linkedRecipeId || null }),
-      ...(body.linkedInventoryItemId  !== undefined && { linkedInventoryItemId: body.linkedInventoryItemId || null }),
-      ...(body.category               !== undefined && { category: body.category }),
-      ...(body.station                !== undefined && { station: body.station || null }),
-      ...(body.parLevel               !== undefined && { parLevel: parseFloat(String(body.parLevel)) }),
-      ...(unitToWrite                 !== undefined && { unit: unitToWrite }),
-      ...(body.minThreshold           !== undefined && { minThreshold: parseFloat(String(body.minThreshold)) }),
-      ...(body.targetToday            !== undefined && { targetToday: body.targetToday ? parseFloat(String(body.targetToday)) : null }),
-      ...(body.shelfLifeDays          !== undefined && { shelfLifeDays: body.shelfLifeDays ? parseInt(String(body.shelfLifeDays)) : null }),
-      ...(body.estimatedPrepTime      !== undefined && { estimatedPrepTime: body.estimatedPrepTime ? parseInt(String(body.estimatedPrepTime)) : null }),
-      // Run-sheet timing + target service. These are the inputs `startByMinutes`
-      // counts back from (service − hands-on − passive); without them a row has no
-      // place on the time ladder. Empty string ⇒ null so "clear the field" works —
-      // for the minutes that means "fall back to the linked recipe", and for the
-      // service it means "no service, no start-by".
-      ...(body.targetServiceId        !== undefined && { targetServiceId: body.targetServiceId || null }),
-      ...(body.activeMinutesOverride  !== undefined && { activeMinutesOverride: numOrNull(body.activeMinutesOverride) }),
-      ...(body.passiveMinutesOverride !== undefined && { passiveMinutesOverride: numOrNull(body.passiveMinutesOverride) }),
-      ...(body.passiveNoteOverride    !== undefined && { passiveNoteOverride: body.passiveNoteOverride || null }),
-      ...(body.notes                  !== undefined && { notes: body.notes || null }),
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
-      ...(body.revenueCenterId        !== undefined && { revenueCenterId: body.revenueCenterId || null }),
       ...(body.isActive               !== undefined && { isActive: body.isActive }),
       ...(body.isOnList               !== undefined && { isOnList: body.isOnList }),
     },

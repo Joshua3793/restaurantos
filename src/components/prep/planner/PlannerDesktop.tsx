@@ -247,7 +247,9 @@ export function PlannerDesktop({
                   <div className={popHeadCls}>Give a whole station to</div>
                   {stations.map(s => {
                     const c = cooks.find(x => x.homeStation === s)
-                    const n = draft.filter(t => t.station === s).length
+                    // Explicit membership only — an any-station item must not follow
+                    // every station's cook in turn.
+                    const n = draft.filter(t => t.stations.includes(s)).length
                     const dis = !c || !n
                     return (
                       <button key={s} type="button" disabled={dis}
@@ -332,7 +334,7 @@ export function PlannerDesktop({
       </div>
 
       {dlg && (
-        <PostDialog draft={draft} cooks={cooks} stations={stations} ctx={ctx} reposting={!!post}
+        <PostDialog draft={draft} cooks={cooks} ctx={ctx} reposting={!!post}
           onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
     </div>

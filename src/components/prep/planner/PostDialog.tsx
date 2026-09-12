@@ -8,7 +8,7 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { PrepUrgency } from '@/lib/prep-utils'
 import {
   PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, planSchedule,
-  urgencyDeadline, fmtDeadline,
+  urgencyDeadline, fmtDeadline, ANY_STATION,
   draftListOrder as draftOrd,
   type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
@@ -19,10 +19,9 @@ const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 
 /** What the post stamps on each item's live log: the step deadline the chef saw. */
 export interface PostDue { prepItemId: string; dueTime: string | null }
 
-export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, onConfirm }: {
+export function PostDialog({ draft, cooks, ctx, reposting, onClose, onConfirm }: {
   draft: PrepItemRich[]
   cooks: Cook[]
-  stations: string[]
   ctx: PlanDayContext | null
   reposting: boolean
   onClose: () => void
@@ -34,20 +33,21 @@ export function PostDialog({ draft, cooks, stations, ctx, reposting, onClose, on
   // what was posted even if the live step moves later.
   const dues: PostDue[] = draft.map(t => ({
     prepItemId: t.id,
-    dueTime: ctx ? fmtDeadline(urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null), fmtClock) : null,
+    dueTime: ctx ? fmtDeadline(urgencyDeadline(effectiveUrgency(t), ctx), fmtClock) : null,
   }))
   const byUrg = PLAN_URG_ORDER
     .map(u => [u, draft.filter(t => effectiveUrgency(t) === u).length] as [PrepUrgency, number])
     .filter(([, n]) => n > 0)
-  const stationKeys = [...stations, 'Unassigned']
-  const byStation = stationKeys
-    .map(s => [s, draft.filter(t => (t.station || 'Unassigned') === s)] as [string, PrepItemRich[]])
+  // One line per station SET as posted ("Grill · Benny" is its own line), any-station last.
+  const labels = [...new Set(draft.map(t => t.station ?? ANY_STATION))].sort((a, b) =>
+    a === ANY_STATION ? 1 : b === ANY_STATION ? -1 : a.localeCompare(b))
+  const byStation = labels
+    .map(s => [s, draft.filter(t => (t.station ?? ANY_STATION) === s)] as [string, PrepItemRich[]])
     .filter(([, rows]) => rows.length > 0)
   const open = draft.filter(t => !t.todayLog?.assignedTo).length
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
   const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits)
   const firstStart = [...sched.values()].map(s => s.start).sort((a, b) => a - b)[0]
-    ?? draft.filter(t => t.startByMinutes != null).map(t => t.startByMinutes!).sort((a, b) => a - b)[0]
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-3">

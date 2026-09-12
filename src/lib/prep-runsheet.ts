@@ -2,9 +2,6 @@
 import { resolveStages, stageTotals } from './prep-stages'
 
 export type RunItemTimes = {
-  activeMinutesOverride: number | null
-  passiveMinutesOverride: number | null
-  passiveNoteOverride: string | null
   linkedRecipe: {
     activeMinutes: number | null
     passiveMinutes: number | null
@@ -15,28 +12,23 @@ export type RunItemTimes = {
   } | null
 }
 
-// Override > stage chain (Σ ACTIVE / Σ PASSIVE) > recipe minute columns > null.
-// A staged recipe's minute columns are ignored on purpose: the chain IS the
-// method, and start-by must count back the whole of it.
+// Method chain (Σ ACTIVE / Σ PASSIVE) > recipe minute columns > null.
+// There is NO per-item override layer: the method IS the timing, and a stale
+// number on the prep item used to silently shadow it (2026-09-11 audit: 19 of
+// 57 items). A staged recipe's minute columns are ignored on purpose: the chain
+// is the method, and start-by must count back the whole of it.
 export function resolveActive(i: RunItemTimes): number | null {
-  if (i.activeMinutesOverride != null) return i.activeMinutesOverride
   const stages = resolveStages(i.linkedRecipe)
   if (stages) return stageTotals(stages).active
   return i.linkedRecipe?.activeMinutes ?? null
 }
 export function resolvePassive(i: RunItemTimes): number | null {
-  if (i.passiveMinutesOverride != null) return i.passiveMinutesOverride
   const stages = resolveStages(i.linkedRecipe)
   if (stages) return stageTotals(stages).passive
   return i.linkedRecipe?.passiveMinutes ?? null
 }
 export function resolvePassiveNote(i: RunItemTimes): string | null {
-  return i.passiveNoteOverride ?? i.linkedRecipe?.passiveNote ?? null
-}
-
-export function startByMinutes(serviceTimeMinutes: number | null, activeMin: number | null, passiveMin: number | null): number | null {
-  if (serviceTimeMinutes == null) return null
-  return serviceTimeMinutes - (activeMin ?? 0) - (passiveMin ?? 0)
+  return i.linkedRecipe?.passiveNote ?? null
 }
 
 export type RunState = 'blocked' | 'overdue' | 'soon' | 'later'

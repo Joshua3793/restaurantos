@@ -11,7 +11,7 @@ import {
 } from '@/components/prep/icons'
 import { PrepItemRich, PrepItemDetail, PrepStatus, RecipeStepsData } from '@/components/prep/types'
 import { PREP_STATE_META, formatShortAge, PrepCountdown } from '@/lib/prep-utils'
-import { whyLabel, effectiveUrgency } from '@/lib/prep-plan'
+import { whyLabel, effectiveUrgency, ANY_STATION } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 import { StageList } from '@/components/prep/StageList'
@@ -249,7 +249,7 @@ export default function PrepDrawer({
                 )}
                 <h2 className="text-[22px] font-semibold tracking-[-0.03em] leading-[1.1]">{item.name}</h2>
                 <div className="font-mono text-[11px] text-ink-3 mt-1.5">
-                  {item.category} · {item.station ?? 'No station'} · carries over daily
+                  {item.category} · {item.station ?? ANY_STATION} · carries over daily
                 </div>
               </div>
             </div>

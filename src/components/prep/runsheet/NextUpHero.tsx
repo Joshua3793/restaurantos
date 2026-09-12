@@ -131,7 +131,6 @@ export function NextUpHero({
       <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-[9px] leading-[1.5]">
         make <b className="text-gold font-semibold">{fmtQty(qty, item.unit)}</b> · {fmtMins(active)} hands-on
         {passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}
-        {item.service ? ` · ready for ${item.service.name} ${fmtClock(item.service.timeMinutes)}` : ''}
         {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
 

@@ -77,20 +77,14 @@ describe('resolution — recipes without stages are UNSTAGED', () => {
   })
 })
 
-describe('resolveActive / resolvePassive read the chain, unless an override wins', () => {
-  const base = { activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null }
+describe('resolveActive / resolvePassive read the chain, else the recipe columns', () => {
   it('staged recipe → Σ ACTIVE / Σ PASSIVE, ignoring the recipe minute columns', () => {
-    const i = { ...base, linkedRecipe: { activeMinutes: 45, passiveMinutes: 30, passiveNote: null, stages: sourdough } }
+    const i = { linkedRecipe: { activeMinutes: 45, passiveMinutes: 30, passiveNote: null, stages: sourdough } }
     expect(resolveActive(i)).toBe(110)
     expect(resolvePassive(i)).toBe(960)
   })
-  it('an explicit item override still wins', () => {
-    const i = { ...base, activeMinutesOverride: 90, passiveMinutesOverride: 0, linkedRecipe: { activeMinutes: 45, passiveMinutes: 30, passiveNote: null, stages: sourdough } }
-    expect(resolveActive(i)).toBe(90)
-    expect(resolvePassive(i)).toBe(0)
-  })
   it('unstaged recipe is unchanged', () => {
-    const i = { ...base, linkedRecipe: { activeMinutes: 45, passiveMinutes: 30, passiveNote: null, stages: null } }
+    const i = { linkedRecipe: { activeMinutes: 45, passiveMinutes: 30, passiveNote: null, stages: null } }
     expect(resolveActive(i)).toBe(45)
     expect(resolvePassive(i)).toBe(30)
   })

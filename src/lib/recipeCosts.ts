@@ -36,6 +36,13 @@ export interface IngredientWithCost {
   dimensionConflict: boolean
 }
 
+/** The recipe's line settings, read off its prep task row (null = no row). */
+export interface RecipePrep {
+  parLevel: number
+  shelfLifeDays: number | null
+  stations: string[]
+}
+
 export interface RecipeWithCost {
   id: string
   name: string
@@ -69,6 +76,7 @@ export interface RecipeWithCost {
   dimensionConflicts: number
   allergens: string[]
   baseIngredientId: string | null
+  prep: RecipePrep | null
 }
 
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
@@ -238,6 +246,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     where: { id },
     include: {
       category: true,
+      prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, orderBy: { createdAt: 'asc' }, take: 1 },
       ingredients: {
         include: {
           inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
@@ -313,6 +322,13 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     dimensionConflicts,
     allergens,
     baseIngredientId: recipe.baseIngredientId ?? null,
+    prep: recipe.prepItems[0]
+      ? {
+          parLevel: Number(recipe.prepItems[0].parLevel),
+          shelfLifeDays: recipe.prepItems[0].shelfLifeDays,
+          stations: recipe.prepItems[0].stations,
+        }
+      : null,
   }
 }
 

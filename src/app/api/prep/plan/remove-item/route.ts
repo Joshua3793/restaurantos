@@ -79,7 +79,6 @@ export async function POST(req: NextRequest) {
     where: { id: prepItemId },
     select: {
       id: true, revenueCenterId: true, estimatedPrepTime: true,
-      activeMinutesOverride: true, passiveMinutesOverride: true, passiveNoteOverride: true,
       linkedRecipe: { select: { activeMinutes: true, passiveMinutes: true, passiveNote: true, stages: true, method: true } },
     },
   })

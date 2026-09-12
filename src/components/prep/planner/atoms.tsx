@@ -96,7 +96,7 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'w-[126px]' }: {
           <div className={popHeadCls}>Needed</div>
           {PLAN_URG_ORDER.map(k => {
             const km = PLAN_URG_META[k]
-            const dl = ctx ? urgencyDeadline(k, ctx, item.service?.timeMinutes ?? null) : null
+            const dl = ctx ? urgencyDeadline(k, ctx) : null
             return (
               <button key={k} type="button" onClick={() => { onChange(k === auto ? '' : k); setOpen(false) }} className={`${popItemCls(u === k)} !items-start`}>
                 <span className={`w-[7px] h-[7px] rounded-full mt-[5px] shrink-0 ${km.dotClass}`} />

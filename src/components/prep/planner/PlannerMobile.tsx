@@ -50,7 +50,7 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
             {item.station ?? item.category}
             {slot
               ? ` · ${fmtClock(slot.start)}–${fmtClock(slot.end % 1440)} · by ${fmtDeadline(slot.deadline, fmtClock)}${slot.fits ? '' : ' · WON’T FIT'}`
-              : item.startByMinutes != null ? ` · START ${fmtClock(item.startByMinutes)}` : ''}
+              : ''}
           </span>
         </button>
         <button type="button" disabled={locked} onClick={() => handlers.onRemove(item)}
@@ -246,7 +246,7 @@ export function PlannerMobile({ items, allItems, cooks, stations, services, nowM
       </div>
 
       {dlg && (
-        <PostDialog draft={draft} cooks={cooks} stations={stations} ctx={ctx} reposting={!!post}
+        <PostDialog draft={draft} cooks={cooks} ctx={ctx} reposting={!!post}
           onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
     </div>

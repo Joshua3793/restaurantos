@@ -1,4 +1,5 @@
 import type { PrepItemRich } from '@/components/prep/types'
+import { ANY_STATION } from '@/lib/prep-plan'
 
 export type Urgency = 'critical' | 'low' | 'par'
 export type BoardStatus = 'not-started' | 'in-progress' | 'done' | 'skipped'
@@ -48,7 +49,7 @@ export function toBoardRow(item: PrepItemRich): BoardRow {
     id: item.id,
     name: item.name,
     cat: item.category,
-    station: item.station ?? '—',
+    station: item.station ?? ANY_STATION,
     unit: item.unit,
     onHand,
     par,

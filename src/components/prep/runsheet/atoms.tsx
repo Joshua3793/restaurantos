@@ -29,17 +29,6 @@ export function StageChip({ label, passive }: { label: string; passive?: boolean
   )
 }
 
-// ─── NeedChip ────────────────────────────────────────────────────────────
-// "→ LUNCH 11:30" — which service a task must be ready for, and when (PTNeed).
-export function NeedChip({ service }: { service: { name: string; timeMinutes: number } | null }) {
-  if (!service) return null
-  return (
-    <span className="font-mono text-[10px] text-ink-2 whitespace-nowrap">
-      → <b className="font-semibold uppercase">{service.name}</b> {fmtClock(service.timeMinutes)}
-    </span>
-  )
-}
-
 // ─── DeadlineChip ────────────────────────────────────────────────────────
 // "by 11:00" — the step's deadline for the day (the same number the planner's
 // DraftRow showed the chef). When the live step no longer matches what was

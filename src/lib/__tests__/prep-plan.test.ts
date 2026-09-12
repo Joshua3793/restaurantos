@@ -6,6 +6,7 @@ import {
   planDayContext, urgencyDeadline, fmtDeadline, planSchedule, stationLoad, planGroups,
   ladderTimes, withLadderTimes, ladderOrder, runSheetGroups,
   isLiveLog, pickLiveLogs, type LiveLogRow, undoDraftFlag,
+  ANY_STATION, stationKey, stationLabel, onStation, crewFor,
 } from '../prep-plan'
 import { autoUrgency, normalizeUrgency, urgencyToPriority, type PrepPriority } from '../prep-utils'
 import { fmtClock } from '../prep-runsheet'
@@ -177,9 +178,7 @@ describe('deadlines + schedule', () => {
     expect(night.doorsOpen).toBe(690 + 1440)  // TMRW 11:30
     expect(night.close).toBe(1290 + 1440)
     expect(urgencyDeadline('PASS', night)).toBe(690 + 1440)
-    // an item's OWN service start rolls with the day…
-    expect(urgencyDeadline('PASS', night, 540)).toBe(540 + 1440)
-    // …and TMRW doesn't double-roll past tomorrow's doors
+    // TMRW doesn't double-roll past tomorrow's doors
     expect(urgencyDeadline('TMRW', night)).toBe(690 + 1440)
   })
   it('the live kitchen: Brunch 09:00–16:00, chef posts at 17:21 — close rolls WITH doors', () => {
@@ -198,7 +197,6 @@ describe('deadlines + schedule', () => {
     expect(noon.roll).toBe(0)
     expect(noon.doorsOpen).toBe(540)          // already open — a Critical item is late, not for tomorrow
     expect(noon.close).toBe(960)
-    expect(urgencyDeadline('PASS', noon, 540)).toBe(540)
     expect(urgencyDeadline('CLOSE', noon)).toBe(960)
     expect(urgencyDeadline('TMRW', noon)).toBe(540 + 1440)
   })
@@ -207,14 +205,13 @@ describe('deadlines + schedule', () => {
     expect(urgencyDeadline('MID', ctx)).toBe(810)
     expect(urgencyDeadline('CLOSE', ctx)).toBe(1290)
     expect(urgencyDeadline('TMRW', ctx)).toBe(690 + 1440)
-    expect(urgencyDeadline('PASS', ctx, 1020)).toBe(1020) // item's own service wins
     expect(fmtDeadline(690 + 1440, fmtClock)).toBe('TMRW 11:30')
     expect(fmtDeadline(690 + 2880, fmtClock)).toBe('+2d 11:30')
   })
   it('planSchedule sequences a station through its crew and flags what won’t fit', () => {
     const mk = (id: string, active: number, onHand = 0) => ({
-      ...base, id, onHand, station: 'Sauces', activeMinutes: active, passiveMinutes: 0,
-      estimatedPrepTime: null, service: null, category: 'SAUCE',
+      ...base, id, onHand, stations: ['Sauces'], activeMinutes: active, passiveMinutes: 0,
+      estimatedPrepTime: null, category: 'SAUCE',
     })
     // one cook on Sauces, doors at 690, shift starts 420 → 270 crew-minutes
     const crew = [{ homeStation: 'Sauces' }]
@@ -227,8 +224,8 @@ describe('deadlines + schedule', () => {
   })
   it('stationLoad measures PASS+MID hands-on against pre-doors capacity', () => {
     const rows = [
-      { ...base, id: 'a', onHand: 0, station: 'Sauces', activeMinutes: 90, passiveMinutes: 0, estimatedPrepTime: null, service: null, category: 'SAUCE' },  // PASS
-      { ...base, id: 'b', onHand: 8, station: 'Sauces', activeMinutes: 60, passiveMinutes: 0, estimatedPrepTime: null, service: null, category: 'SAUCE' },  // TMRW
+      { ...base, id: 'a', onHand: 0, stations: ['Sauces'], activeMinutes: 90, passiveMinutes: 0, estimatedPrepTime: null, category: 'SAUCE' },  // PASS
+      { ...base, id: 'b', onHand: 8, stations: ['Sauces'], activeMinutes: 60, passiveMinutes: 0, estimatedPrepTime: null, category: 'SAUCE' },  // TMRW
     ]
     const [load] = stationLoad(rows, [{ homeStation: 'Sauces' }], ctx)
     expect(load).toMatchObject({ station: 'Sauces', crew: 1, cap: 270, forService: 90, total: 150, n: 2 })
@@ -237,9 +234,9 @@ describe('deadlines + schedule', () => {
 
 describe('planGroups', () => {
   const rows = [
-    { ...base, id: 'a', onHand: 0, station: 'Sauces', category: 'SAUCE' },   // PASS
-    { ...base, id: 'b', onHand: 6, station: 'Larder', category: 'GARNISH' }, // CLOSE
-    { ...base, id: 'c', onHand: 8, station: 'Sauces', category: 'SAUCE' },   // TMRW
+    { ...base, id: 'a', onHand: 0, stations: ['Sauces'], category: 'SAUCE' },   // PASS
+    { ...base, id: 'b', onHand: 6, stations: ['Larder'], category: 'GARNISH' }, // CLOSE
+    { ...base, id: 'c', onHand: 8, stations: ['Sauces'], category: 'SAUCE' },   // TMRW
   ]
   it('groups by urgency in step order', () => {
     const gs = planGroups(rows, 'urgency')
@@ -256,11 +253,10 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
   // Brunch 09:00–16:00, the cook opens the To Do at 07:30.
   const brunch = [{ timeMinutes: 540, endMinutes: 960 }]
   const ctx = planDayContext(brunch, 450)!
-  const svc = { timeMinutes: 540 }
   const mk = (id: string, name: string, over: string | null, active: number, extra: object = {}) => ({
-    ...base, id, name, station: 'Prep', category: 'MISC', onHand: 0,
+    ...base, id, name, stations: ['Prep'], category: 'MISC', onHand: 0,
     manualPriorityOverride: over, activeMinutes: active, passiveMinutes: 0, estimatedPrepTime: null,
-    service: svc, todayLog: null, startByMinutes: null as number | null, ...extra,
+    todayLog: null, startByMinutes: null as number | null, ...extra,
   })
 
   it('start-by counts back from the STEP deadline, not the service', () => {
@@ -282,7 +278,7 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
 
   it('orders by deadline, then start-by, then the chef’s listOrder, then name', () => {
     const rows = withLadderTimes([
-      mk('z', 'Zucchini', 'MID', 0, { service: null }),                       // MID, no service → deadline 660, startBy 660
+      mk('z', 'Zucchini', 'MID', 0),                                          // MID → deadline 660, startBy 660
       mk('p', 'Pickle Apples', 'MID', 120, { todayLog: { listOrder: 1 } }),   // startBy 540
       mk('s', 'Corn Salsa', 'MID', 120, { todayLog: { listOrder: 0 } }),      // startBy 540 — chef put it first
       mk('a', 'Aioli', 'CLOSE', 45),                                          // CLOSE, deadline 960
@@ -413,5 +409,67 @@ describe('undoDraftFlag', () => {
     // POST /api/prep/plan/remove-item reads an omitted `isOnList` as `true`.
     expect(undoDraftFlag(false, undefined)).toBe(true)
     expect(undoDraftFlag(true, undefined)).toBe(true)
+  })
+})
+
+describe('stations: an item can belong to several, or to any', () => {
+  const cooks = [{ homeStation: 'Grill' }, { homeStation: 'Benny' }, { homeStation: null }]
+
+  it('onStation: a listed station matches; an empty list matches every station', () => {
+    expect(onStation({ stations: ['Grill', 'Benny'] }, 'Grill')).toBe(true)
+    expect(onStation({ stations: ['Grill', 'Benny'] }, 'Prep')).toBe(false)
+    expect(onStation({ stations: [] }, 'Prep')).toBe(true)
+  })
+
+  it('stationKey / stationLabel join the list; empty is "" / null', () => {
+    expect(stationKey({ stations: ['Grill', 'Benny'] })).toBe('Benny · Grill')
+    expect(stationKey({ stations: [] })).toBe('')
+    expect(stationLabel({ stations: ['Grill'] })).toBe('Grill')
+    expect(stationLabel({ stations: [] })).toBeNull()
+  })
+
+  it('stationKey / stationLabel are order-insensitive (alphabetical)', () => {
+    expect(stationKey({ stations: ['Prep', 'Grill'] })).toBe(stationKey({ stations: ['Grill', 'Prep'] }))
+    expect(stationLabel({ stations: ['Prep', 'Grill'] })).toBe('Grill · Prep')
+  })
+
+  it('crewFor: cooks whose home station is in the list; every cook for an any-station item', () => {
+    expect(crewFor(cooks, ['Grill'])).toEqual([cooks[0]])
+    expect(crewFor(cooks, ['Grill', 'Benny'])).toEqual([cooks[0], cooks[1]])
+    expect(crewFor(cooks, [])).toEqual(cooks)
+  })
+
+  it('planGroups by station: one group per station set, known singles first, any-station last', () => {
+    const rows = [
+      { ...base, id: 'a', category: 'Sauces', stations: ['Grill'] },
+      { ...base, id: 'b', category: 'Sauces', stations: [] },
+      { ...base, id: 'c', category: 'Sauces', stations: ['Grill', 'Benny'] },
+    ]
+    const g = planGroups(rows, 'station', { stations: ['Benny', 'Grill'], crew: cooks })
+    expect(g.map(x => x.label)).toEqual(['Grill', 'Benny · Grill', ANY_STATION])
+    expect(g[0].sub).toBe('1 on station')
+    expect(g[1].sub).toBe('2 on station')
+    expect(g[2].sub).toBe('3 on station')
+  })
+
+  it('stationLoad: an any-station item is loaded against the whole crew', () => {
+    const ctx = { doorsOpen: 660, close: 22 * 60, shiftStart: 540, roll: 0 }
+    const rows = [{ ...base, id: 'a', stations: [], activeMinutes: 60 }]
+    const [load] = stationLoad(rows, cooks, ctx)
+    expect(load.station).toBe(ANY_STATION)
+    expect(load.crew).toBe(3)
+    expect(load.cap).toBe((660 - 540) * 3)
+  })
+
+  it('planSchedule: a two-station item is sequenced through the union of both crews', () => {
+    const ctx = { doorsOpen: 660, close: 22 * 60, shiftStart: 540, roll: 0 }
+    const rows = [
+      { ...base, id: 'a', stations: ['Grill', 'Benny'], activeMinutes: 60 },
+      { ...base, id: 'b', stations: ['Grill', 'Benny'], activeMinutes: 60 },
+    ]
+    const sched = planSchedule(rows, cooks, ctx)
+    // two cooks between Grill and Benny → both jobs start at shift start
+    expect(sched.get('a')!.start).toBe(540)
+    expect(sched.get('b')!.start).toBe(540)
   })
 })

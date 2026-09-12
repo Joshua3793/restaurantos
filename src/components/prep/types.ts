@@ -59,7 +59,10 @@ export interface PrepItemRich {
   id: string
   name: string
   category: string
+  /** Display label derived by the API from `stations` ("Grill · Benny"); null = any station. */
   station: string | null
+  /** The stations that can make it. Empty = any station. Filters and crew maths read THIS. */
+  stations: string[]
   parLevel: number
   unit: string
   minThreshold: number
@@ -95,10 +98,7 @@ export interface PrepItemRich {
   activeMinutes: number | null
   passiveMinutes: number | null
   passiveNote: string | null
-  /** The item's target service — ACTIVE only. The API nulls this when the service
-   *  has been soft-removed, so no surface can name a service that no longer exists.
-   *  `startByMinutes` still anchors on the stored time either way. */
-  service: { id: string; name: string; timeMinutes: number; endMinutes: number | null } | null
+  /** Step-aware start-by — attached on the run sheet by `withLadderTimes`; always null on API payloads. */
   startByMinutes: number | null
   /** The step's deadline for the day (minute-of-day, ≥1440 ⇒ tomorrow). Attached
    *  on the run sheet by `withLadderTimes`; absent on API payloads. */
@@ -111,13 +111,6 @@ export interface PrepItemRich {
   /** The make history over the last 60 days (see prep-cadence.ts). */
   cadence?: CadenceStats | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
-  /** RAW item-level overrides — what the edit form binds to. Distinct from the
-   *  resolved `activeMinutes`/`passiveMinutes`/`passiveNote` above, which fall back
-   *  to the linked recipe. Null here means "inherit from the recipe". */
-  targetServiceId: string | null
-  activeMinutesOverride: number | null
-  passiveMinutesOverride: number | null
-  passiveNoteOverride: string | null
 }
 
 export interface IngredientAvailability {

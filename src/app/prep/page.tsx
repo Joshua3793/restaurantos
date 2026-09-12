@@ -1,9 +1,10 @@
 'use client'
 import { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
-  ChefHat, Plus, RefreshCw, Search, Settings,
+  ChefHat, RefreshCw, Search, Settings,
   SlidersHorizontal, WifiOff, RefreshCcw, History, Clock, MoreHorizontal, Lock,
 } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -43,10 +44,10 @@ import type { PrepPostInfo } from '@/components/prep/types'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
 // Lazy-load conditional components — only mount when user opens them
-const PrepItemForm      = dynamic(() => import('@/components/prep/PrepItemForm').then(m => ({ default: m.PrepItemForm })), { ssr: false, loading: () => null })
 const PrepSettingsModal = dynamic(() => import('@/components/prep/PrepSettingsModal').then(m => ({ default: m.PrepSettingsModal })), { ssr: false, loading: () => null })
 
 export default function PrepPage() {
+  const router = useRouter()
   const { setDrawerOpen } = useDrawer()
   const { activeRc, activeRcId, activeKind, activeLocationId, isReadOnly } = useRc()
   const { role, user } = useUser()
@@ -63,8 +64,6 @@ export default function PrepPage() {
       if (on) next.add(id); else next.delete(id)
       return next
     })
-  const [editing,      setEditing]      = useState<PrepItemRich | null>(null)
-  const [showAdd,      setShowAdd]      = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const [actionError,  setActionError]  = useState<string | null>(null)
@@ -1326,7 +1325,9 @@ export default function PrepPage() {
   }
 
   function handleAssignStation(station: string, cookId: string) {
-    items.filter(i => i.isOnList && i.station === station).forEach(i => handleDraftEdit(i, { assignedTo: cookId }))
+    // Explicit membership only (not onStation): an any-station item would
+    // otherwise be handed to whichever station's cook was assigned last.
+    items.filter(i => i.isOnList && i.stations.includes(station)).forEach(i => handleDraftEdit(i, { assignedTo: cookId }))
   }
 
   async function handleReorder(orders: Array<{ prepItemId: string; listOrder: number }>) {
@@ -1623,12 +1624,6 @@ export default function PrepPage() {
                 </>
               )}
             </div>
-            <button onClick={() => setShowAdd(true)}
-              disabled={isReadOnly}
-              title={isReadOnly ? 'Select a revenue center to make changes' : 'Add item'}
-              className="p-2 rounded-lg bg-ink text-paper [&_svg]:text-gold active:bg-ink-2 disabled:opacity-50 disabled:cursor-not-allowed">
-              <Plus size={16} />
-            </button>
           </div>
         </div>
 
@@ -1734,13 +1729,6 @@ export default function PrepPage() {
             <button onClick={() => setShowSettings(true)} title="Settings"
               className="inline-flex items-center justify-center p-2.5 rounded-[9px] border border-line bg-paper text-ink-2 hover:border-ink-3 transition-colors">
               <Settings size={15} className="text-ink-3" />
-            </button>
-            <button onClick={() => setShowAdd(true)}
-              disabled={isReadOnly}
-              title={isReadOnly ? 'Select a revenue center to make changes' : undefined}
-              className="inline-flex items-center gap-[7px] px-4 py-2.5 rounded-[9px] border border-ink bg-ink text-paper text-[13px] font-medium hover:bg-[#18181b] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-ink">
-              <span className="text-gold font-semibold text-base leading-none">+</span>
-              Add item
             </button>
           </div>
         </div>
@@ -2172,7 +2160,7 @@ export default function PrepPage() {
           onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
           onStage={handleStageChange}
           onPriorityChange={handlePriorityChange}
-          onEdit={(item) => { closeDrawer(); setEditing(item) }}
+          onEdit={(item) => { if (item.linkedRecipeId) { closeDrawer(); router.push(`/recipes?item=${item.linkedRecipeId}`) } }}
         />
       </div>
       {subRecipeView && (
@@ -2190,18 +2178,6 @@ export default function PrepPage() {
       )}
       </ErrorBoundary>
       {toastNode}
-
-      {showAdd && (
-        <PrepItemForm onClose={() => setShowAdd(false)} onSaved={load} />
-      )}
-
-      {editing && (
-        <PrepItemForm
-          item={editing}
-          onClose={() => setEditing(null)}
-          onSaved={() => { load(); setEditing(null) }}
-        />
-      )}
 
       {showSettings && (
         <PrepSettingsModal

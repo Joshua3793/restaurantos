@@ -62,7 +62,6 @@ export function RunRowMobile({
   const metaText = [
     `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}`,
     kitchen && item.station ? item.station : null,
-    item.service ? `for ${item.service.name}` : null,
     // the step's deadline; the posted one stays visible if the step has since moved
     liveBy ? `by ${liveBy}${postedBy && postedBy !== liveBy ? ` (posted ${postedBy})` : ''}` : null,
   ]

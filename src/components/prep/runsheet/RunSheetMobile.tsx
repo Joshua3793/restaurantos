@@ -27,7 +27,7 @@ import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
 import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
-import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META } from '@/lib/prep-plan'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META, onStation } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
@@ -113,12 +113,11 @@ export function RunSheetMobile({
   }, [cooks, cook])
 
   const member = cook ? cooks.find(c => c.id === cook) ?? null : null
-  // Assigned to the cook, or unassigned on the cook's home station. The station
-  // match needs a REAL station on both sides: a cook with no home station used
-  // to "match" every item with no station (null === null), so My station opened
-  // to the one unstationed item on the list for every cook.
+  // Assigned to the cook, or unassigned and makeable on the cook's home station.
+  // The cook needs a REAL home station: without one nothing station-matches, so
+  // a cook with no station never sees the whole any-station list as "mine".
   const isMine = (i: PrepItemRich) =>
-    i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && i.station === member.homeStation)
+    i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && onStation(i, member.homeStation))
 
   const todoAll = useMemo(() => items.filter(isTodo).sort(ladderOrder), [items])
   const doingAll = useMemo(() => items.filter(isDoing), [items])
