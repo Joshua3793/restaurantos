@@ -196,7 +196,6 @@ const CATERING = 'rc-catering'
 
 const item = (over: Row): Row => ({
   revenueCenterId: CAFE, isActive: true, isOnList: true, estimatedPrepTime: 0,
-  activeMinutesOverride: null, passiveMinutesOverride: null, passiveNoteOverride: null,
   linkedRecipe: null,
   ...over,
 })
