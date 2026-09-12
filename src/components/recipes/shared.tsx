@@ -117,6 +117,8 @@ export interface Recipe {
   usedInRecipes?: Array<{ id: string; name: string; type: string }>
   allergens?: string[]
   baseIngredientId: string | null
+  /** Line settings off the prep task row (PREP recipes); null when there is no row. */
+  prep?: { parLevel: number; shelfLifeDays: number | null; stations: string[] } | null
 }
 
 interface IngredientSearchResult {
@@ -1293,6 +1295,18 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     }
   }, [recipeId, load])
 
+  // Station options for the Prep section — the settings' station list. Only a
+  // PREP recipe has a prep row, so a MENU recipe never fetches.
+  const [stationOptions, setStationOptions] = useState<string[]>([])
+  const recipeType = recipe?.type
+  useEffect(() => {
+    if (recipeType !== 'PREP') return
+    fetch('/api/prep/settings')
+      .then(r => { if (!r.ok) throw new Error(); return r.json() })
+      .then(d => { if (Array.isArray(d.stations)) setStationOptions(d.stations.filter(Boolean)) })
+      .catch(() => { /* keep empty */ })
+  }, [recipeType])
+
   const handleClose = () => {
     onUpdated()
     onClose()
@@ -1552,6 +1566,80 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
               </div>
             )}
           </div>
+
+          {/* ── Prep — how this recipe is kept on the line. These live on the prep
+              task row (PrepItem) and the recipe is their only writer: par and shelf
+              life size the suggestion, the station set says who can make it.
+              Revenue center is the recipe's own selector above (sync mirrors it). */}
+          {!isMenu && (
+            <div className="bg-paper border border-line rounded-[12px] p-5">
+              <div className="flex items-baseline justify-between mb-3">
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">Prep</span>
+                <span className="font-mono text-[10.5px] text-ink-4">how it&apos;s kept on the line</span>
+              </div>
+              {recipe.prep ? (() => {
+                const prep = recipe.prep
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">Par level · {recipe.yieldUnit}</label>
+                        <input type="number" min="0" step="0.1" inputMode="decimal" defaultValue={prep.parLevel}
+                          onBlur={e => {
+                            const v = parseFloat(e.target.value)
+                            const next = Number.isFinite(v) && v >= 0 ? v : 0
+                            if (next !== prep.parLevel) patchRecipe({ prep: { ...prep, parLevel: next } })
+                          }}
+                          className="w-full border border-line rounded-[10px] px-3 py-2 font-mono text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold" />
+                        <p className="font-mono text-[10.5px] text-ink-4 mt-1.5 tracking-[0.01em]">Stock to keep on hand — sizes the suggestion</p>
+                      </div>
+                      <div>
+                        <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">Shelf life · days</label>
+                        <input type="number" min="0" step="1" inputMode="numeric" defaultValue={prep.shelfLifeDays ?? ''}
+                          onBlur={e => {
+                            const v = e.target.value.trim()
+                            const next = v === '' ? null : Math.max(0, parseInt(v, 10) || 0)
+                            if (next !== prep.shelfLifeDays) patchRecipe({ prep: { ...prep, shelfLifeDays: next } })
+                          }}
+                          className="w-full border border-line rounded-[10px] px-3 py-2 font-mono text-sm text-ink bg-paper focus:outline-none focus:ring-2 focus:ring-gold" />
+                        <p className="font-mono text-[10.5px] text-ink-4 mt-1.5 tracking-[0.01em]">Caps a batch at what will keep</p>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">
+                        Stations <span className="normal-case tracking-normal text-ink-4">· none ticked = any station</span>
+                      </label>
+                      {stationOptions.length === 0 ? (
+                        <p className="text-[12px] text-ink-4">No stations set up yet — add them in Prep → Settings.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {stationOptions.map(s => {
+                            const on = prep.stations.includes(s)
+                            return (
+                              <label key={s}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border font-mono text-[12px] cursor-pointer select-none transition-colors ${on ? 'bg-ink text-paper border-ink' : 'bg-paper border-line text-ink-2 hover:border-ink-4'}`}>
+                                <input type="checkbox" className="sr-only" checked={on}
+                                  onChange={() => {
+                                    // Keep the settings order so the label ("Grill · Prep") is stable.
+                                    const next = on
+                                      ? prep.stations.filter(x => x !== s)
+                                      : stationOptions.filter(x => x === s || prep.stations.includes(x))
+                                    patchRecipe({ prep: { ...prep, stations: next } })
+                                  }} />
+                                <span className={on ? 'text-gold' : 'text-ink-4'}>{on ? '✓' : '+'}</span>{s}
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )
+              })() : (
+                <p className="text-[12px] text-ink-4">No prep task row yet — it appears once the recipe has been saved.</p>
+              )}
+            </div>
+          )}
 
           {recipe.allergens && recipe.allergens.length > 0 && (
             <div className="flex flex-col gap-1.5">
