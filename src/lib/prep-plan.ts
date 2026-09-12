@@ -500,9 +500,33 @@ export interface TimedFields extends PlanFields {
   service?: { timeMinutes: number } | null
 }
 
-interface SchedulableItem extends TimedFields {
+// ─── stations: who can make it ─────────────────────────────────────────────
+// An item lists the stations that can make it. Empty = any station. The API
+// emits `station` as a derived label (`stationLabel`) so display sites read one
+// string; filters and crew maths read the list.
+
+export const ANY_STATION = 'Any station'
+
+export interface StationFields { stations: string[] }
+
+/** Grouping key: the joined list; '' for an any-station item. */
+export const stationKey = (t: StationFields): string => t.stations.join(' · ')
+
+/** Display label: the joined list, or null for an any-station item. */
+export const stationLabel = (t: StationFields): string | null => stationKey(t) || null
+
+/** Does station `s` make this item? An empty list is every station. */
+export const onStation = (t: StationFields, s: string): boolean =>
+  t.stations.length === 0 || t.stations.includes(s)
+
+/** The cooks who can take an item: everyone for any-station, else those whose home station is listed. */
+export function crewFor<C extends { homeStation: string | null }>(cooks: C[], stations: string[]): C[] {
+  if (stations.length === 0) return cooks
+  return cooks.filter(c => c.homeStation != null && stations.includes(c.homeStation))
+}
+
+interface SchedulableItem extends TimedFields, StationFields {
   id: string
-  station: string | null
 }
 
 const activeMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingActiveMinutes : (t.activeMinutes ?? t.estimatedPrepTime ?? 0)
@@ -516,10 +540,10 @@ function earliestStart(t: SchedulableItem, ctx: PlanDayContext): number {
 }
 
 /**
- * Sequence each station's draft through the crew actually on it: each item gets
- * its own slot; passive time doesn't hold a cook. Deadline-first order. A job
- * already in flight is charged only its REMAINING hands-on minutes, from the
- * time its next hands-on stage is due — not from shift start.
+ * Sequence each station set's draft through the crew that can take it: each
+ * item gets its own slot; passive time doesn't hold a cook. Deadline-first
+ * order. A job already in flight is charged only its REMAINING hands-on
+ * minutes, from the time its next hands-on stage is due — not from shift start.
  */
 export function planSchedule<T extends SchedulableItem>(
   draft: T[],
@@ -528,13 +552,13 @@ export function planSchedule<T extends SchedulableItem>(
   ord: (t: T) => number = () => 0,
 ): Map<string, PlanSlot> {
   const map = new Map<string, PlanSlot>()
-  const stations = [...new Set(draft.map(t => t.station ?? ''))]
-  for (const s of stations) {
-    const crew = Math.max(1, cooks.filter(c => (c.homeStation ?? '') === s).length)
+  const keys = [...new Set(draft.map(stationKey))]
+  for (const key of keys) {
+    const rows = draft.filter(t => stationKey(t) === key)
+    const crew = Math.max(1, crewFor(cooks, rows[0].stations).length)
     const cursors = Array<number>(crew).fill(ctx.shiftStart)
-    draft
-      .filter(t => (t.station ?? '') === s)
-      .map(t => ({ t, dl: urgencyDeadline(effectiveUrgency(t), ctx, t.service?.timeMinutes ?? null) }))
+    rows
+      .map(t => ({ t, dl: urgencyDeadline(effectiveUrgency(t), ctx) }))
       .sort((a, b) =>
         a.dl - b.dl ||
         PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(a.t)) - PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(b.t)) ||
@@ -568,23 +592,23 @@ export interface StationLoad {
   pct: number
 }
 
-/** Station load against the crew-minutes available before doors open. */
+/** Load per station set against the crew-minutes available before doors open. */
 export function stationLoad<T extends SchedulableItem>(
   draft: T[],
   cooks: Array<{ homeStation: string | null }>,
   ctx: PlanDayContext,
 ): StationLoad[] {
-  const stations = [...new Set(draft.map(t => t.station ?? ''))]
-  return stations
-    .map(s => {
-      const rows = draft.filter(t => (t.station ?? '') === s)
-      const crew = Math.max(1, cooks.filter(c => (c.homeStation ?? '') === s).length)
+  const keys = [...new Set(draft.map(stationKey))]
+  return keys
+    .map(key => {
+      const rows = draft.filter(t => stationKey(t) === key)
+      const crew = Math.max(1, crewFor(cooks, rows[0].stations).length)
       const cap = Math.max(0, ctx.doorsOpen - ctx.shiftStart) * crew
       const forService = rows
         .filter(t => { const u = effectiveUrgency(t); return u === 'PASS' || u === 'MID' })
         .reduce((a, t) => a + activeMin(t), 0)
       const total = rows.reduce((a, t) => a + activeMin(t), 0)
-      return { station: s || 'Unassigned', crew, cap, forService, total, n: rows.length, pct: cap ? (forService / cap) * 100 : 0 }
+      return { station: key || ANY_STATION, crew, cap, forService, total, n: rows.length, pct: cap ? (forService / cap) * 100 : 0 }
     })
     .filter(x => x.n)
 }
@@ -617,7 +641,7 @@ export function mustStartToday(t: TimedFields, ctx: PlanDayContext | null, nowMi
 
 export const START_TODAY_KEY = 'START'
 
-export function planGroups<T extends PlanFields & { station: string | null; category: string }>(
+export function planGroups<T extends PlanFields & StationFields & { category: string }>(
   rows: T[],
   by: 'urgency' | 'station' | 'category',
   opts: {
@@ -632,16 +656,25 @@ export function planGroups<T extends PlanFields & { station: string | null; cate
   const byUrg = (a: T, b: T) =>
     PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(a)) - PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(b)) || ord(a) - ord(b)
   if (by === 'station') {
+    // Known single stations in the settings order, then multi-station sets
+    // alphabetically, then the any-station group last.
     const known = opts.stations ?? []
-    const present = [...new Set(rows.map(t => t.station ?? ''))]
-    const keys = [...known.filter(s => present.includes(s)), ...present.filter(s => !known.includes(s)).sort()]
+    const present = [...new Set(rows.map(stationKey))]
+    const keys = [
+      ...known.filter(s => present.includes(s)),
+      ...present.filter(s => s !== '' && !known.includes(s)).sort(),
+      ...(present.includes('') ? [''] : []),
+    ]
     return keys
-      .map(s => ({
-        key: s || 'Unassigned',
-        label: s || 'Unassigned',
-        sub: opts.crew ? `${opts.crew.filter(c => (c.homeStation ?? '') === s).length} on station` : undefined,
-        rows: rows.filter(t => (t.station ?? '') === s).sort(byUrg),
-      }))
+      .map(key => {
+        const grp = rows.filter(t => stationKey(t) === key)
+        return {
+          key: key || ANY_STATION,
+          label: key || ANY_STATION,
+          sub: opts.crew ? `${crewFor(opts.crew, grp[0].stations).length} on station` : undefined,
+          rows: grp.sort(byUrg),
+        }
+      })
       .filter(g => g.rows.length)
   }
   if (by === 'category') {
