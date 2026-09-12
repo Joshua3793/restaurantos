@@ -10,7 +10,7 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { RcService } from '@/lib/service-hours'
 import {
   effectiveUrgency, planDayContext, planSchedule, stationLoad, planGroups, batchYield,
-  mustStartToday, START_TODAY_KEY,
+  mustStartToday, START_TODAY_KEY, onStation,
   draftListOrder as draftOrd,
   type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
@@ -247,7 +247,7 @@ export function PlannerDesktop({
                   <div className={popHeadCls}>Give a whole station to</div>
                   {stations.map(s => {
                     const c = cooks.find(x => x.homeStation === s)
-                    const n = draft.filter(t => t.station === s).length
+                    const n = draft.filter(t => onStation(t, s)).length
                     const dis = !c || !n
                     return (
                       <button key={s} type="button" disabled={dis}
@@ -332,7 +332,7 @@ export function PlannerDesktop({
       </div>
 
       {dlg && (
-        <PostDialog draft={draft} cooks={cooks} stations={stations} ctx={ctx} reposting={!!post}
+        <PostDialog draft={draft} cooks={cooks} ctx={ctx} reposting={!!post}
           onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
     </div>

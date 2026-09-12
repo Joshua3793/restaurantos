@@ -28,7 +28,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, onStation } from '@/lib/prep-plan'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
 import { prepDayKey } from '@/lib/prep-day'
@@ -1326,7 +1326,7 @@ export default function PrepPage() {
   }
 
   function handleAssignStation(station: string, cookId: string) {
-    items.filter(i => i.isOnList && i.station === station).forEach(i => handleDraftEdit(i, { assignedTo: cookId }))
+    items.filter(i => i.isOnList && onStation(i, station)).forEach(i => handleDraftEdit(i, { assignedTo: cookId }))
   }
 
   async function handleReorder(orders: Array<{ prepItemId: string; listOrder: number }>) {

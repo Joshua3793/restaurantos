@@ -28,7 +28,7 @@ import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
-import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META } from '@/lib/prep-plan'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META, onStation } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
@@ -113,21 +113,20 @@ export function RunSheet({
   const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
   const items = useMemo(() => withLadderTimes(rawItems, ctx, { nowMs, nowMin }), [rawItems, ctx, nowMs, nowMin])
 
-  // Stations present in the current dataset (the prototype's static PT_STATIONS).
+  // Every station named on the list (an item may name several).
   const stations = useMemo(
-    () => [...new Set(items.map(i => i.station).filter((s): s is string => !!s))].sort(),
+    () => [...new Set(items.flatMap(i => i.stations))].sort(),
     [items],
   )
 
   const member = cook ? cooks.find(c => c.id === cook) ?? null : null
-  // Assigned to the cook, or unassigned on the cook's home station. The station
-  // match needs a REAL station on both sides: a cook with no home station used
-  // to "match" every item with no station (null === null), so My station opened
-  // to the one unstationed item on the list for every cook.
+  // Assigned to the cook, or unassigned and makeable on the cook's home station.
+  // The cook needs a REAL home station: without one nothing station-matches, so
+  // a cook with no station never sees the whole any-station list as "mine".
   const isMine = (i: PrepItemRich) =>
-    i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && i.station === member.homeStation)
+    i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && onStation(i, member.homeStation))
   const inScope = (i: PrepItemRich) =>
-    mode === 'station' ? isMine(i) : stFilter === 'all' || i.station === stFilter
+    mode === 'station' ? isMine(i) : stFilter === 'all' || onStation(i, stFilter)
 
   const doing = useMemo(() => items.filter(i => isDoing(i) && inScope(i)), [items, mode, cook, stFilter, member])
   // Waiting — jobs resting in an unattended stage, soonest ready first.
@@ -195,7 +194,7 @@ export function RunSheet({
   const renderLadder = () => {
     if (group === 'station') {
       return stations.map(s => {
-        const grp = todo.filter(i => i.station === s)
+        const grp = todo.filter(i => onStation(i, s))
         if (!grp.length) return null
         const late = grp.filter(i => lateToStart(i, nowMin)).length
         return (
