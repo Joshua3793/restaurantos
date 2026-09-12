@@ -76,6 +76,8 @@ export interface PrepItemRich {
   manualPriorityOverride: string | null
   isActive: boolean
   isOnList: boolean
+  /** The chef's switch — false keeps the item off Smart Prep / the To Do while the recipe stays active. */
+  prepEnabled: boolean
   linkedRecipeId: string | null
   linkedRecipe: {
     id: string

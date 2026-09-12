@@ -15,6 +15,7 @@ import {
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 import { GroupHead, UrgPicker, AssignPill, QtyStepper, Reason } from './atoms'
 import { SuggestionRow } from './SuggestionRow'
+import { HiddenGroup } from './HiddenGroup'
 import { PostDialog } from './PostDialog'
 import { Segmented } from '@/components/prep/runsheet/atoms'
 import { isBatchMode } from './PlannerDesktop'
@@ -79,9 +80,11 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
   )
 }
 
-export function PlannerMobile({ items, allItems, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
+export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
   items: PrepItemRich[]
   allItems: PrepItemRich[]
+  /** Items switched off the prep list — the collapsed group under the suggestions. */
+  hidden: PrepItemRich[]
   cooks: Cook[]
   stations: string[]
   services: RcService[]
@@ -181,10 +184,11 @@ export function PlannerMobile({ items, allItems, cooks, stations, services, nowM
               <div key={g.key}>
                 <GroupHead g={g} count={g.rows.length} />
                 <div className="flex flex-col gap-1.5">
-                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
+                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} onSetPrepEnabled={handlers.onSetPrepEnabled} />)}
                 </div>
               </div>
             ))}
+            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} onSetPrepEnabled={handlers.onSetPrepEnabled} />
           </>
         ) : (
           <>

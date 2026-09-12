@@ -93,6 +93,10 @@ export default function PrepPage() {
 
   // Redesigned To-do tab — drawer, cook-along modal, toast, alert dismissal
   const { toast, toastNode } = usePrepToast()
+  // Items switched off the prep list (prepEnabled=false). Kept apart from `items`
+  // so nothing else on the page — the To Do, the counts, the cache — ever sees
+  // them; the planner shows them in its collapsed "Not prepped" group.
+  const [hiddenItems, setHiddenItems] = useState<PrepItemRich[]>([])
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
   // Quick yield prompt from the compact row's "Mark done" (no full drawer).
   const [doneSheetItem, setDoneSheetItem] = useState<PrepItemRich | null>(null)
@@ -271,10 +275,13 @@ export default function PrepPage() {
     }
     const seqAtStart = mutationSeq.current
     try {
-      const res  = await fetch(`/api/prep/items?active=${activeOnly}`, { cache: 'no-store' })
+      const res  = await fetch(`/api/prep/items?active=${activeOnly}&includeHidden=true`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      const fetched = Array.isArray(data) ? data : []
+      const all: PrepItemRich[] = Array.isArray(data) ? data : []
+      // Split the switched-off items out before anything else reads the list.
+      const fetched = all.filter(i => i.prepEnabled !== false)
+      const hidden = all.filter(i => i.prepEnabled === false)
       // Discard a stale snapshot: if the user mutated an item while this slow fetch
       // was in flight (poll, mount load, or manual refresh), its data predates that
       // change and applying it would revert the optimistic update — e.g. a
@@ -293,6 +300,7 @@ export default function PrepPage() {
       setCacheAge(null)
       if (mutationSeq.current !== seqAtStart) return
       setItems(fetched)
+      setHiddenItems(hidden)
       savePrepCache(fetched, { fetchedAt: Date.now() })
     } catch (e) {
       // ANY failure falls back to the cache — not just navigator.onLine === false.
@@ -1462,6 +1470,29 @@ export default function PrepPage() {
   }
 
   // One bundle for both planner renderers (desktop split view + mobile tabs).
+  // The chef's switch: off moves the item into the hidden group (and off the
+  // draft — the server clears isOnList too); on brings it back. Optimistic
+  // across the two lists, then one PUT; a failure reloads to whatever is true.
+  async function handleSetPrepEnabled(item: PrepItemRich, enabled: boolean) {
+    mutationSeq.current++
+    if (enabled) {
+      setHiddenItems(prev => prev.filter(i => i.id !== item.id))
+      setItems(prev => prev.some(i => i.id === item.id) ? prev : [...prev, { ...item, prepEnabled: true }])
+    } else {
+      setItems(prev => prev.filter(i => i.id !== item.id))
+      setHiddenItems(prev => prev.some(i => i.id === item.id) ? prev : [...prev, { ...item, prepEnabled: false, isOnList: false }])
+    }
+    try {
+      const res = await fetch(`/api/prep/items/${item.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prepEnabled: enabled }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch {
+      setActionError(enabled ? 'Could not switch the item back on — try again.' : 'Could not switch the item off — try again.')
+      load()
+    }
+  }
+
   const plannerHandlers: PlannerHandlers = {
     // Arrow wrapper — `openDrawer` is a const declared later in this component;
     // naming it directly here would hit the temporal dead zone during render.
@@ -1479,6 +1510,7 @@ export default function PrepPage() {
     onClearDraft: handleClearDraft,
     onPost: handlePost,
     onRecall: handleRecall,
+    onSetPrepEnabled: handleSetPrepEnabled,
   }
 
   // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
@@ -1936,6 +1968,7 @@ export default function PrepPage() {
               post={plan.post}
               search={search}
               onSearch={setSearch}
+              hidden={hiddenItems}
               handlers={plannerHandlers}
               tasksSlot={
                 <PrepTaskLibrary
@@ -2050,6 +2083,7 @@ export default function PrepPage() {
                 nowMs={nowMs}
                 canPlan={canPlan}
                 post={plan.post}
+                hidden={hiddenItems}
                 handlers={plannerHandlers}
               />
             </>
