@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client'
 import { validateStages } from '@/lib/prep-stages'
 import { validateMethod } from '@/lib/recipe-method'
 import { numOrNull } from '@/lib/prep-utils'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const recipe = await fetchRecipeWithCost(params.id)
@@ -24,6 +25,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   const body = await req.json()
   const {
     name, categoryId, baseYieldQty, yieldUnit, portionSize, portionUnit, menuPrice, notes, isActive, baseIngredientId, steps, revenueCenterId,

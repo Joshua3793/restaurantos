@@ -50,7 +50,7 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
       inventoryItemId: true,
       revenueCenterId: true,
       category: { select: { name: true } },
-      prepItems: { select: { id: true }, take: 1 },
+      prepItems: { select: { id: true }, orderBy: { createdAt: 'asc' }, take: 1 },
     },
   })
   if (!recipe) return

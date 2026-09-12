@@ -246,7 +246,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     where: { id },
     include: {
       category: true,
-      prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, take: 1 },
+      prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, orderBy: { createdAt: 'asc' }, take: 1 },
       ingredients: {
         include: {
           inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },

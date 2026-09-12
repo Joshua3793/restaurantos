@@ -48,7 +48,6 @@ export function PostDialog({ draft, cooks, ctx, reposting, onClose, onConfirm }:
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
   const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits)
   const firstStart = [...sched.values()].map(s => s.start).sort((a, b) => a - b)[0]
-    ?? draft.filter(t => t.startByMinutes != null).map(t => t.startByMinutes!).sort((a, b) => a - b)[0]
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-3">

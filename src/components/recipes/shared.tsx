@@ -1620,7 +1620,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border font-mono text-[12px] cursor-pointer select-none transition-colors ${on ? 'bg-ink text-paper border-ink' : 'bg-paper border-line text-ink-2 hover:border-ink-4'}`}>
                                 <input type="checkbox" className="sr-only" checked={on}
                                   onChange={() => {
-                                    // Keep the settings order so the label ("Grill · Prep") is stable.
+                                    // Built in settings order; the label itself is alphabetical (stationKey sorts).
                                     const next = on
                                       ? prep.stations.filter(x => x !== s)
                                       : stationOptions.filter(x => x === s || prep.stations.includes(x))

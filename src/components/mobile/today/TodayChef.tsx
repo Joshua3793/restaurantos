@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { ClipboardList, Barcode, Flame, ChefHat, ArrowRight, Thermometer } from 'lucide-react'
 import { canAccess } from '@/lib/route-access'
+import { ANY_STATION } from '@/lib/prep-plan'
 import { MPageHead, MCard, MSectionLabel, MQuickAction, MProgressBar } from '@/components/mobile/kit'
 
 // Shape from GET /api/count/sessions: each session row + { counts: { total, counted, skipped } }
@@ -61,7 +62,7 @@ export function TodayChef() {
               <span className="grid place-items-center w-9 h-9 rounded-[10px] bg-bg-2 text-ink-2 shrink-0"><ChefHat size={18} /></span>
               <span className="flex-1 min-w-0">
                 <span className="block text-[14.5px] font-semibold tracking-[-0.01em] truncate">{p.name}</span>
-                <span className="block font-mono text-[11px] text-ink-3 mt-0.5">{p.station ?? 'Prep'}</span>
+                <span className="block font-mono text-[11px] text-ink-3 mt-0.5">{p.station ?? ANY_STATION}</span>
               </span>
             </div>
           </MCard>

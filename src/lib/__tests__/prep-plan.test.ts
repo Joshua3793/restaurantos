@@ -422,10 +422,15 @@ describe('stations: an item can belong to several, or to any', () => {
   })
 
   it('stationKey / stationLabel join the list; empty is "" / null', () => {
-    expect(stationKey({ stations: ['Grill', 'Benny'] })).toBe('Grill · Benny')
+    expect(stationKey({ stations: ['Grill', 'Benny'] })).toBe('Benny · Grill')
     expect(stationKey({ stations: [] })).toBe('')
     expect(stationLabel({ stations: ['Grill'] })).toBe('Grill')
     expect(stationLabel({ stations: [] })).toBeNull()
+  })
+
+  it('stationKey / stationLabel are order-insensitive (alphabetical)', () => {
+    expect(stationKey({ stations: ['Prep', 'Grill'] })).toBe(stationKey({ stations: ['Grill', 'Prep'] }))
+    expect(stationLabel({ stations: ['Prep', 'Grill'] })).toBe('Grill · Prep')
   })
 
   it('crewFor: cooks whose home station is in the list; every cook for an any-station item', () => {
@@ -441,7 +446,7 @@ describe('stations: an item can belong to several, or to any', () => {
       { ...base, id: 'c', category: 'Sauces', stations: ['Grill', 'Benny'] },
     ]
     const g = planGroups(rows, 'station', { stations: ['Benny', 'Grill'], crew: cooks })
-    expect(g.map(x => x.label)).toEqual(['Grill', 'Grill · Benny', ANY_STATION])
+    expect(g.map(x => x.label)).toEqual(['Grill', 'Benny · Grill', ANY_STATION])
     expect(g[0].sub).toBe('1 on station')
     expect(g[1].sub).toBe('2 on station')
     expect(g[2].sub).toBe('3 on station')

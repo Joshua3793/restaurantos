@@ -506,8 +506,11 @@ export const ANY_STATION = 'Any station'
 
 export interface StationFields { stations: string[] }
 
-/** Grouping key: the joined list; '' for an any-station item. */
-export const stationKey = (t: StationFields): string => t.stations.join(' · ')
+/** Grouping key: the list sorted alphabetically and joined; '' for an any-station item.
+ *  Sorting makes the key (and therefore the label) order-insensitive, so ['Grill','Prep']
+ *  and ['Prep','Grill'] are one station set — otherwise planSchedule/stationLoad would give
+ *  the same set two full-crew cursor arrays and double-count capacity. */
+export const stationKey = (t: StationFields): string => [...t.stations].sort().join(' · ')
 
 /** Display label: the joined list, or null for an any-station item. */
 export const stationLabel = (t: StationFields): string | null => stationKey(t) || null
