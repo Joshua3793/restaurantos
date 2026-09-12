@@ -582,8 +582,7 @@ model PrepItem {
   linkedRecipeId         String?
   linkedInventoryItemId  String?
   category               String         @default("MISC")
-  station                String?
-  /// Stations that can make this item. Empty = any station. Replaces `station` (kept only until the follow-up drop migration).
+  /// Stations that can make this item. Empty = any station.
   stations               String[]       @default([])
   parLevel               Decimal        @default(0)
   unit                   String         @default("batch")
@@ -598,14 +597,9 @@ model PrepItem {
   updatedAt              DateTime       @updatedAt
   estimatedPrepTime      Int?
   revenueCenterId        String?
-  targetServiceId        String?
-  activeMinutesOverride  Int?
-  passiveMinutesOverride Int?
-  passiveNoteOverride    String?
   linkedInventoryItem    InventoryItem? @relation("PrepItemInventory", fields: [linkedInventoryItemId], references: [id])
   linkedRecipe           Recipe?        @relation("PrepItemRecipe", fields: [linkedRecipeId], references: [id])
   revenueCenter          RevenueCenter? @relation("PrepItemRC", fields: [revenueCenterId], references: [id])
-  targetService          Service? @relation("PrepItemService", fields: [targetServiceId], references: [id])
   logs                   PrepLog[]
 }
 
@@ -745,7 +739,6 @@ model Service {
   sortOrder       Int           @default(0)
   isActive        Boolean       @default(true)
   revenueCenter   RevenueCenter @relation("ServiceRC", fields: [revenueCenterId], references: [id])
-  prepItems       PrepItem[]    @relation("PrepItemService")
   @@index([revenueCenterId])
 }
 

@@ -76,7 +76,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 // ── DELETE /api/services/[id] ──────────────────────────────────────────────
-// PrepItem.targetServiceId has an ON DELETE SET NULL FK — no manual unlink needed.
+// Nothing references a Service row any more (PrepItem.targetServiceId was dropped).
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireSession('ADMIN')
