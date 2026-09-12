@@ -78,8 +78,13 @@ interface Props {
   onSaved: () => void
 }
 
+/** A station row: `orig` is the name it had when the modal opened (null = added
+ *  here). Editing a row in place is a RENAME and is propagated to every prep
+ *  item and cook that names it; deleting a row strips the name from them. */
+type StationEntry = { orig: string | null; name: string }
+
 export function PrepSettingsModal({ onClose, onSaved }: Props) {
-  const [stations,   setStations]   = useState<string[]>([])
+  const [entries,    setEntries]    = useState<StationEntry[]>([])
   const [newStation,  setNewStation]  = useState('')
   const [saving,  setSaving]  = useState(false)
   const [loading, setLoading] = useState(true)
@@ -94,7 +99,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
       })
       .then(data => {
         // Filter out any empty strings that may have crept into the DB
-        setStations((data.stations ?? []).filter((s: string) => s.trim() !== ''))
+        setEntries((data.stations ?? []).filter((s: string) => s.trim() !== '').map((s: string) => ({ orig: s, name: s })))
         setLoading(false)
       })
       .catch(err => {
@@ -106,19 +111,25 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
   }, [])
 
   async function handleSave() {
+    const stations = entries.map(e => e.name.trim()).filter(Boolean)
     if (stations.length === 0) {
       setError('Stations list must have at least one entry.')
       return
     }
+    // Renames = rows edited in place; removed = names that were loaded but no
+    // row carries any more. The route rewrites PrepItem.stations / Cook.homeStation.
+    const renames = entries
+      .filter(e => e.orig && e.name.trim() && e.name.trim() !== e.orig)
+      .map(e => ({ from: e.orig as string, to: e.name.trim() }))
+    const stillPresent = new Set(entries.filter(e => e.orig).map(e => e.orig as string))
+    const removed = original.filter(o => !stillPresent.has(o))
     setSaving(true)
     setError(null)
     try {
       const res = await fetch('/api/prep/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stations: stations.map(s => s.trim()).filter(Boolean),
-        }),
+        body: JSON.stringify({ stations, renames, removed }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -136,18 +147,20 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
 
   function addStation() {
     const v = newStation.trim()
-    if (!v || stations.includes(v)) return
-    setStations(prev => [...prev, v])
+    if (!v || entries.some(e => e.name === v)) return
+    setEntries(prev => [...prev, { orig: null, name: v }])
     setNewStation('')
   }
 
   function removeStation(idx: number) {
-    setStations(prev => prev.filter((_, i) => i !== idx))
+    setEntries(prev => prev.filter((_, i) => i !== idx))
   }
 
   function updateStation(idx: number, val: string) {
-    setStations(prev => prev.map((s, i) => i === idx ? val : s))
+    setEntries(prev => prev.map((e, i) => i === idx ? { ...e, name: val } : e))
   }
+
+  const original = entries.length ? entries.filter(e => e.orig).map(e => e.orig as string) : []
 
   return (
     <div
@@ -177,7 +190,7 @@ export function PrepSettingsModal({ onClose, onSaved }: Props) {
             <div className="p-5 space-y-6 flex-1 overflow-y-auto">
               <ListEditor
                 label="Stations"
-                items={stations}
+                items={entries.map(e => e.name)}
                 onUpdate={updateStation}
                 onRemove={removeStation}
                 newValue={newStation}

@@ -82,6 +82,23 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Stations list cannot be empty' }, { status: 400 })
     }
 
+    // Renames / removals are propagated to every PrepItem.stations token and
+    // Cook.homeStation that names the old station — otherwise an item keeps a
+    // token no station matches and silently vanishes from every station view.
+    const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
+    const renames: Array<{ from: string; to: string }> = Array.isArray(body.renames) ? body.renames : []
+    const removed: string[] = Array.isArray(body.removed) ? body.removed : []
+    for (const r of renames) {
+      if (!r || !isStr(r.from) || !isStr(r.to) || !stations.includes(r.to) || stations.includes(r.from)) {
+        return NextResponse.json({ error: 'renames must map an old name to a name in the new list' }, { status: 400 })
+      }
+    }
+    for (const name of removed) {
+      if (!isStr(name) || stations.includes(name)) {
+        return NextResponse.json({ error: 'removed names must not be in the new list' }, { status: 400 })
+      }
+    }
+
     // Fetch existing categories via raw SQL — no ORM, no prepared statements.
     const existing = await prisma.$queryRawUnsafe<Array<{ categories: string[] }>>(
       `SELECT categories FROM "PrepSettings" WHERE id = 'singleton' LIMIT 1`
@@ -102,6 +119,23 @@ export async function PUT(req: NextRequest) {
         SET stations   = '${sta}'::text[],
             "updatedAt" = NOW()
     `)
+
+    // Literal SQL (see toPgTextArray) — array_replace can leave a duplicate when
+    // renaming onto an existing name, hence the DISTINCT rebuild; order is free
+    // (stationKey sorts). array_remove may leave [] = any station, on purpose.
+    const lit = (s: string) => "'" + s.replace(/'/g, "''") + "'"
+    for (const { from, to } of renames) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "PrepItem" SET stations = ARRAY(SELECT DISTINCT x FROM unnest(array_replace(stations, ${lit(from)}, ${lit(to)})) AS x) WHERE ${lit(from)} = ANY(stations)`
+      )
+      await prisma.$executeRawUnsafe(`UPDATE "Cook" SET "homeStation" = ${lit(to)} WHERE "homeStation" = ${lit(from)}`)
+    }
+    for (const name of removed) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "PrepItem" SET stations = array_remove(stations, ${lit(name)}) WHERE ${lit(name)} = ANY(stations)`
+      )
+      await prisma.$executeRawUnsafe(`UPDATE "Cook" SET "homeStation" = NULL WHERE "homeStation" = ${lit(name)}`)
+    }
 
     const updated = await prisma.$queryRawUnsafe<Array<{ categories: string[]; stations: string[] }>>(
       `SELECT categories, stations FROM "PrepSettings" WHERE id = 'singleton' LIMIT 1`

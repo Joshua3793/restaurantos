@@ -1296,15 +1296,19 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
   }, [recipeId, load])
 
   // Station options for the Prep section — the settings' station list. Only a
-  // PREP recipe has a prep row, so a MENU recipe never fetches.
-  const [stationOptions, setStationOptions] = useState<string[]>([])
+  // PREP recipe has a prep row, so a MENU recipe never fetches. `null` = not
+  // loaded yet (or the fetch failed — see `stationOptionsError`), which is NOT
+  // the same as an empty list: the message and the chips differ.
+  const [stationOptions, setStationOptions] = useState<string[] | null>(null)
+  const [stationOptionsError, setStationOptionsError] = useState(false)
   const recipeType = recipe?.type
   useEffect(() => {
     if (recipeType !== 'PREP') return
+    setStationOptionsError(false)
     fetch('/api/prep/settings')
       .then(r => { if (!r.ok) throw new Error(); return r.json() })
-      .then(d => { if (Array.isArray(d.stations)) setStationOptions(d.stations.filter(Boolean)) })
-      .catch(() => { /* keep empty */ })
+      .then(d => setStationOptions(Array.isArray(d.stations) ? d.stations.filter(Boolean) : []))
+      .catch(() => setStationOptionsError(true))
   }, [recipeType])
 
   const handleClose = () => {
@@ -1609,29 +1613,49 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                       <label className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 block mb-1.5">
                         Stations <span className="normal-case tracking-normal text-ink-4">· none ticked = any station</span>
                       </label>
-                      {stationOptions.length === 0 ? (
-                        <p className="text-[12px] text-ink-4">No stations set up yet — add them in Prep → Settings.</p>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {stationOptions.map(s => {
-                            const on = prep.stations.includes(s)
-                            return (
-                              <label key={s}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border font-mono text-[12px] cursor-pointer select-none transition-colors ${on ? 'bg-ink text-paper border-ink' : 'bg-paper border-line text-ink-2 hover:border-ink-4'}`}>
-                                <input type="checkbox" className="sr-only" checked={on}
-                                  onChange={() => {
-                                    // Built in settings order; the label itself is alphabetical (stationKey sorts).
-                                    const next = on
-                                      ? prep.stations.filter(x => x !== s)
-                                      : stationOptions.filter(x => x === s || prep.stations.includes(x))
-                                    patchRecipe({ prep: { ...prep, stations: next } })
-                                  }} />
-                                <span className={on ? 'text-gold' : 'text-ink-4'}>{on ? '✓' : '+'}</span>{s}
-                              </label>
-                            )
-                          })}
-                        </div>
-                      )}
+                      {(() => {
+                        // Chips = the settings list plus any station the item still names
+                        // that settings no longer has (marked), so it can be unticked
+                        // rather than silently dropped. Order is free — the key/label
+                        // is alphabetical (stationKey sorts).
+                        const known = stationOptions ?? []
+                        const orphans = prep.stations.filter(x => !known.includes(x))
+                        const chips = [...known, ...orphans]
+                        const toggle = (s: string) => {
+                          const on = prep.stations.includes(s)
+                          const next = on ? prep.stations.filter(x => x !== s) : [...prep.stations, s]
+                          patchRecipe({ prep: { ...prep, stations: next } })
+                        }
+                        return (
+                          <>
+                            {stationOptions === null && !stationOptionsError && (
+                              <p className="text-[12px] text-ink-4">Loading stations…</p>
+                            )}
+                            {stationOptionsError && (
+                              <p className="text-[12px] text-red-text">Couldn&apos;t load the station list — reopen the recipe to try again.</p>
+                            )}
+                            {stationOptions !== null && stationOptions.length === 0 && orphans.length === 0 && (
+                              <p className="text-[12px] text-ink-4">No stations set up yet — add them in Prep → Settings.</p>
+                            )}
+                            {chips.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {chips.map(s => {
+                                  const on = prep.stations.includes(s)
+                                  const orphan = !known.includes(s)
+                                  return (
+                                    <label key={s} title={orphan ? 'No longer in Prep → Settings — untick to clear it' : undefined}
+                                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] border font-mono text-[12px] cursor-pointer select-none transition-colors ${on ? 'bg-ink text-paper border-ink' : 'bg-paper border-line text-ink-2 hover:border-ink-4'} ${orphan ? 'border-dashed' : ''}`}>
+                                      <input type="checkbox" className="sr-only" checked={on} onChange={() => toggle(s)} />
+                                      <span className={on ? 'text-gold' : 'text-ink-4'}>{on ? '✓' : '+'}</span>{s}
+                                      {orphan && <span className="text-[9.5px] uppercase tracking-[0.04em] opacity-70">· not in settings</span>}
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                   </>
                 )
