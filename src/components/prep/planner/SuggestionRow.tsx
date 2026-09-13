@@ -87,7 +87,7 @@ export function SuggestionRow({ item, locked, longLead = false, onOpen, onAdd, o
           type="button"
           disabled={locked}
           onClick={() => (item.isOnList ? onRemove(item) : onAdd(item))}
-          title={locked ? 'Chef only' : item.isOnList ? 'On the list — click to take it off' : 'Add to the prep list'}
+          title={locked ? 'Pick a revenue center you can edit' : item.isOnList ? 'On the list — click to take it off' : 'Add to the prep list'}
           className={`w-[26px] h-[26px] rounded-[7px] grid place-items-center border ${locked ? 'bg-bg-2 border-line cursor-not-allowed' : item.isOnList ? 'bg-green-soft border-green' : 'bg-ink border-ink'}`}
         >
           {item.isOnList

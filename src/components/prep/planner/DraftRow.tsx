@@ -61,7 +61,7 @@ export function DraftRow({
           can never be squeezed to zero. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
         <span
-          title={locked ? 'Chef only' : 'Drag to reorder within this step'}
+          title={locked ? 'Pick a revenue center you can edit' : 'Drag to reorder within this step'}
           className={`shrink-0 ${locked ? 'opacity-35' : 'cursor-grab'}`}
         >
           <GripVertical size={13} className="text-ink-4" />

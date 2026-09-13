@@ -161,9 +161,9 @@ export async function PUT(
   // The prep item's identity and line settings (name, unit, category, par, shelf
   // life, stations, revenue center) are written by the RECIPE — recipe sync and
   // PATCH /api/recipes/[id] { prep }. This route owns only the planner state.
-  // Planner fields are the chef's: draft membership + priority override = LEAD+.
-  // Cooks still start/finish/claim (those flow through the prep-logs routes).
-  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined || body.prepEnabled !== undefined) {
+  // Building the list (draft membership, the step override) is every cook's;
+  // switching an item OUT of prep (prepEnabled) stays a chef's call (LEAD+).
+  if (body.prepEnabled !== undefined) {
     try { await requireSession('LEAD') }
     catch (e) {
       if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })

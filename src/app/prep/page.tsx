@@ -375,8 +375,11 @@ export default function PrepPage() {
 
   useEffect(() => { loadPlan() }, [loadPlan])
 
-  // Chef gate: LEAD+ builds and posts the list; cooks get a read-only planner.
-  const canPlan = role != null && atLeast(role, 'LEAD') && !isReadOnly && !!activeRcId
+  // Building and posting the list is every signed-in cook's — the only gates
+  // are a writable revenue center and a resolved session. Switching an item out
+  // of prep (the drawer's "Prepped on the line") stays a chef's call: canSwitch.
+  const canPlan = role != null && !isReadOnly && !!activeRcId
+  const canSwitch = canPlan && role != null && atLeast(role, 'LEAD')
 
   // Optimistic mirror of the server-side dirty flag: any draft edit after a
   // post means the kitchen is on a stale list until the chef re-posts.
@@ -1031,10 +1034,9 @@ export default function PrepPage() {
 
   // Toggle isOnList: add to list (true) or remove from list (false)
   async function handleToggleOnList(itemId: string, newValue: boolean) {
-    // The draft is the chef's: the server gates isOnList behind LEAD+, and so
-    // does every control that reaches here — but guard once more so an
-    // ungated caller (or the offline queue) can never fake an add for a cook.
-    if (!canPlan) { setActionError('Only a shift lead or above builds the prep list.'); return }
+    // Guard once more so an ungated caller (or the offline queue) can never
+    // fake a change without a writable revenue center.
+    if (!canPlan) { setActionError('Pick a revenue center you can edit to change the list.'); return }
     const before = items.find(i => i.id === itemId)?.isOnList
     // Optimistic update
     mutationSeq.current++
@@ -1395,9 +1397,9 @@ export default function PrepPage() {
 
   // Post the draft: the kitchen's To Do switches to exactly what's on the list.
   async function handlePost(dues: PostDue[] = []) {
-    // Posting is the chef's (the route is LEAD+). Guarded here as well so the
-    // offline branch below can never stamp a synthetic "Posted" for a cook.
-    if (!canPlan) { setActionError('Only a shift lead or above can post the list.'); return }
+    // Guarded here as well so the offline branch below can never stamp a
+    // synthetic "Posted" without a writable revenue center.
+    if (!canPlan) { setActionError('Pick a revenue center you can edit to post the list.'); return }
     if (!activeRcId) { setActionError('Select a revenue center (not "All") to post the list.'); return }
 
     // Offline: stamp the post locally and queue it. The queued draft edits that
@@ -1468,7 +1470,7 @@ export default function PrepPage() {
   }
 
   async function handleRecall() {
-    if (!canPlan) { setActionError('Only a shift lead or above can recall the list.'); return }
+    if (!canPlan) { setActionError('Pick a revenue center you can edit to recall the list.'); return }
     if (!activeRcId) return
     try {
       const res = await fetch('/api/prep/plan/recall', {
@@ -2258,7 +2260,7 @@ export default function PrepPage() {
               ? (canPlan ? (item) => { handleRemoveFromToDo(item); closeDrawer() } : undefined)
               : (canPlan ? (item) => { handleToggleOnList(item.id, false); closeDrawer() } : undefined)
           }
-          onSetPrepEnabled={canPlan && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
+          onSetPrepEnabled={canSwitch && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
       </div>
       {/* Quick yield prompt — shared by the mobile compact row and the desktop board row. */}
@@ -2290,7 +2292,7 @@ export default function PrepPage() {
           onStage={handleStageChange}
           onPriorityChange={handlePriorityChange}
           onEdit={(item) => { if (item.linkedRecipeId) { closeDrawer(); router.push(`/recipes?item=${item.linkedRecipeId}`) } }}
-          onSetPrepEnabled={canPlan && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
+          onSetPrepEnabled={canSwitch && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
       </div>
       {subRecipeView && (

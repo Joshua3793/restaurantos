@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 // draft (isOnList) is untouched.
 export async function POST(req: NextRequest) {
   let user
-  try { user = await requireSession('LEAD') }
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

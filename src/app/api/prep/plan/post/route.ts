@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 // reaches a cook until this runs.
 export async function POST(req: NextRequest) {
   let user
-  try { user = await requireSession('LEAD') }
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

@@ -35,7 +35,7 @@ export const dynamic = 'force-dynamic'
 // RC's To Do at once — that line is reflected too.
 export async function POST(req: NextRequest) {
   let user
-  try { user = await requireSession('LEAD') }
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

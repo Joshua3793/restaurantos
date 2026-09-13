@@ -5,14 +5,13 @@ import type { NextRequest } from 'next/server'
 // not the in-memory store of prep/plan/remove-item — the assertions here are about
 // AUTHORIZATION and one side effect (markPlanDirty), not about table state.
 //
-// The gap under test: `PUT /api/prep/logs/[id]` gates the three planner draft
-// fields (requiredQty, listOrder, note) at LEAD, then flags the kitchen's posted
-// list dirty. `POST /api/prep/logs` writes the SAME three fields — on both its
-// create and its upsert-the-live-log path — behind a bare requireSession(), so
-// any authenticated STAFF session could set the planned quantity, the chef's note
-// and the run-sheet ordering that the PUT reserves for LEAD, and a queued draft
-// edit replayed through the offline queue's `ensureLogId` (which sends the patch
-// inline in the POST body) left the post un-dirtied.
+// The rule under test: building the list is EVERY cook's (2026-09-13 — the
+// user opened the planner to STAFF). `POST /api/prep/logs` writes the three
+// planner draft fields (requiredQty, listOrder, note) on both its create and its
+// upsert-the-live-log path behind a bare requireSession(), never demanding LEAD,
+// and still flags the kitchen's posted list dirty when it does — including a
+// queued draft edit replayed through the offline queue's `ensureLogId` (which
+// sends the patch inline in the POST body).
 //
 // What this harness does NOT cover: it stubs Prisma, so it says nothing about the
 // real upsert-on-(prepItem, day) semantics, the live-log lookup, or the actual
@@ -104,35 +103,34 @@ beforeEach(() => {
   prepItemFindUnique.mockResolvedValue({ revenueCenterId: 'rc-1', unit: 'kg', linkedRecipe: null })
 })
 
-describe('POST /api/prep/logs — planner draft fields are LEAD-only', () => {
+describe('POST /api/prep/logs — planner draft fields are every cook\'s', () => {
   for (const [field, body] of [
     ['requiredQty', { prepItemId: 'item-1', revenueCenterId: 'rc-1', requiredQty: 4 }],
     ['note', { prepItemId: 'item-1', revenueCenterId: 'rc-1', note: 'double batch' }],
     ['listOrder', { prepItemId: 'item-1', revenueCenterId: 'rc-1', listOrder: 3 }],
   ] as const) {
-    it(`demands LEAD for a body carrying \`${field}\``, async () => {
+    it(`never demands LEAD for a body carrying \`${field}\``, async () => {
       const res = await POST(req(body))
       expect(res.status).toBe(201)
-      expect(demandedLead()).toBe(true)
+      expect(demandedLead()).toBe(false)
     })
 
-    it(`returns 403 and writes NOTHING when \`${field}\` comes from a STAFF session`, async () => {
+    it(`writes \`${field}\` from a STAFF session and flags the post dirty`, async () => {
       staffSession()
       const res = await POST(req(body))
-      expect(res.status).toBe(403)
-      expect(await res.json()).toEqual({ error: 'Insufficient permissions' })
-      expect(wrote()).toBe(0)
-      expect(markPlanDirty).not.toHaveBeenCalled()
+      expect(res.status).toBe(201)
+      expect(wrote()).toBeGreaterThan(0)
+      expect(markPlanDirty).toHaveBeenCalled()
     })
   }
 
-  it('gates a plan field on the UPDATE path too (the item already has a live log)', async () => {
+  it('writes a plan field on the UPDATE path too (the item already has a live log) at STAFF', async () => {
     prepLogFindFirst.mockResolvedValue(LIVE_LOG)
     staffSession()
     const res = await POST(req({ prepItemId: 'item-1', revenueCenterId: 'rc-1', requiredQty: 9 }))
-    expect(res.status).toBe(403)
-    expect(prepLogUpdate).not.toHaveBeenCalled()
-    expect(wrote()).toBe(0)
+    expect([200, 201]).toContain(res.status)
+    expect(prepLogUpdate).toHaveBeenCalledTimes(1)
+    expect(demandedLead()).toBe(false)
   })
 })
 

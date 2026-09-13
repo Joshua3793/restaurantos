@@ -37,7 +37,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ADMIN: 'Full operations + setup across assigned locations. Invites and manages users.',
   MANAGER: 'Prep, count, invoices, sales, cost & reports for their scope.',
   LEAD: 'Everything Staff can do plus wastage, EOD close, and read-only invoices.',
-  STAFF: 'Count, prep to-do, temps for their assigned RC. Never sees cost or money.',
+  STAFF: 'Count, prep list & to-do, temps for their assigned RC. Never sees cost or money.',
 }
 
 /** Pill classes. Flat tokens only — numbered Tailwind colors are broken here. */
