@@ -25,7 +25,8 @@ export interface DrawerProps {
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe: (recipeId: string, name: string) => void
   onClose: () => void
-  onToggleOnList: (id: string, next: boolean) => void
+  /** Add to / take off the chef's draft. Omitted for a cook — the footer then says so. */
+  onToggleOnList?: (id: string, next: boolean) => void
   onStatusChange: (item: PrepItemRich, status: string, qty?: number) => void
   onPriorityChange: (id: string, priority: string) => void
   onEdit: (item: PrepItemRich) => void
@@ -230,7 +231,9 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
               {view === 'smart'
                 ? (!prepEnabled
                     ? <button className="btn" onClick={onClose}>Not prepped</button>
-                    : r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
+                    : r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button>
+                    : onToggleOnList ? <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>
+                    : <button className="btn" disabled title="Only a shift lead or above builds the prep list" style={{ opacity: 0.5, cursor: 'not-allowed' }}>Add to today · chef only</button>)
                 : (r.status === 'not-started'
                     ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
                     : r.status === 'in-progress'

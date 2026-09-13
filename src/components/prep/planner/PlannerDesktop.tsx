@@ -313,7 +313,7 @@ export function PlannerDesktop({
                   POSTED {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} BY {post!.postedByName.toUpperCase()} · {post!.itemCount} ITEMS · {fmtMins(post!.activeMinutes).toUpperCase()}
                 </span>
                 <span className="flex-1" />
-                <button type="button" onClick={handlers.onRecall} className={btnCls(false)}>
+                <button type="button" onClick={handlers.onRecall} disabled={locked} title={locked ? 'Chef only' : undefined} className={btnCls(locked)}>
                   <Undo2 size={13} className="text-ink-3" /> Recall to draft
                 </button>
               </div>
@@ -326,9 +326,9 @@ export function PlannerDesktop({
                   </div>
                 </div>
                 <span className="flex-1" />
-                <button type="button" onClick={() => setDlg(true)} disabled={!draft.length}
-                  className={`inline-flex items-center gap-2 rounded-[11px] px-[18px] py-3 text-[13.5px] font-semibold ${draft.length ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-4 cursor-not-allowed'}`}>
-                  <Zap size={15} className={draft.length ? 'text-gold' : 'text-ink-4'} /> {post ? 'Update To Do' : 'Review & post to To Do'}
+                <button type="button" onClick={() => setDlg(true)} disabled={locked || !draft.length} title={locked ? 'Chef only' : undefined}
+                  className={`inline-flex items-center gap-2 rounded-[11px] px-[18px] py-3 text-[13.5px] font-semibold ${draft.length && !locked ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-4 cursor-not-allowed'}`}>
+                  <Zap size={15} className={draft.length && !locked ? 'text-gold' : 'text-ink-4'} /> {post ? 'Update To Do' : 'Review & post to To Do'}
                 </button>
               </div>
             )}

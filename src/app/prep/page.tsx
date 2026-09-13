@@ -1031,6 +1031,11 @@ export default function PrepPage() {
 
   // Toggle isOnList: add to list (true) or remove from list (false)
   async function handleToggleOnList(itemId: string, newValue: boolean) {
+    // The draft is the chef's: the server gates isOnList behind LEAD+, and so
+    // does every control that reaches here — but guard once more so an
+    // ungated caller (or the offline queue) can never fake an add for a cook.
+    if (!canPlan) { setActionError('Only a shift lead or above builds the prep list.'); return }
+    const before = items.find(i => i.id === itemId)?.isOnList
     // Optimistic update
     mutationSeq.current++
     setItems(prev => prev.map(i =>
@@ -1048,11 +1053,20 @@ export default function PrepPage() {
     try {
       // Removing simply takes the item off today's list (isOnList=false) — it drops
       // back to Smart Prep, still re-addable. No SKIPPED log: "removed" is not "skipped".
-      await fetch(`/api/prep/items/${itemId}`, {
+      const res = await fetch(`/api/prep/items/${itemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isOnList: newValue }),
       })
+      if (!res.ok) {
+        // A refusal (403 for a cook, 4xx otherwise) used to be read as success:
+        // the optimistic row stayed "on the list" until the next poll quietly
+        // put it back. Revert now and say why.
+        const data = await res.json().catch(() => ({}))
+        mutationSeq.current++
+        setItems(prev => prev.map(i => (i.id === itemId && before !== undefined ? { ...i, isOnList: before } : i)))
+        setActionError(data.error ? `Could not update list — ${data.error}` : 'Could not update list — try again.')
+      }
     } catch {
       setActionError('Could not update list — try again.')
       load()
@@ -1381,6 +1395,9 @@ export default function PrepPage() {
 
   // Post the draft: the kitchen's To Do switches to exactly what's on the list.
   async function handlePost(dues: PostDue[] = []) {
+    // Posting is the chef's (the route is LEAD+). Guarded here as well so the
+    // offline branch below can never stamp a synthetic "Posted" for a cook.
+    if (!canPlan) { setActionError('Only a shift lead or above can post the list.'); return }
     if (!activeRcId) { setActionError('Select a revenue center (not "All") to post the list.'); return }
 
     // Offline: stamp the post locally and queue it. The queued draft edits that
@@ -1451,6 +1468,7 @@ export default function PrepPage() {
   }
 
   async function handleRecall() {
+    if (!canPlan) { setActionError('Only a shift lead or above can recall the list.'); return }
     if (!activeRcId) return
     try {
       const res = await fetch('/api/prep/plan/recall', {
@@ -2238,7 +2256,7 @@ export default function PrepPage() {
           onRemove={
             viewMode === 'today'
               ? (canPlan ? (item) => { handleRemoveFromToDo(item); closeDrawer() } : undefined)
-              : (item) => { handleToggleOnList(item.id, false); closeDrawer() }
+              : (canPlan ? (item) => { handleToggleOnList(item.id, false); closeDrawer() } : undefined)
           }
           onSetPrepEnabled={canPlan && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
@@ -2267,7 +2285,7 @@ export default function PrepPage() {
           onComplete={onDrawerComplete}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           onClose={closeDrawer}
-          onToggleOnList={handleToggleOnList}
+          onToggleOnList={canPlan ? handleToggleOnList : undefined}
           onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
           onStage={handleStageChange}
           onPriorityChange={handlePriorityChange}
