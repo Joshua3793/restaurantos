@@ -83,9 +83,31 @@ interface Session {
   status: string
   startedAt: string
   finalizedAt: string | null
+  /** Value of the OBSERVED lines only (entered or "Same as last") — never blank lines. */
   totalCountedValue: number
-  counts?: { total: number; counted: number; skipped: number }
+  /** `counted` includes "Same as last"; `carried` is how many of those it was. */
+  counts?: { total: number; counted: number; carried?: number; skipped: number; uncounted?: number }
   lines?: Line[]
+}
+
+/** Row tag for a "Same as last" confirmation: it reads as counted, but the cook did not re-measure it. */
+function SameAsLastTag() {
+  return (
+    <span className="shrink-0 inline-flex items-center gap-1 rounded-md bg-bg-2 px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.04em] text-ink-3"
+      title="Confirmed unchanged since the last count — not re-measured">
+      <Copy size={9} /> Same as last
+    </span>
+  )
+}
+
+/** "307 counted · 57 same as last · 48 not counted" — what a finalized value is made of. */
+function countsCaption(counts: { total: number; counted: number; carried?: number; skipped: number; uncounted?: number }): string {
+  const parts = [`${counts.counted} counted`]
+  if (counts.carried) parts.push(`${counts.carried} same as last`)
+  const uncounted = counts.uncounted ?? (counts.total - counts.counted - counts.skipped)
+  if (uncounted > 0) parts.push(`${uncounted} not counted`)
+  if (counts.skipped > 0) parts.push(`${counts.skipped} skipped`)
+  return parts.join(' · ')
 }
 
 // ─── Types (storage areas) ────────────────────────────────────────────────────
@@ -1484,7 +1506,7 @@ export default function CountPage() {
                 </div>
                 <p className="font-mono text-[11px] text-ink-4 mt-2">
                   {lastFinalized
-                    ? `${fmtDate(lastFinalized.sessionDate)} · ${lastFinalized.countedBy} · ${lastFinalized.counts?.total ?? 0} items`
+                    ? `${fmtDate(lastFinalized.sessionDate)} · ${lastFinalized.countedBy} · ${lastFinalized.counts ? countsCaption(lastFinalized.counts) : ''}`
                     : 'No finalized count yet'}
                 </p>
               </div>
@@ -1730,7 +1752,8 @@ export default function CountPage() {
                       {s.status === 'FINALIZED' && Number(s.totalCountedValue) > 0 && (
                         <div className="mt-1 font-mono text-[13px] font-semibold text-ink">
                           {formatCurrency(Number(s.totalCountedValue))}
-                          <span className="font-mono text-[11px] font-normal text-ink-3 ml-1">total value</span>
+                          <span className="font-mono text-[11px] font-normal text-ink-3 ml-1">counted value</span>
+                          <div className="font-mono text-[10.5px] font-normal text-ink-3 mt-0.5">{countsCaption(counts)}</div>
                         </div>
                       )}
                     </div>
@@ -1815,12 +1838,16 @@ export default function CountPage() {
                       <div>
                         {s.status === 'FINALIZED' ? (
                           <>
+                            {/* A finalized count is not "complete" by virtue of being approved:
+                                lines left blank were never counted and are not in its value. */}
                             <div className="flex items-baseline gap-2">
-                              <span className="font-mono text-[13px] font-medium text-ink tracking-[-0.01em]">{counts.total} / {counts.total}</span>
-                              <span className="font-mono text-[11px] text-green-text">complete</span>
+                              <span className="font-mono text-[13px] font-medium text-ink tracking-[-0.01em]">{counts.counted} / {counts.total}</span>
+                              <span className={`font-mono text-[11px] ${counts.counted + counts.skipped >= counts.total ? 'text-green-text' : 'text-gold'}`}>
+                                {counts.counted + counts.skipped >= counts.total ? 'complete' : `${pct}% counted`}
+                              </span>
                             </div>
                             <div className="h-[5px] bg-bg-2 rounded-full mt-1.5 w-4/5 overflow-hidden">
-                              <div className="h-[5px] bg-green rounded-full" style={{ width: '100%' }} />
+                              <div className={`h-[5px] rounded-full ${counts.counted + counts.skipped >= counts.total ? 'bg-green' : 'bg-gold'}`} style={{ width: `${pct}%` }} />
                             </div>
                           </>
                         ) : s.status === 'UPDATING' ? (
@@ -1844,7 +1871,7 @@ export default function CountPage() {
                             <div className="font-mono text-[14px] font-semibold text-ink tracking-[-0.015em]">
                               {formatCurrency(Number(s.totalCountedValue))}
                             </div>
-                            <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{counts.total} lines</div>
+                            <div className="font-mono text-[10.5px] text-ink-3 mt-0.5">{countsCaption(counts)}</div>
                           </>
                         ) : (
                           <span className="font-mono text-[13px] text-ink-4">—</span>
@@ -3140,7 +3167,12 @@ export default function CountPage() {
   // ════════════════════════════════════════════════════════════════════════════
   if (view === 'review' && active) {
     const lines        = active.lines ?? []
+    // Observed lines: entered OR confirmed "Same as last" (tagged per row). Blank
+    // lines are not counted and are not in the value — that is what the number
+    // after approval will be, so it must be what review shows.
     const countedLines = lines.filter(l => l.countedQty !== null && !l.skipped)
+    const carriedCount = countedLines.filter(l => l.carriedForward).length
+    const blankCount   = lines.filter(l => l.countedQty === null && !l.skipped).length
     const isFinalized  = active.status === 'FINALIZED'
     // While the count is open, value & variance read the LIVE inventory price so a
     // post-count price correction shows immediately — no Sync needed. Finalizing
@@ -3246,9 +3278,12 @@ export default function CountPage() {
         {/* Stats — desktop */}
         <div className="hidden sm:grid grid-cols-3 gap-3 mb-6">
           {[
-            { val: countedLines.length.toString(), label: 'Items counted' },
+            {
+              val: countedLines.length.toString(),
+              label: `Items counted${carriedCount > 0 ? ` · ${carriedCount} same as last` : ''}${blankCount > 0 ? ` · ${blankCount} not counted` : ''}`,
+            },
             { val: flagged.length.toString(), label: `Flagged (>${LARGE_VARIANCE_PCT}%)`, warn: flagged.length > 0 },
-            { val: formatCurrency(totalValue), label: 'Total value' },
+            { val: formatCurrency(totalValue), label: 'Counted value' },
           ].map(s => (
             <div key={s.label} className="bg-paper border border-line rounded-xl p-4 text-center">
               <div className={`text-2xl font-semibold tracking-[-0.03em] ${(s as {warn?: boolean}).warn ? 'text-gold' : 'text-ink'}`}>{s.val}</div>
@@ -3330,6 +3365,7 @@ export default function CountPage() {
                       <div className="text-sm font-medium text-ink truncate">{l.inventoryItem.itemName}</div>
                       <div className="font-mono text-[10.5px] text-ink-4">{l.inventoryItem.category}</div>
                     </div>
+                    {l.carriedForward && <SameAsLastTag />}
                   </div>
                   <div className="grid grid-cols-2 divide-x divide-line">
                     <div className="px-3 py-2">
@@ -3384,6 +3420,7 @@ export default function CountPage() {
                       <div className="min-w-0 flex items-center gap-1.5">
                         {large && <AlertCircle size={12} className="text-gold shrink-0" />}
                         <span className="text-[13px] text-ink truncate">{l.inventoryItem.itemName}</span>
+                        {l.carriedForward && <SameAsLastTag />}
                       </div>
                       <span className="font-mono text-[11px] text-ink-3 truncate">{l.inventoryItem.category}</span>
                       <span className="text-right text-[13px] font-medium text-ink">{counted.toFixed(1)} {l.selectedUom}</span>

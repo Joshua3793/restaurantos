@@ -313,8 +313,15 @@ model InventorySnapshot {
   pricePerBaseUnit Decimal
   totalValue       Decimal
   category         String
+  // Where the quantity came from: COUNTED | CARRIED ("Same as last") | SKIPPED |
+  // THEORETICAL (line left blank — the expected qty, never a count). Only COUNTED
+  // and CARRIED are observations; every reader that sums snapshots filters on it.
+  // See src/lib/count-snapshot-source.ts.
+  source           String        @default("COUNTED")
   inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
   session          CountSession  @relation(fields: [sessionId], references: [id])
+
+  @@index([inventoryItemId, source])
 }
 
 model WastageLog {

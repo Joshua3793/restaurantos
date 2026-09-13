@@ -257,7 +257,10 @@ function InventoryPageInner() {
   const [showBulkAllergen, setShowBulkAllergen] = useState(false)
   const [countedFlash,  setCountedFlash]  = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string } | null>(null)
+  // totalCountedValue is the value of the lines that were actually counted (incl.
+  // "Same as last" confirmations) — blank lines never enter it. `counts` says how
+  // much of the list that covered.
+  const [lastCount,    setLastCount]    = useState<{ totalCountedValue: number; label: string; sessionDate: string; counts?: { total: number; counted: number } } | null>(null)
   const [showOrderList, setShowOrderList] = useState(false)
   const [orderTab, setOrderTab] = useState<'all' | 'belowPar' | 'outOfStock'>('all')
   const [orderQtys,    setOrderQtys]    = useState<Record<string, string>>({})
@@ -345,7 +348,7 @@ function InventoryPageInner() {
     fetch('/api/suppliers').then(r => r.json()).then(setSuppliers)
     fetch('/api/storage-areas').then(r => r.json()).then(setStorageAreas)
     fetch('/api/categories').then(r => r.json()).then(setCategories)
-    fetch('/api/count/sessions').then(r => r.json()).then((sessions: Array<{ status: string; totalCountedValue: number; label: string; sessionDate: string; finalizedAt: string | null }>) => {
+    fetch('/api/count/sessions').then(r => r.json()).then((sessions: Array<{ status: string; totalCountedValue: number; label: string; sessionDate: string; finalizedAt: string | null; counts?: { total: number; counted: number } }>) => {
       const finalized = sessions.filter(s => s.status === 'FINALIZED').sort((a, b) =>
         new Date(b.finalizedAt ?? b.sessionDate).getTime() - new Date(a.finalizedAt ?? a.sessionDate).getTime()
       )
@@ -354,6 +357,7 @@ function InventoryPageInner() {
           totalCountedValue: parseFloat(String(finalized[0].totalCountedValue)),
           label: finalized[0].label,
           sessionDate: finalized[0].sessionDate,
+          counts: finalized[0].counts,
         })
       }
     })
@@ -1040,7 +1044,7 @@ function InventoryPageInner() {
           </div>
           <div className="font-mono text-[11px] text-ink-3 mt-2">
             {lastCount
-              ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}`
+              ? `${lastCount.label} · ${new Date(lastCount.sessionDate).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}${lastCount.counts ? ` · ${lastCount.counts.counted} of ${lastCount.counts.total} items counted` : ''}`
               : 'No prior count'}
           </div>
         </div>

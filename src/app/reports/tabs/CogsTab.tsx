@@ -10,7 +10,14 @@ import { DateRangePicker } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
 import { PROVENANCE } from '@/lib/report-provenance'
 
-interface InvBound { value: number; sessionDate: string | null; sessionId: string | null; needsCount: boolean; sameAsOpening?: boolean }
+interface BoundCoverage {
+  itemsTotal: number; itemsFromBound: number; itemsFromOtherCounts: number; itemsUnobserved: number
+  earliestObservation: string | null
+}
+interface InvBound {
+  value: number; sessionDate: string | null; sessionId: string | null; needsCount: boolean; sameAsOpening?: boolean
+  coverage?: BoundCoverage
+}
 interface CogsResult {
   startDate: string; endDate: string
   beginningInventory: InvBound
@@ -40,6 +47,18 @@ function InventoryCard({ label, bound, rcName }: { label: string; bound: InvBoun
         <>
           <div className="text-xl font-bold text-ink-2">{formatCurrency(bound.value)}</div>
           {bound.sessionDate && <div className="text-[10px] text-ink-4 mt-1">counted {fmtDate(bound.sessionDate)}</div>}
+          {/* Counted items only. When the bounding full count did not observe every
+              item, say where the rest came from — the last count that did, or nowhere. */}
+          {bound.coverage && bound.coverage.itemsFromOtherCounts > 0 && (
+            <div className="text-[10px] text-ink-4 mt-0.5">
+              {bound.coverage.itemsFromBound} of {bound.coverage.itemsTotal} items counted that day
+              {bound.coverage.itemsFromOtherCounts > 0 && ` · ${bound.coverage.itemsFromOtherCounts} from earlier counts`}
+              {bound.coverage.earliestObservation && ` (back to ${fmtDate(bound.coverage.earliestObservation)})`}
+            </div>
+          )}
+          {bound.coverage && bound.coverage.itemsUnobserved > 0 && (
+            <div className="text-[10px] text-gold mt-0.5">{bound.coverage.itemsUnobserved} items never counted — not in this figure</div>
+          )}
           {bound.sameAsOpening && <div className="text-[10px] text-gold mt-1">assumes unchanged — run an end count</div>}
         </>
       )}

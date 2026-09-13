@@ -80,7 +80,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 
 - `pricePerBaseUnit(item)` derives $/base from chain + pricing; `lineCost(item, qty, unit)` computes ingredient cost; `basePerUnit`, `stockValue`, `conversionFactor` build on the same chain.
 - `PRICING_SELECT` is the Prisma select for the chain fields; `asChainItem(row)` normalizes a row; `withPpb(row)` attaches the computed `pricePerBaseUnit` so API responses still expose it as a field. If an API response contains `pricePerBaseUnit`, it was computed at read time.
-- The one legitimate *stored* copy is `InventorySnapshot.pricePerBaseUnit` — a deliberate point-in-time valuation frozen at count finalize.
+- The one legitimate *stored* copy is `InventorySnapshot.pricePerBaseUnit` — a deliberate point-in-time valuation frozen at count finalize. Finalize writes one snapshot row per count line **flagged with `source`** (`src/lib/count-snapshot-source.ts`: `COUNTED` | `CARRIED` "Same as last" | `SKIPPED` | `THEORETICAL` for a line left blank). Only `COUNTED`/`CARRIED` are observations: `CountSession.totalCountedValue` sums those alone, and any reader that sums snapshots must filter on `source`. COGS period bounds are built **per item** (`resolveItemBound` in `src/lib/cogs-bounds.ts`): the latest FULL count fixes the item universe and date, each item takes its most recent observed snapshot from any finalized count on or before the bound.
 - Offers derive the same way: `offerPricePerBase()` in `src/lib/supplier-offers.ts` (the cached `InventorySupplierPrice.pricePerBaseUnit` column was dropped).
 
 **Mutators** (the only places that write `InventoryItem.packChain`/`pricing`):

@@ -29,16 +29,20 @@ export async function GET(req: NextRequest) {
       ],
     },
     orderBy: { startedAt: 'desc' },
-    include: { lines: { select: { countedQty: true, skipped: true } } },
+    include: { lines: { select: { countedQty: true, skipped: true, carriedForward: true } } },
   })
 
   return NextResponse.json(
     sessions.map(s => {
       const total   = s.lines.length
+      // `counted` INCLUDES "Same as last" confirmations; `carried` says how many of
+      // them were, so the UI can flag it. `uncounted` is what was left blank —
+      // those lines never enter totalCountedValue.
       const counted = s.lines.filter(l => l.countedQty !== null && !l.skipped).length
+      const carried = s.lines.filter(l => l.countedQty !== null && !l.skipped && l.carriedForward).length
       const skipped = s.lines.filter(l => l.skipped).length
       const { lines, ...rest } = s
-      return { ...rest, counts: { total, counted, skipped } }
+      return { ...rest, counts: { total, counted, carried, skipped, uncounted: total - counted - skipped } }
     }),
     // The count page polls this list every 3s and refetches right after every
     // session mutation (create/finalize/delete/edit). A cached/SWR response replays
@@ -224,7 +228,7 @@ export async function POST(req: NextRequest) {
   }))
 
   return NextResponse.json(
-    { ...session, lines: enrichedLines, counts: { total: session.lines.length, counted: 0, skipped: 0 } },
+    { ...session, lines: enrichedLines, counts: { total: session.lines.length, counted: 0, carried: 0, skipped: 0, uncounted: session.lines.length } },
     { status: 201 },
   )
 }

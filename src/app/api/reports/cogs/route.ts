@@ -112,6 +112,23 @@ export async function GET(req: NextRequest) {
   let endSession: SnapshotBound | null = null
   let sameBoundingCount = false
   let rcCoverage: { total: number; counted: number; uncounted: string[] } | null = null
+  // Per-item provenance of each bound (summed across RCs in the "All" view): how
+  // many items the bounding full count observed itself, how many were valued from
+  // another count (a partial or quick count, or the previous full count), and how
+  // many have never been counted at all. The UI caveats the figure from this.
+  const emptyCoverage = () => ({ itemsTotal: 0, itemsFromBound: 0, itemsFromOtherCounts: 0, itemsUnobserved: 0, earliestObservation: null as Date | null })
+  const beginCoverage = emptyCoverage()
+  const endCoverage = emptyCoverage()
+  const addCoverage = (acc: ReturnType<typeof emptyCoverage>, b: SnapshotBound | null) => {
+    if (!b) return
+    acc.itemsTotal += b.itemsTotal
+    acc.itemsFromBound += b.itemsFromBound
+    acc.itemsFromOtherCounts += b.itemsFromOtherCounts
+    acc.itemsUnobserved += b.itemsUnobserved
+    if (b.earliestObservation && (!acc.earliestObservation || b.earliestObservation < acc.earliestObservation)) {
+      acc.earliestObservation = b.earliestObservation
+    }
+  }
 
   if (rcId && !locRcIds) {
     const r = await cogsForScope({ rcId, isDefault })
@@ -121,6 +138,7 @@ export async function GET(req: NextRequest) {
     purchasesByCategory = r.purchasesByCategory
     beginSession = r.opening; endSession = r.closing
     sameBoundingCount = r.sameBoundingCount
+    addCoverage(beginCoverage, r.opening); addCoverage(endCoverage, r.closing)
   } else {
     // "All RCs" (or a Location lens) = Σ per-RC COGS, each revenue center bracketed by its
     // OWN counts (the default RC reads the global pool). Mirrors getTheoreticalStockMap's
@@ -144,6 +162,7 @@ export async function GET(req: NextRequest) {
       for (const [k, v] of Object.entries(p.endByCategory)) endByCategory[k] = (endByCategory[k] ?? 0) + v
       for (const [k, v] of Object.entries(p.purchasesByCategory)) purchasesByCategory[k] = (purchasesByCategory[k] ?? 0) + v
       if (!p.fullyBracketed) uncounted.push(rc.name)
+      addCoverage(beginCoverage, p.opening); addCoverage(endCoverage, p.closing)
     }
     rcCoverage = { total: rcs.length, counted: rcs.length - uncounted.length, uncounted }
   }
@@ -203,6 +222,7 @@ export async function GET(req: NextRequest) {
       sessionDate: beginSession?.sessionDate ?? null,
       sessionId: beginSession?.sessionId ?? null,
       needsCount: rcId ? !beginSession : (rcCoverage!.counted === 0),
+      coverage: beginCoverage,
     },
     purchases: { total: totalPurchases, invoiceCount },
     endingInventory: {
@@ -212,6 +232,7 @@ export async function GET(req: NextRequest) {
       needsCount: rcId ? !endSession : false,
       // Ending falls on the same FULL count as beginning → no end-of-period count yet.
       sameAsOpening: sameBoundingCount,
+      coverage: endCoverage,
     },
     // Scope echoed back so the UI can phrase "No full count for <RC>" correctly.
     scope: rcId ? (isDefault ? 'default' : 'rc') : 'all',
