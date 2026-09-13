@@ -51,6 +51,10 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const activeOnly = searchParams.get('active') !== 'false'
+  // Items switched off the prep list (prepEnabled=false) stay out of every
+  // consumer's view — Pass, Pre-shift, Today, the run sheet — unless the caller
+  // asks for them (the prep page does, to offer the switch back on).
+  const includeHidden = searchParams.get('includeHidden') === 'true'
 
   // Restaurant-local day (see src/lib/prep-day.ts) — NOT server wall-clock, which
   // on Vercel is UTC and would swap in tomorrow's log at 5pm Pacific, mid-service.
@@ -77,7 +81,7 @@ export async function GET(req: NextRequest) {
     : { OR: [{ revenueCenterId: null }, { revenueCenterId: { in: rcIn } }] }
 
   const items = await prisma.prepItem.findMany({
-    where: { AND: [activeOnly ? { isActive: true } : {}, scopeWhere] },
+    where: { AND: [activeOnly ? { isActive: true } : {}, includeHidden ? {} : { prepEnabled: true }, scopeWhere] },
     include: {
       linkedRecipe: recipeInclude,
       linkedInventoryItem: {
@@ -273,6 +277,7 @@ export async function GET(req: NextRequest) {
       manualPriorityOverride: item.manualPriorityOverride,
       isActive: item.isActive,
       isOnList: item.isOnList,
+      prepEnabled: item.prepEnabled,
       linkedRecipeId: item.linkedRecipeId,
       linkedRecipe: item.linkedRecipe
         ? {

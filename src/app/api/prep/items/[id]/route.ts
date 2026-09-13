@@ -163,7 +163,7 @@ export async function PUT(
   // PATCH /api/recipes/[id] { prep }. This route owns only the planner state.
   // Planner fields are the chef's: draft membership + priority override = LEAD+.
   // Cooks still start/finish/claim (those flow through the prep-logs routes).
-  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined) {
+  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined || body.prepEnabled !== undefined) {
     try { await requireSession('LEAD') }
     catch (e) {
       if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
@@ -188,6 +188,9 @@ export async function PUT(
     where: { id: params.id },
     data: {
       ...(body.manualPriorityOverride !== undefined && { manualPriorityOverride: body.manualPriorityOverride || null }),
+      // The chef's switch. Off also takes the item off the draft (an explicit
+      // isOnList in the same body still wins — it is spread after this).
+      ...(body.prepEnabled            !== undefined && { prepEnabled: body.prepEnabled !== false, ...(body.prepEnabled === false ? { isOnList: false } : {}) }),
       ...(body.isActive               !== undefined && { isActive: body.isActive }),
       ...(body.isOnList               !== undefined && { isOnList: body.isOnList }),
     },
@@ -195,7 +198,7 @@ export async function PUT(
 
   // A draft-membership or priority change after posting leaves the kitchen on a
   // stale list — flag today's post so both surfaces show "unposted changes".
-  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined) {
+  if (body.isOnList !== undefined || body.manualPriorityOverride !== undefined || body.prepEnabled === false) {
     await markPlanDirty(item.revenueCenterId)
   }
 

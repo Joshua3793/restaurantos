@@ -17,6 +17,7 @@ import {
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 import { GroupHead, Popover, popItemCls, popHeadCls } from './atoms'
 import { SuggestionRow } from './SuggestionRow'
+import { HiddenGroup } from './HiddenGroup'
 import { DraftRow } from './DraftRow'
 import { PostDialog, type PostDue } from './PostDialog'
 
@@ -37,6 +38,8 @@ export interface PlannerHandlers {
   onClearDraft: () => void
   onPost: (dues: PostDue[]) => void
   onRecall: () => void
+  /** The chef's switch — off keeps the item out of prep while the recipe stays. */
+  onSetPrepEnabled: (item: PrepItemRich, enabled: boolean) => void
 }
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
@@ -75,11 +78,12 @@ export function LoadStrip({ draft, cooks, ctx }: { draft: PrepItemRich[]; cooks:
 }
 
 export function PlannerDesktop({
-  items, allItems, stations, cooks, services, nowMin, nowMs, canPlan, post,
+  items, allItems, hidden, stations, cooks, services, nowMin, nowMs, canPlan, post,
   search, onSearch, handlers, tasksSlot,
 }: {
   items: PrepItemRich[]              // filtered (search/category) — shapes the LEFT pane
   allItems: PrepItemRich[]           // unfiltered — the draft pane must not hide rows on search
+  hidden: PrepItemRich[]             // switched off the prep list — the collapsed group under the suggestions
   stations: string[]
   cooks: Cook[]
   services: RcService[]
@@ -202,7 +206,7 @@ export function PlannerDesktop({
                 <div className="flex flex-col gap-1.5">
                   {g.rows.map(t => (
                     <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY}
-                      onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
+                      onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} onSetPrepEnabled={handlers.onSetPrepEnabled} />
                   ))}
                 </div>
               </div>
@@ -210,6 +214,7 @@ export function PlannerDesktop({
             {pool.length === 0 && (
               <div className="py-14 text-center font-mono text-[10.5px] text-ink-4">NO ITEMS MATCH</div>
             )}
+            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} onSetPrepEnabled={handlers.onSetPrepEnabled} />
           </div>
         </div>
 
