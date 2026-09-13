@@ -236,14 +236,14 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
                   POSTED {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} · {post!.itemCount} ITEMS
                 </div>
               </div>
-              <button type="button" onClick={handlers.onRecall} className="inline-flex items-center gap-1.5 rounded-[9px] px-[11px] py-[7px] text-[12px] font-semibold border border-line-2 bg-paper text-ink-2">
+              <button type="button" onClick={handlers.onRecall} disabled={locked} title={locked ? 'Chef only' : undefined} className={`inline-flex items-center gap-1.5 rounded-[9px] px-[11px] py-[7px] text-[12px] font-semibold border border-line-2 bg-paper text-ink-2 ${locked ? 'opacity-40' : ''}`}>
                 <Undo2 size={13} /> Recall
               </button>
             </div>
           ) : (
-            <button type="button" onClick={() => setDlg(true)} disabled={!draft.length}
-              className={`flex items-center justify-center gap-2 w-full rounded-[13px] py-[15px] text-[14.5px] font-semibold shadow-[0_8px_24px_-10px_rgba(9,9,11,0.4)] ${draft.length ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-4'}`}>
-              <Zap size={15} className={draft.length ? 'text-gold' : 'text-ink-4'} /> {post ? `Update To Do · ${draft.length}` : `Review & post · ${draft.length}`}
+            <button type="button" onClick={() => setDlg(true)} disabled={locked || !draft.length} title={locked ? 'Chef only' : undefined}
+              className={`flex items-center justify-center gap-2 w-full rounded-[13px] py-[15px] text-[14.5px] font-semibold shadow-[0_8px_24px_-10px_rgba(9,9,11,0.4)] ${draft.length && !locked ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-4'}`}>
+              <Zap size={15} className={draft.length && !locked ? 'text-gold' : 'text-ink-4'} /> {post ? `Update To Do · ${draft.length}` : `Review & post · ${draft.length}`}
             </button>
           )}
         </div>
