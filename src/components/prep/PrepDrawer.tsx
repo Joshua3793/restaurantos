@@ -45,6 +45,8 @@ interface PrepDrawerProps {
   /** Saved cook-along state for the item's live log (kept while it is on the To Do). */
   progress?: PrepProgress | null
   onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
+  /** The chef's switch (Smart Prep context only): off keeps the item out of prep while the recipe stays. Omit to hide it. */
+  onSetPrepEnabled?: (item: PrepItemRich, enabled: boolean) => void
 }
 
 type StateKey = 'not-started' | 'in-progress' | 'done' | 'skipped'
@@ -163,6 +165,7 @@ export default function PrepDrawer({
   onStage,
   progress,
   onProgressChange,
+  onSetPrepEnabled,
 }: PrepDrawerProps) {
   const open = item !== null
 
@@ -333,6 +336,39 @@ export default function PrepDrawer({
                   />
                 </div>
               )}
+
+              {/* Prepped on the line — the chef's switch (Smart Prep only). Off keeps
+                  the item out of prep while the recipe stays; locked while the item
+                  is on the draft or the To Do. */}
+              {onSetPrepEnabled && (() => {
+                const enabled = item.prepEnabled !== false
+                const onList = item.isOnList || !!item.todayLog?.postedAt
+                const lockedSwitch = enabled && onList
+                return (
+                  <div className="mb-[22px]">
+                    <SecLabel>Prepped on the line</SecLabel>
+                    <div className="flex items-start gap-3 rounded-[11px] border border-line bg-paper px-3.5 py-3">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={enabled}
+                        aria-label={enabled ? 'Prepped on the line' : 'Not prepped'}
+                        disabled={lockedSwitch}
+                        onClick={() => onSetPrepEnabled(item, !enabled)}
+                        className={`relative shrink-0 mt-0.5 w-[38px] h-[22px] rounded-full border transition-colors ${enabled ? 'bg-green border-green' : 'bg-bg-2 border-line-2'} ${lockedSwitch ? 'opacity-40' : ''}`}
+                      >
+                        <span className={`absolute top-[2px] w-[16px] h-[16px] rounded-full bg-white transition-all ${enabled ? 'left-[18px]' : 'left-[2px]'}`} />
+                      </button>
+                      <span className="text-[13px] text-ink-2 leading-snug">
+                        {enabled
+                          ? 'On the prep list. Switch off to keep this recipe out of prep — it stays in the Recipe Book.'
+                          : 'Not prepped. Switch on to see it in Smart Prep again.'}
+                        {lockedSwitch && <span className="block font-mono text-[11px] text-ink-4 mt-1">Take it off the list first.</span>}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Stock context */}
               <div className="mb-[22px]">

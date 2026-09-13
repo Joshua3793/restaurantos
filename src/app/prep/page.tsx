@@ -1510,7 +1510,6 @@ export default function PrepPage() {
     onClearDraft: handleClearDraft,
     onPost: handlePost,
     onRecall: handleRecall,
-    onSetPrepEnabled: handleSetPrepEnabled,
   }
 
   // ── Redesigned To-do tab — drawer / cook-along / adapter handlers ──────────
@@ -2241,6 +2240,7 @@ export default function PrepPage() {
               ? (canPlan ? (item) => { handleRemoveFromToDo(item); closeDrawer() } : undefined)
               : (item) => { handleToggleOnList(item.id, false); closeDrawer() }
           }
+          onSetPrepEnabled={canPlan && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
       </div>
       {/* Quick yield prompt — shared by the mobile compact row and the desktop board row. */}
@@ -2272,6 +2272,7 @@ export default function PrepPage() {
           onStage={handleStageChange}
           onPriorityChange={handlePriorityChange}
           onEdit={(item) => { if (item.linkedRecipeId) { closeDrawer(); router.push(`/recipes?item=${item.linkedRecipeId}`) } }}
+          onSetPrepEnabled={canPlan && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
       </div>
       {subRecipeView && (

@@ -34,9 +34,11 @@ export interface DrawerProps {
   /** Saved cook-along state for the item's live log (kept while it is on the To Do). */
   progress?: PrepProgress | null
   onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
+  /** The chef's switch (Smart Prep view only): off keeps the item out of prep while the recipe stays. Omit to hide it. */
+  onSetPrepEnabled?: (item: PrepItemRich, enabled: boolean) => void
 }
 
-export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage, progress, onProgressChange }: DrawerProps) {
+export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage, progress, onProgressChange, onSetPrepEnabled }: DrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
@@ -51,6 +53,8 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
   const stages = item ? resolveStages(item.linkedRecipe) : null
   const stageAt = stages && item?.todayLog?.status === 'IN_PROGRESS' ? currentStage(stages, item.todayLog) : null
   const u = r?.urgency ?? 'par'
+  // Switched off the prep list — the footer offers no "Add to today".
+  const prepEnabled = item ? item.prepEnabled !== false : true
   const uLabel = u === 'critical' ? 'CRITICAL' : u === 'low' ? 'NEEDED TODAY' : 'ON PAR'
   const barColor = u === 'critical' ? 'var(--red)' : u === 'low' ? 'var(--gold)' : 'var(--green)'
   const rationale = r
@@ -187,10 +191,46 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                   <div><div className="hist"><span>Last made</span><span>{new Date(item.lastMadeAt).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}</span><span style={{ color: 'var(--green-text)' }}>DONE</span></div></div>
                 </div>
               )}
+
+              {/* Prepped on the line — the chef's switch. Off keeps the item out of
+                  Smart Prep and every prep view while the recipe stays exactly as it
+                  is (feature / special recipes). Locked while the item is on the draft
+                  or the kitchen's To Do: take it off the list first. */}
+              {view === 'smart' && onSetPrepEnabled && (() => {
+                const onList = item.isOnList || !!item.todayLog?.postedAt
+                const lockedSwitch = prepEnabled && onList
+                return (
+                  <div className="dr-sec">
+                    <div className="sl">Prepped on the line</div>
+                    <div className="flex items-start gap-3 mt-1">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={prepEnabled}
+                        aria-label={prepEnabled ? 'Prepped on the line' : 'Not prepped'}
+                        disabled={lockedSwitch}
+                        onClick={() => onSetPrepEnabled(item, !prepEnabled)}
+                        title={lockedSwitch ? 'On the list — take it off before switching it out of prep' : undefined}
+                        className={`relative shrink-0 mt-0.5 w-[34px] h-[20px] rounded-full border transition-colors ${prepEnabled ? 'bg-green border-green' : 'bg-bg-2 border-line-2'} ${lockedSwitch ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all ${prepEnabled ? 'left-[16px]' : 'left-[2px]'}`} />
+                      </button>
+                      <span className="text-[12.5px] text-ink-2 leading-snug">
+                        {prepEnabled
+                          ? 'On the prep list. Switch off to keep this recipe out of prep — it stays in the Recipe Book.'
+                          : 'Not prepped. Switch on to see it in Smart Prep again.'}
+                        {lockedSwitch && <span className="block font-mono text-[10.5px] text-ink-4 mt-1">Take it off the list first.</span>}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
             <div className="dr-foot">
               {view === 'smart'
-                ? (r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
+                ? (!prepEnabled
+                    ? <button className="btn" onClick={onClose}>Not prepped</button>
+                    : r.onList ? <button className="btn" onClick={onClose}>On today&apos;s list ✓</button> : <button className="btn btn-primary" onClick={() => { onToggleOnList(r.id, true); onClose() }}><span className="ic">+</span> Add to today</button>)
                 : (r.status === 'not-started'
                     ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
                     : r.status === 'in-progress'
