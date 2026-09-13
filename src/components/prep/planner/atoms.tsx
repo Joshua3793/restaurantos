@@ -84,7 +84,7 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'w-[126px]' }: {
       <button
         type="button"
         onClick={() => !locked && setOpen(v => !v)}
-        title={locked ? 'Chef only' : 'When is it needed?'}
+        title={locked ? 'Pick a revenue center you can edit' : 'When is it needed?'}
         className={`inline-flex items-center gap-1.5 ${w} ${m.softClass} ${m.textClass} border ${item.manualPriorityOverride ? 'border-current' : 'border-transparent'} rounded-lg px-2 py-1.5 font-mono text-[9.5px] font-bold ${locked ? 'cursor-default' : 'cursor-pointer'}`}
       >
         <span className={`w-1.5 h-1.5 rounded-full ${m.dotClass} shrink-0`} />
@@ -191,7 +191,7 @@ export function AssignPill({ cookId, cooks, locked, onAssign, sm }: {
       <button
         type="button"
         onClick={() => !locked && setOpen(v => !v)}
-        title={locked ? 'Chef only' : 'Assign'}
+        title={locked ? 'Pick a revenue center you can edit' : 'Assign'}
         className={`inline-flex items-center gap-1.5 rounded-full font-mono text-[9.5px] font-bold whitespace-nowrap ${sm ? 'px-2 py-0.5' : 'px-2.5 py-1.5'} ${c ? 'bg-ink text-paper border border-ink' : 'bg-paper text-ink-3 border border-dashed border-line-2'} ${locked ? 'cursor-default' : 'cursor-pointer'}`}
       >
         {c ? <><span className="w-[5px] h-[5px] rounded-full bg-gold" />{c.initials}</> : '+ ASSIGN'}

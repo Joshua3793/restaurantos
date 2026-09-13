@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 // logs (statusless), then writes listOrder per item.
 export async function PATCH(req: NextRequest) {
   let user
-  try { user = await requireSession('LEAD') }
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

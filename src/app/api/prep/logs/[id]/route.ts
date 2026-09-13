@@ -33,7 +33,7 @@ export async function PUT(
   // LEAD+. `assignedTo` deliberately stays session-only — cooks claim their own.
   const editsPlan = requiredQty !== undefined || listOrder !== undefined || note !== undefined
   if (editsPlan) {
-    try { await requireSession('LEAD') }
+    try { await requireSession() }
     catch (e) {
       if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
       throw e
