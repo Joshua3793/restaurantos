@@ -2,10 +2,17 @@ import { prisma } from '@/lib/prisma'
 import { lineCountedBase, countDimsOf, countUomFactor, lineConversionUnits } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { snapshotSourceOf, isObservedSource, type SnapshotSource } from '@/lib/count-snapshot-source'
 
 export interface FinalizeSummary {
+  /** Lines that were observed — entered OR confirmed "Same as last". */
   itemsUpdated:      number
+  /** Of itemsUpdated, how many were "Same as last" confirmations. */
+  itemsCarried:      number
   itemsSkipped:      number
+  /** Lines left blank — snapshotted THEORETICAL, never valued or pushed to stock. */
+  itemsUncounted:    number
+  /** Value of the observed lines only. */
   totalValue:        number
   largeVariances:    number
   totalVarianceCost: number
@@ -76,9 +83,15 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   // was actually counted — otherwise sales/purchases between the count date and the
   // approval date get silently dropped as "already baked into the baseline".
   const countDate = session.sessionDate
+  // The session's headline value is the OBSERVED lines only — entered, or confirmed
+  // "Same as last". Skipped and blank lines are snapshotted (flagged) for the
+  // record but never valued: a total that folds in theoretical quantities is not
+  // a count, it is the theoretical stock value wearing a count's label.
   let totalCountedValue = 0
   let itemsUpdated = 0
+  let itemsCarried = 0
   let itemsSkipped = 0
+  let itemsUncounted = 0
   let totalVarianceCost = 0
 
   const stockUpdates: ReturnType<typeof prisma.inventoryItem.update>[] = []
@@ -86,11 +99,13 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   const snapshotData: {
     sessionId: string; inventoryItemId: string; snapshotDate: Date
     qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number; category: string
+    source: SnapshotSource
   }[] = []
 
   for (const line of session.lines) {
     const item = line.inventoryItem
     const itemDims = countDimsOf(item)
+    const source = snapshotSourceOf(line)
 
     // Always use the current price from the inventory item — ensures that any
     // invoice approvals that happened after the count was created are reflected
@@ -105,12 +120,13 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
         ? rawQty
         : lineCountedBase(line, itemDims)
       const value   = qtyBase * price
-      totalCountedValue += value
+      if (isObservedSource(source)) totalCountedValue += value
 
       snapshotData.push({
         sessionId: session.id, inventoryItemId: item.id,
         snapshotDate: now, qtyOnHand: qtyBase, unit: item.baseUnit,
         pricePerBaseUnit: price, totalValue: value, category: item.category,
+        source,
       })
 
       // Lock the snapshot: priceAtCount = the live price at finalize, and
@@ -139,6 +155,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
         itemsSkipped++
       } else {
         itemsUpdated++
+        if (source === 'CARRIED') itemsCarried++
         totalVarianceCost += Math.abs(lineVarCost)
         // For RC-scoped counts only update lastCountDate/lastCountQty (stock lives in StockAllocation).
         // For default-RC and unscoped counts also update the global stockOnHand.
@@ -152,13 +169,17 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
         )
       }
     } else {
-      // Uncounted — snapshot with expected qty (already in baseUnit)
+      // Left blank — record the theoretical qty (already in baseUnit) flagged
+      // THEORETICAL so the session's row set still describes every item it
+      // covered, but it is NOT a count: not valued, not pushed to stock, and no
+      // reader that sums observations will pick it up.
       const qty = Number(line.expectedQty)
-      totalCountedValue += qty * price
+      itemsUncounted++
       snapshotData.push({
         sessionId: session.id, inventoryItemId: item.id,
         snapshotDate: now, qtyOnHand: qty, unit: item.baseUnit,
         pricePerBaseUnit: price, totalValue: qty * price, category: item.category,
+        source: 'THEORETICAL',
       })
     }
   }
@@ -215,7 +236,9 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
     ok: true,
     summary: {
       itemsUpdated,
+      itemsCarried,
       itemsSkipped,
+      itemsUncounted,
       totalValue: totalCountedValue,
       largeVariances: largeVariances.length,
       totalVarianceCost,

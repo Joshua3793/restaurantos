@@ -28,13 +28,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }, 0)
   const totalVarianceCost  = lines.reduce((s, l) => s + Math.abs(Number(l.varianceCost ?? 0)), 0)
   const itemsWithLargeVariance = lines.filter(l => Math.abs(Number(l.variancePct ?? 0)) > LARGE_VARIANCE_PCT).length
+  // Observed lines only (this report never included blank lines); carried = the
+  // "Same as last" confirmations among them, uncounted = blank lines left out.
+  const itemsCounted   = lines.length
+  const itemsCarried   = lines.filter(l => l.carriedForward).length
+  const itemsSkipped   = session.lines.filter(l => l.skipped).length
+  const itemsUncounted = session.lines.length - itemsCounted - itemsSkipped
 
   return NextResponse.json({
     session: {
       id: session.id, label: session.label, sessionDate: session.sessionDate,
       countedBy: session.countedBy, status: session.status, finalizedAt: session.finalizedAt,
     },
-    summary: { totalValue, totalVarianceCost, itemsWithLargeVariance },
+    summary: { totalValue, totalVarianceCost, itemsWithLargeVariance, itemsCounted, itemsCarried, itemsSkipped, itemsUncounted },
     lines: lines.map(l => ({
       id: l.id,
       itemName:    l.inventoryItem.itemName,
@@ -42,6 +48,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       location:    l.inventoryItem.location ?? l.inventoryItem.storageArea?.name ?? null,
       expectedQty: Number(l.expectedQty),
       countedQty:  Number(l.countedQty),
+      carriedForward: l.carriedForward,
       selectedUom: l.selectedUom,
       variancePct: Number(l.variancePct ?? 0),
       varianceCost:Number(l.varianceCost ?? 0),

@@ -1,5 +1,6 @@
 // src/lib/cogs.ts
 import { prisma } from './prisma'
+import { resolveItemBound, type BoundSession, type ItemBound } from './cogs-bounds'
 
 export interface PeriodCogs {
   openingValue: number
@@ -12,8 +13,6 @@ export interface PeriodCogs {
   /** True when fewer than two finalized counts bound the period. */
   needsCounts: boolean
 }
-
-const ms = (v: Date | null): number => (v ? v.getTime() : 0)
 
 /** Optional revenue-center scope for period purchases. */
 export interface PurchaseScope {
@@ -71,34 +70,34 @@ export async function periodPurchases(
   return { total, byCategory, invoiceCount: sessions.size }
 }
 
-/** A finalized-count inventory snapshot bounding one end of a period. */
-export interface SnapshotBound {
-  sessionId: string
-  sessionDate: Date
-  value: number
-  byCategory: Record<string, number>
-}
+/**
+ * A counted inventory position bounding one end of a period. `sessionId` /
+ * `sessionDate` name the FULL count that defines the bound; the value is built per
+ * item (see {@link ItemBound}) and the coverage fields say how much of it the
+ * bounding count itself observed.
+ */
+export type SnapshotBound = ItemBound
 
 /**
  * Resolve the opening/closing counted inventory bounding a period — the SINGLE
  * source of truth for period inventory bounds, shared by computePeriodCogs and
  * /api/reports/cogs so they can't drift.
  *
- * Only FULL counts qualify (a QUICK / single-item count snapshots one item, not the
- * whole inventory — using it as a period bound massively understates value). Bounds
- * are keyed on `sessionDate` (the effective count date the user chose), NOT
- * `finalizedAt` (when they happened to click approve) — otherwise a count taken on
- * the 1st but approved on the 10th would be excluded from a period starting the 1st.
+ * A bound is anchored on the latest FULL count with sessionDate ≤ the bound (the
+ * effective count date the user chose, NOT `finalizedAt` — otherwise a count taken
+ * on the 1st but approved on the 10th would be excluded from a period starting the
+ * 1st). That count defines WHICH items the bound covers. Each item's VALUE is its
+ * most recent observed snapshot (COUNTED or CARRIED — never THEORETICAL/SKIPPED)
+ * from any finalized count ≤ the bound, quick and partial counts included: a
+ * prep-only count updates the prep items and everything else keeps the last
+ * quantity somebody actually counted. The merge is `resolveItemBound`.
  *
  * RC scope mirrors the rest of the app: a snapshot's revenue center is its session's
  * (InventorySnapshot has no RC column). A global (rc=null) count writes the default
  * pool, so the default RC and the "All RCs" view both read global counts; a
- * non-default RC reads only its own RC-scoped FULL counts.
+ * non-default RC reads only its own RC-scoped counts.
  *
- * opening = latest qualifying count with sessionDate ≤ startMs; closing = latest with
- * sessionDate ≤ endMs. Value/byCategory summed from the session's InventorySnapshot
- * rows (priced totalValue). Returns null for a bound when no qualifying count precedes
- * it.
+ * Returns null for a bound when no FULL count precedes it.
  */
 export interface SnapshotScope {
   rcId?: string | null
@@ -119,30 +118,19 @@ export async function periodSnapshotBounds(
         : { revenueCenterId: scope.rcId })
     : { revenueCenterId: null }
 
-  const sessions = await prisma.countSession.findMany({
-    where: { status: 'FINALIZED', type: 'FULL', ...rcWhere },
+  const rows = await prisma.countSession.findMany({
+    where: { status: 'FINALIZED', sessionDate: { lte: new Date(endMs) }, ...rcWhere },
     select: {
-      id: true, sessionDate: true,
-      snapshots: { select: { totalValue: true, category: true } },
+      id: true, type: true, sessionDate: true, finalizedAt: true,
+      snapshots: { select: { inventoryItemId: true, totalValue: true, category: true, source: true } },
     },
   })
-  // Sort descending by the effective count date so the first match is the most recent ≤ bound.
-  sessions.sort((a, b) => ms(b.sessionDate) - ms(a.sessionDate))
+  const sessions: BoundSession[] = rows.map(r => ({
+    ...r,
+    snapshots: r.snapshots.map(s => ({ ...s, totalValue: Number(s.totalValue) })),
+  }))
 
-  const pick = (boundMs: number): SnapshotBound | null => {
-    const s = sessions.find(x => ms(x.sessionDate) <= boundMs)
-    if (!s) return null
-    let value = 0
-    const byCategory: Record<string, number> = {}
-    for (const snap of s.snapshots) {
-      const v = Number(snap.totalValue)
-      value += v
-      byCategory[snap.category] = (byCategory[snap.category] ?? 0) + v
-    }
-    return { sessionId: s.id, sessionDate: s.sessionDate, value, byCategory }
-  }
-
-  return { opening: pick(startMs), closing: pick(endMs) }
+  return { opening: resolveItemBound(sessions, startMs), closing: resolveItemBound(sessions, endMs) }
 }
 
 /**

@@ -64,9 +64,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const total   = lines.length
   const counted = lines.filter(l => l.countedQty !== null && !l.skipped).length
+  const carried = lines.filter(l => l.countedQty !== null && !l.skipped && l.carriedForward).length
   const skipped = lines.filter(l => l.skipped).length
 
-  return NextResponse.json({ ...session, lines, counts: { total, counted, skipped, pctComplete: total > 0 ? counted / total : 0 } })
+  return NextResponse.json({
+    ...session, lines,
+    counts: { total, counted, carried, skipped, uncounted: total - counted - skipped, pctComplete: total > 0 ? counted / total : 0 },
+  })
 }
 
 // PATCH /api/count/sessions/:id  — update label / reopen finalized session
