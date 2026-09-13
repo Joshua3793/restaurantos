@@ -38,8 +38,6 @@ export interface PlannerHandlers {
   onClearDraft: () => void
   onPost: (dues: PostDue[]) => void
   onRecall: () => void
-  /** The chef's switch — off keeps the item out of prep while the recipe stays. */
-  onSetPrepEnabled: (item: PrepItemRich, enabled: boolean) => void
 }
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
@@ -206,7 +204,7 @@ export function PlannerDesktop({
                 <div className="flex flex-col gap-1.5">
                   {g.rows.map(t => (
                     <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY}
-                      onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} onSetPrepEnabled={handlers.onSetPrepEnabled} />
+                      onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
                   ))}
                 </div>
               </div>
@@ -214,7 +212,7 @@ export function PlannerDesktop({
             {pool.length === 0 && (
               <div className="py-14 text-center font-mono text-[10.5px] text-ink-4">NO ITEMS MATCH</div>
             )}
-            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} onSetPrepEnabled={handlers.onSetPrepEnabled} />
+            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} />
           </div>
         </div>
 

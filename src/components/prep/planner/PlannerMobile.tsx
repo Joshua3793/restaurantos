@@ -184,11 +184,11 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
               <div key={g.key}>
                 <GroupHead g={g} count={g.rows.length} />
                 <div className="flex flex-col gap-1.5">
-                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} onSetPrepEnabled={handlers.onSetPrepEnabled} />)}
+                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
                 </div>
               </div>
             ))}
-            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} onSetPrepEnabled={handlers.onSetPrepEnabled} />
+            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} />
           </>
         ) : (
           <>
