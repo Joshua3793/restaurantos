@@ -140,6 +140,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
   const verb = reopening ? 'Update' : 'Log'
   const outcome = qty <= 0
     ? 'Enter how much you made'
+    : warning ? 'Check the amount before logging'
     : status === 'DONE' ? 'Records Done · at or above plan' : 'Records Partial · below plan'
 
   return (
@@ -149,6 +150,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
       <div
         role="dialog"
         aria-label="Log yield"
+        aria-modal="true"
         className="relative z-50 bg-paper w-full rounded-t-2xl border-t border-line px-[22px] pt-4 shadow-2xl md:w-[440px] md:rounded-2xl md:border md:pb-5"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
       >
@@ -249,7 +251,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
           }`}
         >
           <IcCheck size={16} />
-          {qty > 0 ? `${verb} ${fmtQty(qty, item.unit)} · ${status === 'DONE' ? 'Done' : 'Partial'}` : `${verb} yield`}
+          {qty > 0 && !warning ? `${verb} ${fmtQty(qty, item.unit)} · ${status === 'DONE' ? 'Done' : 'Partial'}` : `${verb} yield`}
         </button>
       </div>
     </div>
