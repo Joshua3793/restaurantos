@@ -20,7 +20,8 @@ import { RunSheet } from '@/components/prep/runsheet/RunSheet'
 import { RunSheetMobile } from '@/components/prep/runsheet/RunSheetMobile'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import type { Cook } from '@/components/prep/runsheet/assignee'
-import PrepDoneSheet from '@/components/prep/PrepDoneSheet'
+import LogYieldSheet, { type YieldTarget } from '@/components/prep/LogYieldSheet'
+import type { YieldStatus } from '@/lib/prep-yield'
 import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
 import PrepTaskList from '@/components/prep/PrepTaskList'
 import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
@@ -98,8 +99,9 @@ export default function PrepPage() {
   // them; the planner shows them in its collapsed "Not prepped" group.
   const [hiddenItems, setHiddenItems] = useState<PrepItemRich[]>([])
   const [drawerItem, setDrawerItem] = useState<PrepItemRich | null>(null)
-  // Quick yield prompt from the compact row's "Mark done" (no full drawer).
-  const [doneSheetItem, setDoneSheetItem] = useState<PrepItemRich | null>(null)
+  // The item whose yield is being logged (+ the drawer's cook-along yield when it
+  // came from a drawer). One sheet serves the rows and both drawers.
+  const [yieldTarget, setYieldTarget] = useState<YieldTarget | null>(null)
   const [drawerDetail, setDrawerDetail] = useState<PrepItemDetail | null>(null)
   // The fused drawer's cook-along data (steps + cost, fetched alongside the prep detail).
   const [drawerRecipe, setDrawerRecipe] = useState<RecipeStepsData | null>(null)
@@ -1649,20 +1651,23 @@ export default function PrepPage() {
     handleStatusChange(item.id, status, qty)
   }
 
-  // Complete the drawer's prep at the upscale slider's yield (drawerMakeQty). Unifies the
-  // former modal's "Done · add X" with the drawer's completion: qty ≥ suggested → DONE,
-  // else PARTIAL (same rule as the old numeric prompt). Credits inventory + deducts ingredients.
+  // The Log yield sheet's confirm — the ONE completion path for rows and both
+  // drawers. The sheet already applied the Done/Partial rule (prep-yield.ts);
+  // this just records it and closes whatever opened the sheet.
   //
-  // NOT memoized — same trap as onRowStatusChange above: it calls handleStatusChange, which
-  // reads the current `items`. The previous useCallback([toast]) froze the FIRST-render
-  // closure (items === []), so `items.find` returned undefined and every "Done · add X"
-  // early-returned — the drawer completion silently did nothing.
-  const onDrawerComplete = (item: PrepItemRich, qty: number) => {
-    if (!qty || qty <= 0) return
-    const status = qty >= item.suggestedQty ? 'DONE' : 'PARTIAL'
+  // NOT memoized — same trap as onRowStatusChange above: it calls handleStatusChange,
+  // which reads the current `items`; a useCallback([]) would freeze the first-render
+  // closure (items === []) and every completion would silently no-op.
+  const onYieldLogged = (item: PrepItemRich, qty: number, status: YieldStatus) => {
     handleStatusChange(item.id, status, qty)
-    toast(`${status === 'DONE' ? 'Done' : 'Partial'} · added ${qty} ${item.unit}`)
+    toast(`${status === 'DONE' ? 'Done' : 'Partial'} · ${qty} ${item.unit} made`)
+    setYieldTarget(null)
+    if (drawerItem?.id === item.id) closeDrawer()
   }
+  // Both drawers' Done buttons land here: the drawer's cook-along yield (the
+  // upscale slider, persisted on the live log) is the sheet's prefill.
+  const onDrawerLogYield = (item: PrepItemRich) =>
+    setYieldTarget({ item, cookAlongQty: drawerProgress?.makeQty ?? null })
 
   // Keep the open drawer's item in sync across the auto-refresh poll
   useEffect(() => {
@@ -1956,7 +1961,7 @@ export default function PrepPage() {
               onOpenRecipe={openDrawer}
               onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
               onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
-              onLog={setDoneSheetItem}
+              onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
               onStage={handleStageChange}
               onClaim={handleClaim}
@@ -2059,7 +2064,7 @@ export default function PrepPage() {
                 onOpenRecipe={openDrawer}
                 onStart={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
                 onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
-                onLog={setDoneSheetItem}
+                onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
                 onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
                 onStage={handleStageChange}
                 onClaim={handleClaim}
@@ -2221,13 +2226,13 @@ export default function PrepPage() {
       {/* A crash in any drawer/recipe modal (e.g. an error-shaped response while offline)
           must not white-screen the whole page — the boundary closes the open modals and recovers. */}
       <ErrorBoundary
-        resetKeys={[drawerItem?.id, subRecipeView?.recipeId, doneSheetItem?.id]}
-        onError={() => { closeDrawer(); setSubRecipeView(null); setDoneSheetItem(null) }}
+        resetKeys={[drawerItem?.id, subRecipeView?.recipeId, yieldTarget?.item.id]}
+        onError={() => { closeDrawer(); setSubRecipeView(null); setYieldTarget(null) }}
         fallback={
           <div className="fixed inset-0 z-[95] grid place-items-center bg-[rgba(9,9,11,0.6)] p-6">
             <div className="bg-paper rounded-2xl shadow-2xl px-6 py-5 max-w-sm text-center">
               <p className="text-sm text-ink-2 mb-3">Something went wrong opening that item. It has been closed — please try again.</p>
-              <button className="bg-ink text-white px-4 py-2 rounded-lg text-sm font-medium" onClick={() => { closeDrawer(); setSubRecipeView(null); setDoneSheetItem(null) }}>Dismiss</button>
+              <button className="bg-ink text-white px-4 py-2 rounded-lg text-sm font-medium" onClick={() => { closeDrawer(); setSubRecipeView(null); setYieldTarget(null) }}>Dismiss</button>
             </div>
           </div>
         }
@@ -2246,7 +2251,7 @@ export default function PrepPage() {
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
           onStage={handleStageChange}
-          onComplete={onDrawerComplete}
+          onLogYield={onDrawerLogYield}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           /* The drawer opens from BOTH the To Do run sheet and the Smart Prep planner
              (`plannerHandlers.onOpen`), so "Remove from list" has to mean whichever list
@@ -2263,16 +2268,6 @@ export default function PrepPage() {
           onSetPrepEnabled={canSwitch && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
       </div>
-      {/* Quick yield prompt — shared by the mobile compact row and the desktop board row. */}
-      <PrepDoneSheet
-        item={doneSheetItem}
-        onClose={() => setDoneSheetItem(null)}
-        onConfirm={(item, qty) => {
-          onRowStatusChange(item, 'DONE', qty)
-          toast(`Done · ${qty} ${item.unit} made`)
-          setDoneSheetItem(null)
-        }}
-      />
       <div className="hidden md:block">
         <PrepBoardDrawer
           item={drawerItem}
@@ -2284,7 +2279,7 @@ export default function PrepPage() {
           onMakeQtyChange={onDrawerMakeQtyChange}
           progress={drawerProgress}
           onProgressChange={(patch) => { if (drawerItem) onProgressPatch(drawerItem, patch) }}
-          onComplete={onDrawerComplete}
+          onLogYield={onDrawerLogYield}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           onClose={closeDrawer}
           onToggleOnList={canPlan ? handleToggleOnList : undefined}
@@ -2295,6 +2290,13 @@ export default function PrepPage() {
           onSetPrepEnabled={canSwitch && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
         />
       </div>
+      {/* Log yield — the one yield entry for the rows and both drawers. Rendered
+          after both drawers so it stacks above them. */}
+      <LogYieldSheet
+        target={yieldTarget}
+        onClose={() => setYieldTarget(null)}
+        onConfirm={onYieldLogged}
+      />
       {subRecipeView && (
         // Stacking context above BOTH drawers (mobile aside z-50, desktop .pb-drawer z-81)
         // so the sub-recipe peek sits on top of whichever drawer opened it.
