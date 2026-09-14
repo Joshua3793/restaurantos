@@ -135,7 +135,11 @@ export function stepFactor(factor: number, dir: 1 | -1, min: number, max: number
  * This lived as seven byte-identical local copies across the runsheet
  * components before it was hoisted here.
  */
-export function fmtQty(q: number, u: string): string {
-  const v = (u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)
+export function fmtQty(q: number | string, u: string): string {
+  // Coerce: a Prisma Decimal reaches the client as a STRING, and the page paints
+  // from a cached list first — a payload cached before the API numberised its
+  // logs blanked the whole run sheet on `"11.6".toFixed`.
+  const n = Number(q)
+  const v = (u === 'kg' || u === 'L') && n % 1 !== 0 ? n.toFixed(1) : Math.round(n)
   return `${v} ${u}`
 }
