@@ -21,12 +21,12 @@ export interface YieldItem extends BatchFields {
   linkedRecipe?: { baseYieldQty: number; yieldUnit: string } | null
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100
+export const round2 = (n: number) => Math.round(n * 100) / 100
 
 /** "×1", "×1.25", "×1.5" — and an exact "×1.13" for a typed, off-grid amount. */
 export function fmtBatches(n: number): string {
   const r = round2(n)
-  return `×${Number.isInteger(r) ? r : r}`
+  return `×${r}`
 }
 
 export function clampBatches(n: number): number {
@@ -62,7 +62,8 @@ export function plannedQty(item: YieldItem): number {
   return item.suggestedQty > 0 ? item.suggestedQty : 0
 }
 
-const COMPLETE = new Set(['DONE', 'PARTIAL'])
+/** DONE or PARTIAL — a completed log. */
+export const isCompleteStatus = (status: string | null | undefined): boolean => status === 'DONE' || status === 'PARTIAL'
 
 /**
  * The amount the sheet opens with:
@@ -73,7 +74,7 @@ const COMPLETE = new Set(['DONE', 'PARTIAL'])
  */
 export function yieldPrefill(item: YieldItem, cookAlongQty: number | null | undefined): number {
   const log = item.todayLog
-  if (log && COMPLETE.has(log.status) && log.actualPrepQty != null && log.actualPrepQty > 0) {
+  if (log && isCompleteStatus(log.status) && log.actualPrepQty != null && log.actualPrepQty > 0) {
     return round2(log.actualPrepQty)
   }
   if (cookAlongQty != null && cookAlongQty > 0) return round2(cookAlongQty)

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   BATCH_STEP, BATCH_MAX, fmtBatches, clampBatches, snapBatches, stepBatches,
-  plannedQty, yieldPrefill, yieldStatus, yieldWarning, type YieldItem,
+  plannedQty, yieldPrefill, yieldStatus, yieldWarning, round2, isCompleteStatus, type YieldItem,
 } from '../prep-yield'
 import { defaultDraftQty } from '../prep-plan'
 import { validatePrepQty } from '../prep-utils'
@@ -125,5 +125,18 @@ describe('yieldWarning', () => {
   it('is silent without a recipe or at zero', () => {
     expect(yieldWarning(300000, plain)).toBeNull()
     expect(yieldWarning(0, adobo)).toBeNull()
+  })
+})
+
+describe('round2 / isCompleteStatus', () => {
+  it('rounds to the cent so status is judged on what is stored', () => {
+    expect(round2(5.495)).toBe(5.5)
+    expect(yieldStatus(round2(5.495), 5.5)).toBe('DONE')
+  })
+  it('isCompleteStatus', () => {
+    expect(isCompleteStatus('DONE')).toBe(true)
+    expect(isCompleteStatus('PARTIAL')).toBe(true)
+    expect(isCompleteStatus('IN_PROGRESS')).toBe(false)
+    expect(isCompleteStatus(null)).toBe(false)
   })
 })

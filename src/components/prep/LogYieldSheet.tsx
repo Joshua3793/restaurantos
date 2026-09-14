@@ -19,7 +19,7 @@ import type { PrepItemRich } from '@/components/prep/types'
 import { batchYield, batchCount, batchesToQty } from '@/lib/prep-plan'
 import { fmtQty } from '@/lib/prep-runsheet'
 import {
-  BATCH_MAX, BATCH_STEP, fmtBatches, plannedQty, snapBatches, stepBatches,
+  BATCH_MAX, BATCH_STEP, fmtBatches, isCompleteStatus, plannedQty, round2, snapBatches, stepBatches,
   yieldPrefill, yieldStatus, yieldWarning, type YieldStatus,
 } from '@/lib/prep-yield'
 
@@ -35,10 +35,9 @@ interface Props {
   onConfirm: (item: PrepItemRich, qty: number, status: YieldStatus) => void
 }
 
-const COMPLETE = new Set(['DONE', 'PARTIAL'])
 const near = (a: number, b: number) => Math.abs(a - b) < 0.005
 /** Text for the unit field: up to 2 decimals, no trailing zeros, '' for zero. */
-const qtyText = (q: number) => (q > 0 ? String(Math.round(q * 100) / 100) : '')
+const qtyText = (q: number) => (q > 0 ? String(round2(q)) : '')
 
 // ── module-scope pieces (never define these inside the component: they would remount) ──
 
@@ -93,22 +92,25 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
   // Escape closes.
   useEffect(() => {
     if (!target) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    // Capture phase + stopPropagation: the drawers under the sheet listen for Escape
+    // on document too, and one press must close only the sheet.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [target, onClose])
 
   if (!item) return null
 
+  const q = round2(qty)                           // the rounded view; qty (raw typed state) stays the source
   const perBatch = batchYield(item)              // unit amount of one batch, null = batches don't apply
   const hasBatch = perBatch != null
-  const batches = hasBatch ? (batchCount(item, qty) ?? 0) : 0
+  const batches = hasBatch ? (batchCount(item, q) ?? 0) : 0
   const thumb = hasBatch ? snapBatches(batches) : 0
   const planned = plannedQty(item)
-  const status = yieldStatus(qty, planned)
-  const warning = yieldWarning(qty, item)
-  const reopening = !!item.todayLog && COMPLETE.has(item.todayLog.status)
-  const canSubmit = qty > 0 && !warning
+  const status = yieldStatus(q, planned)
+  const warning = yieldWarning(q, item)
+  const reopening = isCompleteStatus(item.todayLog?.status)
+  const canSubmit = q > 0 && !warning
 
   // ONE setter for the batch view: value in batches → unit amount.
   const setBatches = (n: number) => {
@@ -124,7 +126,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
   }
   const setUnit = (q: number) => { setQty(q); setText(qtyText(q)) }
 
-  const submit = () => { if (canSubmit) onConfirm(item, Math.round(qty * 100) / 100, status) }
+  const submit = () => { if (canSubmit) onConfirm(item, q, status) }
 
   const onSliderKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Shift+arrow = a whole batch; plain arrows, Home and End are native to the range input.
@@ -194,10 +196,10 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
                 step={BATCH_STEP}
                 value={thumb}
                 aria-label="Batches made"
-                aria-valuetext={`${fmtBatches(batches)} batch · ${fmtQty(qty, item.unit)}`}
+                aria-valuetext={`${fmtBatches(batches)} batch · ${qtyText(q)} ${item.unit}`}
                 onChange={(e) => setBatches(snapBatches(parseFloat(e.target.value)))}
                 onKeyDown={onSliderKey}
-                style={{ background: `linear-gradient(to right, #d97706 ${pct}%, #f4f4f5 ${pct}%)` }}
+                style={{ background: `linear-gradient(to right, var(--gold-hex) ${pct}%, var(--bg-2) ${pct}%)` }}
                 className="w-full h-2 rounded-full appearance-none outline-none cursor-pointer
                   [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-ink [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-paper [&::-webkit-slider-thumb]:shadow-md
                   [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-ink [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-paper
@@ -236,9 +238,9 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
 
         {/* quick chips */}
         <div className="flex gap-2 mt-3 flex-wrap">
-          {planned > 0 && <Chip label="Planned" active={near(qty, planned)} onClick={() => setUnit(planned)} />}
-          {hasBatch && <Chip label="×1 batch" active={near(qty, batchesToQty(item, 1))} onClick={() => setBatches(1)} />}
-          {hasBatch && <Chip label="½ batch" active={near(qty, batchesToQty(item, 0.5))} onClick={() => setBatches(0.5)} />}
+          {planned > 0 && <Chip label="Planned" active={near(q, planned)} onClick={() => setUnit(planned)} />}
+          {hasBatch && <Chip label="×1 batch" active={near(q, batchesToQty(item, 1))} onClick={() => setBatches(1)} />}
+          {hasBatch && <Chip label="½ batch" active={near(q, batchesToQty(item, 0.5))} onClick={() => setBatches(0.5)} />}
         </div>
 
         {/* outcome + confirm */}
@@ -252,7 +254,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
           }`}
         >
           <IcCheck size={16} />
-          {qty > 0 && !warning ? `${verb} ${fmtQty(qty, item.unit)} · ${status === 'DONE' ? 'Done' : 'Partial'}` : `${verb} yield`}
+          {qty > 0 && !warning ? `${verb} ${qtyText(q)} ${item.unit} · ${status === 'DONE' ? 'Done' : 'Partial'}` : `${verb} yield`}
         </button>
       </div>
     </div>

@@ -1639,8 +1639,11 @@ export default function PrepPage() {
   }
   const onDrawerMakeQtyChange = (qty: number) => {
     setDrawerMakeQty(qty)
+    if (!drawerItem || !(qty > 0)) return
+    const next = { ...currentProgress(drawerItem), makeQty: qty }
     const logId = progressLogId(drawerItem)
-    if (drawerItem && logId && qty > 0) writeProgress(logId, { ...currentProgress(drawerItem), makeQty: qty })
+    if (!logId) { setDrawerProgress(next); return }   // no live log yet: ephemeral, like onProgressPatch
+    writeProgress(logId, next)
   }
 
   // Adapter: new components call onStatusChange(item, status, qty); existing handler takes (itemId, status, qty)

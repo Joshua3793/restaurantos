@@ -101,11 +101,18 @@ otherwise).
 yieldPrefill(item, cookAlongQty?) → number
   1. cookAlongQty      — the drawer's upscale-slider yield (PrepLog.progress.makeQty),
                           only when the cook changed it (non-null)
-  2. planned           — batchesToQty(item, suggestedBatches(item))   (batch items;
+  2. planned           — todayLog.requiredQty                          (the quantity the
+                          chef posted on the live log, when there is one)
+                          batchesToQty(item, suggestedBatches(item))   (batch items;
                           half-batch CEILED, identical to the planner's seed)
                           suggestedQty                                  (others)
   3. 0                 — nothing known (button disabled until typed)
 ```
+
+The plan (`planned`) is the quantity the chef posted on the live log
+(`todayLog.requiredQty`) when there is one, else the batch suggestion, else
+`suggestedQty` — "Done means you made what the row asked for; the stock
+suggestion moves under the row between posting and completion."
 
 `planned` is also what the **PLANNED** chip and the Done/Partial rule use.
 Reopening an already-done item prefills the logged `actualPrepQty` and the
@@ -179,6 +186,9 @@ on completion, still invalidates the theoretical cache.
   as non-batch, exactly as `batchYield` does today.
 - **Reopen after Done:** prefill the logged amount; button label `Update`.
 - **Planned = 0:** Done for any positive amount; the PLANNED chip is hidden.
+- **Reopen after Done — the prefill and `Update` label are implemented, but no
+  surface opens the sheet on a completed log yet** (Done rows offer Reopen →
+  In progress). Follow-up.
 
 ---
 
