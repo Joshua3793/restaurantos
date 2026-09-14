@@ -33,6 +33,14 @@ export interface PlanFields {
   pipeline?: PipelineInfo | null
   /** The make history (see prep-cadence.ts) — may raise TMRW → CLOSE and cap a suggestion. */
   cadence?: CadenceStats | null
+  /**
+   * Recorded use since the last count that the shelf could not supply, in `unit`
+   * (see src/lib/ledger-balance.ts). Read-only evidence that production is going
+   * unlogged, a recipe over-draws, or the count is stale — never a stock credit.
+   */
+  shortfall?: number | null
+  /** The linked item's last count day (ISO), for the shortfall sentence. */
+  lastCountDate?: string | null
 }
 
 // ─── the pipeline: a job in flight is not a stock-out ──────────────────────
@@ -196,6 +204,23 @@ export function suggestedDraftQty(t: PlanFields): number {
 
 const fmtQ = (q: number, u: string) => `${q % 1 === 0 ? q : +q.toFixed(2)} ${u}`
 
+/** "Aug 1" for a count day — stored as a UTC-midnight marker, so read it in UTC. */
+const fmtCountDay = (iso: string) =>
+  new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(new Date(iso))
+
+/**
+ * The shortfall sentence: how much recorded use had nothing on the shelf to draw
+ * from since the last count — the one number that says WHY an item keeps reading
+ * low (a base made without being logged, a sub-recipe drawing more than it should,
+ * a stale count). Null when the ledger balanced.
+ */
+export function shortfallReason(t: Pick<PlanFields, 'shortfall' | 'unit' | 'lastCountDate'>): string | null {
+  const q = +(t.shortfall ?? 0).toFixed(2)
+  if (!(q > 0)) return null
+  const since = t.lastCountDate ? `since the ${fmtCountDay(t.lastCountDate)} count` : 'on record'
+  return `${fmtQ(q, t.unit)} more used than logged made ${since} — count it to reset`
+}
+
 /** Read-only evidence: why the system put the item at its step. */
 export function whyLabel(t: PlanFields, now: number = Date.now()): string {
   const oh = t.onHand ?? 0, par = t.parLevel ?? 0
@@ -211,11 +236,15 @@ export function whyLabel(t: PlanFields, now: number = Date.now()): string {
     : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
     : oh < par ? `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
     : t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
-  // Cadence evidence appends: the rhythm that raised the step, and a shelf-life cap.
+  // Evidence appends: the rhythm that raised the step, a shelf-life cap, and the
+  // shortfall — use the shelf could not have supplied, which is what a bare
+  // "stock out" used to hide.
   const extras: string[] = []
   const rhythm = cadenceReason(t, now)
   if (rhythm) extras.push(rhythm)
   if (isShelfCapped(t)) extras.push(`capped to ${t.shelfLifeDays}d shelf life`)
+  const short = shortfallReason(t)
+  if (short) extras.push(short)
   return extras.length ? `${stock} · ${extras.join(' · ')}` : stock
 }
 

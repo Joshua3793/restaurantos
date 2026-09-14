@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { urgencyToPriority, PREP_PRIORITY_ORDER } from '@/lib/prep-utils'
-import { getTheoreticalStockMapCached } from '@/lib/theoretical-cache'
+import { getTheoreticalBalanceMapCached } from '@/lib/theoretical-cache'
+import type { LedgerBalance } from '@/lib/ledger-balance'
 import { convertQty } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, resolveLocationRcIds } from '@/lib/rc-scope'
@@ -28,7 +29,7 @@ const recipeInclude = {
     stages: true,
     method: true,
     inventoryItem: {
-      select: { id: true, stockOnHand: true, baseUnit: true },
+      select: { id: true, stockOnHand: true, baseUnit: true, lastCountDate: true },
     },
     ingredients: {
       include: {
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest) {
     include: {
       linkedRecipe: recipeInclude,
       linkedInventoryItem: {
-        select: { id: true, itemName: true, stockOnHand: true, baseUnit: true },
+        select: { id: true, itemName: true, stockOnHand: true, baseUnit: true, lastCountDate: true },
       },
       // The item's NEWEST log — `isLiveLog` below decides whether it still counts
       // as the item's live job. Not "today's log": the kitchen posts the next
@@ -150,27 +151,29 @@ export async function GET(req: NextRequest) {
     if (!rcToInvIds.has(rc)) rcToInvIds.set(rc, [])
     rcToInvIds.get(rc)!.push(invId)
   }
-  const theoreticalMaps = new Map<string | null, Map<string, number>>()
+  const theoreticalMaps = new Map<string | null, Map<string, LedgerBalance>>()
   await Promise.all(
     Array.from(rcToInvIds.entries()).map(async ([rc, ids]) => {
-      const map = await getTheoreticalStockMapCached(rc, ids)
+      const map = await getTheoreticalBalanceMapCached(rc, ids)
       theoreticalMaps.set(rc, map)
     })
   )
 
   const enriched = items.map(item => {
-    // Resolve onHand from theoretical stock (same engine as inventory list page)
-    const invId = item.linkedInventoryItem?.id ?? item.linkedRecipe?.inventoryItem?.id
+    // Resolve onHand from theoretical stock (same engine as inventory list page),
+    // plus its shortfall — use the shelf could not supply since the last count.
+    const invItem = item.linkedInventoryItem ?? item.linkedRecipe?.inventoryItem ?? null
+    const invId = invItem?.id
     const rc = item.revenueCenterId ?? null
     let onHand = 0
+    let shortfall = 0
     if (invId) {
-      const theoreticalQty = theoreticalMaps.get(rc)?.get(invId)
-      if (theoreticalQty !== undefined) {
-        onHand = theoreticalQty
-      } else if (item.linkedInventoryItem) {
-        onHand = parseFloat(String(item.linkedInventoryItem.stockOnHand))
-      } else if (item.linkedRecipe?.inventoryItem) {
-        onHand = parseFloat(String(item.linkedRecipe.inventoryItem.stockOnHand))
+      const balance = theoreticalMaps.get(rc)?.get(invId)
+      if (balance !== undefined) {
+        onHand = balance.expected
+        shortfall = balance.shortfall
+      } else if (invItem) {
+        onHand = parseFloat(String(invItem.stockOnHand))
       }
     }
 
@@ -179,11 +182,12 @@ export async function GET(req: NextRequest) {
     // (e.g. l, kg). Convert onHand into the prep unit so every downstream calc
     // (priority, suggestedQty, the % badge, the displayed on-hand) is unit-consistent.
     // convertQty passes through unchanged when units already match or share no dimension.
-    const invBaseUnit =
-      item.linkedInventoryItem?.baseUnit ?? item.linkedRecipe?.inventoryItem?.baseUnit ?? null
+    const invBaseUnit = invItem?.baseUnit ?? null
     if (invBaseUnit && item.unit) {
       onHand = convertQty(onHand, invBaseUnit, item.unit)
+      shortfall = convertQty(shortfall, invBaseUnit, item.unit)
     }
+    const lastCountDate = invItem?.lastCountDate?.toISOString() ?? null
 
     const parLevel     = parseFloat(String(item.parLevel))
     const minThreshold = parseFloat(String(item.minThreshold))
@@ -197,6 +201,7 @@ export async function GET(req: NextRequest) {
     const planFields = {
       onHand, parLevel, minThreshold, targetToday, unit: item.unit,
       manualPriorityOverride: item.manualPriorityOverride, shelfLifeDays: item.shelfLifeDays, cadence,
+      shortfall, lastCountDate,
     }
     const priority     = urgencyToPriority(effectiveUrgency(planFields, now.getTime()))
     const suggestedQty = cappedSuggestedQty(planFields)
@@ -301,6 +306,8 @@ export async function GET(req: NextRequest) {
       lastMadeAt: lastMadeByItem.get(item.id) ?? null,
       pipeline,
       cadence,
+      shortfall,
+      lastCountDate,
       revenueCenterId: item.revenueCenterId ?? null,
       activeMinutes,
       passiveMinutes,

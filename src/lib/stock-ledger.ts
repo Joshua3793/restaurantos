@@ -26,6 +26,7 @@ import {
   type LedgerEventType,
 } from '@/lib/count-expected'
 import { getCountedStockMap } from '@/lib/counted-stock'
+import { ledgerOrder } from '@/lib/ledger-balance'
 
 export type { LedgerEvent, LedgerEventType }
 
@@ -41,10 +42,11 @@ export interface ItemLedger {
   /** The live figure — byte-identical to what the inventory list shows. */
   theoreticalBase: number
   /**
-   * theoretical − (opening + Σ events). Zero for virtually every item. Non-zero
-   * when an RC's own column went negative and was floored at zero, or when the
-   * counted baseline and the engine's per-RC opening balances disagree. Surfaced
-   * as its own row rather than silently making the column not add up.
+   * theoretical − (opening + Σ events). Zero for a healthy item. Positive by
+   * exactly the shortfall — recorded use the shelf could not supply, floored
+   * away movement by movement (src/lib/ledger-balance.ts) — or non-zero when
+   * the counted baseline and the engine's per-RC opening balances disagree.
+   * Surfaced as its own row rather than silently making the column not add up.
    */
   residualBase: number
 }
@@ -117,7 +119,9 @@ export async function buildItemLedger(itemId: string, rcId?: string | null): Pro
   const movementSum = events.reduce((acc, e) => acc + e.qtyBase, 0)
   const residual = theoreticalBase - (openingBase + movementSum)
 
-  events.sort((a, b) => b.date.getTime() - a.date.getTime())
+  // Newest first, in the order the engine applied them — same-day rows read the
+  // way the shelf saw them (deliveries, then prep at its completion, then sales).
+  events.sort((a, b) => ledgerOrder(b, a))
 
   return {
     openingBase,

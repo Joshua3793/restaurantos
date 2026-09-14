@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap } from '@/lib/count-expected'
+import { MovementLedger } from '@/lib/ledger-balance'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
@@ -64,15 +65,18 @@ export async function GET(req: NextRequest) {
   for (const i of items) if (i.lastCountDate) cutoff.set(i.id, i.lastCountDate)
   // finalizedAt orders same-day prep AND transfers against the count moment.
   const finalizedAt = earliestLastCount ? await buildCountFinalizedMap(items.map(i => i.id)) : new Map<string, Date>()
-  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = earliestLastCount
-    ? await Promise.all([
-        buildConsumptionMap(earliestLastCount, rcId, cutoff),
-        buildPurchaseMap(earliestLastCount, rcId, cutoff),
-        buildWastageMap(earliestLastCount, items.map(i => i.id), rcId, cutoff),
-        buildPrepMap(earliestLastCount, rcId, cutoff, finalizedAt),
-        buildTransferMap(earliestLastCount, rcId, cutoff, finalizedAt),
-      ])
-    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }, new Map<string, number>()]
+  // Every movement lands in one ledger; the balance runs them in order with the
+  // shelf floored at zero after each (src/lib/ledger-balance.ts).
+  const ledger = new MovementLedger()
+  if (earliestLastCount) {
+    await Promise.all([
+      buildConsumptionMap(earliestLastCount, rcId, cutoff, undefined, ledger),
+      buildPurchaseMap(earliestLastCount, rcId, cutoff, undefined, ledger),
+      buildWastageMap(earliestLastCount, items.map(i => i.id), rcId, cutoff, undefined, ledger),
+      buildPrepMap(earliestLastCount, rcId, cutoff, finalizedAt, undefined, ledger),
+      buildTransferMap(earliestLastCount, rcId, cutoff, finalizedAt, undefined, ledger),
+    ])
+  }
 
   type Agg = { itemCount: number; onHandValue: number; drift: number; lastCountDate: Date | null }
   const agg = new Map<string, Agg>()
@@ -84,7 +88,7 @@ export async function GET(req: NextRequest) {
     cur.itemCount += 1
     cur.onHandValue += bs * price
     if (it.lastCountDate) {
-      const expected = computeExpected(it.id, bs, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
+      const { expected } = ledger.balance(it.id, bs)
       cur.drift += Math.abs(expected - bs) * price
     }
     if (it.lastCountDate && (!cur.lastCountDate || it.lastCountDate > cur.lastCountDate)) cur.lastCountDate = it.lastCountDate

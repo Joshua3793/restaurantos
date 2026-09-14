@@ -5,6 +5,7 @@ import { portionsPerBatch } from '@/lib/recipe-portions'
 import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
 import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
+import { MovementLedger, type LedgerBalance, type LedgerEvent, type LedgerSink } from '@/lib/ledger-balance'
 
 /**
  * ── Ledger sink ─────────────────────────────────────────────────────────────
@@ -20,37 +21,27 @@ import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
  * movements passes a sink, and every builder below records an event at the exact
  * line where it accumulates into its map. The list and the total are therefore
  * the same computation, and cannot disagree.
+ *
+ * The total itself is no longer a sum: every theoretical figure is the events run
+ * in order over the opening balance with the shelf floored at zero after each one
+ * (see src/lib/ledger-balance.ts — the maps the builders return are kept for
+ * callers that want the per-source totals, the balance comes from the events).
  */
-export type LedgerEventType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
-
-export interface LedgerEvent {
-  id:          string
-  /** The date the movement is APPLIED on — received date, log date, sale date. */
-  date:        Date
-  type:        LedgerEventType
-  itemId:      string
-  /** Signed, in the item's baseUnit: positive adds stock, negative removes it. */
-  qtyBase:     number
-  description: string
-  revenueCenterId: string | null
-}
-
-/** Collects events as the maps are built. Array-compatible on purpose. */
-export interface LedgerSink { push(event: LedgerEvent): void }
+export type { LedgerBalance, LedgerEvent, LedgerEventType, LedgerSink } from '@/lib/ledger-balance'
 
 /**
  * Threaded through {@link getTheoreticalStockMap} by a caller that needs to show
  * its WORKING, not just its answer.
  *
- * `onRcResult` fires once per (revenue centre, item) with the baseline the sum
- * started from and the floored result it ended at. Because "All RCs" is Σ RC and
- * each RC is floored at zero independently, Σ baselines + Σ events does not always
- * equal the total — the caller reconciles the difference explicitly rather than
- * quietly presenting a column that doesn't add up.
+ * `onRcResult` fires once per (revenue centre, item) with the baseline the ledger
+ * started from, the result it ended at, and the shortfall — recorded use the shelf
+ * could not supply. Because the shelf is floored after every movement, Σ baselines
+ * + Σ events = total + Σ shortfall: the caller reconciles the difference explicitly
+ * rather than quietly presenting a column that doesn't add up.
  */
 export interface TheoreticalTrace {
   sink: LedgerSink
-  onRcResult?: (rcId: string, itemId: string, baseStock: number, expected: number) => void
+  onRcResult?: (rcId: string, itemId: string, baseStock: number, expected: number, shortfall: number) => void
 }
 
 type IngredientWithLinks = {
@@ -491,7 +482,7 @@ export async function buildTransferMap(
     const signed = t.toRcId === rcId ? Number(t.quantity) : -Number(t.quantity)
     map.set(t.inventoryItemId, (map.get(t.inventoryItemId) ?? 0) + signed)
     sink?.push({
-      id: `${t.id}-${rcId}`, date: t.createdAt, type: 'TRANSFER', itemId: t.inventoryItemId,
+      id: `${t.id}-${rcId}`, date: t.createdAt, at: t.createdAt, type: 'TRANSFER', itemId: t.inventoryItemId,
       qtyBase: signed, description: `${t.fromRc.name} → ${t.toRc.name}`, revenueCenterId: rcId,
     })
   }
@@ -499,31 +490,12 @@ export async function buildTransferMap(
 }
 
 /**
- * Compute theoretical expected qty for an inventory item given its base stock
- * and the consumption/purchase/wastage maps for a period.
- * prepConsumptionMap and prepOutputMap are optional for backward compatibility.
- * `prepConsumptionMap`/`prepOutputMap` (optional): ingredients drawn down by prep
- * production (subtracted) and prep yield produced (added).
+ * ONE sink for every builder: records into `ledger` (which the caller reads the
+ * balance from) and forwards to the caller's own sink when it has one.
  */
-export function computeExpected(
-  itemId: string,
-  baseStock: number,
-  consumptionMap: Map<string, number>,
-  purchaseMap: Map<string, number>,
-  wastageMap: Map<string, number>,
-  prepConsumptionMap?: Map<string, number>,
-  prepOutputMap?: Map<string, number>,
-  // Net RC-to-RC transfers (signed: +into this RC, -out of it). Optional so pre-existing
-  // callers keep compiling; every theoretical call site passes it (see buildTransferMap).
-  transferMap?: Map<string, number>,
-): number {
-  const consumption = consumptionMap.get(itemId) ?? 0
-  const purchases   = purchaseMap.get(itemId)    ?? 0
-  const wastage     = wastageMap.get(itemId)     ?? 0
-  const prepCons    = prepConsumptionMap?.get(itemId) ?? 0
-  const prepOut     = prepOutputMap?.get(itemId)      ?? 0
-  const transfers   = transferMap?.get(itemId)        ?? 0
-  return Math.max(0, baseStock + purchases + prepOut + transfers - consumption - wastage - prepCons)
+function teeSink(ledger: MovementLedger, forward?: LedgerSink): LedgerSink {
+  if (!forward) return ledger
+  return { push: e => { ledger.push(e); forward.push(e) } }
 }
 
 /**
@@ -545,7 +517,7 @@ export async function computeExpectedForItem(
   itemId: string,
   rcId?: string | null,
   sink?: LedgerSink,
-): Promise<{ expectedBase: number; baseStock: number } | null> {
+): Promise<{ expectedBase: number; baseStock: number; shortfallBase: number } | null> {
   const item = await prisma.inventoryItem.findUnique({
     where: { id: itemId },
     select: { id: true, stockOnHand: true, lastCountDate: true },
@@ -554,9 +526,9 @@ export async function computeExpectedForItem(
 
   // No RC selected → mirror getTheoreticalStockMap(null): sum across RCs.
   if (!rcId) {
-    const m = await getTheoreticalStockMap(null, [itemId])
-    const q = m.get(itemId) ?? 0
-    return { expectedBase: q, baseStock: q }
+    const m = await getTheoreticalBalanceMap(null, [itemId])
+    const b = m.get(itemId) ?? { expected: 0, shortfall: 0 }
+    return { expectedBase: b.expected, baseStock: b.expected, shortfallBase: b.shortfall }
   }
 
   let isDefaultRc = false
@@ -592,10 +564,11 @@ export async function computeExpectedForItem(
   const finalizedAt = await buildCountFinalizedMap([itemId])
   // A sink only wants THIS item's events; the maps are per-item-keyed anyway, so
   // filter at the sink rather than narrowing every query.
-  const itemSink: LedgerSink | undefined = sink && {
+  const ledger = new MovementLedger()
+  const itemSink = teeSink(ledger, sink && {
     push: (e: LedgerEvent) => { if (e.itemId === itemId) sink.push(e) },
-  }
-  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = await Promise.all([
+  })
+  await Promise.all([
     buildConsumptionMap(since, rcId, cutoff, undefined, itemSink),
     buildPurchaseMap(since, rcId, cutoff, undefined, itemSink),
     buildWastageMap(since, [itemId], rcId, cutoff, undefined, itemSink),
@@ -603,10 +576,8 @@ export async function computeExpectedForItem(
     buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, itemSink),
   ])
 
-  return {
-    expectedBase: computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap),
-    baseStock,
-  }
+  const { expected, shortfall } = ledger.balance(itemId, baseStock)
+  return { expectedBase: expected, baseStock, shortfallBase: shortfall }
 }
 
 /** Theoretical on-hand quantity (baseUnit) for one item, scoped to an RC. null if the item doesn't exist. */
@@ -679,6 +650,11 @@ export async function buildPrepMap(
       recipe.yieldUnit,
       Number(recipe.baseYieldQty),
     )
+    // When the batch actually landed on the shelf — orders it against the day's
+    // other movements (a base made AFTER the sub-recipe that drew it down today is
+    // still on the shelf tonight). Rows completed before the stamp existed fall
+    // back to their creation time.
+    const at = log.completedAt ?? log.createdAt
 
     for (const ing of recipe.ingredients) {
       // qtyBase is in ing.unit (not yet base units); convertQty handles the
@@ -689,7 +665,7 @@ export async function buildPrepMap(
           const drawn = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
           add(consumption, ing.inventoryItem.id, drawn)
           sink?.push({
-            id: `prep-in-${log.id}-${ing.inventoryItem.id}`, date: log.logDate, type: 'PREP_IN',
+            id: `prep-in-${log.id}-${ing.inventoryItem.id}`, date: log.logDate, at, type: 'PREP_IN',
             itemId: ing.inventoryItem.id, qtyBase: -drawn,
             description: `Prep: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
           })
@@ -700,7 +676,7 @@ export async function buildPrepMap(
           const drawn = convertQty(qty, ing.unit, prep.baseUnit)
           add(consumption, prep.id, drawn)
           sink?.push({
-            id: `prep-in-${log.id}-${prep.id}`, date: log.logDate, type: 'PREP_IN',
+            id: `prep-in-${log.id}-${prep.id}`, date: log.logDate, at, type: 'PREP_IN',
             itemId: prep.id, qtyBase: -drawn,
             description: `Prep: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
           })
@@ -712,7 +688,7 @@ export async function buildPrepMap(
       const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
       add(output, recipe.inventoryItem.id, yieldInBase)
       sink?.push({
-        id: `prep-out-${log.id}`, date: log.logDate, type: 'PREP_OUT',
+        id: `prep-out-${log.id}`, date: log.logDate, at, type: 'PREP_OUT',
         itemId: recipe.inventoryItem.id, qtyBase: yieldInBase,
         description: `Prep output: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
       })
@@ -731,24 +707,46 @@ export async function buildPrepMap(
 export async function getTheoreticalStockMap(
   rcId: string | null | undefined,
   itemIds?: string[],
+  allowedRcIds?: Set<string> | null,
+  trace?: TheoreticalTrace,
+): Promise<Map<string, number>> {
+  const balances = await getTheoreticalBalanceMap(rcId, itemIds, allowedRcIds, trace)
+  const result = new Map<string, number>()
+  for (const [id, b] of balances) result.set(id, b.expected)
+  return result
+}
+
+/**
+ * {@link getTheoreticalStockMap} with its working: each item's theoretical on-hand
+ * AND the shortfall — recorded use since the last count that the shelf could not
+ * supply (see src/lib/ledger-balance.ts). A shortfall is the one number that tells
+ * a chef WHY an item reads low: production or deliveries are going unlogged, a
+ * recipe draws more than it should, or the count is stale.
+ */
+export async function getTheoreticalBalanceMap(
+  rcId: string | null | undefined,
+  itemIds?: string[],
   // When provided (a scoped user's allowed RC set), the "All RCs" aggregate is
   // limited to these revenue centers instead of every RC. Ignored when an
   // explicit rcId is given. `null`/undefined = no restriction (all RCs).
   allowedRcIds?: Set<string> | null,
   // Optional working-out recorder — see TheoreticalTrace. Costs nothing when absent.
   trace?: TheoreticalTrace,
-): Promise<Map<string, number>> {
+): Promise<Map<string, LedgerBalance>> {
   // "All RCs" = the SUM of every revenue center's theoretical map. This makes
-  // ALL = ΣRC true by construction (each RC floored at 0 independently).
+  // ALL = ΣRC true by construction (each RC runs its own ledger, floored at 0).
   // For a scoped user, "All" is the sum of only their allowed RCs.
   if (!rcId) {
     const rcs = await prisma.revenueCenter.findMany({
       where: allowedRcIds ? { id: { in: [...allowedRcIds] } } : undefined,
       select: { id: true },
     })
-    const perRc = await Promise.all(rcs.map(rc => getTheoreticalStockMap(rc.id, itemIds, null, trace)))
-    const sum = new Map<string, number>()
-    for (const m of perRc) for (const [id, q] of m) sum.set(id, (sum.get(id) ?? 0) + q)
+    const perRc = await Promise.all(rcs.map(rc => getTheoreticalBalanceMap(rc.id, itemIds, null, trace)))
+    const sum = new Map<string, LedgerBalance>()
+    for (const m of perRc) for (const [id, b] of m) {
+      const cur = sum.get(id) ?? { expected: 0, shortfall: 0 }
+      sum.set(id, { expected: cur.expected + b.expected, shortfall: cur.shortfall + b.shortfall })
+    }
     return sum
   }
 
@@ -781,18 +779,19 @@ export async function getTheoreticalStockMap(
   const hasUncounted = items.some(i => !i.lastCountDate)
   const since = hasUncounted ? new Date(0) : earliest
 
-  const empty = new Map<string, number>()
   // finalizedAt orders same-day prep AND transfers against the count moment.
   const finalizedAt = since ? await buildCountFinalizedMap(ids) : new Map<string, Date>()
-  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = since
-    ? await Promise.all([
-        buildConsumptionMap(since, rcId, cutoff, undefined, trace?.sink),
-        buildPurchaseMap(since, rcId, cutoff, undefined, trace?.sink),
-        buildWastageMap(since, ids, rcId, cutoff, undefined, trace?.sink),
-        buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, trace?.sink),
-        buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, trace?.sink),
-      ])
-    : [empty, empty, empty, { consumption: empty, output: empty }, empty]
+  const ledger = new MovementLedger()
+  const sink = teeSink(ledger, trace?.sink)
+  if (since) {
+    await Promise.all([
+      buildConsumptionMap(since, rcId, cutoff, undefined, sink),
+      buildPurchaseMap(since, rcId, cutoff, undefined, sink),
+      buildWastageMap(since, ids, rcId, cutoff, undefined, sink),
+      buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, sink),
+      buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, sink),
+    ])
+  }
 
   const stockAllocationMap = new Map<string, number>()
   let isDefaultRc = false
@@ -806,14 +805,14 @@ export async function getTheoreticalStockMap(
     for (const a of allocs) stockAllocationMap.set(a.inventoryItemId, Number(a.quantity))
   }
 
-  const result = new Map<string, number>()
+  const result = new Map<string, LedgerBalance>()
   for (const item of items) {
     const baseStock = rcId
       ? (stockAllocationMap.has(item.id) ? stockAllocationMap.get(item.id)! : (isDefaultRc ? Number(item.stockOnHand) : 0))
       : Number(item.stockOnHand)
-    const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
-    result.set(item.id, expected)
-    trace?.onRcResult?.(rcId, item.id, baseStock, expected)
+    const balance = ledger.balance(item.id, baseStock)
+    result.set(item.id, balance)
+    trace?.onRcResult?.(rcId, item.id, baseStock, balance.expected, balance.shortfall)
   }
   return result
 }
