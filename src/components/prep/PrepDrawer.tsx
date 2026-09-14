@@ -24,7 +24,7 @@ interface PrepDrawerProps {
   /** Linked recipe (steps + cost) for the embedded cook-along; null when the item has none. */
   recipe: RecipeStepsData | null
   recipeLoading: boolean
-  /** Make quantity from the cook-along slider (or the no-recipe qty input) — what "Done" credits. */
+  /** The cook-along upscale slider's yield — the Log yield sheet's prefill, never a credit. */
   makeQty: number
   onMakeQtyChange: (qty: number) => void
   onClose: () => void
