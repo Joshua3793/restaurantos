@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap } from '@/lib/count-expected'
+import { MovementLedger } from '@/lib/ledger-balance'
 import { lineCountedBase, resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -115,15 +116,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   // after that date. Reopening the 1 Aug count on the 11th drove 177 of 413 lines
   // to zero without this bound.
   const until = new Date(session.sessionDate.getTime() + 24 * 60 * 60 * 1000)
-  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = earliestLastCount
-    ? await Promise.all([
-        buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff, until),
-        buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff, until),
-        buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff, until),
-        buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt, until),
-        buildTransferMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt, until),
-      ])
-    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>(), { consumption: new Map<string, number>(), output: new Map<string, number>() }, new Map<string, number>()]
+  // Every movement lands in one ledger; the balance runs them in order with the
+  // shelf floored at zero after each (src/lib/ledger-balance.ts).
+  const ledger = new MovementLedger()
+  if (earliestLastCount) {
+    await Promise.all([
+      buildConsumptionMap(earliestLastCount, session.revenueCenterId, cutoff, until, ledger),
+      buildPurchaseMap(earliestLastCount, session.revenueCenterId, cutoff, until, ledger),
+      buildWastageMap(earliestLastCount, itemIds, session.revenueCenterId, cutoff, until, ledger),
+      buildPrepMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt, until, ledger),
+      buildTransferMap(earliestLastCount, session.revenueCenterId, cutoff, finalizedAt, until, ledger),
+    ])
+  }
 
   // RC stock allocation baseline (same rules as session creation: non-default RC
   // with no allocation falls back to 0, not global stockOnHand).
@@ -149,7 +153,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const baseStock = rcId
       ? (stockAllocationMap.has(itemId) ? stockAllocationMap.get(itemId)! : (isDefaultRc ? stockOnHand : 0))
       : stockOnHand
-    return computeExpected(itemId, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
+    return ledger.balance(itemId, baseStock).expected
   }
 
   // Build nextSort from current max

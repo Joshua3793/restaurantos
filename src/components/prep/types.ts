@@ -115,6 +115,10 @@ export interface PrepItemRich {
   pipeline?: PipelineInfo | null
   /** The make history over the last 60 days (see prep-cadence.ts). */
   cadence?: CadenceStats | null
+  /** Recorded use since the last count the shelf could not supply, in `unit` (see ledger-balance.ts). */
+  shortfall?: number | null
+  /** The linked item's last count day (ISO marker), for the shortfall sentence. */
+  lastCountDate?: string | null
   assignedCook: { id: string; initials: string; name: string; homeStation: string | null } | null
 }
 

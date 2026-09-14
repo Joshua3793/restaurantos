@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, buildCountFinalizedMap, buildTransferMap, computeExpected } from '@/lib/count-expected'
+import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, buildCountFinalizedMap, buildTransferMap } from '@/lib/count-expected'
+import { MovementLedger } from '@/lib/ledger-balance'
 import { resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -116,23 +117,18 @@ export async function POST(req: NextRequest) {
   // that happened after the date it claims to describe.
   const sessionDay = sessionDate ? new Date(sessionDate) : new Date()
   const until = new Date(sessionDay.getTime() + 24 * 60 * 60 * 1000)
-  const [consumptionMap, purchaseMap, wastageMap, prepMap, transferMap] = await Promise.all([
-    earliestLastCount
-      ? buildConsumptionMap(earliestLastCount, revenueCenterId, cutoff, until)
-      : Promise.resolve(new Map<string, number>()),
-    earliestLastCount
-      ? buildPurchaseMap(earliestLastCount, revenueCenterId, cutoff, until)
-      : Promise.resolve(new Map<string, number>()),
-    earliestLastCount
-      ? buildWastageMap(earliestLastCount, itemIds, revenueCenterId, cutoff, until)
-      : Promise.resolve(new Map<string, number>()),
-    earliestLastCount
-      ? buildPrepMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt, until)
-      : Promise.resolve({ consumption: new Map<string, number>(), output: new Map<string, number>() }),
-    earliestLastCount
-      ? buildTransferMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt, until)
-      : Promise.resolve(new Map<string, number>()),
-  ])
+  // Every movement lands in one ledger; the balance runs them in order with the
+  // shelf floored at zero after each (src/lib/ledger-balance.ts).
+  const ledger = new MovementLedger()
+  if (earliestLastCount) {
+    await Promise.all([
+      buildConsumptionMap(earliestLastCount, revenueCenterId, cutoff, until, ledger),
+      buildPurchaseMap(earliestLastCount, revenueCenterId, cutoff, until, ledger),
+      buildWastageMap(earliestLastCount, itemIds, revenueCenterId, cutoff, until, ledger),
+      buildPrepMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt, until, ledger),
+      buildTransferMap(earliestLastCount, revenueCenterId, cutoff, finalizedAt, until, ledger),
+    ])
+  }
 
   // ── RC stock baseline ──────────────────────────────────────────────────────
   // For the default RC: baseline is global stockOnHand.
@@ -172,18 +168,13 @@ export async function POST(req: NextRequest) {
                 : (isDefaultRc ? Number(item.stockOnHand) : 0))
             : Number(item.stockOnHand)
 
-          const expected = computeExpected(item.id, baseStock, consumptionMap, purchaseMap, wastageMap, prepMap.consumption, prepMap.output, transferMap)
+          const { expected } = ledger.balance(item.id, baseStock)
 
-          // Zero-velocity: a previously-counted item that NO movement map touched in
-          // its window. expected == baseStock == its last counted qty by construction,
+          // Zero-velocity: a previously-counted item that NO movement touched in
+          // its window (transfers included — one would move `expected` off the
+          // baseline). expected == baseStock == its last counted qty by construction,
           // so "Same as last" can record it with an honest zero variance.
-          const moved =
-            consumptionMap.has(item.id) ||
-            purchaseMap.has(item.id) ||
-            wastageMap.has(item.id) ||
-            prepMap.consumption.has(item.id) ||
-            prepMap.output.has(item.id)
-          const noMovement = item.lastCountDate != null && !moved
+          const noMovement = item.lastCountDate != null && !ledger.moved(item.id)
 
           return {
             inventoryItemId: item.id,
