@@ -316,7 +316,16 @@ export async function GET(req: NextRequest) {
       // the API has no per-item anchor any more.
       startByMinutes: null,
       assignedCook,
-      todayLog: liveLog,
+      // Prisma Decimals serialize as STRINGS; the client type (PrepLogData) promises
+      // numbers, and the run sheet's Done rows format the yield with `.toFixed`.
+      // An integer string slipped through, a decimal one ("11.6") blanked the page.
+      todayLog: liveLog
+        ? {
+            ...liveLog,
+            requiredQty:   liveLog.requiredQty   == null ? null : Number(liveLog.requiredQty),
+            actualPrepQty: liveLog.actualPrepQty == null ? null : Number(liveLog.actualPrepQty),
+          }
+        : null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     }

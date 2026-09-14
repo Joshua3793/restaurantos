@@ -103,6 +103,13 @@ describe('fmtQty', () => {
     expect(fmtQty(2.4, 'each')).toBe('2 each')
     expect(fmtQty(1250.7, 'g')).toBe('1251 g')
   })
+
+  it('survives a Decimal that reached the client as a string (a cached pre-fix payload)', () => {
+    // "11.6" % 1 !== 0 → the old code called "11.6".toFixed and blanked the run sheet.
+    expect(fmtQty('11.6', 'kg')).toBe('11.6 kg')
+    expect(fmtQty('35', 'kg')).toBe('35 kg')
+    expect(fmtQty('72', 'each')).toBe('72 each')
+  })
 })
 
 describe('stepFactor', () => {
