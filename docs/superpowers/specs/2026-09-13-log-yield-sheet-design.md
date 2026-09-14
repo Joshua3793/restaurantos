@@ -184,11 +184,10 @@ on completion, still invalidates the theoretical cache.
   queues the PUT.
 - **Cross-dimension recipe yield** (recipe yields kg, item counts each): treated
   as non-batch, exactly as `batchYield` does today.
-- **Reopen after Done:** prefill the logged amount; button label `Update`.
+- **Reopen after Done:** prefill the logged amount; button label `Update`. The
+  prefill and the label are implemented, but no surface opens the sheet on a
+  completed log yet (Done rows offer Reopen → In progress). Follow-up.
 - **Planned = 0:** Done for any positive amount; the PLANNED chip is hidden.
-- **Reopen after Done — the prefill and `Update` label are implemented, but no
-  surface opens the sheet on a completed log yet** (Done rows offer Reopen →
-  In progress). Follow-up.
 
 ---
 

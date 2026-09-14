@@ -140,7 +140,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
     ? `Planned ${fmtBatches(batchCount(item, planned) ?? 0)} batch · ${fmtQty(planned, item.unit)}`
     : planned > 0 ? `Planned ${fmtQty(planned, item.unit)}` : 'No planned amount'
   const verb = reopening ? 'Update' : 'Log'
-  const outcome = qty <= 0
+  const outcome = q <= 0
     ? 'Enter how much you made'
     : warning ? 'Check the amount before logging'
     : status === 'DONE' ? 'Records Done · at or above plan' : 'Records Partial · below plan'
@@ -254,7 +254,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
           }`}
         >
           <IcCheck size={16} />
-          {qty > 0 && !warning ? `${verb} ${qtyText(q)} ${item.unit} · ${status === 'DONE' ? 'Done' : 'Partial'}` : `${verb} yield`}
+          {canSubmit ? `${verb} ${qtyText(q)} ${item.unit} · ${status === 'DONE' ? 'Done' : 'Partial'}` : `${verb} yield`}
         </button>
       </div>
     </div>
