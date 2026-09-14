@@ -24,13 +24,13 @@ interface PrepDrawerProps {
   /** Linked recipe (steps + cost) for the embedded cook-along; null when the item has none. */
   recipe: RecipeStepsData | null
   recipeLoading: boolean
-  /** Make quantity from the cook-along slider (or the no-recipe qty input) — what "Done" credits. */
+  /** The cook-along upscale slider's yield — the Log yield sheet's prefill, never a credit. */
   makeQty: number
   onMakeQtyChange: (qty: number) => void
   onClose: () => void
   onStatusChange: (item: PrepItemRich, status: PrepStatus, actualQty?: number) => void
-  /** Complete the prep at makeQty (host decides DONE vs PARTIAL by the suggested rule). */
-  onComplete: (item: PrepItemRich, qty: number) => void
+  /** Open the Log yield sheet for this item — the only way a yield is recorded. */
+  onLogYield: (item: PrepItemRich) => void
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe: (recipeId: string, name: string) => void
   /**
@@ -159,7 +159,7 @@ export default function PrepDrawer({
   onMakeQtyChange,
   onClose,
   onStatusChange,
-  onComplete,
+  onLogYield,
   onOpenSubRecipe,
   onRemove,
   onStage,
@@ -195,13 +195,6 @@ export default function PrepDrawer({
     item?.ingredientTotalCount ??
     0
 
-  const complete = () => {
-    if (!item) return
-    onComplete(item, makeQty)
-    onClose()
-  }
-  const doneLabel = `Done · add ${fmt(makeQty)} ${item?.unit ?? ''}`
-
   return (
     <>
       {/* SCRIM */}
@@ -209,7 +202,7 @@ export default function PrepDrawer({
         onClick={onClose}
         // Plain dim overlay — NO backdrop-blur. A full-viewport `backdrop-filter: blur()`
         // re-blurs the entire animating prep page every frame and stacks over the nav's
-        // own backdrop-filter, which froze the app on weaker laptops (see PrepDoneSheet).
+        // own backdrop-filter, which froze the app on weaker laptops (see LogYieldSheet).
         className={`fixed inset-0 z-40 bg-[rgba(9,9,11,0.6)] transition-opacity ${
           open ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
@@ -413,22 +406,6 @@ export default function PrepDrawer({
 
             {/* FOOTER */}
             <div className="bg-paper border-t border-line px-[22px] py-3.5 flex flex-col gap-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)' }}>
-              {/* No-recipe items have no upscale slider — expose a plain qty input so the
-                  yield credited by "Done" is still editable. Recipe items use the slider. */}
-              {!item.linkedRecipeId && stateKey !== 'done' && stateKey !== 'skipped' && (
-                <div className="flex flex-col gap-[7px]">
-                  <label className="font-mono text-[10px] uppercase text-ink-3">Make ({item.unit})</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={makeQty || ''}
-                    onChange={(e) => onMakeQtyChange(parseFloat(e.target.value) || 0)}
-                    placeholder={`e.g. ${fmt(item.suggestedQty)}`}
-                    className="w-full border border-line-2 rounded-[9px] px-3 py-2.5 text-sm font-mono outline-none focus:border-ink-3"
-                  />
-                </div>
-              )}
-
               {stateKey === 'not-started' && (
                 <>
                   <button
@@ -441,11 +418,11 @@ export default function PrepDrawer({
                   </button>
                   <button
                     type="button"
-                    onClick={complete}
+                    onClick={() => onLogYield(item)}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
                   >
                     <IcCheck size={16} />
-                    {doneLabel}
+                    Log yield
                   </button>
                   {onRemove && (
                     <button
@@ -463,11 +440,11 @@ export default function PrepDrawer({
                 <>
                   <button
                     type="button"
-                    onClick={complete}
+                    onClick={() => onLogYield(item)}
                     className="h-[46px] rounded-[10px] text-sm font-semibold inline-flex items-center justify-center gap-2 bg-green text-white"
                   >
                     <IcCheck size={16} />
-                    {doneLabel}
+                    Log yield
                   </button>
                   {/* Stop = abandon the in-progress prep without logging any qty (back to the
                       to-do list, still on it). Remove = take it off whichever list this drawer

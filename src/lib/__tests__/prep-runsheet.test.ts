@@ -85,6 +85,11 @@ describe('batch scaling', () => {
   it('scaleRound g <100 → integer', () => { expect(scaleRound(61.4, 'g')).toBe(61) })
   it('scaleQtyLabel trims trailing zero for kg', () => { expect(scaleQtyLabel(1.2, 2, 'kg')).toBe('2.4 kg') })
   it('scaleQtyLabel integer units', () => { expect(scaleQtyLabel(60, 2, 'g')).toBe('120 g') })
+  it('treats the canonical lowercase litre token like L in every helper', () => {
+    expect(stepFor('l')).toBe(0.5)
+    expect(scaleRound(12.3, 'l')).toBe(12.5)
+    expect(scaleQtyLabel(1.2, 2, 'l')).toBe('2.4 l')
+  })
 })
 
 describe('fmtQty', () => {
@@ -109,6 +114,12 @@ describe('fmtQty', () => {
     expect(fmtQty('11.6', 'kg')).toBe('11.6 kg')
     expect(fmtQty('35', 'kg')).toBe('35 kg')
     expect(fmtQty('72', 'each')).toBe('72 each')
+  })
+
+  it('treats the canonical lowercase litre token like L', () => {
+    expect(fmtQty(2.75, 'l')).toBe('2.8 l')
+    expect(fmtQty(1.375, 'l')).toBe('1.4 l')
+    expect(fmtQty(6, 'l')).toBe('6 l')
   })
 })
 

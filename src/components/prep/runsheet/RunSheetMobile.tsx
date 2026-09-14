@@ -12,7 +12,7 @@
 // horizontal-scrolling in-progress rail is gone: an item being worked on stays
 // in the queue as a WorkingRowMobile.
 // The prototype's recipe/log bottom-sheets are dropped — the fused PrepDrawer
-// (onOpenRecipe) and PrepDoneSheet (onLog) are the real surfaces, opened via
+// (onOpenRecipe) and LogYieldSheet (onLog) are the real surfaces, opened via
 // props. Flat Tailwind tokens replace the hex palette; mono via `font-mono`.
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'

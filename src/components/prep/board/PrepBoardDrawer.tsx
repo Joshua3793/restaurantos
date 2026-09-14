@@ -17,11 +17,11 @@ export interface DrawerProps {
   /** Linked recipe (steps + cost) for the embedded cook-along; null when the item has none. */
   recipe: RecipeStepsData | null
   recipeLoading: boolean
-  /** Make quantity from the cook-along slider (or the no-recipe qty input) — what "Done" credits. */
+  /** The cook-along upscale slider's yield — the Log yield sheet's prefill, never a credit. */
   makeQty: number
   onMakeQtyChange: (qty: number) => void
-  /** Complete the prep at makeQty (host decides DONE vs PARTIAL by the suggested rule). */
-  onComplete: (item: PrepItemRich, qty: number) => void
+  /** Open the Log yield sheet for this item — the only way a yield is recorded. */
+  onLogYield: (item: PrepItemRich) => void
   /** Open a sub-recipe ingredient's recipe (e.g. tap "Custard" inside French Toast). */
   onOpenSubRecipe: (recipeId: string, name: string) => void
   onClose: () => void
@@ -39,7 +39,7 @@ export interface DrawerProps {
   onSetPrepEnabled?: (item: PrepItemRich, enabled: boolean) => void
 }
 
-export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onComplete, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage, progress, onProgressChange, onSetPrepEnabled }: DrawerProps) {
+export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onLogYield, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage, progress, onProgressChange, onSetPrepEnabled }: DrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
@@ -63,8 +63,6 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
         ? `${fmtQty(r.onHand)} ${r.unit} on hand against a ${fmtQty(r.par)} par — system suggests making ${fmtQty(r.make)} ${r.unit} to cover through the next count.`
         : `At or above par (${r.pct}%). No make needed right now; the board updates as sales and wastage move stock.`)
     : ''
-
-  const complete = () => { if (item) { onComplete(item, makeQty); onClose() } }
 
   return (
     <>
@@ -173,19 +171,6 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                 </div>
               )}
 
-              {/* No-recipe items have no upscale slider — a plain qty input keeps the yield editable. */}
-              {!item.linkedRecipeId && view !== 'smart' && r.status !== 'done' && (
-                <div className="dr-sec">
-                  <div className="sl">Make ({r.unit})</div>
-                  <input
-                    type="number" inputMode="decimal" value={makeQty || ''}
-                    onChange={e => onMakeQtyChange(parseFloat(e.target.value) || 0)}
-                    placeholder={`e.g. ${fmtQty(r.make)}`}
-                    className="bg-paper border border-line rounded-[9px] px-3 py-2 text-[13px] font-mono outline-none focus:border-ink-3"
-                  />
-                </div>
-              )}
-
               {item.lastMadeAt && (
                 <div className="dr-sec">
                   <div className="sl">Recent history</div>
@@ -237,7 +222,7 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                 : (r.status === 'not-started'
                     ? <button className="btn btn-primary" onClick={() => { onStatusChange(item, 'IN_PROGRESS'); onClose() }}><span className="ic">▶</span> Start prep</button>
                     : r.status === 'in-progress'
-                      ? <button className="btn" style={{ background: 'var(--green)', color: '#fff', borderColor: 'var(--green)' }} title={`Add ${fmtQty(makeQty)} ${r.unit}`} onClick={complete}><span className="ic" style={{ color: '#fff' }}>✓</span> Done · {fmtQty(makeQty)} {r.unit}</button>
+                      ? <button className="btn" style={{ background: 'var(--green)', color: '#fff', borderColor: 'var(--green)' }} title="Log how much you made" onClick={() => onLogYield(item)}><span className="ic" style={{ color: '#fff' }}>✓</span> Log yield</button>
                       : <button className="btn" onClick={onClose}>Close</button>)}
               {/* Stop = abandon the in-progress prep (no qty logged) → back to the
                   to-do list. No inventory effect (only DONE/PARTIAL credit). */}

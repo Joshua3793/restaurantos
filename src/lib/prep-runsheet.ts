@@ -86,17 +86,17 @@ export function fmtMins(min: number): string {
 }
 
 export const stepFor = (unit: string): number =>
-  unit === 'kg' || unit === 'L' ? 0.5 : unit === 'ea' || unit === 'loaves' ? 5 : 50
+  unit === 'kg' || unit.toLowerCase() === 'l' ? 0.5 : unit === 'ea' || unit === 'loaves' ? 5 : 50
 
 export function scaleRound(v: number, unit: string): number {
-  if (unit === 'kg' || unit === 'L') return v >= 10 ? Math.round(v * 2) / 2 : Math.round(v * 100) / 100
+  if (unit === 'kg' || unit.toLowerCase() === 'l') return v >= 10 ? Math.round(v * 2) / 2 : Math.round(v * 100) / 100
   if (unit === 'ea' || unit === 'loaves') return Math.round(v)
   return v >= 100 ? Math.round(v / 5) * 5 : Math.round(v)
 }
 
 export function scaleQtyLabel(qty: number, scale: number, unit: string): string {
   const v = scaleRound(qty * scale, unit)
-  const s = (unit === 'kg' || unit === 'L')
+  const s = (unit === 'kg' || unit.toLowerCase() === 'l')
     ? (v % 1 === 0 ? String(v) : v.toFixed(v < 10 ? 2 : 1).replace(/0$/, ''))
     : String(v)
   return `${s} ${unit}`
@@ -140,6 +140,7 @@ export function fmtQty(q: number | string, u: string): string {
   // from a cached list first — a payload cached before the API numberised its
   // logs blanked the whole run sheet on `"11.6".toFixed`.
   const n = Number(q)
-  const v = (u === 'kg' || u === 'L') && n % 1 !== 0 ? n.toFixed(1) : Math.round(n)
+  const unit = u.toLowerCase()
+  const v = (unit === 'kg' || unit === 'l') && n % 1 !== 0 ? n.toFixed(1) : Math.round(n)
   return `${v} ${u}`
 }
