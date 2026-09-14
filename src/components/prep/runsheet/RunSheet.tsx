@@ -41,8 +41,8 @@ function minuteOfDay(iso: string): number {
   return d.getHours() * 60 + d.getMinutes()
 }
 
-// PARTIAL is a reachable resolved state (onDrawerComplete sets it when the logged
-// qty falls short of suggestedQty) — treat DONE/PARTIAL as done-equivalent everywhere.
+// PARTIAL is a reachable resolved state (the Log yield sheet records it when the logged
+// qty falls short of the plan) — treat DONE/PARTIAL as done-equivalent everywhere.
 // Right gutter every row container reserves, so the ladder's Remove button can
 // hang OUTSIDE the card without overflowing the sheet. Applied to Working On and
 // Done too — only todo rows paint a button in it, but every card has to end at

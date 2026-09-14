@@ -18,7 +18,7 @@ import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
  * method — extracted from the former RecipeCookAlongModal so it can be embedded inside
  * the item drawer at both breakpoints. Header + completion footer live in the host drawer.
  *
- * `makeQty` is CONTROLLED by the host (it drives the drawer's "Done · add X" action);
+ * `makeQty` is CONTROLLED by the host (it is the Log yield sheet's prefill when the cook opens it);
  * ingredient checks and step ticks are internal state SEEDED from `progress` and reported
  * through `onProgressChange`, so the host can keep them on the item's live log while it
  * is on the To Do (src/lib/prep-progress.ts). They re-seed when the recipe changes.
