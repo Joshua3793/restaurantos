@@ -17,7 +17,7 @@ export interface YieldItem extends BatchFields {
   /** The plan's suggestion in the item's unit (the API's `suggestedQty`). */
   suggestedQty: number
   /** The item's live log, when it has one — a completed one prefills its amount. */
-  todayLog?: { status: string; actualPrepQty: number | null } | null
+  todayLog?: { status: string; actualPrepQty: number | null; requiredQty?: number | null } | null
   linkedRecipe?: { baseYieldQty: number; yieldUnit: string } | null
 }
 
@@ -50,11 +50,13 @@ export function stepBatches(n: number, dir: 1 | -1): number {
 }
 
 /**
- * What the plan asked for, in the item's unit: the half-batch-ceiled batch
- * suggestion for batch items (identical to the planner's draft seed), else the
- * plain suggestion.
+ * What the plan asked for, in the item's unit: the quantity the chef posted on
+ * the live log when there is one, else the half-batch-ceiled batch suggestion
+ * (identical to the planner's draft seed), else the plain suggestion.
  */
 export function plannedQty(item: YieldItem): number {
+  const rq = item.todayLog?.requiredQty
+  if (rq != null && rq > 0) return round2(rq)
   const nb = suggestedBatches(item)
   if (nb != null) return nb > 0 ? batchesToQty(item, nb) : 0
   return item.suggestedQty > 0 ? item.suggestedQty : 0

@@ -110,6 +110,12 @@ describe('fmtQty', () => {
     expect(fmtQty('35', 'kg')).toBe('35 kg')
     expect(fmtQty('72', 'each')).toBe('72 each')
   })
+
+  it('treats the canonical lowercase litre token like L', () => {
+    expect(fmtQty(2.75, 'l')).toBe('2.8 l')
+    expect(fmtQty(1.375, 'l')).toBe('1.4 l')
+    expect(fmtQty(6, 'l')).toBe('6 l')
+  })
 })
 
 describe('stepFactor', () => {

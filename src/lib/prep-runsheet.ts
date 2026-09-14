@@ -140,6 +140,7 @@ export function fmtQty(q: number | string, u: string): string {
   // from a cached list first — a payload cached before the API numberised its
   // logs blanked the whole run sheet on `"11.6".toFixed`.
   const n = Number(q)
-  const v = (u === 'kg' || u === 'L') && n % 1 !== 0 ? n.toFixed(1) : Math.round(n)
+  const unit = u.toLowerCase()
+  const v = (unit === 'kg' || unit === 'l') && n % 1 !== 0 ? n.toFixed(1) : Math.round(n)
   return `${v} ${u}`
 }

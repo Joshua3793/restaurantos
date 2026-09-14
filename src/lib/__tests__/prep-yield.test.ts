@@ -76,6 +76,10 @@ describe('plannedQty', () => {
   it('is suggestedQty for a non-batch item', () => {
     expect(plannedQty(plain)).toBe(3)
   })
+  it('is the quantity the chef posted on the live log when there is one', () => {
+    expect(plannedQty({ ...adobo, todayLog: { status: 'IN_PROGRESS', actualPrepQty: null, requiredQty: 5.5 } })).toBe(5.5)
+    expect(plannedQty({ ...plain, todayLog: { status: 'NOT_STARTED', actualPrepQty: null, requiredQty: 0 } })).toBe(3)
+  })
 })
 
 describe('yieldPrefill', () => {
@@ -94,6 +98,9 @@ describe('yieldPrefill', () => {
   it('ignores an unfinished log', () => {
     const open = { ...adobo, todayLog: { status: 'IN_PROGRESS', actualPrepQty: 4 } }
     expect(yieldPrefill(open, null)).toBe(9)
+  })
+  it('prefills the posted quantity ahead of the stock suggestion', () => {
+    expect(yieldPrefill({ ...adobo, todayLog: { status: 'IN_PROGRESS', actualPrepQty: null, requiredQty: 5.5 } }, null)).toBe(5.5)
   })
 })
 

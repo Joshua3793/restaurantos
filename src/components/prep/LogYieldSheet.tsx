@@ -144,7 +144,8 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
     : status === 'DONE' ? 'Records Done · at or above plan' : 'Records Partial · below plan'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center md:p-6">
+    // z-[90]: above BOTH drawers (mobile aside z-50, desktop .pb-drawer z-81) — same as the sub-recipe peek.
+    <div className="fixed inset-0 z-[90] flex items-end md:items-center md:justify-center md:p-6">
       {/* Plain dim scrim — NO backdrop-blur (documented freeze on weaker laptops). */}
       <div onClick={onClose} className="fixed inset-0 z-40 bg-[rgba(9,9,11,0.6)]" aria-hidden="true" />
       <div
