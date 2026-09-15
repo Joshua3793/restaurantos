@@ -549,7 +549,7 @@ export default function PrepPage() {
   const svcNext = useMemo(() => upcomingInfo(svcStatus), [svcStatus])
 
   // Prep countdown (minutes-to-service + start-by clock) derived from svcStatus.
-  // Consumed by PrepShiftBand + PrepDrawer; null unless a service is still ahead.
+  // Consumed by PrepDrawer; null unless a service is still ahead.
   const countdown = useMemo(() => {
     if (!svcNext) return null
     const m = svcNext.prepByMin
@@ -1682,8 +1682,6 @@ export default function PrepPage() {
             </button>
           ))}
         </div>
-
-        {/* Shift info on Today is rendered once by <PrepShiftBand> in the shared content block (all breakpoints). */}
 
         {/* Smart Prep toolbar — collapsible search/filter (mobile only) */}
         {viewMode === 'smartprep' && (
