@@ -17,6 +17,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
+import type { PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
 import { RestRowMobile } from './RestRowMobile'
@@ -26,7 +27,7 @@ import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
-import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty, postedWhenLabel } from '@/lib/prep-runsheet'
 import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META, onStation } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
@@ -65,6 +66,7 @@ export function RunSheetMobile({
   items: rawItems,
   cooks,
   services,
+  post,
   leadMinutes,
   nowMin,
   nowMs,
@@ -82,6 +84,9 @@ export function RunSheetMobile({
   /** The active RC's ACTIVE services (empty ⇒ on-demand) — same prop shape the
    *  desktop RunSheet takes, so both frames render one answer. */
   services: RcService[]
+  /** The live post for this RC's list (null when nothing is posted) — painted
+   *  into the caption line now that the PostedBand above the sheet is gone. */
+  post: PrepPostInfo | null
   leadMinutes: number | null
   nowMin: number
   nowMs: number
@@ -224,15 +229,32 @@ export function RunSheetMobile({
     )
   }
 
+  const totalN = items.length || 1
+
   return (
     <div className="tracking-[-0.005em]">
       {/* The mobile page header already owns the "Prep List" title + date, so the run
           sheet drops its duplicate title and keeps only its unique live timing line. */}
+      {/* 3px progress hairline + one caption line replace the page's shift band and
+          posted band (spec: 2026-09-14-todo-header-compact-design.md §3). */}
+      <div className="flex h-[3px] rounded-full overflow-hidden bg-bg-2 gap-0.5 mb-2.5">
+        {done.length > 0 && <div className="bg-green" style={{ width: `${(done.length / totalN) * 100}%` }} />}
+        {doingAll.length > 0 && <div className="bg-gold" style={{ width: `${(doingAll.length / totalN) * 100}%` }} />}
+      </div>
       <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 pt-0.5 pb-2.5">
-        NOW {fmtClock(nowMin)}
+        <b className="text-ink font-semibold">{done.length}</b><span className="text-ink-4">/{items.length}</span> done
+        {' · '}NOW {fmtClock(nowMin)}
         {svcCaption ? ` · ${svcCaption}` : ''}
+        {post && ` · Posted ${postedWhenLabel(post.postedAt, post.listDate)}`}
         {readyN > 0 && <span className="text-green-text"> · {readyN} ready to move</span>}
       </div>
+      {post?.dirty && (
+        <div className="mb-2.5">
+          <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full whitespace-nowrap">
+            Chef has unposted changes
+          </span>
+        </div>
+      )}
 
       <Segmented<Mode>
         value={mode}
