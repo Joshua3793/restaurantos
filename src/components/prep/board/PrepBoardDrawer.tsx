@@ -5,7 +5,6 @@ import { toBoardRow, dotClass, fmtMin, fmtQty } from './prep-board-utils'
 import { effectiveUrgency, autoUrgencyOf, whyLabel } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
-import { StageList } from '@/components/prep/StageList'
 import type { PrepProgress } from '@/lib/prep-progress'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
@@ -138,18 +137,6 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                   })}
                 </div>
               </div>
-
-              {/* Stage chain — current stage lit; Back / Next mirror the run sheet. */}
-              {stages && (
-                <div className="dr-sec">
-                  <div className="sl">Stages{stageAt ? ` · ${stageLabel(stageAt.index, stages.length, stageAt.stage)}` : ''}</div>
-                  <StageList
-                    stages={stages}
-                    log={item.todayLog ?? null}
-                    onStage={onStage && view !== 'smart' && r.status === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
-                  />
-                </div>
-              )}
 
               {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}
               {item.linkedRecipeId && (

@@ -1,6 +1,6 @@
 'use client'
 // Prep run-sheet — mobile REST row. Twin of RestRow on RunRowMobile's shape:
-// 44px ready-at column | task (next stage · name, one meta line) | one 44px
+// 44px ready-at column | task (name · stage, meta line, Next subtitle) | one 44px
 // action button that moves the job to its next hands-on stage. Muted while
 // resting, green once ready, red only past the grace — never "late" mid-rest.
 import { Hourglass, ArrowRight } from 'lucide-react'
@@ -9,7 +9,7 @@ import { AssigneeChip } from './assignee'
 import { StageChip } from './atoms'
 import { fmtStartBy, fmtClock, fmtMins, minutesBetween } from '@/lib/prep-runsheet'
 import { fmtDeadline } from '@/lib/prep-plan'
-import { stageLabel } from '@/lib/prep-stages'
+import { stageLabel, restPhaseName } from '@/lib/prep-stages'
 
 const ACCENT: Record<'resting' | 'ready' | 'overdue', string> = {
   resting: 'border-l-blue',
@@ -48,8 +48,8 @@ export function RestRowMobile({
   const nextName = rest.next?.stage.name ?? 'Next stage'
   const dl = item.deadlineMinutes
   const metaText = [
-    rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`,
     rest.stage.note ?? null,
+    rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`,
     kitchen && item.station ? item.station : null,
     dl != null ? `by ${fmtDeadline(dl, fmtClock)}` : null,
   ].filter(Boolean).join(' · ')
@@ -72,7 +72,7 @@ export function RestRowMobile({
               <Hourglass size={11} className="text-blue-text" />
             </span>
             <div className={`text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0 ${rest.state === 'resting' ? 'text-ink-2' : 'text-ink'}`}>
-              {nextName} · {item.name}
+              {item.name} · {restPhaseName(rest.stage)}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap font-mono text-[9.5px] text-ink-3 mt-[3px]">
@@ -84,6 +84,11 @@ export function RestRowMobile({
               </span>
             )}
           </div>
+          {rest.next && (
+            <div className="font-mono text-[9.5px] text-ink-4 mt-[3px] truncate">
+              Next: {nextName} · {fmtMins(rest.next.stage.minutes)}
+            </div>
+          )}
         </div>
 
         {rest.next && (

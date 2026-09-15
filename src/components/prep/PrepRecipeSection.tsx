@@ -1,14 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Plus, Hourglass, ArrowRight } from 'lucide-react'
+import { Minus, Plus, Hourglass, ArrowRight, ArrowLeft } from 'lucide-react'
 import type { RecipeStepsData, IngredientAvailability } from '@/components/prep/types'
 import { IcCheck } from '@/components/prep/icons'
 import { convertQty } from '@/lib/uom'
 import { stepFactor, fmtMins, fmtClock } from '@/lib/prep-runsheet'
 import { computeBakersPercents } from '@/lib/bakers-percent'
-import { chainBlocks, type MethodStep } from '@/lib/recipe-method'
-import { stageElapsed } from '@/lib/prep-stages'
+import { chainBlocks, methodToChain, type MethodStep } from '@/lib/recipe-method'
+import { stageElapsed, stageLabel, type RecipeStage } from '@/lib/prep-stages'
 import type { StageLogShape } from '@/lib/prep-plan'
 import { stepKeyAt, type PrepProgress } from '@/lib/prep-progress'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
@@ -202,22 +202,47 @@ function StepRow({ index, text, done, onToggle, state, minutes, advances }: Step
   )
 }
 
-/** The wait after a step: muted normally; the live clock when the job is in that wait. */
-function WaitRow({ step, live, enteredAt, nowMs }: { step: MethodStep; live: boolean; enteredAt?: string | null; nowMs: number }) {
+/** The wait after a step. Muted one-liner normally, reading the STEP's own wait
+ *  (what a reader scanning the method wants there). When the job is IN this wait
+ *  the live card is the lit row of the list — but it reads the chain STAGE, not
+ *  the step: a merged wait (several steps' waits summed into one PASSIVE block)
+ *  has ONE stage with the summed minutes and joined notes, so the live card must
+ *  show that, not any single contributing step's share. */
+function WaitRow({ step, stage, live, enteredAt, nowMs }: {
+  step: MethodStep
+  /** the chain stage this wait belongs to — null only if the chain is missing */
+  stage: RecipeStage | null
+  live: boolean
+  enteredAt?: string | null
+  nowMs: number
+}) {
   const w = step.wait!
-  const elapsed = live && enteredAt ? stageElapsed({ stageEnteredAt: enteredAt }, nowMs) : 0
-  const ready = live && elapsed >= w.minutes
+  if (!live) {
+    return (
+      <li className="flex items-center gap-2 ml-[42px] mr-2.5 my-0.5 rounded-lg px-2.5 py-1.5 font-mono text-[10.5px] text-blue-text/80">
+        <Hourglass size={11} className="shrink-0" />
+        <span className="min-w-0">wait {fmtMins(w.minutes)}{w.note ? ` · ${w.note}` : ''}</span>
+      </li>
+    )
+  }
+  const name = stage ? stage.name : 'Wait'
+  const minutes = stage ? stage.minutes : w.minutes
+  const note = stage ? stage.note : w.note
+  const elapsed = enteredAt ? stageElapsed({ stageEnteredAt: enteredAt }, nowMs) : 0
+  const ready = elapsed >= minutes
   const since = enteredAt ? new Date(enteredAt) : null
   return (
-    <li className={`flex items-center gap-2 ml-[42px] mr-2.5 my-0.5 rounded-lg px-2.5 py-1.5 font-mono text-[10.5px] ${
-      live ? (ready ? 'bg-green-soft text-green-text' : 'bg-blue-soft text-blue-text') : 'text-blue-text/80'
-    }`}>
-      <Hourglass size={11} className="shrink-0" />
-      <span className="min-w-0">
-        {live
-          ? `${ready ? 'ready' : 'resting'} · ${fmtMins(elapsed)} of ${fmtMins(w.minutes)}${since ? ` · since ${fmtClock(since.getHours() * 60 + since.getMinutes())}` : ''}`
-          : `wait ${fmtMins(w.minutes)}`}
-        {w.note ? ` · ${w.note}` : ''}
+    <li className={`flex gap-3.5 items-start px-2.5 py-3 rounded-[10px] ${ready ? 'bg-green-soft' : 'bg-blue-soft'}`}>
+      <span className={`w-[27px] h-[27px] rounded-lg grid place-items-center flex-shrink-0 bg-ink ${ready ? 'text-green' : 'text-blue-text'}`}>
+        <Hourglass size={13} />
+      </span>
+      <span className="flex-1 min-w-0 pt-0.5">
+        <span className="block text-[13.5px] font-semibold tracking-[-0.01em] text-ink">{name}</span>
+        {note && <span className="block text-[12px] text-ink-2 mt-0.5">{note}</span>}
+        <span className={`block font-mono text-[10.5px] mt-1 ${ready ? 'text-green-text' : 'text-blue-text'}`}>
+          {since ? `since ${fmtClock(since.getHours() * 60 + since.getMinutes())} · ` : ''}
+          {ready ? 'ready' : 'resting'} · {fmtMins(elapsed)} of {fmtMins(minutes)}
+        </span>
       </span>
     </li>
   )
@@ -309,11 +334,41 @@ export default function PrepRecipeSection({
   const stepKeys = method ? method.map((s) => s.key) : recipe.steps.map((_, i) => stepKeyAt(null, i))
   const stepDone = stepKeys.filter((k) => doneSteps.has(k)).length
   const blocks = method ? chainBlocks(method) : []
+  // The derived chain itself — names for the live wait card, the section title
+  // and the Next button. Same derivation `blocks` comes from; null when untimed.
+  const chain = method ? methodToChain(method) : null
   const chainIndexOf = new Map<string, number>()
   for (const b of blocks) for (const k of b.stepKeys) if (!chainIndexOf.has(k)) chainIndexOf.set(k, b.index)
-  const inFlight = log?.status === 'IN_PROGRESS' && log.stageIndex != null && blocks.length > 0
+  // The chain index of the WAIT a step carries: the PASSIVE block that lists the
+  // step. A normal step with a wait is in its ACTIVE block AND the PASSIVE one
+  // after it; a wait merged into the previous wait (no hands-on between) is in
+  // that PASSIVE block only — so this is the map to read for waits, never
+  // chainIndexOf + 1.
+  const waitIndexOf = new Map<string, number>()
+  for (const b of blocks) if (b.kind === 'PASSIVE') for (const k of b.stepKeys) waitIndexOf.set(k, b.index)
+  // A stale index (recipe edited mid-job) is NOT in flight here — same guard
+  // currentStage() applies; the list falls back to plain.
+  const inFlight =
+    log?.status === 'IN_PROGRESS' &&
+    log.stageIndex != null &&
+    blocks.length > 0 &&
+    (log.stageIndex as number) >= 0 &&
+    (log.stageIndex as number) < blocks.length
   const current = inFlight ? (log!.stageIndex as number) : -1
   const currentBlock = inFlight ? blocks[current] ?? null : null
+  const stageTitle = inFlight && chain && chain[current] ? stageLabel(current, chain.length, chain[current]) : null
+  // Live clock for a hands-on block in flight — the old Stages list showed this
+  // on its lit row; the lit rows here are steps, so it rides the section title.
+  // A wait's clock lives on its own lit WaitRow.
+  const activeClock = (() => {
+    if (!inFlight || !chain || !chain[current] || chain[current].kind !== 'ACTIVE' || !log?.stageEnteredAt) return null
+    const elapsed = stageElapsed(log, nowMs)
+    const budget = chain[current].minutes
+    const since = new Date(log.stageEnteredAt)
+    const sinceText = `since ${fmtClock(since.getHours() * 60 + since.getMinutes())}`
+    return { text: `${sinceText} · ${fmtMins(elapsed)} of ${fmtMins(budget)}`, over: elapsed > budget ? fmtMins(elapsed - budget) : null }
+  })()
+  const lastIndex = chain ? chain.length - 1 : -1
   const stepState = (key: string): 'past' | 'now' | 'todo' | undefined => {
     if (!inFlight) return undefined
     const ci = chainIndexOf.get(key)
@@ -494,7 +549,11 @@ export default function PrepRecipeSection({
       {stepTotal > 0 && (
         <div className="mt-[22px]">
           <div className="flex justify-between items-center font-mono text-[10px] uppercase text-ink-3 mb-2 px-0.5 tracking-[0.05em]">
-            <span>Method · tick as you go</span>
+            <span>
+              Method · {stageTitle ?? 'tick as you go'}
+              {activeClock && <> · {activeClock.text}</>}
+              {activeClock?.over && <span className="text-red-text"> · over by {activeClock.over}</span>}
+            </span>
             <span className="inline-flex items-center gap-[7px] text-ink-2 font-semibold">
               {stepDone} / {stepTotal}
               <ProgressBar frac={stepTotal > 0 ? stepDone / stepTotal : 0} />
@@ -508,8 +567,11 @@ export default function PrepRecipeSection({
                     const newPhase = step.phase && step.phase !== phase ? step.phase : null
                     if (step.phase) phase = step.phase
                     const st = stepState(step.key)
-                    const waitIndex = step.wait ? (chainIndexOf.get(step.key) ?? -1) + 1 : -1
-                    const waitLive = inFlight && step.wait != null && waitIndex === current
+                    const waitIndex = step.wait ? (waitIndexOf.get(step.key) ?? -1) : -1
+                    // A merged wait has several contributing steps; only the block's first step
+                    // paints the live card, the others keep their muted row.
+                    const waitHead = waitIndex >= 0 && blocks[waitIndex]?.stepKeys[0] === step.key
+                    const waitLive = inFlight && step.wait != null && waitIndex === current && waitHead
                     return (
                       <li key={step.key} className="list-none">
                         {newPhase && (
@@ -519,7 +581,15 @@ export default function PrepRecipeSection({
                           <StepRow index={idx} text={step.text} done={doneSteps.has(step.key)} state={st} minutes={step.minutes}
                             advances={!!onStage && inFlight && step.key === lastStepOfCurrentBlock}
                             onToggle={() => tickMethodStep(step.key)} />
-                          {step.wait && <WaitRow step={step} live={waitLive} enteredAt={waitLive ? (log?.stageEnteredAt ?? null) : null} nowMs={nowMs} />}
+                          {step.wait && (
+                            <WaitRow
+                              step={step}
+                              stage={chain?.[waitIndex] ?? null}
+                              live={waitLive}
+                              enteredAt={waitLive ? (log?.stageEnteredAt ?? null) : null}
+                              nowMs={nowMs}
+                            />
+                          )}
                         </ol>
                       </li>
                     )
@@ -529,6 +599,32 @@ export default function PrepRecipeSection({
                   <StepRow key={idx} index={idx} text={step} done={doneSteps.has(stepKeyAt(null, idx))} onToggle={() => toggleStep(stepKeyAt(null, idx))} />
                 ))}
           </ol>
+          {/* Back / Next — moved here from the old Stages list. Same gating: only
+              a job in flight, only when the host lets the cook move it. Nothing
+              advances on its own. */}
+          {onStage && inFlight && chain && (
+            <div className="flex items-center gap-2 mt-2.5 px-0.5">
+              <button
+                type="button"
+                disabled={current <= 0}
+                onClick={() => onStage(current - 1)}
+                className="inline-flex items-center gap-1.5 h-10 px-3 rounded-[9px] text-[12.5px] font-semibold bg-paper border border-line text-ink-2 disabled:opacity-40"
+              >
+                <ArrowLeft size={13} /> Back
+              </button>
+              {current < lastIndex ? (
+                <button
+                  type="button"
+                  onClick={() => onStage(current + 1)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 px-3 rounded-[9px] text-[12.5px] font-semibold bg-ink text-paper"
+                >
+                  Next: {chain[current + 1]?.name ?? 'next stage'} <ArrowRight size={13} className="text-gold" />
+                </button>
+              ) : (
+                <span className="flex-1 font-mono text-[10px] text-ink-3 text-center">last stage — Done logs the yield</span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

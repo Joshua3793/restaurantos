@@ -8,8 +8,9 @@
 // the row is never painted late while it is legitimately resting: muted while
 // `resting`, green from `readyAt` (`ready since 07:30`), red only once it is
 // `overdue` past the grace. Nothing advances on its own — the primary button is
-// "Next: Bake" and the cook taps it. No Remove: an in-flight job is not taken
-// off the list from a row (same rule as Working On).
+// "Next: Bake" and the cook taps it. The row leads with the item and the
+// stage it is IN; the next step is the subtitle and the button. No Remove: an
+// in-flight job is not taken off the list from a row (same rule as Working On).
 import { useRef, useState } from 'react'
 import { Hourglass, ArrowRight } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
@@ -18,7 +19,7 @@ import { AssigneeChip, ClaimPopover } from './assignee'
 import { StationTag, DeadlineChip, StageChip } from './atoms'
 import { IcRecipe } from '@/components/prep/icons'
 import { fmtStartBy, fmtClock, fmtMins, minutesBetween } from '@/lib/prep-runsheet'
-import { stageLabel } from '@/lib/prep-stages'
+import { stageLabel, restPhaseName } from '@/lib/prep-stages'
 
 const ACCENT: Record<'resting' | 'ready' | 'overdue', string> = {
   resting: 'border-l-blue',
@@ -77,7 +78,8 @@ export function RestRow({
           <div className={`font-mono text-[9px] mt-0.5 whitespace-nowrap ${subCls}`}>{sub}</div>
         </div>
 
-        {/* task — "Bake · Sourdough": the next hands-on stage, then the item */}
+        {/* task — "Cured Salmon · Curing": the item, then the stage it is IN.
+            Under it the stage's note and clock, then the next step as a subtitle. */}
         <div className="min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-[22px] h-[22px] rounded-[7px] bg-blue-soft grid place-items-center shrink-0">
@@ -90,20 +92,25 @@ export function RestRow({
                 rest.state === 'resting' ? 'text-ink-2' : 'text-ink'
               }`}
             >
-              {nextName} · {item.name}
+              {item.name} · {restPhaseName(rest.stage)}
             </span>
           </div>
           <div className="flex items-center gap-x-3.5 gap-y-1 flex-wrap mt-1">
-            <StageChip label={stageLabel(rest.index, rest.total, rest.stage)} passive />
-            <span className="font-mono text-[10px] text-ink-3 whitespace-nowrap">
+            <span className="font-mono text-[10px] text-ink-3">
+              {rest.stage.note ? `${rest.stage.note} · ` : ''}
               {rest.state === 'resting'
                 ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}`
                 : `rested ${fmtMins(elapsed)}`}
-              {rest.stage.note ? ` · ${rest.stage.note}` : ''}
             </span>
+            <StageChip label={stageLabel(rest.index, rest.total, rest.stage)} passive />
             {item.station && <StationTag>{item.station}</StationTag>}
             <DeadlineChip item={item} />
           </div>
+          {rest.next && (
+            <div className="font-mono text-[10px] text-ink-4 mt-1 truncate">
+              Next: {nextName} · {fmtMins(rest.next.stage.minutes)} hands-on
+            </div>
+          )}
         </div>
 
         {/* assignee · recipe · next */}
