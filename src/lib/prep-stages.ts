@@ -196,6 +196,14 @@ export function stageLabel(index: number, total: number, stage: RecipeStage): st
   return `${stage.name} · ${index + 1}/${total}`
 }
 
+/** The phase a resting stage belongs to, for the row's big line: methodToChain
+ *  names a wait `${phase} · wait`; the hourglass already says "wait", so the
+ *  row shows `Cured Salmon · Curing`. A phase-less wait stays "Wait". */
+export function restPhaseName(stage: RecipeStage): string {
+  const suffix = ' · wait'
+  return stage.name.endsWith(suffix) ? stage.name.slice(0, -suffix.length) : stage.name
+}
+
 /** Whole minutes since the current stage began (0 when unknown or in the future). */
 export function stageElapsed(log: StageLogFields | null | undefined, nowMs: number): number {
   const entered = toMs(log?.stageEnteredAt)

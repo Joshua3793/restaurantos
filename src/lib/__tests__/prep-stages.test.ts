@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseStages, validateStages, resolveStages, stageTotals, currentStage, stageReadyAt,
-  nextActiveStage, isResting, restState, stageLabel, stageElapsed, remainingChain,
+  nextActiveStage, isResting, restState, stageLabel, restPhaseName, stageElapsed, remainingChain,
   parseStageHistory, appendStageEvent, REST_GRACE_MINUTES, type RecipeStage,
 } from '../prep-stages'
 import { resolveActive, resolvePassive } from '../prep-runsheet'
@@ -142,5 +142,17 @@ describe('stage history is append-only', () => {
     expect(parseStageHistory([{ index: 0, key: 'mix', enteredAt: 'x' }, 'junk', { index: 'no' }])).toEqual([{ index: 0, key: 'mix', enteredAt: 'x' }])
     const h = appendStageEvent([{ index: 0, key: 'mix', enteredAt: 'a' }], { index: 1, key: 'bulk', enteredAt: 'b', byCookId: 'c1' })
     expect(h).toEqual([{ index: 0, key: 'mix', enteredAt: 'a' }, { index: 1, key: 'bulk', enteredAt: 'b', byCookId: 'c1' }])
+  })
+})
+
+describe('restPhaseName: the phase a resting stage belongs to', () => {
+  it('strips the derived " · wait" suffix', () => {
+    expect(restPhaseName({ key: 'c:wait', name: 'Curing · wait', kind: 'PASSIVE', minutes: 1440 })).toBe('Curing')
+  })
+  it('a wait with no phase stays "Wait"', () => {
+    expect(restPhaseName({ key: 'w', name: 'Wait', kind: 'PASSIVE', minutes: 60 })).toBe('Wait')
+  })
+  it('an active stage name is unchanged', () => {
+    expect(restPhaseName({ key: 'mix', name: 'Mix', kind: 'ACTIVE', minutes: 30 })).toBe('Mix')
   })
 })
