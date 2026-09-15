@@ -333,10 +333,26 @@ export default function PrepRecipeSection({
   const chain = method ? methodToChain(method) : null
   const chainIndexOf = new Map<string, number>()
   for (const b of blocks) for (const k of b.stepKeys) if (!chainIndexOf.has(k)) chainIndexOf.set(k, b.index)
+  // The chain index of the WAIT a step carries: the PASSIVE block that lists the
+  // step. A normal step with a wait is in its ACTIVE block AND the PASSIVE one
+  // after it; a wait merged into the previous wait (no hands-on between) is in
+  // that PASSIVE block only — so this is the map to read for waits, never
+  // chainIndexOf + 1.
+  const waitIndexOf = new Map<string, number>()
+  for (const b of blocks) if (b.kind === 'PASSIVE') for (const k of b.stepKeys) waitIndexOf.set(k, b.index)
   const inFlight = log?.status === 'IN_PROGRESS' && log.stageIndex != null && blocks.length > 0
   const current = inFlight ? (log!.stageIndex as number) : -1
   const currentBlock = inFlight ? blocks[current] ?? null : null
   const stageTitle = inFlight && chain && chain[current] ? stageLabel(current, chain.length, chain[current]) : null
+  // Live clock for a hands-on block in flight — the old Stages list showed this
+  // on its lit row; the lit rows here are steps, so it rides the section title.
+  // A wait's clock lives on its own lit WaitRow.
+  const activeClock = (() => {
+    if (!inFlight || !chain || !chain[current] || chain[current].kind !== 'ACTIVE' || !log?.stageEnteredAt) return null
+    const elapsed = stageElapsed(log, nowMs)
+    const budget = chain[current].minutes
+    return { text: `${fmtMins(elapsed)} of ${fmtMins(budget)}`, over: elapsed > budget ? fmtMins(elapsed - budget) : null }
+  })()
   const lastIndex = chain ? chain.length - 1 : -1
   const stepState = (key: string): 'past' | 'now' | 'todo' | undefined => {
     if (!inFlight) return undefined
@@ -518,7 +534,11 @@ export default function PrepRecipeSection({
       {stepTotal > 0 && (
         <div className="mt-[22px]">
           <div className="flex justify-between items-center font-mono text-[10px] uppercase text-ink-3 mb-2 px-0.5 tracking-[0.05em]">
-            <span>Method · {stageTitle ?? 'tick as you go'}</span>
+            <span>
+              Method · {stageTitle ?? 'tick as you go'}
+              {activeClock && <> · {activeClock.text}</>}
+              {activeClock?.over && <span className="text-red-text"> · over by {activeClock.over}</span>}
+            </span>
             <span className="inline-flex items-center gap-[7px] text-ink-2 font-semibold">
               {stepDone} / {stepTotal}
               <ProgressBar frac={stepTotal > 0 ? stepDone / stepTotal : 0} />
@@ -532,7 +552,7 @@ export default function PrepRecipeSection({
                     const newPhase = step.phase && step.phase !== phase ? step.phase : null
                     if (step.phase) phase = step.phase
                     const st = stepState(step.key)
-                    const waitIndex = step.wait ? (chainIndexOf.get(step.key) ?? -1) + 1 : -1
+                    const waitIndex = step.wait ? (waitIndexOf.get(step.key) ?? -1) : -1
                     const waitLive = inFlight && step.wait != null && waitIndex === current
                     return (
                       <li key={step.key} className="list-none">
@@ -580,7 +600,7 @@ export default function PrepRecipeSection({
                   onClick={() => onStage(current + 1)}
                   className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 px-3 rounded-[9px] text-[12.5px] font-semibold bg-ink text-paper"
                 >
-                  Next: {chain[current + 1].name} <ArrowRight size={13} className="text-gold" />
+                  Next: {chain[current + 1]?.name ?? 'next stage'} <ArrowRight size={13} className="text-gold" />
                 </button>
               ) : (
                 <span className="flex-1 font-mono text-[10px] text-ink-3 text-center">last stage — Done logs the yield</span>
