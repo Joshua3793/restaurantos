@@ -191,13 +191,6 @@ export function RunSheet({
 
   // Kitchen-mode badge = everything not yet done.
   const notDone = useMemo(() => items.filter(i => !isDone(i)), [items])
-  // Same test the ladder's "Late to start" section uses — NOT runState, whose
-  // 'blocked' wins over 'overdue', which had the band saying "3 late" above a
-  // section holding 5.
-  const lateN = useMemo(
-    () => items.filter(i => (isTodo(i) || isWaiting(i)) && lateToStart(i, nowMin)).length,
-    [items, nowMin],
-  )
   // Rest rows whose timer has run out — the cook can move them on.
   const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
