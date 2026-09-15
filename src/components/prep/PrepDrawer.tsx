@@ -15,7 +15,6 @@ import { whyLabel, effectiveUrgency, ANY_STATION } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 import type { PrepProgress } from '@/lib/prep-progress'
-import { StageList } from '@/components/prep/StageList'
 
 interface PrepDrawerProps {
   item: PrepItemRich | null
@@ -298,16 +297,6 @@ export default function PrepDrawer({
                     </div>
                   )}
                 </div>
-                {/* Stage chain — current stage lit, Back / Next mirror the run sheet. */}
-                {stages && (
-                  <div className="mt-2.5">
-                    <StageList
-                      stages={stages}
-                      log={item.todayLog ?? null}
-                      onStage={onStage && stateKey === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
-                    />
-                  </div>
-                )}
               </div>
 
               {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}
