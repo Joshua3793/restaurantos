@@ -7,7 +7,7 @@ import { AlertTriangle, Zap, BookOpen, ArrowRight, Hourglass } from 'lucide-reac
 import { draftQty, fmtDeadline } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { fmtClock, fmtStartBy, fmtMins, fmtQty, runState, minutesBetween } from '@/lib/prep-runsheet'
-import { stageLabel } from '@/lib/prep-stages'
+import { stageLabel, restPhaseName } from '@/lib/prep-stages'
 
 // A staged job resting in an unattended stage can sort first for a cook: the
 // hero then leads with READY AT (not start-by), reads "ready" in green once the
@@ -44,15 +44,21 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
           {fmtStartBy(rest.readyAtMin)}
         </span>
         <span className="min-w-0 pb-px">
-          <span className="block text-[17px] font-semibold tracking-[-0.02em] break-words">{nextName} · {item.name}</span>
+          <span className="block text-[17px] font-semibold tracking-[-0.02em] break-words">{item.name} · {restPhaseName(rest.stage)}</span>
         </span>
       </div>
       <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-[9px] leading-[1.5] flex items-center gap-1.5 flex-wrap">
         <Hourglass size={11} className="text-[#a1a1aa]" />
-        {stageLabel(rest.index, rest.total, rest.stage)} · {rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`}
-        {rest.stage.note ? ` · ${rest.stage.note}` : ''}
+        {rest.stage.note ? `${rest.stage.note} · ` : ''}
+        {rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`}
+        {' · '}{stageLabel(rest.index, rest.total, rest.stage)}
         {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
+      {rest.next && (
+        <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-1">
+          Next: {nextName} · {fmtMins(rest.next.stage.minutes)} hands-on
+        </div>
+      )}
       {rest.next && (
         <button
           onClick={() => onStage(item, rest.next!.index)}
@@ -67,7 +73,7 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
         onClick={() => onOpenRecipe(item)}
         className="flex items-center justify-center gap-[7px] w-full bg-transparent text-[#e4e4e7] border border-[#3f3f46] rounded-[11px] py-[11px] mt-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer"
       >
-        <BookOpen size={14} className="text-gold" /> Recipe · stages
+        <BookOpen size={14} className="text-gold" /> Recipe · method
       </button>
     </div>
   )
