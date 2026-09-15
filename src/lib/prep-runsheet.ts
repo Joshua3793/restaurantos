@@ -1,5 +1,6 @@
 // Pure time + batch-scaling math for the prep run sheet.
 import { resolveStages, stageTotals } from './prep-stages'
+import { prepDayKey } from './prep-day'
 
 export type RunItemTimes = {
   linkedRecipe: {
@@ -143,4 +144,33 @@ export function fmtQty(q: number | string, u: string): string {
   const unit = u.toLowerCase()
   const v = (unit === 'kg' || unit === 'l') && n % 1 !== 0 ? n.toFixed(1) : Math.round(n)
   return `${v} ${u}`
+}
+
+// The list is posted at the end of a shift for the NEXT day and its unfinished
+// jobs carry over, so the caption has to say WHICH day's list this is — "8:17 PM"
+// alone reads as "posted tonight" on a list posted two nights ago.
+// `listDate` is a date-only marker at UTC midnight — read the date off it. Run it
+// through the restaurant clock instead and it lands on the previous evening.
+// `todayKey` is injectable for tests; production callers leave it to prepDayKey().
+export function postedWhenLabel(postedAt: string, listDate?: string | null, todayKey: string = prepDayKey()): string {
+  const t = new Date(postedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const day = listDate ? listDate.slice(0, 10) : null
+  if (!day || day === todayKey) return t
+  // Yesterday relative to the restaurant day, computed on the key itself so the
+  // test can pin today without touching the wall clock.
+  const yesterday = shiftDayKey(todayKey, -1)
+  if (day === yesterday) return `${t} yesterday`
+  // 'YYYY-MM-DD' is the restaurant day; render it as a date without re-deriving
+  // a timezone from it (midday avoids the UTC-parse day shift).
+  return `${t} ${new Date(`${day}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+}
+
+// 'YYYY-MM-DD' ± n days, as a 'YYYY-MM-DD'. Midday parse avoids DST/UTC edge shifts.
+function shiftDayKey(key: string, days: number): string {
+  const d = new Date(`${key}T12:00:00`)
+  d.setDate(d.getDate() + days)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
 }

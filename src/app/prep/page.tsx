@@ -12,7 +12,6 @@ import { setScopeParams } from '@/lib/scope-params'
 import { fmtDuration, serviceStatus, upcomingInfo, formatServiceStatus, type RcService } from '@/lib/service-hours'
 import { savePrepCache, loadPrepCache, savePlanCache, loadPlanCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
-import PrepShiftBand from '@/components/prep/PrepShiftBand'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import './prep-board.css'
 import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
@@ -26,7 +25,7 @@ import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
-import { computeShiftSummary, computeWorkloadMinutes, formatMinutes, computePriority } from '@/lib/prep-utils'
+import { computeShiftSummary, computePriority } from '@/lib/prep-utils'
 import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
 import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
@@ -38,7 +37,6 @@ import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
 import { PlannerMobile } from '@/components/prep/planner/PlannerMobile'
 import type { PlannerHandlers } from '@/components/prep/planner/PlannerDesktop'
 import type { PostDue } from '@/components/prep/planner/PostDialog'
-import { PostedBand } from '@/components/prep/runsheet/PostedBand'
 import type { PrepPostInfo } from '@/components/prep/types'
 import type { PrepItemDetail, IngredientAvailability, RecipeStepsData } from '@/components/prep/types'
 
@@ -254,7 +252,7 @@ export default function PrepPage() {
     } catch { /* silent degradation */ }
   }, [])
 
-  // Kitchen crew for the run sheet's claim popover / crew strip. Cooks change
+  // Kitchen crew for the run sheet's claim popover. Cooks change
   // rarely, so a one-shot load on mount is enough (no polling).
   const loadCooks = useCallback(async () => {
     try {
@@ -551,7 +549,7 @@ export default function PrepPage() {
   const svcNext = useMemo(() => upcomingInfo(svcStatus), [svcStatus])
 
   // Prep countdown (minutes-to-service + start-by clock) derived from svcStatus.
-  // Consumed by PrepShiftBand + PrepDrawer; null unless a service is still ahead.
+  // Consumed by PrepDrawer; null unless a service is still ahead.
   const countdown = useMemo(() => {
     if (!svcNext) return null
     const m = svcNext.prepByMin
@@ -615,7 +613,6 @@ export default function PrepPage() {
     const _never: never = svcStatus
     return _never
   }, [svcStatus])
-  const workloadLabel = useMemo(() => '~' + formatMinutes(computeWorkloadMinutes(todayItems)), [todayItems])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -1050,7 +1047,7 @@ export default function PrepPage() {
         ...(restore ? { isOnList: nextIsOnList } : {}),
       })
       setPendingCount(n => n + 1)
-      // Move the posted band with the row, or it contradicts the list under it:
+      // Move the posted caption with the row, or it contradicts the list under it:
       // post 6 items offline, × two rows, and the synthetic header goes on
       // reading "6 items · 2h 10m" over a To Do that now holds 4 — for as long
       // as the chef stays offline, since nothing recomputes it until the queue
@@ -1686,8 +1683,6 @@ export default function PrepPage() {
           ))}
         </div>
 
-        {/* Shift info on Today is rendered once by <PrepShiftBand> in the shared content block (all breakpoints). */}
-
         {/* Smart Prep toolbar — collapsible search/filter (mobile only) */}
         {viewMode === 'smartprep' && (
           <div className="mt-3 space-y-2">
@@ -1859,12 +1854,11 @@ export default function PrepPage() {
               )}
             </div>
           ) : (
-            <>
-            {plan.post && activeRcId && <PostedBand post={plan.post} />}
             <RunSheet
               items={todayItems}
               cooks={cooks}
               services={rcServices}
+              post={activeRcId ? plan.post : null}
               leadMinutes={activeRc?.prepLeadMinutes ?? null}
               nowMin={nowMin}
               nowMs={nowMs}
@@ -1877,7 +1871,6 @@ export default function PrepPage() {
               onClaim={handleClaim}
               onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
-            </>
           )}
         </div>
       )}
@@ -1911,7 +1904,6 @@ export default function PrepPage() {
 
       {viewMode === 'today' && (
         <div className="space-y-0 md:hidden">
-          <PrepShiftBand summary={shiftSummary} countdown={countdown} workloadLabel={workloadLabel} />
           {priorityAlerts.length > 0 && !alertDismissed && (
             <PrepAlertBanner
               onDismiss={() => setAlertDismissed(true)}
@@ -1944,11 +1936,11 @@ export default function PrepPage() {
             /* Mobile run sheet — the Today surface (hero, queue, in-place
                WorkingRowMobile). Same wired callbacks as the desktop RunSheet. */
             <div className="pb-24 sm:pb-0">
-              {plan.post && activeRcId && <PostedBand post={plan.post} />}
               <RunSheetMobile
                 items={todayItems}
                 cooks={cooks}
                 services={rcServices}
+                post={activeRcId ? plan.post : null}
                 leadMinutes={activeRc?.prepLeadMinutes ?? null}
                 nowMin={nowMin}
                 nowMs={nowMs}

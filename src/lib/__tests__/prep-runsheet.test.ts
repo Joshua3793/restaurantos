@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   resolveActive, resolvePassive, resolvePassiveNote,
   runState, minutesBetween, fmtClock, fmtMins, stepFor, scaleRound, scaleQtyLabel,
-  dayOffset, fmtStartBy, fmtQty, stepFactor,
+  dayOffset, fmtStartBy, fmtQty, stepFactor, postedWhenLabel,
 } from '../prep-runsheet'
 
 const rec = (a: number|null, p: number|null, n: string|null) => ({ activeMinutes: a, passiveMinutes: p, passiveNote: n })
@@ -158,5 +158,26 @@ describe('stepFactor', () => {
 
   it('clamps at the min bound', () => {
     expect(stepFactor(0.25, -1, 0.25, 5)).toBe(0.25)
+  })
+})
+
+describe('postedWhenLabel: the time, plus WHICH day the list was posted for', () => {
+  // 2026-09-14T20:17 local. The time part is rendered by toLocaleTimeString in
+  // the test runner's zone, so assert on the day suffix and use a regex for the time.
+  const postedAt = new Date(2026, 8, 14, 20, 17).toISOString()
+  it('a list for today is just the time', () => {
+    expect(postedWhenLabel(postedAt, '2026-09-14T00:00:00.000Z', '2026-09-14')).toMatch(/^\d{1,2}:\d{2} [AP]M$/)
+  })
+  it('a list for yesterday says yesterday', () => {
+    expect(postedWhenLabel(postedAt, '2026-09-13T00:00:00.000Z', '2026-09-14')).toMatch(/^\d{1,2}:\d{2} [AP]M yesterday$/)
+  })
+  it('an older list carries its date', () => {
+    expect(postedWhenLabel(postedAt, '2026-09-11T00:00:00.000Z', '2026-09-14')).toMatch(/^\d{1,2}:\d{2} [AP]M Sep 11$/)
+  })
+  it('no listDate falls back to the bare time', () => {
+    expect(postedWhenLabel(postedAt, null, '2026-09-14')).toMatch(/^\d{1,2}:\d{2} [AP]M$/)
+  })
+  it('yesterday across a month boundary', () => {
+    expect(postedWhenLabel(postedAt, '2026-09-30T00:00:00.000Z', '2026-10-01')).toMatch(/^\d{1,2}:\d{2} [AP]M yesterday$/)
   })
 })

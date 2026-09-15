@@ -1,9 +1,11 @@
 'use client'
 // Prep run-sheet — desktop frame.
-// Ported from the prototype's PTDesktop (scratchpad/prototype-ref/desktop.jsx):
-// status band, Kitchen/My-station segmented, crew strip / cook picker, station
-// filter, the ladder (renderLadder: steps / station), the NOW divider, and the
-// collapsible Done section.
+// Originally ported from the prototype's PTDesktop (scratchpad/prototype-ref/desktop.jsx).
+// The header has since been compacted to a progress hairline + one control row
+// (see docs/superpowers/specs/2026-09-14-todo-header-compact-design.md) — the
+// prototype's status band and per-cook crew strip are gone. What remains:
+// Kitchen/My-station segmented, station filter, the ladder (renderLadder: steps
+// / station), the NOW divider, and the collapsible Done section.
 //
 // The ladder is ONE ordering, derived from the step the chef dialled in Smart
 // Prep: every posted row gets its step deadline for the day and a start-by
@@ -17,17 +19,16 @@
 // rail is gone too: an item being worked on stays in the ladder as a WorkingRow. Flat Tailwind tokens replace
 // the hex palette; mono via `font-mono`; Lucide icons.
 import { useState, useMemo, useEffect } from 'react'
-import { RotateCcw } from 'lucide-react'
-import type { PrepItemRich } from '@/components/prep/types'
+import { RotateCcw, Check } from 'lucide-react'
+import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
 import { RestRow } from './RestRow'
 import { WorkingRow } from './WorkingRow'
-import { CrewStrip } from './CrewStrip'
 import { GroupHead } from './GroupHead'
 import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
-import { fmtClock, fmtMins, fmtQty } from '@/lib/prep-runsheet'
+import { fmtClock, fmtMins, fmtQty, postedWhenLabel } from '@/lib/prep-runsheet'
 import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META, onStation } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
@@ -35,7 +36,7 @@ type Mode = 'kitchen' | 'station'
 type Group = 'ladder' | 'station'
 
 // Minutes-since-midnight for a done item's completion timestamp — the Done
-// section shows a wall-clock stamp the same way CrewStrip derives elapsed.
+// section shows a wall-clock stamp for when each row finished.
 function minuteOfDay(iso: string): number {
   const d = new Date(iso)
   return d.getHours() * 60 + d.getMinutes()
@@ -58,10 +59,53 @@ const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.
 const isWaiting = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !!i.rest
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i) && !isWaiting(i)
 
+// The one-line caption on the left of the control row: done count, the posted
+// provenance (time, poster, item count) when there is a live post, the clock,
+// and the service caption. Truncates rather than wrapping — the controls on the
+// right take the second line on iPad, the caption never does.
+function HeaderCaption({
+  doneN,
+  totalN,
+  post,
+  clock,
+  svcCaption,
+}: {
+  doneN: number
+  totalN: number
+  post: PrepPostInfo | null
+  clock: string
+  svcCaption: string | null
+}) {
+  return (
+    <div className="flex items-center gap-2 min-w-0 font-mono text-[10.5px] text-ink-3">
+      <span className="min-w-0 truncate">
+        <b className="text-ink font-semibold">{doneN}</b>
+        <span className="text-ink-4">/{totalN}</span> done
+        {post && (
+          <>
+            {' · '}
+            <Check size={10} className="inline-block align-[-1px] text-green" />
+            {' '}Posted {postedWhenLabel(post.postedAt, post.listDate)} · {post.postedByName} · {post.itemCount} item{post.itemCount !== 1 ? 's' : ''}
+          </>
+        )}
+        {' · '}
+        <b className="text-ink font-semibold">{clock}</b>
+        {svcCaption && <> · {svcCaption}</>}
+      </span>
+      {post?.dirty && (
+        <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
+          Chef has unposted changes
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function RunSheet({
   items: rawItems,
   cooks,
   services,
+  post,
   leadMinutes,
   nowMin,
   nowMs,
@@ -80,6 +124,10 @@ export function RunSheet({
    *  caption derives from the RC's configuration, never from what happens to be on
    *  the board — see `svcCaption`. */
   services: RcService[]
+  /** The live post for this RC's list (null when nothing is posted). The sheet
+   *  paints the "Posted 8:17 PM · Joshua · 14 items" caption itself now that
+   *  the black PostedBand above it is gone. */
+  post: PrepPostInfo | null
   leadMinutes: number | null
   nowMin: number
   nowMs: number
@@ -109,7 +157,7 @@ export function RunSheet({
 
   // The day's anchors from the RC's services, and every row re-timed against
   // its STEP. From here on `items` carries the step-aware start-by + deadline,
-  // so the counts, the crew strip and the rows all read the same number.
+  // so the counts, the section headers and the rows all read the same number.
   const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
   const items = useMemo(() => withLadderTimes(rawItems, ctx, { nowMs, nowMin }), [rawItems, ctx, nowMs, nowMin])
 
@@ -129,6 +177,8 @@ export function RunSheet({
     mode === 'station' ? isMine(i) : stFilter === 'all' || onStation(i, stFilter)
 
   const doing = useMemo(() => items.filter(i => isDoing(i) && inScope(i)), [items, mode, cook, stFilter, member])
+  // Hairline = the whole list, never the station filter — same basis as the mobile sheet.
+  const doingAll = useMemo(() => items.filter(isDoing), [items])
   // Waiting — jobs resting in an unattended stage, soonest ready first.
   const waiting = useMemo(
     () => items.filter(i => isWaiting(i) && inScope(i)).sort((a, b) => a.rest!.readyAtMin - b.rest!.readyAtMin),
@@ -142,18 +192,10 @@ export function RunSheet({
 
   // Kitchen-mode badge = everything not yet done.
   const notDone = useMemo(() => items.filter(i => !isDone(i)), [items])
-  // Same test the ladder's "Late to start" section uses — NOT runState, whose
-  // 'blocked' wins over 'overdue', which had the band saying "3 late" above a
-  // section holding 5.
-  const lateN = useMemo(
-    () => items.filter(i => (isTodo(i) || isWaiting(i)) && lateToStart(i, nowMin)).length,
-    [items, nowMin],
-  )
-  const blockedN = todo.filter(i => i.isBlocked || !!i.blockedReason).length
   // Rest rows whose timer has run out — the cook can move them on.
   const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
-  // The service caption in the status band. Source of truth is the RC's configured
+  // The service caption in the header. Source of truth is the RC's configured
   // services via `serviceStatus` — the SAME answer /prep's page header, /pass and
   // /preshift render, so the band can no longer disagree with the header above it.
   //
@@ -184,6 +226,13 @@ export function RunSheet({
 
   const handsOn = (list: PrepItemRich[]) => fmtMins(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
 
+  // "N low on stock" for a group's caption — same test the old status card used
+  // for its kitchen-wide count; now per section so a blocked job is counted where it sits.
+  const lowStock = (list: PrepItemRich[]) => {
+    const n = list.filter(i => i.isBlocked || !!i.blockedReason).length
+    return n ? `${n} low on stock` : null
+  }
+
   const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
   const rows = (list: PrepItemRich[]) => (
     <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
@@ -199,7 +248,7 @@ export function RunSheet({
         const late = grp.filter(i => lateToStart(i, nowMin)).length
         return (
           <div key={s}>
-            <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={late ? `${late} late to start` : null} />
+            <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={[late ? `${late} late to start` : null, lowStock(grp)].filter(Boolean).join(' · ') || null} />
             {rows(grp)}
           </div>
         )
@@ -214,7 +263,7 @@ export function RunSheet({
       <>
         {lateG && (
           <div>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub="won't make its step unless started now" />
+            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={["won't make its step unless started now", lowStock(lateG.rows)].filter(Boolean).join(' · ')} />
             {rows(lateG.rows)}
           </div>
         )}
@@ -225,7 +274,7 @@ export function RunSheet({
               dot={PLAN_URG_META[g.urg!].dotClass}
               title={g.label}
               count={g.rows.length}
-              sub={[g.sub, `${handsOn(g.rows)} hands-on`].filter(Boolean).join(' · ')}
+              sub={[g.sub, `${handsOn(g.rows)} hands-on`, lowStock(g.rows)].filter(Boolean).join(' · ')}
             />
             {rows(g.rows)}
           </div>
@@ -240,105 +289,70 @@ export function RunSheet({
   }
 
   const donePct = items.length ? (done.length / items.length) * 100 : 0
-  const doingPct = items.length ? (doing.length / items.length) * 100 : 0
+  const doingPct = items.length ? (doingAll.length / items.length) * 100 : 0
 
   return (
     <div className="max-w-[1010px] mx-auto tracking-[-0.005em]">
-      {/* Slim control row — the page header already owns the breadcrumb, "Prep list"
-          title and date, so the run sheet drops its own duplicate chrome and keeps only
-          what's unique to it: the ordering rationale + the Kitchen / My-station toggle. */}
-      <div className="flex items-center justify-between gap-4 mb-3.5">
-        <p className="text-[12.5px] text-ink-3 tracking-[-0.005em] min-w-0">
-          {group === 'ladder'
-            ? <>Ordered by <b className="text-ink font-medium">step</b> — critical first; within a step, earliest start-by, then the chef&apos;s order</>
-            : <>Grouped by <b className="text-ink font-medium">station</b> — within each, the same step order</>}
-        </p>
-        <Segmented<Mode>
-          value={mode}
-          onPick={setMode}
-          className="shrink-0"
-          options={[
-            { id: 'kitchen', label: 'Kitchen', badge: notDone.length },
-            { id: 'station', label: 'My station' },
-          ]}
-        />
+      {/* The whole header is a 3px progress hairline and ONE control row. The
+          black posted band, the ordering sentence, the status card and the
+          per-cook crew cards used to stack here (~700px of chrome before the
+          first job); every number they carried now lives in the section header
+          that owns it — see docs/superpowers/specs/2026-09-14-todo-header-compact-design.md. */}
+      <div className="flex h-[3px] rounded-full overflow-hidden bg-bg-2 gap-0.5 mb-3">
+        {done.length > 0 && <div className="bg-green" style={{ width: `${donePct}%` }} />}
+        {doingAll.length > 0 && <div className="bg-gold" style={{ width: `${doingPct}%` }} />}
       </div>
 
-      {/* status band */}
-      <div className="flex items-center gap-6 bg-paper border border-line rounded-[13px] px-5 py-[15px] mb-4">
-        <div className="shrink-0">
-          <div className="text-[26px] font-semibold tracking-[-0.04em] leading-none">
-            {done.length}<span className="text-ink-4 font-medium">/{items.length}</span>
-          </div>
-          <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 mt-1">DONE</div>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex h-2 rounded-full overflow-hidden bg-bg-2 gap-0.5">
-            {done.length > 0 && <div className="bg-green" style={{ width: `${donePct}%` }} />}
-            {doing.length > 0 && <div className="bg-gold" style={{ width: `${doingPct}%` }} />}
-          </div>
-          <div className="flex gap-3.5 mt-[9px] font-mono text-[10px] text-ink-3">
-            <span><b className="text-gold-2 font-semibold">{doing.length}</b> in progress</span>
-            <span><b className={`font-semibold ${lateN ? 'text-red-text' : 'text-ink'}`}>{lateN}</b> late to start</span>
-            {readyN > 0 && <span><b className="text-green-text font-semibold">{readyN}</b> ready to move</span>}
-            <span><b className="text-ink font-semibold">{blockedN}</b> low on stock</span>
-          </div>
-        </div>
-        <div className="shrink-0 text-right border-l border-line pl-[22px]">
-          <div className="font-mono text-[20px] font-semibold tracking-[-0.02em]">{fmtClock(nowMin)}</div>
-          {svcCaption && (
-            <div className="font-mono text-[9.5px] text-ink-3 mt-[3px]">{svcCaption}</div>
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-3.5">
+        <HeaderCaption doneN={done.length} totalN={items.length} post={post} clock={fmtClock(nowMin)} svcCaption={svcCaption} />
+
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <Segmented<Mode>
+            value={mode}
+            onPick={setMode}
+            options={[
+              { id: 'kitchen', label: 'Kitchen', badge: notDone.length },
+              { id: 'station', label: 'My station' },
+            ]}
+          />
+          {mode === 'kitchen' ? (
+            <div className="flex gap-1.5 flex-wrap">
+              {['all', ...stations].map(s => {
+                const on = stFilter === s
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStFilter(s)}
+                    className={`px-3 py-1.5 rounded-full border font-mono text-[10.5px] font-medium cursor-pointer capitalize ${
+                      on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-3'
+                    }`}
+                  >
+                    {s === 'all' ? `All · ${todo.length + doing.length}` : s}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {cooks.map(c => {
+                const on = cook === c.id
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCook(c.id)}
+                    className={`inline-flex items-center gap-1.5 px-[13px] py-[7px] rounded-full border font-mono text-[11px] font-semibold cursor-pointer ${
+                      on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
+                    }`}
+                  >
+                    {c.initials}
+                    <span className={`text-[9px] font-normal ${on ? 'text-line-2' : 'text-ink-4'}`}>{c.homeStation ?? ''}</span>
+                  </button>
+                )
+              })}
+            </div>
           )}
-        </div>
-      </div>
-
-      {/* crew (kitchen) or cook picker (station) */}
-      {mode === 'kitchen' ? (
-        cooks.length > 0 && <CrewStrip cooks={cooks} items={items} nowMin={nowMin} nowMs={nowMs} />
-      ) : (
-        <div className="flex items-center gap-2 mb-[18px] flex-wrap">
-          <span className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 mr-1">COOK</span>
-          {cooks.map(c => {
-            const on = cook === c.id
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setCook(c.id)}
-                className={`inline-flex items-center gap-1.5 px-[13px] py-[7px] rounded-full border font-mono text-[11px] font-semibold cursor-pointer ${
-                  on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
-                }`}
-              >
-                {c.initials}
-                <span className={`text-[9px] font-normal ${on ? 'text-line-2' : 'text-ink-4'}`}>{c.homeStation ?? ''}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* station filter (kitchen) + grouping control */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {mode === 'kitchen' && (
-          <div className="flex gap-1.5 flex-wrap">
-            {['all', ...stations].map(s => {
-              const on = stFilter === s
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStFilter(s)}
-                  className={`px-3 py-1.5 rounded-full border font-mono text-[10.5px] font-medium cursor-pointer capitalize ${
-                    on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-3'
-                  }`}
-                >
-                  {s === 'all' ? `All · ${todo.length + doing.length}` : s}
-                </button>
-              )
-            })}
-          </div>
-        )}
-        <div className="ml-auto">
           <Segmented<Group>
             value={group}
             onPick={setGroup}

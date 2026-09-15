@@ -251,9 +251,9 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
   it('describes the POSTED list, not the draft — an unposted next-day addition is not absorbed', async () => {
     // The regression this route must not have: the chef posted 3 items, then
     // added tomorrow's confit to the DRAFT (PrepPost.dirty is exactly this
-    // state). Re-deriving the header from the draft would make PostedBand claim
-    // 3 items · 85m over a To Do that holds 2 — and silently bill the kitchen
-    // for 40 minutes of work nobody posted.
+    // state). Re-deriving the header from the draft would make the run sheets'
+    // posted caption claim 3 items · 85m over a To Do that holds 2 — and
+    // silently bill the kitchen for 40 minutes of work nobody posted.
     db.items.push(item({ id: 'i-tomorrow', estimatedPrepTime: 40 }))
     db.posts[0].dirty = true
     db.logs = [log({})]

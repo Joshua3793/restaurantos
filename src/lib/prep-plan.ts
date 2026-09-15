@@ -838,9 +838,9 @@ export function withLadderTimes<T extends LadderItem>(
 }
 
 /**
- * Late to start — the ONE test the ladder's section, the status band and the
- * crew strip share. A rest row is late only once it is `overdue` (past
- * readyAt + REST_GRACE_MINUTES); merely ready is not late.
+ * Late to start — the ONE test the Late to start section, the station-header
+ * caption and the mobile Kitchen badge share. A rest row is late only once it
+ * is `overdue` (past readyAt + REST_GRACE_MINUTES); merely ready is not late.
  */
 export function lateToStart(t: LadderItem, nowMin: number): boolean {
   if (t.rest) return t.rest.state === 'overdue'

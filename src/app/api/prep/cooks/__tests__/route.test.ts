@@ -102,7 +102,7 @@ describe('GET /api/prep/cooks', () => {
     expect(cooks).toHaveLength(1)
     const cook = cooks[0]
 
-    // The fields the run sheet claim popover / crew strip actually render
+    // The fields the run sheet claim popover actually render
     // (components/prep/runsheet/assignee.tsx's Cook type).
     expect(cook).toMatchObject({ id: 'c1', name: 'Sam Lee', initials: 'SL', homeStation: 'Grill' })
 
