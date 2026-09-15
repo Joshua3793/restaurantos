@@ -1859,12 +1859,11 @@ export default function PrepPage() {
               )}
             </div>
           ) : (
-            <>
-            {plan.post && activeRcId && <PostedBand post={plan.post} />}
             <RunSheet
               items={todayItems}
               cooks={cooks}
               services={rcServices}
+              post={activeRcId ? plan.post : null}
               leadMinutes={activeRc?.prepLeadMinutes ?? null}
               nowMin={nowMin}
               nowMs={nowMs}
@@ -1877,7 +1876,6 @@ export default function PrepPage() {
               onClaim={handleClaim}
               onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
-            </>
           )}
         </div>
       )}
