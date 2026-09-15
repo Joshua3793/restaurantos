@@ -20,8 +20,7 @@
 // the hex palette; mono via `font-mono`; Lucide icons.
 import { useState, useMemo, useEffect } from 'react'
 import { RotateCcw, Check } from 'lucide-react'
-import type { PrepItemRich } from '@/components/prep/types'
-import type { PrepPostInfo } from '@/components/prep/types'
+import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
 import { RestRow } from './RestRow'
@@ -158,7 +157,7 @@ export function RunSheet({
 
   // The day's anchors from the RC's services, and every row re-timed against
   // its STEP. From here on `items` carries the step-aware start-by + deadline,
-  // so the counts, the crew strip and the rows all read the same number.
+  // so the counts, the section headers and the rows all read the same number.
   const ctx = useMemo(() => planDayContext(services, nowMin), [services, nowMin])
   const items = useMemo(() => withLadderTimes(rawItems, ctx, { nowMs, nowMin }), [rawItems, ctx, nowMs, nowMin])
 
@@ -178,6 +177,8 @@ export function RunSheet({
     mode === 'station' ? isMine(i) : stFilter === 'all' || onStation(i, stFilter)
 
   const doing = useMemo(() => items.filter(i => isDoing(i) && inScope(i)), [items, mode, cook, stFilter, member])
+  // Hairline = the whole list, never the station filter — same basis as the mobile sheet.
+  const doingAll = useMemo(() => items.filter(isDoing), [items])
   // Waiting — jobs resting in an unattended stage, soonest ready first.
   const waiting = useMemo(
     () => items.filter(i => isWaiting(i) && inScope(i)).sort((a, b) => a.rest!.readyAtMin - b.rest!.readyAtMin),
@@ -262,7 +263,7 @@ export function RunSheet({
       <>
         {lateG && (
           <div>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub="won't make its step unless started now" />
+            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={["won't make its step unless started now", lowStock(lateG.rows)].filter(Boolean).join(' · ')} />
             {rows(lateG.rows)}
           </div>
         )}
@@ -288,7 +289,7 @@ export function RunSheet({
   }
 
   const donePct = items.length ? (done.length / items.length) * 100 : 0
-  const doingPct = items.length ? (doing.length / items.length) * 100 : 0
+  const doingPct = items.length ? (doingAll.length / items.length) * 100 : 0
 
   return (
     <div className="max-w-[1010px] mx-auto tracking-[-0.005em]">
@@ -299,7 +300,7 @@ export function RunSheet({
           that owns it — see docs/superpowers/specs/2026-09-14-todo-header-compact-design.md. */}
       <div className="flex h-[3px] rounded-full overflow-hidden bg-bg-2 gap-0.5 mb-3">
         {done.length > 0 && <div className="bg-green" style={{ width: `${donePct}%` }} />}
-        {doing.length > 0 && <div className="bg-gold" style={{ width: `${doingPct}%` }} />}
+        {doingAll.length > 0 && <div className="bg-gold" style={{ width: `${doingPct}%` }} />}
       </div>
 
       <div className="flex items-center justify-between gap-4 flex-wrap mb-3.5">

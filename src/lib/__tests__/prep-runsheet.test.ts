@@ -177,4 +177,7 @@ describe('postedWhenLabel: the time, plus WHICH day the list was posted for', ()
   it('no listDate falls back to the bare time', () => {
     expect(postedWhenLabel(postedAt, null, '2026-09-14')).toMatch(/^\d{1,2}:\d{2} [AP]M$/)
   })
+  it('yesterday across a month boundary', () => {
+    expect(postedWhenLabel(postedAt, '2026-09-30T00:00:00.000Z', '2026-10-01')).toMatch(/^\d{1,2}:\d{2} [AP]M yesterday$/)
+  })
 })

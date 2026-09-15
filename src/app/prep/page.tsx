@@ -252,7 +252,7 @@ export default function PrepPage() {
     } catch { /* silent degradation */ }
   }, [])
 
-  // Kitchen crew for the run sheet's claim popover / crew strip. Cooks change
+  // Kitchen crew for the run sheet's claim popover. Cooks change
   // rarely, so a one-shot load on mount is enough (no polling).
   const loadCooks = useCallback(async () => {
     try {
@@ -1047,7 +1047,7 @@ export default function PrepPage() {
         ...(restore ? { isOnList: nextIsOnList } : {}),
       })
       setPendingCount(n => n + 1)
-      // Move the posted band with the row, or it contradicts the list under it:
+      // Move the posted caption with the row, or it contradicts the list under it:
       // post 6 items offline, × two rows, and the synthetic header goes on
       // reading "6 items · 2h 10m" over a To Do that now holds 4 — for as long
       // as the chef stays offline, since nothing recomputes it until the queue

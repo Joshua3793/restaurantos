@@ -16,8 +16,7 @@
 // props. Flat Tailwind tokens replace the hex palette; mono via `font-mono`.
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
-import type { PrepItemRich } from '@/components/prep/types'
-import type { PrepPostInfo } from '@/components/prep/types'
+import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
 import { RestRowMobile } from './RestRowMobile'
@@ -153,7 +152,7 @@ export function RunSheetMobile({
   const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
   // The service caption on the NOW line. Same derivation as the desktop RunSheet's
-  // status band and /prep's page header: `serviceStatus` over the RC's CONFIGURED
+  // header caption and /prep's page header: `serviceStatus` over the RC's CONFIGURED
   // services, not over whatever items happen to be on the board. The casing is CSS
   // (`uppercase` on the container), so the shared string needs no transform.
   const svcCaption = useMemo(() => {
@@ -176,6 +175,13 @@ export function RunSheetMobile({
   }, [services, nowMin, leadMinutes])
 
   const handsOn = (list: PrepItemRich[]) => fmtMins(list.reduce((a, i) => a + (i.activeMinutes ?? 0), 0))
+
+  // "N low on stock" for a group's caption — same test the desktop sheet uses,
+  // per section so a blocked job is counted where it sits.
+  const lowStock = (list: PrepItemRich[]) => {
+    const n = list.filter(i => i.isBlocked || !!i.blockedReason).length
+    return n ? `${n} low on stock` : null
+  }
 
   // Claim toggle — assign to the viewing cook, or unassign if already theirs
   // (mirrors the prototype's `claimTap`).
@@ -209,14 +215,14 @@ export function RunSheetMobile({
       <>
         {lateG && (
           <>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} />
+            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={lowStock(lateG.rows)} />
             {rows(lateG.rows, true)}
           </>
         )}
         <div className="my-3.5"><NowLine nowMin={nowMin} /></div>
         {stepG.map(g => (
           <div key={g.key}>
-            <GroupHead dot={PLAN_URG_META[g.urg!].dotClass} title={g.label} count={g.rows.length} sub={g.sub} />
+            <GroupHead dot={PLAN_URG_META[g.urg!].dotClass} title={g.label} count={g.rows.length} sub={[g.sub, lowStock(g.rows)].filter(Boolean).join(' · ') || null} />
             {rows(g.rows, true)}
           </div>
         ))}

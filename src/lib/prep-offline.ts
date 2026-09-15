@@ -80,7 +80,7 @@ export function loadPrepCache(): { items: PrepItemRich[]; ts: number } | null {
 }
 
 /**
- * The posted-list header, so PostedBand and the dirty pill render offline.
+ * The posted-list header, so the run sheets' posted caption and the dirty pill render offline.
  *
  * `PLAN_KEY` is a SINGLE slot, not one per revenue center — so the header is
  * stamped with the RC it belongs to. `PrepPostInfo` itself carries no RC
