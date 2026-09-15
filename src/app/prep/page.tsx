@@ -22,9 +22,6 @@ import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import LogYieldSheet, { type YieldTarget } from '@/components/prep/LogYieldSheet'
 import type { YieldStatus } from '@/lib/prep-yield'
-import PrepTaskLibrary from '@/components/prep/PrepTaskLibrary'
-import PrepTaskList from '@/components/prep/PrepTaskList'
-import type { PrepTask, PrepTaskTodayLog, PrepTaskRow, LinkedItemSummary } from '@/components/prep/types'
 import PrepDrawer from '@/components/prep/PrepDrawer'
 import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -179,90 +176,10 @@ export default function PrepPage() {
   // ever right when something was painted a moment ago for this exact load.
   const cachePaintedOnMount = useRef(false)
 
-  // ── Prep tasks (checklist) ─────────────────────────────────────────────────
-  const [taskLibrary, setTaskLibrary] = useState<PrepTask[]>([])
-  const [taskTodayIds, setTaskTodayIds] = useState<Set<string>>(new Set())
-  const [inventoryForTasks, setInventoryForTasks] = useState<LinkedItemSummary[]>([])
-
   // The restaurant's prep day as a bare 'YYYY-MM-DD' (src/lib/prep-day.ts). Sent
-  // to the task routes instead of a browser-local midnight ISO, so a tablet on
-  // the wrong timezone still writes the day the kitchen is actually working.
+  // with log writes instead of a browser-local midnight ISO, so a tablet on the
+  // wrong timezone still writes the day the kitchen is actually working.
   const todayDateStr = useMemo(() => prepDayKey(), [])
-
-  const loadTasks = useCallback(async () => {
-    if (!activeRcId && !activeLocationId) { setTaskLibrary([]); setTaskTodayIds(new Set()); return }
-    const params = new URLSearchParams({ date: todayDateStr })
-    setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
-    const res = await fetch(`/api/prep/tasks?${params}`)
-    if (!res.ok) return
-    const data: { library: PrepTask[]; today: PrepTaskTodayLog[] } = await res.json()
-    setTaskLibrary(data.library)
-    setTaskTodayIds(new Set(data.today.map(t => t.prepTaskId)))
-  }, [activeRcId, activeLocationId, activeKind, activeRc, todayDateStr])
-
-  useEffect(() => { loadTasks() }, [loadTasks])
-
-  // The linked-item picker only lives in the Tasks library on the Smart Prep tab, so
-  // defer this full inventory pull until that tab is first opened instead of paying for
-  // it on every prep-page mount.
-  useEffect(() => {
-    if (viewMode !== 'smartprep' || inventoryForTasks.length > 0) return
-    fetch('/api/inventory')
-      .then(r => r.ok ? r.json() : [])
-      .then((items: { id: string; itemName: string }[]) =>
-        setInventoryForTasks(items.map(i => ({ id: i.id, itemName: i.itemName }))))
-      .catch(() => {})
-  }, [viewMode, inventoryForTasks.length])
-
-  const taskRows: PrepTaskRow[] = useMemo(
-    () => taskLibrary.map(t => ({ ...t, activeToday: taskTodayIds.has(t.id) })),
-    [taskLibrary, taskTodayIds],
-  )
-  const activeTaskRows = useMemo(() => taskRows.filter(r => r.activeToday), [taskRows])
-  const tasksDisabled = !activeRcId
-
-  const createTask = useCallback(async (name: string, linkedInventoryItemId: string | null) => {
-    if (!activeRcId) return
-    const res = await fetch('/api/prep/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, revenueCenterId: activeRcId, linkedInventoryItemId }),
-    })
-    if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => [...prev, t]) }
-  }, [activeRcId])
-
-  const editTask = useCallback(async (taskId: string, name: string, linkedInventoryItemId: string | null) => {
-    const res = await fetch(`/api/prep/tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, linkedInventoryItemId }),
-    })
-    if (res.ok) { const t: PrepTask = await res.json(); setTaskLibrary(prev => prev.map(x => x.id === taskId ? t : x)) }
-  }, [])
-
-  const deleteTask = useCallback(async (taskId: string) => {
-    setTaskLibrary(prev => prev.filter(t => t.id !== taskId))
-    await fetch(`/api/prep/tasks/${taskId}`, { method: 'DELETE' })
-  }, [])
-
-  const reorderTasks = useCallback(async (ids: string[]) => {
-    setTaskLibrary(prev => [...prev].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id))
-      .map((t, i) => ({ ...t, sortOrder: i })))
-    await fetch('/api/prep/tasks/reorder', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
-    })
-  }, [])
-
-  const setTaskActive = useCallback(async (taskId: string, next: boolean) => {
-    setTaskTodayIds(prev => { const s = new Set(prev); if (next) s.add(taskId); else s.delete(taskId); return s })
-    await fetch(`/api/prep/tasks/${taskId}/today${next ? '' : `?date=${encodeURIComponent(todayDateStr)}`}`, {
-      method: next ? 'POST' : 'DELETE',
-      headers: next ? { 'Content-Type': 'application/json' } : undefined,
-      body: next ? JSON.stringify({ date: todayDateStr }) : undefined,
-    })
-  }, [todayDateStr])
-
-  const clearTaskToday = useCallback((taskId: string) => setTaskActive(taskId, false), [setTaskActive])
 
   // `silent` = background refresh (auto-poll): update data in place without the
   // full-screen loading state or wiping the list on a transient failure.
@@ -1923,16 +1840,6 @@ export default function PrepPage() {
               />
             </div>
           )}
-          {/* Prep tasks (checklist) — desktop Today. Task 13 replaced the shared
-              PrepBoard (whose tasksSlot carried this) with RunSheet, which has no
-              task slot of its own; restore the same conditional PrepTaskList the
-              board used for the 'today' view. Rendered ABOVE the run sheet so the
-              quick checklist reads first (the board put its tasks slot at the top). */}
-          {!loading && activeTaskRows.length > 0 && (
-            <div className="mb-3.5">
-              <PrepTaskList asBlock rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-            </div>
-          )}
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
           ) : todayItems.length === 0 && activeRcId ? (
@@ -1997,19 +1904,6 @@ export default function PrepPage() {
               onSearch={setSearch}
               hidden={hiddenItems}
               handlers={plannerHandlers}
-              tasksSlot={
-                <PrepTaskLibrary
-                  asBlock
-                  rows={taskRows}
-                  inventory={inventoryForTasks}
-                  disabled={tasksDisabled}
-                  onCreate={createTask}
-                  onEdit={editTask}
-                  onToggleActive={setTaskActive}
-                  onDelete={deleteTask}
-                  onReorder={reorderTasks}
-                />
-              }
             />
           )}
         </div>
@@ -2030,12 +1924,6 @@ export default function PrepPage() {
                   : <><b>Stock changed since this list was scheduled.</b> {priorityAlerts.map(i => i.name).join(', ')} — now Critical, stock depleted.</>
               }
             />
-          )}
-          {/* Prep tasks (checklist) — mobile To Do */}
-          {activeTaskRows.length > 0 && (
-            <div className="mb-3">
-              <PrepTaskList rows={activeTaskRows} onDone={clearTaskToday} onRemove={clearTaskToday} />
-            </div>
           )}
           {loading ? (
             <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" /></div>
@@ -2089,17 +1977,6 @@ export default function PrepPage() {
             </div>
           ) : (
             <>
-              {/* Prep tasks (checklist) — mobile Smart Prep */}
-              <PrepTaskLibrary
-                rows={taskRows}
-                inventory={inventoryForTasks}
-                disabled={tasksDisabled}
-                onCreate={createTask}
-                onEdit={editTask}
-                onToggleActive={setTaskActive}
-                onDelete={deleteTask}
-                onReorder={reorderTasks}
-              />
               <PlannerMobile
                 items={plannerPool}
                 allItems={items}
