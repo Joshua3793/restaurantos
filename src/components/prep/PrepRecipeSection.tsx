@@ -8,7 +8,7 @@ import { convertQty } from '@/lib/uom'
 import { stepFactor, fmtMins, fmtClock } from '@/lib/prep-runsheet'
 import { computeBakersPercents } from '@/lib/bakers-percent'
 import { chainBlocks, methodToChain, type MethodStep } from '@/lib/recipe-method'
-import { stageElapsed, stageLabel } from '@/lib/prep-stages'
+import { stageElapsed, stageLabel, type RecipeStage } from '@/lib/prep-stages'
 import type { StageLogShape } from '@/lib/prep-plan'
 import { stepKeyAt, type PrepProgress } from '@/lib/prep-progress'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
@@ -202,13 +202,16 @@ function StepRow({ index, text, done, onToggle, state, minutes, advances }: Step
   )
 }
 
-/** The wait after a step. Muted one-liner normally; when the job is IN this wait
- *  it is the lit row of the list — the stage name, its note, and the live clock
- *  (the same information the old Stages list carried, now in the only list). */
-function WaitRow({ step, name, live, enteredAt, nowMs }: {
+/** The wait after a step. Muted one-liner normally, reading the STEP's own wait
+ *  (what a reader scanning the method wants there). When the job is IN this wait
+ *  the live card is the lit row of the list — but it reads the chain STAGE, not
+ *  the step: a merged wait (several steps' waits summed into one PASSIVE block)
+ *  has ONE stage with the summed minutes and joined notes, so the live card must
+ *  show that, not any single contributing step's share. */
+function WaitRow({ step, stage, live, enteredAt, nowMs }: {
   step: MethodStep
-  /** the derived stage name for this wait, e.g. "Curing · wait" */
-  name: string
+  /** the chain stage this wait belongs to — null only if the chain is missing */
+  stage: RecipeStage | null
   live: boolean
   enteredAt?: string | null
   nowMs: number
@@ -222,8 +225,11 @@ function WaitRow({ step, name, live, enteredAt, nowMs }: {
       </li>
     )
   }
+  const name = stage ? stage.name : 'Wait'
+  const minutes = stage ? stage.minutes : w.minutes
+  const note = stage ? stage.note : w.note
   const elapsed = enteredAt ? stageElapsed({ stageEnteredAt: enteredAt }, nowMs) : 0
-  const ready = elapsed >= w.minutes
+  const ready = elapsed >= minutes
   const since = enteredAt ? new Date(enteredAt) : null
   return (
     <li className={`flex gap-3.5 items-start px-2.5 py-3 rounded-[10px] ${ready ? 'bg-green-soft' : 'bg-blue-soft'}`}>
@@ -232,10 +238,10 @@ function WaitRow({ step, name, live, enteredAt, nowMs }: {
       </span>
       <span className="flex-1 min-w-0 pt-0.5">
         <span className="block text-[13.5px] font-semibold tracking-[-0.01em] text-ink">{name}</span>
-        {w.note && <span className="block text-[12px] text-ink-2 mt-0.5">{w.note}</span>}
+        {note && <span className="block text-[12px] text-ink-2 mt-0.5">{note}</span>}
         <span className={`block font-mono text-[10.5px] mt-1 ${ready ? 'text-green-text' : 'text-blue-text'}`}>
           {since ? `since ${fmtClock(since.getHours() * 60 + since.getMinutes())} · ` : ''}
-          {ready ? 'ready' : 'resting'} · {fmtMins(elapsed)} of {fmtMins(w.minutes)}
+          {ready ? 'ready' : 'resting'} · {fmtMins(elapsed)} of {fmtMins(minutes)}
         </span>
       </span>
     </li>
@@ -340,7 +346,14 @@ export default function PrepRecipeSection({
   // chainIndexOf + 1.
   const waitIndexOf = new Map<string, number>()
   for (const b of blocks) if (b.kind === 'PASSIVE') for (const k of b.stepKeys) waitIndexOf.set(k, b.index)
-  const inFlight = log?.status === 'IN_PROGRESS' && log.stageIndex != null && blocks.length > 0
+  // A stale index (recipe edited mid-job) is NOT in flight here — same guard
+  // currentStage() applies; the list falls back to plain.
+  const inFlight =
+    log?.status === 'IN_PROGRESS' &&
+    log.stageIndex != null &&
+    blocks.length > 0 &&
+    (log.stageIndex as number) >= 0 &&
+    (log.stageIndex as number) < blocks.length
   const current = inFlight ? (log!.stageIndex as number) : -1
   const currentBlock = inFlight ? blocks[current] ?? null : null
   const stageTitle = inFlight && chain && chain[current] ? stageLabel(current, chain.length, chain[current]) : null
@@ -351,7 +364,9 @@ export default function PrepRecipeSection({
     if (!inFlight || !chain || !chain[current] || chain[current].kind !== 'ACTIVE' || !log?.stageEnteredAt) return null
     const elapsed = stageElapsed(log, nowMs)
     const budget = chain[current].minutes
-    return { text: `${fmtMins(elapsed)} of ${fmtMins(budget)}`, over: elapsed > budget ? fmtMins(elapsed - budget) : null }
+    const since = new Date(log.stageEnteredAt)
+    const sinceText = `since ${fmtClock(since.getHours() * 60 + since.getMinutes())}`
+    return { text: `${sinceText} · ${fmtMins(elapsed)} of ${fmtMins(budget)}`, over: elapsed > budget ? fmtMins(elapsed - budget) : null }
   })()
   const lastIndex = chain ? chain.length - 1 : -1
   const stepState = (key: string): 'past' | 'now' | 'todo' | undefined => {
@@ -553,7 +568,10 @@ export default function PrepRecipeSection({
                     if (step.phase) phase = step.phase
                     const st = stepState(step.key)
                     const waitIndex = step.wait ? (waitIndexOf.get(step.key) ?? -1) : -1
-                    const waitLive = inFlight && step.wait != null && waitIndex === current
+                    // A merged wait has several contributing steps; only the block's first step
+                    // paints the live card, the others keep their muted row.
+                    const waitHead = waitIndex >= 0 && blocks[waitIndex]?.stepKeys[0] === step.key
+                    const waitLive = inFlight && step.wait != null && waitIndex === current && waitHead
                     return (
                       <li key={step.key} className="list-none">
                         {newPhase && (
@@ -566,7 +584,7 @@ export default function PrepRecipeSection({
                           {step.wait && (
                             <WaitRow
                               step={step}
-                              name={chain?.[waitIndex]?.name ?? 'Wait'}
+                              stage={chain?.[waitIndex] ?? null}
                               live={waitLive}
                               enteredAt={waitLive ? (log?.stageEnteredAt ?? null) : null}
                               nowMs={nowMs}
