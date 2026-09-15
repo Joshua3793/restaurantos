@@ -77,7 +77,7 @@ export function LoadStrip({ draft, cooks, ctx }: { draft: PrepItemRich[]; cooks:
 
 export function PlannerDesktop({
   items, allItems, hidden, stations, cooks, services, nowMin, nowMs, canPlan, post,
-  search, onSearch, handlers, tasksSlot,
+  search, onSearch, handlers,
 }: {
   items: PrepItemRich[]              // filtered (search/category) — shapes the LEFT pane
   allItems: PrepItemRich[]           // unfiltered — the draft pane must not hide rows on search
@@ -93,7 +93,6 @@ export function PlannerDesktop({
   search: string
   onSearch: (v: string) => void
   handlers: PlannerHandlers
-  tasksSlot?: React.ReactNode
 }) {
   const locked = !canPlan
   const [groupBy, setGroupBy] = useState<PlanGroupBy>('urgency')
@@ -158,7 +157,6 @@ export function PlannerDesktop({
 
   return (
     <div className="space-y-3.5">
-      {tasksSlot}
       {/* 440px suggestions column only when there's desktop room — on iPad
           (md..xl) it would starve the prep-list pane, whose header controls
           get clipped by the pane's overflow-hidden. */}

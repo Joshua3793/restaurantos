@@ -1,7 +1,7 @@
 // The prep day — ONE convention, shared by every prep surface (client included).
 //
 // The day is the RESTAURANT'S calendar day (Pacific), and it is STORED as UTC
-// midnight of that date: `PrepLog.logDate` / `PrepPost.listDate` / `PrepTaskLog.logDate`
+// midnight of that date: `PrepLog.logDate` / `PrepPost.listDate`
 // are date-only markers, not instants. Two rules follow from that:
 //   • never derive a prep day from server or browser wall-clock;
 //   • markers are always exactly 24h apart, so range math needs no DST handling.
