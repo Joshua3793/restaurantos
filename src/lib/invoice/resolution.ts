@@ -10,7 +10,10 @@ import {
 } from './predicates'
 import { classifyDimensionRelationship } from './classify'
 import { computeNormalisedPrices, computeLineMath } from './calculations'
-import { offerPricePerBase } from '@/lib/supplier-offers'
+// The pure file, not `@/lib/supplier-offers` — this module is imported by
+// 'use client' review-UI components, and supplier-offers.ts imports the Prisma
+// singleton at module top.
+import { offerPricePerBase } from '@/lib/offer-price'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
@@ -90,16 +93,19 @@ function isSameSupplier(o: { supplierId?: string | null; supplierName: string },
 
 /** Cheapest OTHER supplier's offer, for the supplier-switch note. */
 export function cheapestOtherOffer(item: ScanItem, ref: SupplierRef) {
-  const offers = (item.matchedItem?.supplierPrices ?? [])
-    .filter(o => !isSameSupplier(o, ref) && offerPricePerBase(o) > 0)
+  const mi = item.matchedItem
+  if (!mi) return null
+  const offers = (mi.supplierPrices ?? [])
+    .filter(o => !isSameSupplier(o, ref) && offerPricePerBase(o, mi) > 0)
   if (offers.length === 0) return null
-  return offers.reduce((min, o) => offerPricePerBase(o) < offerPricePerBase(min) ? o : min)
+  return offers.reduce((min, o) => offerPricePerBase(o, mi) < offerPricePerBase(min, mi) ? o : min)
 }
 
 // Big price jumps (>15%) on a linked item are the only price deltas promoted to
 // a decision-required `.issue` — smaller drifts surface only as a variance pill.
 export function isBigPriceChange(item: ScanItem, ref?: SupplierRef | null): boolean {
-  if (!item.matchedItem) return false
+  const mi = item.matchedItem
+  if (!mi) return false
   // Prefer the unit-normalised comparison (handles $/cs vs $/L etc.) — the stored
   // priceDiffPct can be computed in mismatched units and read as a huge jump when
   // the real per-base-unit price is unchanged. Fall back to the stored pct only
@@ -116,7 +122,7 @@ export function isBigPriceChange(item: ScanItem, ref?: SupplierRef | null): bool
     // switch: THIS supplier's own last $/base is flat (≤3%), so the spine jump came
     // from a different supplier. The SupplierSwitchNote covers this case instead.
     const offer = ref ? offerForSupplier(item, ref) : null
-    const offerPPB = offer ? offerPricePerBase(offer) : 0
+    const offerPPB = offer ? offerPricePerBase(offer, mi) : 0
     if (offerPPB > 0 && Math.abs(((norm.invoicePPB - offerPPB) / offerPPB) * 100) <= 3) return false
     return true
   }

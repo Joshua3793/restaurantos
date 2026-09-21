@@ -78,7 +78,7 @@ async function main() {
     if (!Number.isFinite(spine) || spine <= 0) continue
 
     for (const offer of item.supplierPrices) {
-      const cur = offerPricePerBase(offer)
+      const cur = offerPricePerBase(offer, item)
       if (!Number.isFinite(cur) || cur <= 0) continue
       if (pctDiff(cur, spine) <= DIVERGE_TOL) continue // agrees → nothing to do
 

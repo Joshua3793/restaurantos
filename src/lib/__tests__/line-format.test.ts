@@ -110,6 +110,18 @@ describe('resolveLineFormat — implausible offer price', () => {
   })
 })
 
+describe('resolveLineFormat — cross-dimension RATE offer bridged by the item', () => {
+  it('a $/lb RATE offer on a bridged COUNT item is adopted and is NOT implausible', () => {
+    const eggplantItem = asChainItem({ dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 }, eachMeasureQty: 0.4, eachMeasureUnit: 'lb' })
+    const r = resolveLineFormat(eggplantItem, { packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } })
+    expect(r.pricing).toEqual({ mode: 'RATE', rate: 3.49, rateUnit: 'lb' })   // $1.40 vs the item's $2.93 — a real 2× gap, not 20×
+  })
+  it('…and is ignored when the item has no bridge', () => {
+    const bare = asChainItem({ dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 } })
+    expect(resolveLineFormat(bare, { packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } }).pricing).toEqual(bare.pricing)
+  })
+})
+
 describe('pickOffer', () => {
   const offers = [
     { supplierId: 'sup-a', supplierName: 'Sysco', packChain: [] },

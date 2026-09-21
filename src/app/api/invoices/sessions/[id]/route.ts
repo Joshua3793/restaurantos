@@ -40,14 +40,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   // Re-populate the computed pricePerBaseUnit on each matchedItem and on every
   // supplierPrices entry so the invoice review UI survives the stored-column drop.
-  // offerPricePerBase derives from the offer's own packChain+pricing (chain-only).
+  // offerPricePerBase derives from the offer's own packChain+pricing, priced
+  // against the matched item's base unit + bridges (its select spreads PRICING_SELECT).
   const scanItems = session.scanItems.map(si => {
-    if (!si.matchedItem) return si
-    const supplierPrices = si.matchedItem.supplierPrices.map(o => ({
+    const mi = si.matchedItem
+    if (!mi) return si
+    const supplierPrices = mi.supplierPrices.map(o => ({
       ...o,
-      pricePerBaseUnit: offerPricePerBase(o),
+      pricePerBaseUnit: offerPricePerBase(o, mi),
     }))
-    return { ...si, matchedItem: { ...withPpb(si.matchedItem), supplierPrices } }
+    return { ...si, matchedItem: { ...withPpb(mi), supplierPrices } }
   })
   return NextResponse.json({ ...session, scanItems })
 }

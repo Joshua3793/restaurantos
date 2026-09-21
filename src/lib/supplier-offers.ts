@@ -5,27 +5,16 @@
 
 import { prisma } from '@/lib/prisma'
 import { getUnitConv } from '@/lib/utils'
-import { pricePerBaseUnit as chainPpb } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
 
-/**
- * An offer's price-per-base-unit, derived from its per-offer pack chain
- * (the design's ItemOffer semantics) so cross-supplier comparison is a single
- * numeric compare. Returns 0 for an offer with no chain (should not occur
- * post-backfill — every offer row carries a packChain+pricing).
- */
-export function offerPricePerBase(offer: {
-  packChain?: unknown
-  pricing?: unknown
-}): number {
-  const chain = Array.isArray(offer.packChain) ? offer.packChain : null
-  const pricing = offer.pricing && typeof offer.pricing === 'object' ? offer.pricing : null
-  if (chain && chain.length && pricing) {
-    // pricePerBaseUnit reads only packChain + pricing; dimension/baseUnit unused.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return chainPpb({ packChain: chain, pricing } as any)
-  }
-  return 0 // no chain ⇒ unpriced offer
-}
+// offerPricePerBase is priced WITH its item (dimension + bridges), so it moved to
+// a pure file (`./offer-price`) that imports only `./item-model` — no Prisma
+// singleton — so client code (`src/lib/invoice/resolution.ts`, imported by
+// 'use client' review-UI components) can import it directly instead of pulling
+// this module's `@/lib/prisma` import into the browser bundle. Re-exported here
+// so every existing server-side import path keeps working unchanged.
+import { offerPricePerBase, type OfferItem } from '@/lib/offer-price'
+export { offerPricePerBase, type OfferItem }
 
 export interface SupplierOfferStats {
   id: string
@@ -136,7 +125,7 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
     }),
     prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
-      select: { packChain: true, baseUnit: true },
+      select: { ...PRICING_SELECT },
     }),
   ])
   if (!item || offers.length === 0) return []
@@ -182,8 +171,9 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
       supplierId: o.supplierId,
       isPrimary: o.isPrimary,
       lastPrice: Number(o.lastPrice),
-      // Chain-derived from the offer's packChain+pricing (0 if no chain).
-      pricePerBaseUnit: offerPricePerBase(o),
+      // Chain-derived from the offer's packChain+pricing, priced against the item's
+      // base unit + bridges (0 if no chain, or a cross-dimension rate with no bridge).
+      pricePerBaseUnit: offerPricePerBase(o, item),
       packChain: o.packChain ?? null,
       pricing: o.pricing ?? null,
       packQty: o.packQty !== null ? Number(o.packQty) : null,

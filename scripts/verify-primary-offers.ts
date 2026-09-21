@@ -37,14 +37,17 @@ async function main() {
     }
     const item = await prisma.inventoryItem.findUnique({
       where: { id },
-      select: { itemName: true, dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true, needsReview: true },
+      select: {
+        itemName: true, dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true, needsReview: true,
+        eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
+      },
     })
     if (!item) continue
     // Quarantined items (suspect offer chain) are knowingly item≠offer until the
     // offer data is repaired — count them, but don't assert ppb-match.
     if (item.needsReview) { quarantined++; continue }
     const itemPpb = pricePerBaseUnit(asChainItem(item))
-    const offerPpb = offerPricePerBase(primaries[0])
+    const offerPpb = offerPricePerBase(primaries[0], item)
     const rel = offerPpb > 0 ? Math.abs(itemPpb - offerPpb) / offerPpb : (itemPpb === 0 ? 0 : 1)
     if (rel > 0.005) {
       ppbMismatch++
