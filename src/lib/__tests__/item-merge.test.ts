@@ -72,6 +72,23 @@ describe('guards', () => {
   })
 
   describe('IMPORTANT Imp-2: BRIDGE_MISMATCH', () => {
+    // COUNT items: the each-measure's UNIT is part of the bridge. convertQty is a
+    // pass-through across dimensions, so normalising through baseUnit `each`
+    // compared bare numbers (re-review #4, Imp-A).
+    const countItem = (id: string, eachMeasure: { qty: number; unit: string }) =>
+      row({ id, itemName: id === 'S' ? S.itemName : A.itemName, baseUnit: 'each', dimension: 'COUNT', countUnit: 'each', packChain: [{ unit: 'case', per: 24 }], eachMeasure })
+
+    it('COUNT items: {150 g} vs {150 ml} is a DIFFERENT bridge even at the same number', () => {
+      const p = plan(countItem('S', { qty: 150, unit: 'ml' }), countItem('A', { qty: 150, unit: 'g' }), { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'g' }] })
+      if (p.ok) throw new Error('expected failure')
+      expect(p.guard).toBe('BRIDGE_MISMATCH')
+    })
+
+    it('COUNT items: {150 g} vs {0.15 kg} is the SAME bridge and merges', () => {
+      const p = plan(countItem('S', { qty: 0.15, unit: 'kg' }), countItem('A', { qty: 150, unit: 'g' }), { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'g' }] })
+      expect(p.ok).toBe(true)
+    })
+
     it('refuses when a count-bridged (each-measure) recipe line would re-cost differently on the survivor', () => {
       const s = row({ id: 'S', itemName: S.itemName, eachMeasure: { qty: 150, unit: 'g' } })
       const a = row({ id: 'A', itemName: A.itemName, eachMeasure: { qty: 200, unit: 'g' } })

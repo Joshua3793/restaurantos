@@ -133,18 +133,36 @@ function itemDims(item: MergeItemRow): ItemDims {
  *  with no canonicalisation. `canonicalUom` maps `cs`/`cases` → `case` and
  *  `pk`/`pkg` → `pack`, so using it here would declare a unit resolvable that
  *  the reader itself falls back to a bare 1:1 guess for. Match the reader
- *  exactly: trim + lowercase, nothing more. */
+ *  exactly: lowercase, nothing more (the reader does not trim either). */
 function isLegacyPackWord(unit: string, chainLength: number): boolean {
-  const u = unit.trim().toLowerCase()
+  const u = unit.toLowerCase()
   return chainLength > 0 && (u === 'case' || u === 'pack')
 }
 
-/** "1 each" as this item's own base-unit quantity, or null with no bridge. */
-function eachMeasureBase(item: MergeItemRow): number | null {
+/** "1 each" normalised into the BRIDGE's own dimension base (g or ml), or null
+ *  with no bridge. Never through `item.baseUnit`: on a COUNT item that is a
+ *  cross-dimension convertQty, which passes the number through unchanged and
+ *  drops the unit — {150,'g'} would then equal {150,'ml'} and differ from
+ *  {0.15,'kg'}. The dimension is part of the bridge: a g-bridge and an ml-bridge
+ *  are different bridges even at the same number. */
+function eachMeasureBase(item: MergeItemRow): { dim: 'g' | 'ml'; v: number } | null {
   const em = item.eachMeasure
   if (!em) return null
-  const v = convertQty(em.qty, em.unit, item.baseUnit)
-  return v > 0 ? v : null
+  const dim = dimensionOf(em.unit) === 'VOLUME' ? 'ml' : 'g'
+  const v = convertQty(toNum(em.qty), em.unit, dim)
+  return v > 0 ? { dim, v } : null
+}
+
+function eachMeasuresDiffer(a: MergeItemRow, b: MergeItemRow): boolean {
+  const x = eachMeasureBase(a), y = eachMeasureBase(b)
+  if (x === null && y === null) return false
+  if (x === null || y === null) return true
+  return x.dim !== y.dim || Math.abs(x.v - y.v) > 1e-9
+}
+
+const eachMeasureLabel = (item: MergeItemRow) => {
+  const m = eachMeasureBase(item)
+  return m ? `${m.v} ${m.dim}` : null
 }
 
 /** Null-aware, tolerant equality for a bridge value — both-null is equal
@@ -154,7 +172,7 @@ function eachMeasureBase(item: MergeItemRow): number | null {
 function bridgeValuesDiffer(a: number | null, b: number | null): boolean {
   if (a === null && b === null) return false
   if (a === null || b === null) return true
-  return Math.abs(a - b) > 1e-9
+  return Math.abs(toNum(a) - toNum(b)) > 1e-9
 }
 
 export function planMerge(
@@ -184,13 +202,13 @@ export function planMerge(
     if (riDim === absorbed.dimension) return false // same-dimension unit: never bridged
     const needsCountBridge = absorbed.dimension === 'COUNT' || riDim === 'COUNT'
     return needsCountBridge
-      ? bridgeValuesDiffer(eachMeasureBase(absorbed), eachMeasureBase(survivor))
+      ? eachMeasuresDiffer(absorbed, survivor)
       : bridgeValuesDiffer(absorbed.densityGPerMl, survivor.densityGPerMl)
   })
   if (bridgeMismatched.length > 0) {
     const firstNeedsCountBridge = absorbed.dimension === 'COUNT' || dimensionOf(bridgeMismatched[0].unit) === 'COUNT'
-    const aVal = firstNeedsCountBridge ? eachMeasureBase(absorbed) : absorbed.densityGPerMl
-    const sVal = firstNeedsCountBridge ? eachMeasureBase(survivor) : survivor.densityGPerMl
+    const aVal = firstNeedsCountBridge ? eachMeasureLabel(absorbed) : absorbed.densityGPerMl
+    const sVal = firstNeedsCountBridge ? eachMeasureLabel(survivor) : survivor.densityGPerMl
     const bridgeWord = firstNeedsCountBridge ? 'each-measure' : 'density'
     return fail('BRIDGE_MISMATCH',
       `${bridgeMismatched.length} recipe line${bridgeMismatched.length === 1 ? '' : 's'} on ${absorbed.itemName} would re-cost differently on ${survivor.itemName}: ${bridgeWord} is ${aVal ?? 'not set'} on ${absorbed.itemName} vs ${sVal ?? 'not set'} on ${survivor.itemName}. Set the same each-measure/density on ${survivor.itemName} first, then merge.`)
