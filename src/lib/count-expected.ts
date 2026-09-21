@@ -329,6 +329,9 @@ export async function buildPurchaseMap(
       invoicePackSize: true,
       invoicePackUOM: true,
       receivedQtyBase: true,
+      rawUnitPrice: true,
+      rate: true,
+      rawLineTotal: true,
       // `supplier.name` is the CANONICAL supplier name — offers are keyed by it
       // (canonicalSupplierName), while the session may carry an OCR variant. Without
       // it a legacy offer stored under the canonical name with supplierId null is
@@ -379,6 +382,9 @@ export async function buildPurchaseMap(
       invoicePackQty:  si.invoicePackQty?.toString() ?? null,
       invoicePackSize: si.invoicePackSize?.toString() ?? null,
       invoicePackUOM:  si.invoicePackUOM,
+      rawUnitPrice:    si.rawUnitPrice?.toString() ?? null,
+      rate:            si.rate?.toString() ?? null,
+      rawLineTotal:    si.rawLineTotal?.toString() ?? null,
     }, resolveLineFormat(
       asChainItem(si.matchedItem),
       // Offers are stored under the canonical supplier name; supplierId is the

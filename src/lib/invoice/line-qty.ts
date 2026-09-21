@@ -201,25 +201,34 @@ export interface MatchedItemLike {
   packChain: unknown
   pricing: unknown
   countUnit: string | null
+  /** The item's bridges. Without them the client cannot convert a weight to a
+   *  COUNT item and would validate an RC split against a different total than
+   *  the server and theoretical stock. Decimal arrives as a string. */
+  eachMeasureQty?: unknown
+  eachMeasureUnit?: string | null
+  densityGPerMl?: unknown
 }
 
 /** Received quantity expressed in the item's COUNT UOM — the number the split
- *  must add up to. Returns { qty, countUom }. `offer` is the line's supplier
- *  offer (Task 2's resolveLineFormat) — when it carries a usable pack, the line
- *  is read through THAT pack rather than the item's (which is only the primary
- *  supplier's). */
+ *  must add up to. Returns { qty, countUom, via, needsBridge }. `offer` is the
+ *  line's supplier offer (Task 2's resolveLineFormat) — when it carries a usable
+ *  pack, the line is read through THAT pack rather than the item's (which is
+ *  only the primary supplier's). */
 export function lineReceivedCountQty(
   line: LineQtyInput, matched: MatchedItemLike, offer?: OfferFormat | null,
-): { qty: number; countUom: string } {
+): { qty: number; countUom: string; via: ReceivedVia; needsBridge: boolean } {
   const chainItem = asChainItem({
     dimension: matched.dimension,
     baseUnit:  matched.baseUnit ?? 'each',
     packChain: matched.packChain,
     pricing:   matched.pricing,
     countUnit: matched.countUnit ?? undefined,
+    eachMeasureQty:  matched.eachMeasureQty,
+    eachMeasureUnit: matched.eachMeasureUnit ?? null,
+    densityGPerMl:   matched.densityGPerMl,
   })
   const dims = { dimension: matched.dimension, baseUnit: matched.baseUnit ?? 'each', packChain: matched.packChain, countUnit: matched.countUnit }
   const countUom = resolveCountUom(dims) || chainItem.baseUnit
-  const base = lineReceivedBaseUnits(line, resolveLineFormat(chainItem, offer))
-  return { qty: convertBaseToCountUom(base, countUom, dims), countUom }
+  const got = lineReceived(line, resolveLineFormat(chainItem, offer))
+  return { qty: convertBaseToCountUom(got.base, countUom, dims), countUom, via: got.via, needsBridge: got.needsBridge }
 }

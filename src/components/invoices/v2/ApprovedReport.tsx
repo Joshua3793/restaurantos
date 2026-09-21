@@ -20,6 +20,7 @@ import { formatCurrency } from '@/lib/invoice/formatters'
 import { derivePricingMode, isCatchweight } from '@/lib/invoice/predicates'
 import { computeCostPerUOM, reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { offerForSupplier, type SupplierRef } from '@/lib/invoice/resolution'
 
 // ── small helpers ─────────────────────────────────────────────────────────────
@@ -97,17 +98,10 @@ function unitPriceLabel(item: ScanItem): string | null {
  *  Returns qty 0 (rather than null) when the line credited nothing, so the report
  *  can say so out loud: a line with no billed quantity is invisible to theoretical
  *  stock, and that gap is exactly what an approved-invoice report should surface. */
-function stockEffect(item: ScanItem, supplier: SupplierRef): { qty: number; countUom: string } | null {
+function stockEffect(item: ScanItem, supplier: SupplierRef): ReturnType<typeof lineReceivedCountQty> | null {
   if (!item.matchedItem || item.action === 'SKIP') return null
-  const m = item.matchedItem
   try {
-    return lineReceivedCountQty(item, {
-      dimension: m.dimension ?? 'COUNT',
-      baseUnit:  m.baseUnit ?? 'each',
-      packChain: m.packChain,
-      pricing:   m.pricing,
-      countUnit: m.countUnit ?? null,
-    }, offerForSupplier(item, supplier))
+    return lineReceivedCountQty(item, matchedLikeOf(item.matchedItem), offerForSupplier(item, supplier))
   } catch {
     return null
   }

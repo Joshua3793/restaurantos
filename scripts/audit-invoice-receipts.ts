@@ -1,3 +1,4 @@
+// Historical audit: predates line-first receiving (2026-09-21); its inputs omit the money fields on purpose.
 /**
  * READ-ONLY audit of what approved invoice lines actually credited to theoretical
  * stock, versus what the invoice itself says was received.

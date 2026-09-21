@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { lineReceivedBaseUnits, lineReceivedCountQty, lineReceived, billedWeightIsPriced, type LineQtyInput } from '@/lib/invoice/line-qty'
+import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { asChainItem, type ChainItem } from '@/lib/item-model'
+import type { InventoryMatch } from '@/components/invoices/types'
 
 // Item shapes taken from real rows the 2026-08-11 receipt audit flagged.
 const item = (over: Partial<Parameters<typeof asChainItem>[0]>): ChainItem =>
@@ -254,5 +256,98 @@ describe('line-first receiving — real lines from the 2026-09-20 audit', () => 
   it('lineReceivedBaseUnits is lineReceived().base for every shape above', () => {
     const l = line({ rawQty: 2, rawUnit: 'CS', totalQty: 14.6, totalQtyUOM: 'kg', rate: 8.5, rateUOM: 'kg', rawLineTotal: 124.1 })
     expect(lineReceivedBaseUnits(l, sausage)).toBe(lineReceived(l, sausage).base)
+  })
+})
+
+describe('lineReceivedCountQty carries the item bridges and the provenance', () => {
+  const matched = {
+    dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+    packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 },
+    eachMeasureQty: '181.4368', eachMeasureUnit: 'g',     // Decimal arrives as a string
+  }
+  const lb12 = { rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb', rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88' }
+
+  it('bridges a weight line to a COUNT item on the client exactly as the server does', () => {
+    const r = lineReceivedCountQty(lb12, matched)
+    expect(r.qty).toBeCloseTo(30, 1)
+    expect(r.countUom).toBe('each')
+    expect(r.needsBridge).toBe(false)
+  })
+  it('without the bridge fields it falls back and says so', () => {
+    const { eachMeasureQty: _q, eachMeasureUnit: _u, ...bare } = matched
+    const r = lineReceivedCountQty(lb12, bare)
+    expect(r.qty).toBe(288)
+    expect(r.needsBridge).toBe(true)
+  })
+})
+
+describe('client and server agree — same line, two call shapes, same answer', () => {
+  // (a) the server-shaped input exactly as buildPurchaseMap builds it (strings
+  // from Decimal .toString(), WITH the three money fields) against a full chain
+  // item incl. the each-measure, and (b) the client-shaped input (a ScanItem-like
+  // object with string fields) through lineReceivedCountQty(…, matchedLikeOf(match),
+  // offer) — converted to the same unit and compared.
+  const serverInput = (l: Record<string, unknown>): LineQtyInput => ({
+    rawQty: l.rawQty != null ? String(l.rawQty) : null,
+    rawUnit: (l.rawUnit as string | null | undefined) ?? null,
+    totalQty: l.totalQty != null ? String(l.totalQty) : null,
+    totalQtyUOM: (l.totalQtyUOM as string | null | undefined) ?? null,
+    rateUOM: (l.rateUOM as string | null | undefined) ?? null,
+    invoicePackQty: l.invoicePackQty != null ? String(l.invoicePackQty) : null,
+    invoicePackSize: l.invoicePackSize != null ? String(l.invoicePackSize) : null,
+    invoicePackUOM: (l.invoicePackUOM as string | null | undefined) ?? null,
+    rawUnitPrice: l.rawUnitPrice != null ? String(l.rawUnitPrice) : null,
+    rate: l.rate != null ? String(l.rate) : null,
+    rawLineTotal: l.rawLineTotal != null ? String(l.rawLineTotal) : null,
+  })
+
+  it('sausage: 2 CS, billed 14.6 kg, rate 8.5/kg, total 124.10 — MASS item, base g, countUnit kg', () => {
+    const rawLine = {
+      rawQty: 2, rawUnit: 'CS', totalQty: 14.6, totalQtyUOM: 'kg',
+      rate: 8.5, rateUOM: 'kg', rawUnitPrice: 8.5, rawLineTotal: 124.10,
+      invoicePackQty: 1, invoicePackSize: 7, invoicePackUOM: 'kg',
+    }
+    const sausageChain: ChainItem = asChainItem({
+      dimension: 'MASS', baseUnit: 'g', countUnit: 'kg',
+      packChain: [{ unit: 'case', per: 7000 }],
+      pricing: { mode: 'PACK', purchasePrice: 60 },
+    })
+    const serverBase = lineReceivedBaseUnits(serverInput(rawLine), sausageChain)
+
+    const match = {
+      dimension: 'MASS', baseUnit: 'g', countUnit: 'kg',
+      packChain: sausageChain.packChain, pricing: sausageChain.pricing,
+    } as unknown as InventoryMatch
+    const clientLine = serverInput(rawLine) // ScanItem-like: same string fields
+    const clientResult = lineReceivedCountQty(clientLine, matchedLikeOf(match))
+    const clientBase = clientResult.qty * 1000 // countUom 'kg' → g
+
+    expect(serverBase).toBeCloseTo(14600, 1)
+    expect(clientBase).toBeCloseTo(serverBase, 1)
+  })
+
+  it('eggplant: 12 lb @ 3.49, total 41.88 — COUNT item 24/case, each-measure 181.4368 g', () => {
+    const rawLine = {
+      rawQty: 12, rawUnit: 'lb', totalQty: 12, totalQtyUOM: 'lb',
+      rate: 3.49, rateUOM: 'lb', rawUnitPrice: 3.49, rawLineTotal: 41.88,
+    }
+    const eggplantChain: ChainItem = asChainItem({
+      dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+      packChain: [{ unit: 'case', per: 24 }],
+      pricing: { mode: 'PACK', purchasePrice: 70.3 },
+      eachMeasureQty: 181.4368, eachMeasureUnit: 'g',
+    })
+    const serverBase = lineReceivedBaseUnits(serverInput(rawLine), eggplantChain)
+
+    const match = {
+      dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+      packChain: eggplantChain.packChain, pricing: eggplantChain.pricing,
+      eachMeasureQty: '181.4368', eachMeasureUnit: 'g',
+    } as unknown as InventoryMatch
+    const clientLine = serverInput(rawLine)
+    const clientResult = lineReceivedCountQty(clientLine, matchedLikeOf(match))
+    const clientBase = clientResult.qty // countUom 'each' === base unit 'each'
+
+    expect(clientBase).toBeCloseTo(serverBase, 1)
   })
 })

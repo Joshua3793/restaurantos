@@ -36,6 +36,9 @@ async function main() {
       invoicePackQty: true,
       invoicePackSize: true,
       invoicePackUOM: true,
+      rawUnitPrice: true,
+      rate: true,
+      rawLineTotal: true,
       session: {
         select: {
           supplierId: true,
@@ -71,6 +74,9 @@ async function main() {
       invoicePackQty: l.invoicePackQty?.toString() ?? null,
       invoicePackSize: l.invoicePackSize?.toString() ?? null,
       invoicePackUOM: l.invoicePackUOM,
+      rawUnitPrice: l.rawUnitPrice?.toString() ?? null,
+      rate: l.rate?.toString() ?? null,
+      rawLineTotal: l.rawLineTotal?.toString() ?? null,
     }
     const chain = asChainItem(l.matchedItem)
     const old = lineReceivedBaseUnits(input, chain)

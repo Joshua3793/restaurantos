@@ -12,6 +12,7 @@ import { classifyDimensionRelationship } from './classify'
 import { computeNormalisedPrices, computeLineMath } from './calculations'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
@@ -32,13 +33,11 @@ export function hasInvalidRcSplit(item: ScanItem, ref?: SupplierRef): boolean {
   // validated the live one, so on a re-approve of a line whose format changed
   // the client called a split valid that the server then dropped, silently.
   const live = { ...(item as unknown as Parameters<typeof lineReceivedCountQty>[0]), receivedQtyBase: null }
-  const { qty: total } = lineReceivedCountQty(live, {
-    dimension: item.matchedItem.dimension ?? 'COUNT',
-    baseUnit:  item.matchedItem.baseUnit ?? 'each',
-    packChain: item.matchedItem.packChain,
-    pricing:   item.matchedItem.pricing,
-    countUnit: item.matchedItem.countUnit ?? null,
-  }, ref ? offerForSupplier(item, ref) : null)
+  const { qty: total } = lineReceivedCountQty(
+    live,
+    matchedLikeOf(item.matchedItem),
+    ref ? offerForSupplier(item, ref) : null,
+  )
   if (!(total > 0)) return true
   const sum = entries.reduce((s, e) => s + Number(e.qty), 0)
   return Math.abs(sum - total) > Math.max(0.001, total * 0.005)

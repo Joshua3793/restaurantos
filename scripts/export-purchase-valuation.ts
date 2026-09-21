@@ -79,6 +79,9 @@ async function main() {
     invoicePackQty: dec(l.invoicePackQty),
     invoicePackSize: dec(l.invoicePackSize),
     invoicePackUOM: l.invoicePackUOM,
+    rawUnitPrice: dec(l.rawUnitPrice),
+    rate: dec(l.rate),
+    rawLineTotal: dec(l.rawLineTotal),
   })
 
   for (const l of lines) {

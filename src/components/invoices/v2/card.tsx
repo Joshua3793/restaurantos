@@ -8,6 +8,7 @@ import { useRef, useState, useEffect } from 'react'
 import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, Split, Plus, X, AlertTriangle, type LucideIcon } from 'lucide-react'
 import { rcHex } from '@/lib/rc-colors'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { useDrawerContext } from './context'
 import { LineNumberChip, type IssueKind } from './atoms'
@@ -101,13 +102,11 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   // RC split: the line's received quantity (count UOM) is the target the split
   // must sum to; the line total is what the money shares must reconcile to.
   const received = item.matchedItem
-    ? lineReceivedCountQty(item as unknown as Parameters<typeof lineReceivedCountQty>[0], {
-        dimension: item.matchedItem.dimension ?? 'COUNT',
-        baseUnit:  item.matchedItem.baseUnit ?? 'each',
-        packChain: item.matchedItem.packChain,
-        pricing:   item.matchedItem.pricing,
-        countUnit: item.matchedItem.countUnit ?? null,
-      }, offerForSupplier(item, sessionSupplier))
+    ? lineReceivedCountQty(
+        item as unknown as Parameters<typeof lineReceivedCountQty>[0],
+        matchedLikeOf(item.matchedItem),
+        offerForSupplier(item, sessionSupplier),
+      )
     : null
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0

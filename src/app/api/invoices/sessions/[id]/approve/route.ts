@@ -125,6 +125,9 @@ async function doApprove(
       invoicePackQty:  scanItem.invoicePackQty?.toString() ?? null,
       invoicePackSize: scanItem.invoicePackSize?.toString() ?? null,
       invoicePackUOM:  scanItem.invoicePackUOM,
+      rawUnitPrice:    scanItem.rawUnitPrice?.toString() ?? null,
+      rate:            scanItem.rate?.toString() ?? null,
+      rawLineTotal:    scanItem.rawLineTotal?.toString() ?? null,
     })
 
     // The frozen receipt of every line this approval resolved, kept in memory so
