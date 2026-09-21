@@ -14,6 +14,8 @@ import {
   dimensionOf,
   invoicePackBaseTotal,
   packFormatsDisagree,
+  ratePerBase,
+  rateIsCostable,
   type ChainItem,
 } from '@/lib/item-model'
 import { formToChain, type ItemFormInput } from '@/lib/item-model-form'
@@ -105,7 +107,7 @@ describe('validateChainItem', () => {
     expect(validateChainItem({ ...oil, countUnit: 'kg' })).toContain('countUnit must be a chain level or a same-dimension unit')
     expect(
       validateChainItem({ ...salmon, pricing: { mode: 'RATE', rate: 8.5, rateUnit: 'l' } }),
-    ).toContain('RATE.rateUnit must share the item dimension')
+    ).toContain('RATE.rateUnit must share the item dimension (or be bridged by the item’s each-measure / density)')
   })
 })
 
@@ -221,5 +223,62 @@ describe('packFormatsDisagree', () => {
   it('stays silent on unusable input rather than reporting a false conflict', () => {
     expect(packFormatsDisagree(0, 3000).disagree).toBe(false)
     expect(packFormatsDisagree(3000, 0).disagree).toBe(false)
+  })
+})
+
+describe('ratePerBase — a rate in another dimension prices through the ITEM bridge', () => {
+  const eggplant = { dimension: 'COUNT' as const, baseUnit: 'each', eachMeasure: { qty: 0.4, unit: 'lb' }, densityGPerMl: null }
+  const lettuce  = { dimension: 'COUNT' as const, baseUnit: 'each', eachMeasure: { qty: 250, unit: 'g' }, densityGPerMl: null }
+  const bare     = { dimension: 'COUNT' as const, baseUnit: 'each', eachMeasure: null, densityGPerMl: null }
+
+  it('same dimension is UNCHANGED (rate ÷ conv)', () => {
+    expect(ratePerBase(25, 'kg', { dimension: 'MASS', baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+    expect(ratePerBase(1.99, 'each', bare)).toBeCloseTo(1.99)
+  })
+  it('COUNT item, $/lb: $/g × g per each', () => {
+    expect(ratePerBase(3.49, 'lb', eggplant)).toBeCloseTo(1.396, 3)   // 3.49 × 0.4
+    expect(ratePerBase(5.25, 'lb', lettuce)).toBeCloseTo(2.894, 3)    // 5.25 / 453.592 × 250
+  })
+  it('the derived price moves with the each-measure, nothing stored changes', () => {
+    expect(ratePerBase(5.25, 'lb', { ...lettuce, eachMeasure: { qty: 100, unit: 'g' } })).toBeCloseTo(1.157, 3)
+  })
+  it('measured item, $/each: rate ÷ base per each', () => {
+    const limes = { dimension: 'MASS' as const, baseUnit: 'g', eachMeasure: { qty: 67, unit: 'g' }, densityGPerMl: null }
+    expect(ratePerBase(0.5, 'each', limes)).toBeCloseTo(0.5 / 67, 6)
+  })
+  it('MASS ↔ VOLUME crosses through density, both directions', () => {
+    const oil = { dimension: 'VOLUME' as const, baseUnit: 'ml', eachMeasure: null, densityGPerMl: 0.92 }
+    expect(ratePerBase(10, 'kg', oil)).toBeCloseTo(0.01 * 0.92, 6)          // $/g × g/ml
+    const honey = { dimension: 'MASS' as const, baseUnit: 'g', eachMeasure: null, densityGPerMl: 1.42 }
+    expect(ratePerBase(14.2, 'l', honey)).toBeCloseTo(0.0142 / 1.42, 6)     // $/ml ÷ g/ml
+  })
+  it('no bridge → 0 (unpriced), never rate ÷ conv', () => {
+    expect(ratePerBase(3.49, 'lb', bare)).toBe(0)
+    expect(ratePerBase(3.49, 'lb', { ...eggplant, eachMeasure: { qty: 300, unit: 'ml' } })).toBe(0) // bridge is in the wrong dimension
+    expect(ratePerBase(10, 'kg', { dimension: 'VOLUME', baseUnit: 'ml', eachMeasure: null, densityGPerMl: null })).toBe(0)
+  })
+  it('garbage in → 0', () => {
+    expect(ratePerBase(NaN, 'lb', eggplant)).toBe(0)
+    expect(ratePerBase(3.49, '', eggplant)).toBe(0)
+  })
+  it('rateIsCostable mirrors it', () => {
+    expect(rateIsCostable('lb', eggplant)).toBe(true)
+    expect(rateIsCostable('lb', bare)).toBe(false)
+    expect(rateIsCostable('each', bare)).toBe(true)
+  })
+})
+
+describe('pricePerBaseUnit / validateChainItem with a bridged RATE', () => {
+  const item: ChainItem = {
+    dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }],
+    pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' }, eachMeasure: { qty: 0.4, unit: 'lb' },
+  }
+  it('prices through the bridge', () => expect(pricePerBaseUnit(item)).toBeCloseTo(1.396, 3))
+  it('is valid WITH the bridge and invalid without it', () => {
+    expect(validateChainItem(item)).toEqual([])
+    expect(validateChainItem({ ...item, eachMeasure: null })).toContain('RATE.rateUnit must share the item dimension (or be bridged by the item’s each-measure / density)')
+  })
+  it('PACK is untouched', () => {
+    expect(pricePerBaseUnit({ ...item, pricing: { mode: 'PACK', purchasePrice: 70.3 } })).toBeCloseTo(70.3 / 24)
   })
 })

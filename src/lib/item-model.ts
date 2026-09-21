@@ -79,13 +79,58 @@ export function basePerUnit(item: ChainItem, unit: string): number {
   return 1
 }
 
+type RateItem = Pick<ChainItem, 'dimension' | 'baseUnit' | 'eachMeasure' | 'densityGPerMl'>
+
+/** Base units (g | ml) in ONE each, or null when the item has no usable each-measure. */
+function basePerEach(item: RateItem): { dim: Dimension; v: number } | null {
+  const em = item.eachMeasure
+  if (!em || !(Number(em.qty) > 0) || !em.unit) return null
+  const dim = dimensionOf(em.unit)
+  if (dim === 'COUNT') return null
+  return { dim, v: Number(em.qty) * getUnitConv(em.unit) }
+}
+
+/** Can a price quoted per `rateUnit` be expressed per this item's base unit? */
+export function rateIsCostable(rateUnit: string, item: RateItem): boolean {
+  if (!rateUnit) return false
+  const rd = dimensionOf(rateUnit)
+  if (rd === item.dimension) return true
+  if (rd === 'COUNT' || item.dimension === 'COUNT') {
+    const b = basePerEach(item)
+    return !!b && b.dim === (rd === 'COUNT' ? item.dimension : rd)
+  }
+  return Number(item.densityGPerMl) > 0 // MASS ↔ VOLUME
+}
+
+/**
+ * $ per the ITEM's base unit for a price quoted per `rateUnit`.
+ *  • same dimension            → rate ÷ conv(rateUnit)              (unchanged)
+ *  • COUNT item, $/lb          → $/g × g per each                   (each-measure)
+ *  • measured item, $/each     → rate ÷ base per each
+ *  • MASS ↔ VOLUME             → × or ÷ density (g/ml)
+ *  • no bridge                 → 0: UNPRICED. Never rate ÷ conv — that is a $/g
+ *                                number wearing a $/each label.
+ * The supplier's real price is what is stored; $/each is DERIVED here, so it
+ * follows the each-measure when a human corrects it.
+ */
+export function ratePerBase(rate: number, rateUnit: string, item: RateItem): number {
+  const r = Number(rate)
+  if (!Number.isFinite(r) || !(r > 0) || !rateUnit || !rateIsCostable(rateUnit, item)) return 0
+  const conv = getUnitConv(rateUnit)
+  if (!(conv > 0)) return 0
+  const perRateBase = r / conv                       // $/g, $/ml or $/each
+  const rd = dimensionOf(rateUnit)
+  if (rd === item.dimension) return perRateBase
+  if (item.dimension === 'COUNT') return perRateBase * basePerEach(item)!.v
+  if (rd === 'COUNT') return perRateBase / basePerEach(item)!.v
+  const d = Number(item.densityGPerMl)
+  return rd === 'MASS' ? perRateBase * d : perRateBase / d   // → $/ml, or → $/g
+}
+
 /** THE algorithm — pure, total, branch-free except the explicit pricing mode. */
 export function pricePerBaseUnit(item: ChainItem): number {
   const p = item.pricing
-  if (p?.mode === 'RATE') {
-    const conv = getUnitConv(p.rateUnit)
-    return conv > 0 ? Number(p.rate || 0) / conv : 0
-  }
+  if (p?.mode === 'RATE') return ratePerBase(Number(p.rate || 0), p.rateUnit, item)
   const denom = basePerPurchase(item.packChain)
   return denom > 0 ? Number((p as { purchasePrice?: number })?.purchasePrice || 0) / denom : 0
 }
@@ -169,8 +214,8 @@ export function validateChainItem(item: ChainItem): string[] {
     if (!(item.countUnit in lv) && dimensionOf(item.countUnit) !== item.dimension)
       errs.push('countUnit must be a chain level or a same-dimension unit')
   }
-  if (item.pricing?.mode === 'RATE' && dimensionOf(item.pricing.rateUnit) !== item.dimension)
-    errs.push('RATE.rateUnit must share the item dimension')
+  if (item.pricing?.mode === 'RATE' && !rateIsCostable(item.pricing.rateUnit, item))
+    errs.push('RATE.rateUnit must share the item dimension (or be bridged by the item’s each-measure / density)')
   return errs
 }
 
