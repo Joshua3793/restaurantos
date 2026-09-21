@@ -282,3 +282,29 @@ describe('pricePerBaseUnit / validateChainItem with a bridged RATE', () => {
     expect(pricePerBaseUnit({ ...item, pricing: { mode: 'PACK', purchasePrice: 70.3 } })).toBeCloseTo(70.3 / 24)
   })
 })
+
+describe('ratePerBase — an UNKNOWN item dimension is not a MISMATCHED one', () => {
+  // Hand-built ChainItems reach this function from many call sites; one of them
+  // (offerPricePerBase) used to pass only { packChain, pricing }. Treating
+  // `dimension: undefined` as "another dimension" silently priced 56 of 259 live
+  // supplier offers at $0. Unknown → derive it from baseUnit; nothing to derive
+  // from → the old same-dimension behaviour (rate ÷ conv). Only a KNOWN
+  // cross-dimension pair with no bridge is unpriced.
+  const noDim = (over: Record<string, unknown>) => ({ eachMeasure: null, densityGPerMl: null, ...over }) as never
+
+  it('dimension missing, baseUnit present → derived from baseUnit', () => {
+    expect(ratePerBase(25, 'kg', noDim({ baseUnit: 'g' }))).toBeCloseTo(0.025)
+    expect(ratePerBase(3.49, 'lb', noDim({ baseUnit: 'each' }))).toBe(0)            // known COUNT, no bridge → unpriced
+    expect(ratePerBase(3.49, 'lb', noDim({ baseUnit: 'each', eachMeasure: { qty: 0.4, unit: 'lb' } }))).toBeCloseTo(1.396, 3)
+  })
+  it('dimension AND baseUnit missing → the old behaviour, rate ÷ conv', () => {
+    expect(ratePerBase(25, 'kg', noDim({}))).toBeCloseTo(0.025)
+    expect(rateIsCostable('kg', noDim({}))).toBe(true)
+  })
+  it('pricePerBaseUnit on { packChain, pricing } alone still prices a RATE (the offer shape)', () => {
+    expect(pricePerBaseUnit({ packChain: [{ unit: 'kg', per: 1000 }], pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' } } as never)).toBeCloseTo(0.025)
+  })
+  it('a present dimension always wins over baseUnit', () => {
+    expect(ratePerBase(25, 'kg', { dimension: 'MASS', baseUnit: 'each', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+  })
+})
