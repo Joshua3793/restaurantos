@@ -59,10 +59,19 @@ export function offerForSupplier(item: ScanItem, ref: SupplierRef) {
   return pickOffer(item.matchedItem?.supplierPrices ?? null, ref)
 }
 
+// EVERY row belonging to `ref`'s supplier — not just the one pickOffer chose. The
+// unique key is (item, supplierName), so one supplier can still own two rows under
+// OCR name variants; neither is an "other" supplier.
+function isSameSupplier(o: { supplierId?: string | null; supplierName: string }, ref: SupplierRef): boolean {
+  if (ref.supplierId && o.supplierId) return o.supplierId === ref.supplierId
+  return (!!ref.supplierName && o.supplierName === ref.supplierName)
+    || (!!ref.canonicalName && o.supplierName === ref.canonicalName)
+}
+
 /** Cheapest OTHER supplier's offer, for the supplier-switch note. */
 export function cheapestOtherOffer(item: ScanItem, ref: SupplierRef) {
   const offers = (item.matchedItem?.supplierPrices ?? [])
-    .filter(o => o !== offerForSupplier(item, ref) && offerPricePerBase(o) > 0)
+    .filter(o => !isSameSupplier(o, ref) && offerPricePerBase(o) > 0)
   if (offers.length === 0) return null
   return offers.reduce((min, o) => offerPricePerBase(o) < offerPricePerBase(min) ? o : min)
 }
