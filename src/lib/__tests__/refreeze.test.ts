@@ -58,23 +58,23 @@ describe('isMaterialChange', () => {
 // explicit modes, refuse anything else.
 describe('parseMode', () => {
   it('no flags: dry run of fill-null mode', () => {
-    expect(parseMode([])).toEqual({ mode: 'fill-null', apply: false })
+    expect(parseMode([])).toEqual({ mode: 'fill-null', apply: false, skipPackPath: false })
   })
 
   it('--refreeze alone: dry run of refreeze mode', () => {
-    expect(parseMode(['--refreeze'])).toEqual({ mode: 'refreeze', apply: false })
+    expect(parseMode(['--refreeze'])).toEqual({ mode: 'refreeze', apply: false, skipPackPath: false })
   })
 
   it('--refreeze --apply: applies the refreeze mode', () => {
-    expect(parseMode(['--refreeze', '--apply'])).toEqual({ mode: 'refreeze', apply: true })
+    expect(parseMode(['--refreeze', '--apply'])).toEqual({ mode: 'refreeze', apply: true, skipPackPath: false })
   })
 
   it('--fill-null --apply: applies the original fill-null mode', () => {
-    expect(parseMode(['--fill-null', '--apply'])).toEqual({ mode: 'fill-null', apply: true })
+    expect(parseMode(['--fill-null', '--apply'])).toEqual({ mode: 'fill-null', apply: true, skipPackPath: false })
   })
 
   it('--fill-null alone: dry run, ok', () => {
-    expect(parseMode(['--fill-null'])).toEqual({ mode: 'fill-null', apply: false })
+    expect(parseMode(['--fill-null'])).toEqual({ mode: 'fill-null', apply: false, skipPackPath: false })
   })
 
   it('a bare --apply (no mode flag) is refused', () => {
@@ -90,5 +90,17 @@ describe('parseMode', () => {
   it('an unrecognised flag is refused', () => {
     const r = parseMode(['--aply'])
     expect('error' in r).toBe(true)
+  })
+})
+
+describe('parseMode — --skip-pack-path', () => {
+  it('is accepted only with --refreeze, and is carried on the result', () => {
+    expect(parseMode(['--refreeze', '--apply', '--skip-pack-path'])).toEqual({ mode: 'refreeze', apply: true, skipPackPath: true })
+    expect(parseMode(['--refreeze', '--skip-pack-path'])).toEqual({ mode: 'refreeze', apply: false, skipPackPath: true })
+    expect(parseMode(['--refreeze', '--apply'])).toEqual({ mode: 'refreeze', apply: true, skipPackPath: false })
+  })
+  it('is refused in fill-null mode and on its own', () => {
+    expect(parseMode(['--fill-null', '--apply', '--skip-pack-path'])).toHaveProperty('error')
+    expect(parseMode(['--skip-pack-path'])).toHaveProperty('error')
   })
 })

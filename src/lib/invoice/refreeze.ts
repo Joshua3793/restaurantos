@@ -33,10 +33,10 @@ export function isMaterialChange(prev: number, next: number): boolean {
 }
 
 export type ParsedMode =
-  | { mode: 'fill-null' | 'refreeze'; apply: boolean }
+  | { mode: 'fill-null' | 'refreeze'; apply: boolean; skipPackPath: boolean }
   | { error: string }
 
-const KNOWN_FLAGS = new Set(['--refreeze', '--fill-null', '--apply'])
+const KNOWN_FLAGS = new Set(['--refreeze', '--fill-null', '--apply', '--skip-pack-path'])
 
 /**
  * The script's mode is no longer inferred from an ambient "no flags = default"
@@ -71,5 +71,12 @@ export function parseMode(argv: string[]): ParsedMode {
         'NULL-filling mode explicitly.',
     }
   }
-  return { mode: refreeze ? 'refreeze' : 'fill-null', apply }
+  // --skip-pack-path: write ONLY the lines that move TO a weight and leave any line
+  // that would change along a pack path untouched (and listed). Without it, a
+  // pack-path change ABORTS the apply. It never widens what is written.
+  const skipPackPath = argv.includes('--skip-pack-path')
+  if (skipPackPath && !refreeze) {
+    return { error: '--skip-pack-path only applies to --refreeze.' }
+  }
+  return { mode: refreeze ? 'refreeze' : 'fill-null', apply, skipPackPath }
 }

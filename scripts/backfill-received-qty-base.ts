@@ -50,12 +50,13 @@ const argv = process.argv.slice(2)
 const parsed = parseMode(argv)
 if ('error' in parsed) {
   console.error(parsed.error)
-  console.error('Usage: backfill-received-qty-base.ts [--refreeze [--apply] | --fill-null --apply]')
+  console.error('Usage: backfill-received-qty-base.ts [--refreeze [--apply [--skip-pack-path]] | --fill-null --apply]')
   process.exit(2)
 }
 
 const REFREEZE = parsed.mode === 'refreeze'
 const APPLY = parsed.apply
+const SKIP_PACK_PATH = parsed.skipPackPath
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 
 // Per-case lines that carry a stray billed-weight column but NO printed rate that
@@ -379,7 +380,7 @@ async function runRefreeze(lines: ScanLine[]) {
   }
 
   const diff: DiffRow[] = []
-  const writes: { id: string; next: number; prev: string | null }[] = []
+  const writes: { id: string; next: number; prev: string | null; via: string }[] = []
   let skippedZero = 0
   for (const l of lines) {
     const computed = next.get(l.id)
@@ -391,7 +392,7 @@ async function runRefreeze(lines: ScanLine[]) {
     const old = Number(l.receivedQtyBase ?? 0)
     if (!isMaterialChange(old, computed.base)) continue
     diff.push(buildDiffRow(l, computed, old))
-    writes.push({ id: l.id, next: computed.base, prev: l.receivedQtyBase?.toString() ?? null })
+    writes.push({ id: l.id, next: computed.base, prev: l.receivedQtyBase?.toString() ?? null, via: computed.via })
   }
 
   // The diff file is { changed, orphans } — not a bare array — so the orphan
@@ -469,10 +470,16 @@ async function runRefreeze(lines: ScanLine[]) {
   // human reviewed. If a pack edit or an approval landed since the dry run, lines can
   // move along a pack path — a change nobody looked at. The rule itself only ever
   // moves a line TO a weight, so anything here means the data shifted: stop.
-  if (packPathChanges.length > 0) {
+  const isPackPath = (via: string) => ['printed-pack', 'item-pack', 'none'].includes(baseViaOf(via))
+  if (packPathChanges.length > 0 && SKIP_PACK_PATH) {
+    const before = writes.length
+    for (let i = writes.length - 1; i >= 0; i--) if (isPackPath(writes[i].via)) writes.splice(i, 1)
+    console.log(`\n--skip-pack-path: ${before - writes.length} pack-path line(s) EXCLUDED from the write and left as they are (listed above).`)
+  } else if (packPathChanges.length > 0) {
     console.error(
       `\nABORTING before any write — ${packPathChanges.length} line(s) would change along a PACK path. ` +
-      'That is not the rule: something else changed since the dry run. Re-run the dry run and review it.',
+      'That is not the rule: something else changed since the dry run. Re-run the dry run and review it, ' +
+      'or pass --skip-pack-path to write only the lines that move TO a weight.',
     )
     process.exitCode = 1
     return
