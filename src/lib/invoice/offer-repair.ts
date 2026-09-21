@@ -7,18 +7,10 @@
 // packUOM) — only `pricing` + `lastPrice` move, exactly like the PRIMARY-offer
 // spine write in src/lib/primary-offer.ts.
 
-import { canonicalUom, UNIT_FACTORS } from '@/lib/uom'
+import { canonicalUom } from '@/lib/uom'
 import { type ChainItem, type Pricing, rateIsCostable } from '@/lib/item-model'
 import { lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
-import { weightBasisRate } from '@/lib/invoice/approve-format'
-
-/** A weight/volume unit the canonical table knows — never a count or container.
- *  Mirrors the private helper of the same name in line-qty.ts / approve-format.ts. */
-function isMeasureUnit(u: string | null | undefined): boolean {
-  if (!u) return false
-  const f = UNIT_FACTORS[canonicalUom(u)]
-  return !!f && f.dim !== 'count'
-}
+import { weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 
 /** The fields of the offer under repair this module needs. */
 export interface RepairOffer {
@@ -83,8 +75,10 @@ export function planOfferRepair(a: RepairInput): RepairPlan {
     return { action: 'skip', reason: 'offer is already a weight RATE' }
   }
 
-  const rawRateUnit = lastLine.rateUOM ?? lastLine.totalQtyUOM ?? lastLine.rawUnit ?? null
-  const rateUnit = canonicalUom(rawRateUnit)
+  // The first unit on the line that is a MEASURE — a container token ('CS') is a
+  // COUNT unit, so `rateIsCostable` alone would wave it through on an each-item.
+  const rawRateUnit = [lastLine.rateUOM, lastLine.totalQtyUOM, lastLine.rawUnit].find(isMeasureUnit) ?? null
+  const rateUnit = rawRateUnit ? canonicalUom(rawRateUnit) : ''
   if (!rateUnit || !rateIsCostable(rateUnit, item)) {
     return {
       action: 'skip',
@@ -118,5 +112,9 @@ export function planOfferRepair(a: RepairInput): RepairPlan {
     fallback,
   })
 
+  // Never a silent $0: a refused / underivable rate is not a repair.
+  if (!Number.isFinite(rate) || !(rate > 0)) {
+    return { action: 'skip', reason: 'no per-weight rate could be read or derived from the line' }
+  }
   return { action: 'rewrite', pricing: { mode: 'RATE', rate, rateUnit }, lastPrice: rate }
 }

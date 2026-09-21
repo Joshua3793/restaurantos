@@ -77,16 +77,21 @@ describe('planOfferRepair — an item with no bridge for the rate unit → skip'
     // COUNT-denominated rate to its base unit — so the rate this offer would be
     // rewritten to can never be costed and must not be silently priced as 0.
     const item = asChainItem({
-      dimension: 'MASS', baseUnit: 'g',
+      // (controller, after review) the rate unit is now the line's first MEASURE
+      // unit, so 'CS' no longer reaches this rule; the honest no-bridge shape is a
+      // VOLUME item billed by weight with no density.
+      dimension: 'VOLUME', baseUnit: 'ml',
       packChain: [{ unit: 'case', per: 9072 }],
       pricing: { mode: 'PACK', purchasePrice: 200 },
       eachMeasureQty: null, eachMeasureUnit: null,
     })
     const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 22 }, lastPrice: 22, isPrimary: false }
-    const line: RepairLine = { rawQty: 18.4, rawUnit: 'lb', rate: 41.88, rateUOM: 'CS', rawLineTotal: 41.88 }
+    const line: RepairLine = { rawQty: 18.4, rawUnit: 'lb', rate: 2.28, rateUOM: 'lb', rawLineTotal: 41.88 }
     const plan = planOfferRepair({ offer, item, lastLine: line })
     expect(plan.action).toBe('skip')
-    if (plan.action === 'skip') expect(plan.reason).toMatch(/no bridge/)
+    // An unbridgeable line cannot be RECEIVED by weight either, so the receiving rule
+    // refuses it first; the no-bridge rule behind it is a defensive second net.
+    if (plan.action === 'skip') expect(plan.reason).toMatch(/no bridge|not received by weight/)
   })
 })
 
@@ -116,5 +121,22 @@ describe('planOfferRepair — packChain and the provenance triple are never touc
     const plan = planOfferRepair({ offer, item, lastLine: weightLine(12, 3.49, 41.88) })
     expect(plan.action).toBe('rewrite')
     expect(Object.keys(plan)).toEqual(['action', 'pricing', 'lastPrice'])
+  })
+})
+
+describe('planOfferRepair — a container rate unit is never a rate denominator', () => {
+  const item = weightItem({ q: 0.4, u: 'lb' })
+  const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 41.88 }, lastPrice: 41.88, isPrimary: false }
+  it("rate printed per 'CS' on a line shipped in lb, with a total → the rate is DERIVED per lb", () => {
+    const plan = planOfferRepair({ offer, item, lastLine: { ...weightLine(12, 41.88, 41.88), rateUOM: 'CS', totalQty: null, totalQtyUOM: null } })
+    expect(plan.action).toBe('rewrite')
+    if (plan.action === 'rewrite') {
+      expect(plan.pricing).toMatchObject({ mode: 'RATE', rateUnit: 'lb' })
+      expect((plan.pricing as { rate: number }).rate).toBeCloseTo(3.49, 2)
+    }
+  })
+  it('…and with no total there is nothing to derive from → skip, never a $0 rewrite', () => {
+    const plan = planOfferRepair({ offer, item, lastLine: { ...weightLine(12, 41.88, 0), rateUOM: 'CS', totalQty: null, totalQtyUOM: null, rawLineTotal: null } })
+    expect(plan.action).toBe('skip')
   })
 })
