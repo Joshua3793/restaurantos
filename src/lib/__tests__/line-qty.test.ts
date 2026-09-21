@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { lineReceivedBaseUnits, lineReceivedCountQty, lineReceived, billedWeightIsPriced, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { matchedLikeOf } from '@/lib/invoice/matched-like'
+import { resolveLineFormat, pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
+import { liveLineOf, offerForSupplier } from '@/lib/invoice/resolution'
 import { asChainItem, type ChainItem } from '@/lib/item-model'
-import type { InventoryMatch } from '@/components/invoices/types'
+import type { ScanItem } from '@/components/invoices/types'
 
 // Item shapes taken from real rows the 2026-08-11 receipt audit flagged.
 const item = (over: Partial<Parameters<typeof asChainItem>[0]>): ChainItem =>
@@ -281,73 +283,224 @@ describe('lineReceivedCountQty carries the item bridges and the provenance', () 
   })
 })
 
-describe('client and server agree — same line, two call shapes, same answer', () => {
-  // (a) the server-shaped input exactly as buildPurchaseMap builds it (strings
-  // from Decimal .toString(), WITH the three money fields) against a full chain
-  // item incl. the each-measure, and (b) the client-shaped input (a ScanItem-like
-  // object with string fields) through lineReceivedCountQty(…, matchedLikeOf(match),
-  // offer) — converted to the same unit and compared.
-  const serverInput = (l: Record<string, unknown>): LineQtyInput => ({
-    rawQty: l.rawQty != null ? String(l.rawQty) : null,
-    rawUnit: (l.rawUnit as string | null | undefined) ?? null,
-    totalQty: l.totalQty != null ? String(l.totalQty) : null,
-    totalQtyUOM: (l.totalQtyUOM as string | null | undefined) ?? null,
-    rateUOM: (l.rateUOM as string | null | undefined) ?? null,
-    invoicePackQty: l.invoicePackQty != null ? String(l.invoicePackQty) : null,
-    invoicePackSize: l.invoicePackSize != null ? String(l.invoicePackSize) : null,
-    invoicePackUOM: (l.invoicePackUOM as string | null | undefined) ?? null,
-    rawUnitPrice: l.rawUnitPrice != null ? String(l.rawUnitPrice) : null,
-    rate: l.rate != null ? String(l.rate) : null,
-    rawLineTotal: l.rawLineTotal != null ? String(l.rawLineTotal) : null,
-  })
+describe('client and server agree — genuinely independent build paths', () => {
+  // The client and server build their LineQtyInput from completely different
+  // starting shapes and different code:
+  //   server — a raw Prisma-row-like object, Decimal-stringified field-by-field
+  //            exactly as buildPurchaseMap (count-expected.ts) does, resolved via
+  //            resolveLineFormat(asChainItem(matchedItem), pickOffer(...)).
+  //   client — a genuine ScanItem literal (string fields, every OTHER ScanItem
+  //            field a real line carries) with matchedItem an InventoryMatch
+  //            literal (incl. supplierPrices), pushed straight through
+  //            liveLineOf → lineReceivedCountQty(…, matchedLikeOf(item.matchedItem),
+  //            offerForSupplier(item, ref)) exactly as card.tsx's `received` does.
+  // No helper is shared between the two builds — sharing one is exactly the bug
+  // this test exists to catch (a helper that "agrees with itself" proves nothing).
 
-  it('sausage: 2 CS, billed 14.6 kg, rate 8.5/kg, total 124.10 — MASS item, base g, countUnit kg', () => {
-    const rawLine = {
-      rawQty: 2, rawUnit: 'CS', totalQty: 14.6, totalQtyUOM: 'kg',
-      rate: 8.5, rateUOM: 'kg', rawUnitPrice: 8.5, rawLineTotal: 124.10,
+  it('sausage: 2 CS, billed 14.6 kg, rate 8.5/kg, total 124.10 — MASS item, base g, countUnit kg, no offer', () => {
+    // ── server: a Prisma-row-like object, field-by-field as buildPurchaseMap builds it ──
+    const si = {
+      receivedQtyBase: null as number | null,
+      rawQty: 2, rawUnit: 'CS',
+      totalQty: 14.6, totalQtyUOM: 'kg',
+      rateUOM: 'kg',
       invoicePackQty: 1, invoicePackSize: 7, invoicePackUOM: 'kg',
+      rawUnitPrice: 8.5, rate: 8.5, rawLineTotal: 124.10,
     }
-    const sausageChain: ChainItem = asChainItem({
+    const matchedItemRow = {
       dimension: 'MASS', baseUnit: 'g', countUnit: 'kg',
       packChain: [{ unit: 'case', per: 7000 }],
       pricing: { mode: 'PACK', purchasePrice: 60 },
-    })
-    const serverBase = lineReceivedBaseUnits(serverInput(rawLine), sausageChain)
+      supplierPrices: [] as Array<{ supplierId: string | null; supplierName: string; packChain: unknown; pricing: unknown }>,
+    }
+    const session = { supplierId: null as string | null, supplierName: null as string | null, supplier: null as { name: string } | null }
+    const serverBase = lineReceivedBaseUnits(
+      {
+        receivedQtyBase: si.receivedQtyBase?.toString() ?? null,
+        rawQty: si.rawQty?.toString() ?? null,
+        rawUnit: si.rawUnit,
+        totalQty: si.totalQty?.toString() ?? null,
+        totalQtyUOM: si.totalQtyUOM,
+        rateUOM: si.rateUOM,
+        invoicePackQty: si.invoicePackQty?.toString() ?? null,
+        invoicePackSize: si.invoicePackSize?.toString() ?? null,
+        invoicePackUOM: si.invoicePackUOM,
+        rawUnitPrice: si.rawUnitPrice?.toString() ?? null,
+        rate: si.rate?.toString() ?? null,
+        rawLineTotal: si.rawLineTotal?.toString() ?? null,
+      },
+      resolveLineFormat(
+        asChainItem(matchedItemRow),
+        pickOffer(matchedItemRow.supplierPrices, {
+          supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null,
+        }),
+      ),
+    )
+    expect(serverBase).toBeCloseTo(14600, 1)
 
-    const match = {
-      dimension: 'MASS', baseUnit: 'g', countUnit: 'kg',
-      packChain: sausageChain.packChain, pricing: sausageChain.pricing,
-    } as unknown as InventoryMatch
-    const clientLine = serverInput(rawLine) // ScanItem-like: same string fields
-    const clientResult = lineReceivedCountQty(clientLine, matchedLikeOf(match))
+    // ── client: a genuine ScanItem literal, through liveLineOf/matchedLikeOf/offerForSupplier ──
+    const scanItem: ScanItem = {
+      id: 'scan-sausage', rawDescription: 'SAUSAGE ITALIAN 7KG', rawQty: '2', rawUnit: 'CS',
+      rawUnitPrice: '8.5', rawLineTotal: '124.10',
+      matchedItemId: 'item-sausage',
+      matchedItem: {
+        id: 'item-sausage', itemName: 'Sausage', pricePerBaseUnit: '0.0086', purchasePrice: '60',
+        baseUnit: 'g', dimension: 'MASS', countUnit: 'kg',
+        packChain: [{ unit: 'case', per: 7000 }],
+        pricing: { mode: 'PACK', purchasePrice: 60 },
+        supplierPrices: [],
+      },
+      matchConfidence: 'HIGH', matchScore: 100, action: 'UPDATE_PRICE', approved: false,
+      isNewItem: false, newItemData: null, previousPrice: null, newPrice: null, priceDiffPct: null,
+      invoicePackQty: '1', invoicePackSize: '7', invoicePackUOM: 'kg',
+      totalQty: '14.6', totalQtyUOM: 'kg', sortOrder: 0,
+      rate: '8.5', rateUOM: 'kg',
+      receivedQtyBase: null,
+    }
+    const ref: SupplierRef = { supplierId: null, supplierName: null, canonicalName: null }
+    const clientResult = lineReceivedCountQty(liveLineOf(scanItem), matchedLikeOf(scanItem.matchedItem!), offerForSupplier(scanItem, ref))
     const clientBase = clientResult.qty * 1000 // countUom 'kg' → g
 
-    expect(serverBase).toBeCloseTo(14600, 1)
     expect(clientBase).toBeCloseTo(serverBase, 1)
   })
 
-  it('eggplant: 12 lb @ 3.49, total 41.88 — COUNT item 24/case, each-measure 181.4368 g', () => {
-    const rawLine = {
-      rawQty: 12, rawUnit: 'lb', totalQty: 12, totalQtyUOM: 'lb',
-      rate: 3.49, rateUOM: 'lb', rawUnitPrice: 3.49, rawLineTotal: 41.88,
+  it('eggplant: 12 lb @ 3.49, total 41.88 — COUNT item 24/case, each-measure 181.4368 g, no offer', () => {
+    const si = {
+      receivedQtyBase: null as number | null,
+      rawQty: 12, rawUnit: 'lb',
+      totalQty: 12, totalQtyUOM: 'lb',
+      rateUOM: 'lb',
+      invoicePackQty: null as number | null, invoicePackSize: null as number | null, invoicePackUOM: null as string | null,
+      rawUnitPrice: 3.49, rate: 3.49, rawLineTotal: 41.88,
     }
-    const eggplantChain: ChainItem = asChainItem({
+    const matchedItemRow = {
       dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
       packChain: [{ unit: 'case', per: 24 }],
       pricing: { mode: 'PACK', purchasePrice: 70.3 },
       eachMeasureQty: 181.4368, eachMeasureUnit: 'g',
-    })
-    const serverBase = lineReceivedBaseUnits(serverInput(rawLine), eggplantChain)
+      supplierPrices: [] as Array<{ supplierId: string | null; supplierName: string; packChain: unknown; pricing: unknown }>,
+    }
+    const session = { supplierId: null as string | null, supplierName: null as string | null, supplier: null as { name: string } | null }
+    const serverBase = lineReceivedBaseUnits(
+      {
+        receivedQtyBase: si.receivedQtyBase?.toString() ?? null,
+        rawQty: si.rawQty?.toString() ?? null,
+        rawUnit: si.rawUnit,
+        totalQty: si.totalQty?.toString() ?? null,
+        totalQtyUOM: si.totalQtyUOM,
+        rateUOM: si.rateUOM,
+        invoicePackQty: si.invoicePackQty?.toString() ?? null,
+        invoicePackSize: si.invoicePackSize?.toString() ?? null,
+        invoicePackUOM: si.invoicePackUOM,
+        rawUnitPrice: si.rawUnitPrice?.toString() ?? null,
+        rate: si.rate?.toString() ?? null,
+        rawLineTotal: si.rawLineTotal?.toString() ?? null,
+      },
+      resolveLineFormat(
+        asChainItem(matchedItemRow),
+        pickOffer(matchedItemRow.supplierPrices, {
+          supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null,
+        }),
+      ),
+    )
 
-    const match = {
-      dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
-      packChain: eggplantChain.packChain, pricing: eggplantChain.pricing,
-      eachMeasureQty: '181.4368', eachMeasureUnit: 'g',
-    } as unknown as InventoryMatch
-    const clientLine = serverInput(rawLine)
-    const clientResult = lineReceivedCountQty(clientLine, matchedLikeOf(match))
+    const scanItem: ScanItem = {
+      id: 'scan-eggplant', rawDescription: 'EGGPLANT ITALIAN', rawQty: '12', rawUnit: 'lb',
+      rawUnitPrice: '3.49', rawLineTotal: '41.88',
+      matchedItemId: 'item-eggplant',
+      matchedItem: {
+        id: 'item-eggplant', itemName: 'Eggplant', pricePerBaseUnit: '2.93', purchasePrice: '70.3',
+        baseUnit: 'each', dimension: 'COUNT', countUnit: 'each',
+        packChain: [{ unit: 'case', per: 24 }],
+        pricing: { mode: 'PACK', purchasePrice: 70.3 },
+        eachMeasureQty: '181.4368', eachMeasureUnit: 'g',
+        supplierPrices: [],
+      },
+      matchConfidence: 'HIGH', matchScore: 100, action: 'UPDATE_PRICE', approved: false,
+      isNewItem: false, newItemData: null, previousPrice: null, newPrice: null, priceDiffPct: null,
+      invoicePackQty: null, invoicePackSize: null, invoicePackUOM: null,
+      totalQty: '12', totalQtyUOM: 'lb', sortOrder: 1,
+      rate: '3.49', rateUOM: 'lb',
+      receivedQtyBase: null,
+    }
+    const ref: SupplierRef = { supplierId: null, supplierName: null, canonicalName: null }
+    const clientResult = lineReceivedCountQty(liveLineOf(scanItem), matchedLikeOf(scanItem.matchedItem!), offerForSupplier(scanItem, ref))
     const clientBase = clientResult.qty // countUom 'each' === base unit 'each'
 
     expect(clientBase).toBeCloseTo(serverBase, 1)
+  })
+
+  it('romaine: the SUPPLIER OFFER pack (12/case) differs from the item\'s own primary pack (48/case) — both sides must resolve through the offer', () => {
+    // Item's PRIMARY pack: 4 cases-of-12 = 48 each/case. This line's supplier is
+    // NOT primary — its own offer sells 12 each/case flat. Exercises the offer
+    // half of resolveLineFormat / offerForSupplier on both sides.
+    const si = {
+      receivedQtyBase: null as number | null,
+      rawQty: 2, rawUnit: 'case',
+      totalQty: null as number | null, totalQtyUOM: null as string | null,
+      rateUOM: null as string | null,
+      invoicePackQty: null as number | null, invoicePackSize: null as number | null, invoicePackUOM: null as string | null,
+      rawUnitPrice: 30, rate: null as number | null, rawLineTotal: 60,
+    }
+    const matchedItemRow = {
+      dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+      packChain: [{ unit: 'case', per: 48 }],
+      pricing: { mode: 'PACK', purchasePrice: 100 },
+      supplierPrices: [
+        { supplierId: 'sup-b', supplierName: 'Supplier B', packChain: [{ unit: 'case', per: 12 }], pricing: { mode: 'PACK', purchasePrice: 30 } },
+      ],
+    }
+    const session = { supplierId: 'sup-b', supplierName: 'Supplier B', supplier: { name: 'Supplier B' } }
+    const serverBase = lineReceivedBaseUnits(
+      {
+        receivedQtyBase: si.receivedQtyBase?.toString() ?? null,
+        rawQty: si.rawQty?.toString() ?? null,
+        rawUnit: si.rawUnit,
+        totalQty: si.totalQty?.toString() ?? null,
+        totalQtyUOM: si.totalQtyUOM,
+        rateUOM: si.rateUOM,
+        invoicePackQty: si.invoicePackQty?.toString() ?? null,
+        invoicePackSize: si.invoicePackSize?.toString() ?? null,
+        invoicePackUOM: si.invoicePackUOM,
+        rawUnitPrice: si.rawUnitPrice?.toString() ?? null,
+        rate: si.rate?.toString() ?? null,
+        rawLineTotal: si.rawLineTotal?.toString() ?? null,
+      },
+      resolveLineFormat(
+        asChainItem(matchedItemRow),
+        pickOffer(matchedItemRow.supplierPrices, {
+          supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null,
+        }),
+      ),
+    )
+    // 2 cases × 12 each (the OFFER's pack, not the item's 48) = 24.
+    expect(serverBase).toBeCloseTo(24, 5)
+
+    const scanItem: ScanItem = {
+      id: 'scan-romaine', rawDescription: 'ROMAINE HEARTS', rawQty: '2', rawUnit: 'case',
+      rawUnitPrice: '30', rawLineTotal: '60',
+      matchedItemId: 'item-romaine',
+      matchedItem: {
+        id: 'item-romaine', itemName: 'Romaine', pricePerBaseUnit: '2.08', purchasePrice: '100',
+        baseUnit: 'each', dimension: 'COUNT', countUnit: 'each',
+        packChain: [{ unit: 'case', per: 48 }],
+        pricing: { mode: 'PACK', purchasePrice: 100 },
+        supplierPrices: [
+          { id: 'offer-1', supplierId: 'sup-b', supplierName: 'Supplier B', lastPrice: '30', pricePerBaseUnit: '2.5',
+            packQty: null, packSize: null, packUOM: null, isPrimary: false,
+            packChain: [{ unit: 'case', per: 12 }], pricing: { mode: 'PACK', purchasePrice: 30 } },
+        ],
+      },
+      matchConfidence: 'HIGH', matchScore: 100, action: 'UPDATE_PRICE', approved: false,
+      isNewItem: false, newItemData: null, previousPrice: null, newPrice: null, priceDiffPct: null,
+      invoicePackQty: null, invoicePackSize: null, invoicePackUOM: null,
+      totalQty: null, totalQtyUOM: null, sortOrder: 2,
+      receivedQtyBase: null,
+    }
+    const ref: SupplierRef = { supplierId: 'sup-b', supplierName: 'Supplier B', canonicalName: 'Supplier B' }
+    const clientResult = lineReceivedCountQty(liveLineOf(scanItem), matchedLikeOf(scanItem.matchedItem!), offerForSupplier(scanItem, ref))
+
+    expect(clientResult.qty).toBeCloseTo(serverBase, 5)   // countUom 'each' === base unit 'each'
+    expect(clientResult.qty).not.toBeCloseTo(96, 1)        // the item's OWN pack (2 × 48) would be wrong
   })
 })

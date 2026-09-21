@@ -17,6 +17,31 @@ import { pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
 
+/** A line's inputs to the receiving rule with any FROZEN receipt cleared —
+ *  WITHOUT `receivedQtyBase`, deliberately, mirroring `lineQtyOf` in
+ *  api/invoices/sessions/[id]/approve. That column is the approve route's own
+ *  OUTPUT (or, on an already-approved line, its last-frozen value), and a
+ *  re-approve recomputes it rather than echoing it back. Passing it through
+ *  unchanged validates a split (or paints the split editor's target) against the
+ *  FROZEN total while the server validates the LIVE one — reachable any time a
+ *  line still carries a receivedQtyBase, e.g. "Review again" on an approved
+ *  invoice, which only PATCHes `status: 'REVIEW'` and leaves it set. */
+export function liveLineOf(item: ScanItem): Parameters<typeof lineReceivedCountQty>[0] {
+  return { ...(item as unknown as Parameters<typeof lineReceivedCountQty>[0]), receivedQtyBase: null }
+}
+
+/** The line's received quantity target an RC split must sum to — ALWAYS computed
+ *  live (never the frozen receipt) via `liveLineOf`, so the split editor's seeded
+ *  target (card.tsx), its validator (`hasInvalidRcSplit` below), and the approve
+ *  route's own total can never read three different numbers off the same line.
+ *  `ref` is the session's supplier — without it the line is read through the
+ *  item's own (primary-supplier) chain, same as before offers existed. Returns
+ *  null when the line isn't linked yet. */
+export function splitTargetOf(item: ScanItem, ref?: SupplierRef | null): ReturnType<typeof lineReceivedCountQty> | null {
+  if (!item.matchedItem) return null
+  return lineReceivedCountQty(liveLineOf(item), matchedLikeOf(item.matchedItem), ref ? offerForSupplier(item, ref) : null)
+}
+
 /** An RC split that doesn't sum to the line's received quantity blocks approval.
  *  `ref` is the session's supplier — without it the line is read through the
  *  item's own (primary-supplier) chain, same as before offers existed. */
@@ -26,21 +51,10 @@ export function hasInvalidRcSplit(item: ScanItem, ref?: SupplierRef): boolean {
   if (!item.matchedItem) return true
   const entries = split.filter(e => e && e.rcId && Number(e.qty) > 0)
   if (entries.length === 0) return true
-  // WITHOUT `receivedQtyBase`, deliberately — mirroring `lineQtyOf` in
-  // api/invoices/sessions/[id]/approve. That column is the approve route's own
-  // OUTPUT, and a re-approve recomputes it rather than echoing it back. Passing
-  // it here validated the split against the FROZEN total while the server
-  // validated the live one, so on a re-approve of a line whose format changed
-  // the client called a split valid that the server then dropped, silently.
-  const live = { ...(item as unknown as Parameters<typeof lineReceivedCountQty>[0]), receivedQtyBase: null }
-  const { qty: total } = lineReceivedCountQty(
-    live,
-    matchedLikeOf(item.matchedItem),
-    ref ? offerForSupplier(item, ref) : null,
-  )
-  if (!(total > 0)) return true
+  const target = splitTargetOf(item, ref)
+  if (!target || !(target.qty > 0)) return true
   const sum = entries.reduce((s, e) => s + Number(e.qty), 0)
-  return Math.abs(sum - total) > Math.max(0.001, total * 0.005)
+  return Math.abs(sum - target.qty) > Math.max(0.001, target.qty * 0.005)
 }
 
 // A line is treated as a "charge" (Other line items — no COGS impact) when the

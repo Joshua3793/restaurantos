@@ -7,8 +7,6 @@
 import { useRef, useState, useEffect } from 'react'
 import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, Split, Plus, X, AlertTriangle, type LucideIcon } from 'lucide-react'
 import { rcHex } from '@/lib/rc-colors'
-import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
-import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { useDrawerContext } from './context'
 import { LineNumberChip, type IssueKind } from './atoms'
@@ -16,7 +14,6 @@ import {
   LinkPicker,
   CaseStructureEditor,
   InvoiceMathFields,
-  matchPatchFromResult,
   type InventorySearchResult,
 } from './composites'
 import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, NewSupplierNote, AttentionSummary, type SummaryRow } from './issues'
@@ -24,7 +21,7 @@ import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, offerForSupplier } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, splitTargetOf } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
@@ -101,13 +98,10 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
 
   // RC split: the line's received quantity (count UOM) is the target the split
   // must sum to; the line total is what the money shares must reconcile to.
-  const received = item.matchedItem
-    ? lineReceivedCountQty(
-        item as unknown as Parameters<typeof lineReceivedCountQty>[0],
-        matchedLikeOf(item.matchedItem),
-        offerForSupplier(item, sessionSupplier),
-      )
-    : null
+  // splitTargetOf always reads LIVE (never a frozen receivedQtyBase) — the same
+  // function hasInvalidRcSplit validates against, so the seeded target and the
+  // validator can never disagree on a re-opened approved line.
+  const received = splitTargetOf(item, sessionSupplier)
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
   const canSplit     = !!item.matchedItem && !!received && received.qty > 0 && ctx.revenueCenters.length > 1
@@ -149,7 +143,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const handleChangeLink = () => ctx.startLinkPicker(lineId)
 
   const handleSelectLink = (result: InventorySearchResult) => {
-    ctx.updateLine(lineId, matchPatchFromResult(result, 'UPDATE_PRICE'))
+    void ctx.linkExistingItem(lineId, result, 'UPDATE_PRICE')
     ctx.closeLinkPicker()
   }
 

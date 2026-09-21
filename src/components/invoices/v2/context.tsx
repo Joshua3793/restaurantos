@@ -3,9 +3,9 @@
 // Provider is built in Phase 5. This file defines the shape and the hook.
 
 import { createContext, useContext } from 'react'
-import type { ScanItem } from '@/components/invoices/types'
+import type { ScanItem, LineItemAction } from '@/components/invoices/types'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
-import type { ReconcileResult } from './composites'
+import type { ReconcileResult, InventorySearchResult } from './composites'
 import type { FilterKey, SortMode } from '@/lib/invoice/filters'
 
 export interface DrawerContextValue {
@@ -47,6 +47,15 @@ export interface DrawerContextValue {
   // ── Line mutations ─────────────────────────────────────────────────────────
   updateLine: (id: string, patch: Partial<ScanItem>) => void
   clearLineEdits: (id: string) => void
+
+  // ── Link a line to an existing inventory item (link picker, or "use existing"
+  // from the Create-New banner). `matchPatchFromResult` stages only a PARTIAL
+  // matchedItem (no bridges, no supplierPrices — InventorySearchResult doesn't
+  // carry them), so this waits for the staged patch to actually PATCH the scan
+  // item, then drops the staged matchedItem and refreshes the session — so the
+  // card reads the authoritative server row (bridges + supplierPrices) instead
+  // of the partial snapshot forever shadowing it.
+  linkExistingItem: (id: string, result: InventorySearchResult, action: LineItemAction) => Promise<void>
 
   // ── Expand / collapse ──────────────────────────────────────────────────────
   toggleExpand: (id: string, forceOpen?: boolean) => void

@@ -16,7 +16,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { AdoptFormatModal } from './AdoptFormatModal'
 import { ApprovedView } from './ApprovedReport'
-import type { Session, ScanItem, SessionSummary, SessionStatus } from '@/components/invoices/types'
+import type { Session, ScanItem, SessionSummary, SessionStatus, LineItemAction } from '@/components/invoices/types'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import {
@@ -1023,6 +1023,22 @@ export function InvoiceReviewDrawer({
     })
   }, [])
 
+  // ── Link a line to an existing inventory item ────────────────────────────────
+  // `matchPatchFromResult` stages only a PARTIAL matchedItem (InventorySearchResult
+  // carries no each-measure/density bridges and no supplierPrices), so a line
+  // linked this way would read through no bridges and no supplier offer forever —
+  // getEffectiveLine lays staged edits OVER the refreshed server row, so the
+  // partial snapshot never clears on its own. Wait for the staged patch to reach
+  // the server, THEN drop the staged matchedItem (like the bridge/density
+  // resolvers above) so the card falls back to the authoritative server row
+  // (...PRICING_SELECT + supplierPrices) and agrees with what approve will read.
+  const linkExistingItem = useCallback(async (id: string, result: InventorySearchResult, action: LineItemAction) => {
+    updateLine(id, matchPatchFromResult(result, action))
+    await flushPendingEdits()
+    dropStagedMatchedItem(id)
+    if (session) await refreshSession(session.id)
+  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem, updateLine])
+
   // ── Non-destructive dimension-conflict resolver ──────────────────────────────
   // Sets the item's eachMeasure bridge so 1 each = N unit (e.g. 1100 g), without
   // changing the item's dimension, packChain, stock, or recipes. After the write
@@ -1114,6 +1130,7 @@ export function InvoiceReviewDrawer({
     getItemRc,
     updateLine,
     clearLineEdits,
+    linkExistingItem,
     toggleExpand,
     setLineRc,
     startLinkPicker: (id) => setPickingLinkForId(id),
@@ -1132,7 +1149,7 @@ export function InvoiceReviewDrawer({
   }), [
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
     activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
-    getEffectiveLine, getItemRc, updateLine, clearLineEdits, toggleExpand,
+    getEffectiveLine, getItemRc, updateLine, clearLineEdits, linkExistingItem, toggleExpand,
     setLineRc, bridgeAndReceiveAsCount, setItemDensity, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
@@ -1409,12 +1426,15 @@ export function InvoiceReviewDrawer({
           onUseExisting={(itemId) => {
             if (creatingNewForItem && similarForNewItem && similarForNewItem.id === itemId) {
               // Same-good, different supplier — link the line to the existing item as
-              // a NEW supplier offer rather than spawning a duplicate item.
-              updateLine(creatingNewForItem.id, matchPatchFromResult(similarForNewItem, 'ADD_SUPPLIER'))
+              // a NEW supplier offer rather than spawning a duplicate item. Waits for
+              // the PATCH, then drops the staged partial matchedItem and refreshes —
+              // see linkExistingItem.
+              void linkExistingItem(creatingNewForItem.id, similarForNewItem, 'ADD_SUPPLIER')
+            } else if (session) {
+              refreshSession(session.id)
             }
             setCreatingNewForItem(null)
             setSimilarForNewItem(null)
-            if (session) refreshSession(session.id)
           }}
           onSaved={(newItemDataJson) => {
             if (creatingNewForItem) {
