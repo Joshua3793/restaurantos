@@ -1,7 +1,7 @@
 # Pricing weight-billed lines on count items
 
 **Date:** 2026-09-21
-**Status:** design, not implemented
+**Status:** implemented 2026-09-21 on `feat/weight-priced-count-items` — see "As built"
 **Follows:** `2026-09-21-line-first-receiving-design.md` (quantity). This spec is the price half. Weighted-average costing (spec 2 of the item-consolidation series) comes after it.
 
 ## Problem
@@ -121,3 +121,15 @@ No migration.
 - **Weight goods mis-created as `each`** (Potatoes Kennebec O/S, TRSM Sour Tuscan Salami, Fennel O/S): created from a per-lb line as COUNT items with chain `[{lb: 1}]` and `RATE $/each`, where "each" secretly means a pound. They need to become MASS items (and Kennebec is a merge candidate — a cross-unit merge, also out of scope). The create-new path choosing the wrong dimension for a weight-billed line is its own small spec.
 - Weighted-average costing (spec 2). Note it is independent of how an offer's price is stored: its inputs are `rawLineTotal` and `receivedQtyBase`, both now trustworthy.
 - The other line-first follow-ups (failed-save queue, per-case toggle, mis-scan guard, provenance on the approved report, unpriced-line warning).
+
+
+## As built (2026-09-21)
+
+- **No number moved.** `scripts/audit-ppb-snapshot.ts` before/after the formula + offer changes on live data: 0 of 510 items and 0 of 259 offers differ.
+- **An unknown dimension is not a mismatched one.** `rateBridge` derives the item's dimension from `baseUnit` when `dimension` is missing or malformed; the first cut treated it as a mismatch and 56 offers read $0 (they were priced through a hand-built `ChainItem` with no dimension).
+- **Offers are priced with their item**: pure `src/lib/offer-price.ts`; `OfferItem`'s bridge fields are required (nullable), so the compiler enforces `PRICING_SELECT`. `primary-offer.ts` and `reconcileOffer` were the two latent $0 sites.
+- **Approve** (`pricingBasisFor`, `weightBasisRate`, `packIsTheQuantity` in approve-format.ts): deviations from the plan — the rate-unit fallback to `totalQtyUOM`/`rawUnit` is gated on the weight basis (ungated it re-denominated bison-shaped `via: 'rate'` lines); a printed rate is trusted only per the measure unit it is stored per, otherwise derived from the line's money; a per-container rate with no total is refused; the stored `rateUnit` is canonical.
+- **Rollback** (`revert-pricing.ts`) was not in the spec: DELETE wrote `previousPrice` into the post-approve mode (Cilantro would have reverted to $1.50/each). Still open: offers are never rolled back; DELETE reverts items a non-primary line never re-priced; an unprovable shape assumes PACK.
+- **UI**: `offer-copy.ts` (real price + derivation / "Unpriced — add a weight per each to this item"), `computeNormalisedPrices` bridges, `keepBridgedRate`, inventory write gates validate with the bridges, a stored unit outside a dropdown stays selectable.
+- **Sizing** (`docs/audits/2026-09-21-weight-priced-count-items/wb-basis.ts`): 32 of 1,589 approved lines switch CASE→WEIGHT basis; received × new price = line total to the cent for all. Primary suppliers re-price on their NEXT approve: Sausage/Legends Haul −2.2 %, Goats Cheese/Sysco −27 % (raises a PriceAlert), Cilantro FARM/NAF $4.99 → ~$4.79.
+- **Repair dry run** (`scripts/repair-weight-priced-offers.ts`, 2026-09-21): rewrite Kale, Lettuce Burger, Eggplant (North Arm Farms, `PACK $x` → `RATE x/lb`; $/each 0.25→3.00, 0.22→2.89, 0.15→1.40); human: Cilantro FARM (primary); 10 skipped (printed-pack).
