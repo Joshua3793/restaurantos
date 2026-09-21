@@ -14,7 +14,7 @@ import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { dimensionOf } from '@/lib/item-model'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
-import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
+import { offerForSupplier, cheapestOtherOffer, type SupplierRef } from '@/lib/invoice/resolution'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── AttentionSummary ──────────────────────────────────────────────────────────
@@ -501,7 +501,7 @@ export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
 // Info-tone note when the spine price moved only because the purchase switched
 // suppliers: this supplier's own price is steady, but another supplier set the
 // current costing price. Not an issue — needs no decision.
-export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; sessionSupplier: { supplierId: string | null; supplierName: string | null } }) {
+export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; sessionSupplier: SupplierRef }) {
   const norm  = computeNormalisedPrices(item)
   const offer = offerForSupplier(item, sessionSupplier)
   if (!norm || !offer) return null

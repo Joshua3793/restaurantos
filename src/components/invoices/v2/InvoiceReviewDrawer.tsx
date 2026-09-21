@@ -25,7 +25,7 @@ import {
 import {
   isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
-import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit } from '@/lib/invoice/resolution'
+import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit, type SupplierRef } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { formatPricePerBase } from '@/lib/utils'
@@ -567,7 +567,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
+          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null }) || needsTrustCheck(i)
         ))
         .map(i => i.id),
     )
@@ -599,9 +599,18 @@ export function InvoiceReviewDrawer({
     [acknowledgedPriceLines, acknowledgedConfLines],
   )
 
+  // ONE supplier ref for every offer lookup in this drawer — the same shape the
+  // approve route builds (supplierId → canonical name → OCR name), so the UI and
+  // the server can never validate a line against different supplier offers.
+  const sessionSupplierRef = useMemo<SupplierRef>(() => ({
+    supplierId:    session?.supplierId ?? null,
+    supplierName:  session?.supplierName ?? null,
+    canonicalName: session?.supplier?.name ?? null,
+  }), [session?.supplierId, session?.supplierName, session?.supplier?.name])
+
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }),
-  [session?.supplierId, session?.supplierName])
+    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, sessionSupplierRef) || needsTrustCheck(i) || hasInvalidRcSplit(i, sessionSupplierRef),
+  [sessionSupplierRef])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
   const sections = useMemo(() => {
@@ -629,16 +638,16 @@ export function InvoiceReviewDrawer({
     let resolved = 0
     for (const id of initialAttention.lineIds) {
       const line = effectiveLines.find(l => l.id === id)
-      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id), { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null })) resolved++
+      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id), sessionSupplierRef)) resolved++
     }
     if (initialAttention.supplier && (linkedSupplierId || supplierSkipped)) resolved++
     return { total, resolved }
-  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped, session?.supplierId, session?.supplierName])
+  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped, sessionSupplierRef])
 
   // Approve gate — computed over CURRENT state so edits that introduce a new
   // issue re-block approval (the snapshot above only fixes the progress total).
   const currentlyUnresolved =
-    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null })).length +
+    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), sessionSupplierRef)).length +
     (supplierNeedsLink && initialAttention.supplier ? 1 : 0)
   const canApprove = currentlyUnresolved === 0
   const disabledReason = canApprove
@@ -1065,6 +1074,7 @@ export function InvoiceReviewDrawer({
     revenueCenters,
     sessionSupplierName: session?.supplierName ?? null,
     sessionSupplierId: session?.supplierId ?? null,
+    sessionSupplierCanonicalName: session?.supplier?.name ?? null,
     sessionRcId: session?.revenueCenterId ?? null,
     editedLines,
     expandedLineIds,

@@ -2,7 +2,7 @@
 // that can silently corrupt every recipe cost is unit-testable.
 // (spec 2026-09-20-item-consolidation)
 
-import { type ChainItem, type PackLink, basePerPurchase, pricePerBaseUnit } from '@/lib/item-model'
+import { type ChainItem, type PackLink, type Pricing, basePerPurchase, pricePerBaseUnit } from '@/lib/item-model'
 import type { OfferFormat } from '@/lib/invoice/line-format'
 
 /**
@@ -51,5 +51,24 @@ export function packReference(
  */
 export function casePricePerBase(speaks: ChainItem, casePrice: number): number {
   return pricePerBaseUnit({ ...speaks, pricing: { mode: 'PACK', purchasePrice: casePrice } })
+}
+
+/**
+ * The format a line's RECEIPT must be frozen through: the pack it speaks, plus
+ * the pricing THIS approval is about to write.
+ *
+ * `lineReceivedBaseUnits` branches on `pricing.mode` — RATE means the billed
+ * quantity IS a measured amount, PACK means it is a count of containers to
+ * expand. `speaks` carries the PRE-write mode (the item's, or this supplier's
+ * previous offer's), which is the wrong one exactly when the invoice changes it:
+ * a supplier's FIRST per-weight invoice on a case-priced item has no offer to
+ * borrow a RATE from, so "18.4 KG" was expanded as 18.4 CASES — 166,924 g frozen
+ * for an 18.4 kg delivery. The mode the line resolved to is the one the item and
+ * the offer both end up storing, so freeze through it.
+ *
+ * A no-op whenever the modes already agree, which is the common case.
+ */
+export function freezeFormat(speaks: ChainItem, newPricing: Pricing): ChainItem {
+  return { ...speaks, pricing: newPricing }
 }
 

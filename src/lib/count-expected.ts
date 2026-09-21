@@ -329,7 +329,11 @@ export async function buildPurchaseMap(
       invoicePackSize: true,
       invoicePackUOM: true,
       receivedQtyBase: true,
-      session: { select: { createdAt: true, purchaseDate: true, invoiceDate: true, supplierName: true, supplierId: true, invoiceNumber: true, revenueCenterId: true } },
+      // `supplier.name` is the CANONICAL supplier name — offers are keyed by it
+      // (canonicalSupplierName), while the session may carry an OCR variant. Without
+      // it a legacy offer stored under the canonical name with supplierId null is
+      // invisible here, and this reader receives a line through the wrong pack.
+      session: { select: { createdAt: true, purchaseDate: true, invoiceDate: true, supplierName: true, supplierId: true, invoiceNumber: true, revenueCenterId: true, supplier: { select: { name: true } } } },
       matchedItem: {
         select: {
           id: true,
@@ -378,8 +382,14 @@ export async function buildPurchaseMap(
     }, resolveLineFormat(
       asChainItem(si.matchedItem),
       // Offers are stored under the canonical supplier name; supplierId is the
-      // reliable join and the raw session name the fallback.
-      pickOffer(si.matchedItem.supplierPrices, { supplierId: si.session.supplierId, supplierName: si.session.supplierName }),
+      // reliable join, the canonical name the next-best, and the raw session name
+      // the fallback. Same ref the approve route and the review UI build, so all
+      // three read a line through the same supplier's pack.
+      pickOffer(si.matchedItem.supplierPrices, {
+        supplierId:    si.session.supplierId,
+        supplierName:  si.session.supplierName,
+        canonicalName: si.session.supplier?.name ?? null,
+      }),
     ))
     if (baseUnits <= 0) continue
 

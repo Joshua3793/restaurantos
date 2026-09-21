@@ -628,7 +628,7 @@ export function ApprovedView({
                   n={i + 1}
                   rcName={item.revenueCenterId ? rcNameFor(item.revenueCenterId) : sessionRcName}
                   rcNameFor={rcNameFor}
-                  supplier={{ supplierId: session.supplierId, supplierName: session.supplierName }}
+                  supplier={{ supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null }}
                 />
               ))}
             </div>

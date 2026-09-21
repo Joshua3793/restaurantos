@@ -77,14 +77,23 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   // an unconfigured CREATE_NEW (legacy auto-match) renders as unlinked instead.
   const isCreateNew = item.action === 'CREATE_NEW' && !!item.newItemData
 
+  // ONE supplier ref for every offer lookup on this card — supplierId → the
+  // linked Supplier's canonical name → the OCR name, exactly as the approve
+  // route resolves it, so the card and the server agree on which offer applies.
+  const sessionSupplier = {
+    supplierId:    ctx.sessionSupplierId,
+    supplierName:  ctx.sessionSupplierName,
+    canonicalName: ctx.sessionSupplierCanonicalName,
+  }
+
   const unlinked       = !isSkipped && isUnlinked(item)
   const dimConflict    = !isSkipped && hasDimensionConflict(item)
   const bridge         = !isSkipped && isBridgeable(item)
   const uomReview      = !isSkipped && hasUnknownUom(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
-  const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
+  const bigPrice       = !isSkipped && isBigPriceChange(item, sessionSupplier)
   const trustCheck     = !isSkipped && needsTrustCheck(item)
-  const badSplit       = !isSkipped && hasInvalidRcSplit(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
+  const badSplit       = !isSkipped && hasInvalidRcSplit(item, sessionSupplier)
   const isAttention    = unlinked || dimConflict || bridge || mathCheck || bigPrice || trustCheck || badSplit
   const isCatch        = isCatchweight(item)
 
@@ -97,7 +106,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         packChain: item.matchedItem.packChain,
         pricing:   item.matchedItem.pricing,
         countUnit: item.matchedItem.countUnit ?? null,
-      }, offerForSupplier(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }))
+      }, offerForSupplier(item, sessionSupplier))
     : null
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
@@ -107,7 +116,6 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
     priceAck: ctx.acknowledgedPriceLines.has(lineId),
     confAck:  ctx.acknowledgedConfLines.has(lineId),
   }
-  const sessionSupplier = { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }
 
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
@@ -382,7 +390,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
           {(dimConflict || bridge) && <DimensionConflictIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
-          {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={{ supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }} />}
+          {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={sessionSupplier} />}
           {trustCheck && <ConfIssue item={item} lineId={lineId} />}
         </>
       )}

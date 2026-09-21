@@ -14,7 +14,7 @@ import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_B
 import { dimensionallyCostable } from '@/lib/uom'
 import { lineReceivedCountQty, lineReceivedBaseUnits, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/line-format'
-import { packReference, casePricePerBase } from '@/lib/invoice/approve-format'
+import { packReference, casePricePerBase, freezeFormat } from '@/lib/invoice/approve-format'
 import { lookupDensity } from '@/lib/density'
 import { densityCrossedPpb } from '@/lib/invoice/density-bridge'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -127,6 +127,19 @@ async function doApprove(
       invoicePackUOM:  scanItem.invoicePackUOM,
     })
 
+    // The frozen receipt of every line this approval resolved, kept in memory so
+    // the RC clones built at the end of the run can inherit it (they are created
+    // from the in-memory scan items, and the parent row is excluded from stock by
+    // splitToSessionId — so without this the countable copy recomputes forever).
+    const frozenByLine = new Map<string, number>()
+    // ONE form for "a receipt of nothing is not a receipt": null, never 0, so a
+    // reader still knows to compute live rather than trusting a false zero.
+    const freezeQty = (baseUnits: number, scanItemId: string): number | null => {
+      if (!(baseUnits > 0)) return null
+      frozenByLine.set(scanItemId, baseUnits)
+      return baseUnits
+    }
+
     // A line's RC split [{rcId, qty}] (count UOM), validated to sum to the line's
     // received quantity. Returns null when absent/invalid (caller falls back to the
     // single revenueCenterId). The review UI blocks approving an invalid split, so
@@ -178,19 +191,17 @@ async function doApprove(
         // behaves exactly as it always has.
         const itemOffers = offersByItem.get(scanItem.matchedItemId) ?? []
         const lineOffer  = offerForLine(scanItem.matchedItemId)
-        const speaks = resolveLineFormat(
-          asChainItem({
-            dimension:       item.dimension,
-            baseUnit:        item.baseUnit ?? 'each',
-            packChain:       item.packChain,
-            pricing:         item.pricing,
-            countUnit:       item.countUnit ?? undefined,
-            eachMeasureQty:  item.eachMeasureQty,
-            eachMeasureUnit: item.eachMeasureUnit,
-            densityGPerMl:   item.densityGPerMl,
-          }),
-          lineOffer,
-        )
+        const itemAsChain = asChainItem({
+          dimension:       item.dimension,
+          baseUnit:        item.baseUnit ?? 'each',
+          packChain:       item.packChain,
+          pricing:         item.pricing,
+          countUnit:       item.countUnit ?? undefined,
+          eachMeasureQty:  item.eachMeasureQty,
+          eachMeasureUnit: item.eachMeasureUnit,
+          densityGPerMl:   item.densityGPerMl,
+        })
+        const speaks = resolveLineFormat(itemAsChain, lineOffer)
 
         // The line's pricing mode comes straight from the OCR (per_case /
         // per_weight). per_weight → RATE pricing, otherwise PACK. There is no
@@ -234,6 +245,12 @@ async function doApprove(
           : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : Number(scanItem.newPrice))
 
         let newPricePerBase: number
+        // The ppb the SPINE write will derive — `pricing` over the ITEM's chain.
+        // Only set on the CASE path, where newPricePerBase may sit on THIS
+        // supplier's offer chain instead (see casePricePerBase). Null elsewhere
+        // means "newPricePerBase already is the written value" — the UOM/rate and
+        // reverse-bridge paths derive from the rate, not from any chain.
+        let spineNewPpb: number | null = null
         let density = 0
         // The RATE's resolved unit (only meaningful in UOM mode) — captured here
         // so the chain `pricing` below can store { mode:'RATE', rate, rateUnit }.
@@ -352,6 +369,12 @@ async function doApprove(
           // printed pack would make the alert disagree with the price written
           // whenever OCR's pack differs but stays inside the guard's tolerance.
           newPricePerBase = casePricePerBase(speaks, newPurchasePrice)
+          // …and what the spine write itself will derive, over the item's own
+          // chain. The two differ only when this line's supplier offer has a
+          // different pack AND ensurePrimary is about to promote it (the item's
+          // very first offer): the alert must quote the price actually written,
+          // not this supplier's offer ppb.
+          spineNewPpb = casePricePerBase(itemAsChain, newPurchasePrice)
         }
 
         // ── Dimension-conflict guard (gap #2) ───────────────────────────────
@@ -393,12 +416,18 @@ async function doApprove(
         //
         // The PriceAlert is recorded on the SPINE ($/base-unit) basis — the value
         // every recipe cost reads — using the item's OLD ppb (before this write)
-        // and the NEW ppb (newPricePerBase). The stored previousPrice/newPrice/
-        // changePct are therefore internally consistent and agree across every
-        // inbox renderer (some re-derive % from the two prices, some show the
-        // stored %). The old path stored a per-base previousPrice next to a
-        // per-CASE newPrice and a separately-computed scanItem.priceDiffPct, so
-        // the three disagreed and the displayed percentages were nonsense.
+        // and the NEW ppb. The stored previousPrice/newPrice/changePct are
+        // therefore internally consistent and agree across every inbox renderer
+        // (some re-derive % from the two prices, some show the stored %). The old
+        // path stored a per-base previousPrice next to a per-CASE newPrice and a
+        // separately-computed scanItem.priceDiffPct, so the three disagreed and
+        // the displayed percentages were nonsense.
+        //
+        // `writtenPpb` — not `newPricePerBase` — is that NEW ppb: the alert only
+        // ever fires on the re-pricing path, and the spine write stores `pricing`
+        // over the ITEM's chain, while newPricePerBase may sit on this supplier's
+        // offer chain (see casePricePerBase / spineNewPpb above). Quoting the
+        // offer's ppb next to the item's oldPpb would state a % the item never moved.
         const oldPpb = pricePerBaseUnit({
           dimension: item.dimension as 'MASS' | 'VOLUME' | 'COUNT',
           baseUnit: item.baseUnit ?? 'each',
@@ -406,7 +435,8 @@ async function doApprove(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           pricing: item.pricing as any,
         })
-        const changePct = oldPpb > 0 ? ((newPricePerBase - oldPpb) / oldPpb) * 100 : 0
+        const writtenPpb = spineNewPpb ?? newPricePerBase
+        const changePct = oldPpb > 0 ? ((writtenPpb - oldPpb) / oldPpb) * 100 : 0
         if (scanItem.matchedItemId) priorPpbByItem.set(scanItem.matchedItemId, oldPpb)
 
         // ── Write the item's pricing (the spine) ────────────────────────────
@@ -415,7 +445,7 @@ async function doApprove(
         // dimension/countUnit) is its canonical structure and is NEVER rewritten
         // by an invoice — ppb derives from `pricing` over the item's stored
         // chain. Changing an item's format is a deliberate inventory edit.
-        const newPricing = isUomMode
+        const newPricing: Pricing = isUomMode
           ? { mode: 'RATE', rate: newPurchasePrice, rateUnit: resolvedRateUnit }
           : { mode: 'PACK', purchasePrice: newPurchasePrice }
         // The top container name comes from the item's own stored chain — used by
@@ -567,20 +597,26 @@ async function doApprove(
 
         // ── Freeze the receipt ──────────────────────────────────────────────
         // How many base units this line actually delivered, resolved through the
-        // pack it speaks and stored on the row — a point-in-time QUANTITY, exactly
-        // like CountLine.countedQtyBase, never a cost. Readers recompute it live
-        // only while it is null, so a later format edit (or a supplier changing
-        // their case) can no longer retroactively rewrite what a past invoice
-        // received. Recomputed on every approve — lineQtyOf deliberately omits the
-        // stored value — so a re-approve corrects a bad freeze rather than echoing it.
-        const receivedQtyBase = lineReceivedBaseUnits(lineQtyOf(scanItem), speaks)
+        // pack it speaks AND the pricing mode this approval writes (freezeFormat —
+        // `speaks` still carries the PRE-write mode, which reads a per-weight line
+        // on a case-priced item as a count of cases). Stored on the row as a
+        // point-in-time QUANTITY, exactly like CountLine.countedQtyBase, never a
+        // cost. Readers recompute it live only while it is null, so a later format
+        // edit (or a supplier changing their case) can no longer retroactively
+        // rewrite what a past invoice received. Recomputed on every approve —
+        // lineQtyOf deliberately omits the stored value — so a re-approve corrects
+        // a bad freeze rather than echoing it.
+        const receivedQtyBase = freezeQty(
+          lineReceivedBaseUnits(lineQtyOf(scanItem), freezeFormat(speaks, newPricing)),
+          scanItem.id,
+        )
 
         // ── Write the item spine (only when re-pricing) + mark approved ──────
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const itemOps: any[] = [
           prisma.invoiceScanItem.update({
             where: { id: scanItem.id },
-            data:  { approved: true, receivedQtyBase: receivedQtyBase > 0 ? receivedQtyBase : null },
+            data:  { approved: true, receivedQtyBase },
           }),
         ]
         if (shouldReprice) {
@@ -612,7 +648,7 @@ async function doApprove(
                   sessionId,
                   inventoryItemId: scanItem.matchedItemId,
                   previousPrice:   oldPpb,
-                  newPrice:        newPricePerBase,
+                  newPrice:        writtenPpb,
                   changePct,
                   direction:       changePct > 0 ? 'UP' : 'DOWN',
                 },
@@ -707,9 +743,13 @@ async function doApprove(
             matchedItemId: created.id,
             approved: true,
             // Freeze the receipt against the item this line just created — its
-            // chain is the only format the line has ever been read through, and
-            // there is no supplier offer yet to resolve it against.
-            receivedQtyBase: lineReceivedBaseUnits(lineQtyOf(scanItem), asChainItem(created)) || null,
+            // chain is the only format the line has ever been read through, its
+            // `pricing` already carries the line's resolved mode, and there is no
+            // supplier offer yet to resolve it against.
+            receivedQtyBase: freezeQty(
+              lineReceivedBaseUnits(lineQtyOf(scanItem), asChainItem(created)),
+              scanItem.id,
+            ),
           },
         })
       }
@@ -823,6 +863,12 @@ async function doApprove(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const scaledCopy = (item: typeof session.scanItems[number], rcId: string, cloneId: string, factor: number): any => {
         const scale = (v: unknown) => (v != null ? Number(v) * factor : null)
+        // The COPY is the countable row (the parent is excluded by
+        // splitToSessionId), so the frozen receipt has to travel with it — scaled
+        // by the same factor as the quantities it was derived from, which keeps
+        // Σ copies == the parent's receipt. Null when the parent was never frozen
+        // (an un-processed or zero-quantity line): readers then compute live.
+        const frozen = frozenByLine.get(item.id)
         return {
           sessionId:       cloneId,
           rawDescription:  item.rawDescription,
@@ -848,6 +894,7 @@ async function doApprove(
           invoicePackQty:  item.invoicePackQty,     // unscaled — rawQty carries the scale
           invoicePackSize: item.invoicePackSize,
           invoicePackUOM:  item.invoicePackUOM,
+          receivedQtyBase: frozen != null ? frozen * factor : null,
         }
       }
 

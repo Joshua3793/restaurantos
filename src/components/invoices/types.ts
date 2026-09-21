@@ -101,6 +101,9 @@ export interface Session {
   status: SessionStatus
   supplierId: string | null
   supplierName: string | null
+  /** The linked Supplier's own name — the CANONICAL name offers are keyed by.
+   *  `supplierName` above may be the OCR variant, so offer lookups need both. */
+  supplier?: { name: string } | null
   invoiceDate: string | null
   invoiceNumber: string | null
   poNumber?: string | null
