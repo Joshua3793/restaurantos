@@ -34,9 +34,11 @@ const pricedWithItem = (offer: { packChain?: unknown; pricing?: unknown }, item:
 export interface OfferItem {
   dimension?: string
   baseUnit: string | null
-  eachMeasureQty?: unknown
-  eachMeasureUnit?: string | null
-  densityGPerMl?: unknown
+  // Required (nullable) on purpose: a select that forgets PRICING_SELECT's
+  // bridges must fail to compile, not price a $/lb offer at $0.
+  eachMeasureQty: unknown
+  eachMeasureUnit: string | null
+  densityGPerMl: unknown
 }
 
 /**

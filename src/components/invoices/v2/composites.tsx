@@ -32,6 +32,10 @@ export interface InventorySearchResult {
   packChain?: unknown
   pricing?: unknown
   countUnit?: string | null
+  // Bridges (the search route spreads PRICING_SELECT, so they are in the response).
+  eachMeasureQty?: string | number | null
+  eachMeasureUnit?: string | null
+  densityGPerMl?: string | number | null
 }
 
 /**
@@ -56,6 +60,11 @@ export function matchPatchFromResult(result: InventorySearchResult, action: Line
       packChain: result.packChain,
       pricing: result.pricing,
       countUnit: result.countUnit,
+      // …and the bridges, or a hand-linked $/lb line on an each-item reads unpriced
+      // until the session is reloaded.
+      eachMeasureQty: result.eachMeasureQty ?? null,
+      eachMeasureUnit: result.eachMeasureUnit ?? null,
+      densityGPerMl: result.densityGPerMl ?? null,
     },
     action,
     // A hand-picked link is no longer a fuzzy match — clear the MEDIUM-match
