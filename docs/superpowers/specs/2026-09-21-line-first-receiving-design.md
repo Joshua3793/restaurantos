@@ -1,7 +1,7 @@
 # Line-first receiving — a weight on the invoice is the weight received
 
 **Date:** 2026-09-21
-**Status:** design, not implemented
+**Status:** implemented 2026-09-21 on `feat/line-first-receiving` — see "As built" at the end
 **Follows:** `2026-09-20-item-consolidation-design.md` (spec 1). Weighted-average costing (spec 2) should come after this, because its weights are received quantities.
 
 ## Problem
@@ -112,3 +112,13 @@ Each step ships alone. No migration.
 - Fixing wrong each-measures (Lettuce Burger) — data, surfaced by step 3's arithmetic display.
 - The zucchini / Independent Grocer **offer** being stored as `PACK $19.96` over a `lb › 250` chain — a data oddity from an older approve; the received quantity no longer depends on it.
 - Cross-unit merges; weighted-average costing (spec 2).
+
+## As built (2026-09-21) — where the implementation deliberately differs
+
+- **The proof is the printed rate, not "price × cases must fail".** The first refreeze dry run moved ZERO lines through the billed-weight step. Cause: the scanner reads `rate` off the page but DERIVES `unitPrice = lineTotal ÷ qtyShipped`, so "unitPrice × cases = total" held on 176 of 178 per-weight lines and the ambiguity clause above refused them all. Decided by the user: a printed `rate × billed weight = line total` is proof on its own; the ambiguity clause applies only when there is NO rate (then `rawUnitPrice` stands in as the price). Consequence: **Goats Cheese and Cheese Curd** — assumed wrong in the evidence table above — carry a $/kg rate that reproduces their total exactly and now receive their billed catch weight (2.64 kg, 6.59 kg). Butter, Halloumi and Brioche have no reconciling rate and stay on their pack; the script's guard names exactly those three moving TO a billed weight.
+- **A rate unit that is not a weight/volume can never prove a weight** ($/case, unknown token) — refused before multiplying. A rate in another unit of the same dimension ($/kg, billed in lb) is converted first.
+- **Step order:** frozen → billed weight (proven) → the existing RATE branch, unchanged (billed before shipped — catch weight) → shipped unit is a measure → printed pack → chain. No RATE item changed behaviour.
+- **No new review issue.** `classifyDimensionRelationship` already raises the blocking "Needs a unit bridge" for a weight line on a COUNT item with no each-measure (pinned in `invoice-bridge.test.ts`). `needsBridge` is reported in the approved report and the refreeze diff.
+- **Callers.** The client's hand-built matched item dropped the item's bridges at three sites → one `matchedLikeOf`. A hand-linked line staged a PARTIAL item (no bridges, no supplier offers) → `linkExistingItem` now awaits the PATCH, drops the staged copy and refreshes. The RC-split target read the frozen value while its validator and approve read live → both use `liveLineOf`. `export-purchase-valuation.ts` now reads a line the way the app does.
+- **Refreeze.** Clones are never run through the rule (parent × share); ambiguous/missing parents are orphans and left alone; unknown flags are refused; `--apply` backs up first and aborts on the guard. Dry run on live data: 1,881 lines, 33 changed, all via billed weight, pack-path section empty, guard clean — sausage ×18, zucchini, the two cheeses, eggplant/kale/cilantro, and two RC-clone rows whose earlier frozen values (1,000 g, 30 g) were nonsense because a clone row does not carry its parent's billed weight.
+- **Data the diff surfaced (not code):** "Lettuce Burger" has an each-measure of 10 lb per each, so a 5 lb frisée line becomes 0.5 each — the item setup or the match needs a human.
