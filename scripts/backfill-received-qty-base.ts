@@ -1,17 +1,29 @@
 /**
  * Freeze InvoiceScanItem.receivedQtyBase for every approved line.
  *
- *   npx tsx scripts/backfill-received-qty-base.ts                     # DRY RUN: writes a diff file, changes nothing
- *   npx tsx scripts/backfill-received-qty-base.ts --apply             # backup JSON first, then write
- *   npx tsx scripts/backfill-received-qty-base.ts --refreeze          # RE-FREEZE dry run: recompute EVERY approved
+ * THREE explicit modes — anything else is refused (see parseMode in
+ * src/lib/invoice/refreeze.ts), including a bare --apply naming no mode:
+ *
+ *   npx tsx scripts/backfill-received-qty-base.ts                     # (a) DRY RUN of fill-null mode, read-only
+ *   npx tsx scripts/backfill-received-qty-base.ts --refreeze          # (b) RE-FREEZE dry run: recompute EVERY approved
  *                                                                      #   line under the CURRENT rule, ignoring the
  *                                                                      #   stored value; writes nothing
- *   npx tsx scripts/backfill-received-qty-base.ts --refreeze --apply  # back up, then update only rows that changed
+ *   npx tsx scripts/backfill-received-qty-base.ts --refreeze --apply  # (b) back up, then update only rows that changed
+ *   npx tsx scripts/backfill-received-qty-base.ts --fill-null --apply # (c) apply the ORIGINAL fill-null mode
  *
- * Default mode (no flags) is UNCHANGED from before --refreeze existed:
- * "old" = today's rule read through the item's OWN chain. "next" = the
- * supplier-offer rule. Every line where they differ is a historical miscount
- * the dry run surfaces.
+ * A bare `--apply` (no `--refreeze` or `--fill-null`) is a live foot-gun since
+ * the rule changed and is REFUSED: fill-null was written to fill NULL rows
+ * under the OLD rule; applying it blanket-wide now (no material-change filter,
+ * no clone handling) would re-break the pre-2026-06-19 clone rows --refreeze
+ * exists to fix. Explicit `--fill-null --apply` runs it anyway, unchanged
+ * otherwise, but now also: (1) never writes a row whose receivedQtyBase is
+ * already non-null (fill-null FILLS, it does not overwrite), and (2) skips
+ * clone rows (session.parentSessionId set) entirely — those are counted and
+ * reported, never derived here; use --refreeze for clones.
+ *
+ * fill-null mode: "old" = today's rule read through the item's OWN chain.
+ * "next" = the supplier-offer rule. Every NULL row where they differ is a
+ * historical miscount the dry run surfaces.
  *
  * --refreeze mode compares a completely different pair: the value already
  * FROZEN in receivedQtyBase (from whatever rule was live when the line was
@@ -21,28 +33,29 @@
  * the rule directly; a clone is its parent's new value scaled by
  * (clone.rawLineTotal / parent.rawLineTotal). A clone whose parent can't be
  * found (missing, ambiguous, or never recomputed), or whose totals aren't
- * both a finite number > 0, is an ORPHAN — left alone, only counted.
+ * both a finite number > 0, is an ORPHAN — left alone, only counted, and
+ * written into the diff JSON's top-level `orphans` array (id, item, supplier,
+ * invoice, its stored frozen value, and WHY: "no parent" / "ambiguous parent" /
+ * "non-positive totals"). The diff file is therefore `{ changed: [...],
+ * orphans: [...] }`, not a bare array.
  */
 import { writeFileSync } from 'node:fs'
 import { prisma } from '../src/lib/prisma'
 import { PRICING_SELECT, asChainItem, type ChainItem } from '../src/lib/item-model'
 import { lineReceived, lineReceivedBaseUnits } from '../src/lib/invoice/line-qty'
 import { resolveLineFormat, pickOffer } from '../src/lib/invoice/line-format'
-import { cloneShare, isMaterialChange } from '../src/lib/invoice/refreeze'
+import { cloneShare, isMaterialChange, parseMode } from '../src/lib/invoice/refreeze'
 
-// Reject any flag we don't recognize (a typo like --aply must never silently
-// fall through to a different mode) before touching anything else.
-const KNOWN_FLAGS = new Set(['--refreeze', '--apply'])
 const argv = process.argv.slice(2)
-const unknownFlags = argv.filter((a) => !KNOWN_FLAGS.has(a))
-if (unknownFlags.length > 0) {
-  console.error(`Unknown flag(s): ${unknownFlags.join(', ')}`)
-  console.error('Usage: backfill-received-qty-base.ts [--refreeze] [--apply]')
+const parsed = parseMode(argv)
+if ('error' in parsed) {
+  console.error(parsed.error)
+  console.error('Usage: backfill-received-qty-base.ts [--refreeze [--apply] | --fill-null --apply]')
   process.exit(2)
 }
 
-const REFREEZE = argv.includes('--refreeze')
-const APPLY = argv.includes('--apply')
+const REFREEZE = parsed.mode === 'refreeze'
+const APPLY = parsed.apply
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 
 // Per-case lines that carry a stray billed-weight column but NO printed rate that
@@ -157,13 +170,21 @@ function qtyAndUnit(qty: unknown, unit: string | null): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Default mode — UNCHANGED from before --refreeze existed.
+// fill-null mode — the original mode, now explicit (--fill-null --apply).
+// Fills NULL receivedQtyBase rows only: it must never overwrite an
+// already-frozen row (that is --refreeze's job), and it must never derive a
+// clone row's value directly (a clone is a SHARE of its parent's value — see
+// --refreeze — never the rule run on the clone's own line).
 // ─────────────────────────────────────────────────────────────────────────
-async function runOriginal(lines: ScanLine[]) {
+async function runFillNull(lines: ScanLine[]) {
   const diff: unknown[] = []
   const writes: { id: string; next: number; prev: string | null }[] = []
+  let skippedClones = 0
+  let skippedAlreadyFrozen = 0
   for (const l of lines) {
     if (!l.matchedItem) continue
+    if (l.session.parentSessionId) { skippedClones++; continue }
+    if (l.receivedQtyBase != null) { skippedAlreadyFrozen++; continue }
     const input = inputOf(l)
     const chain = asChainItem(l.matchedItem)
     const old = lineReceivedBaseUnits(input, chain)
@@ -191,16 +212,19 @@ async function runOriginal(lines: ScanLine[]) {
         ratio: old > 0 ? +(next / old).toFixed(3) : null,
       })
     }
-    if (next > 0) writes.push({ id: l.id, next, prev: l.receivedQtyBase?.toString() ?? null })
+    // l.receivedQtyBase is null here by construction (filtered above).
+    if (next > 0) writes.push({ id: l.id, next, prev: null })
   }
 
   writeFileSync(`received-qty-base-diff-${stamp}.json`, JSON.stringify(diff, null, 2))
   console.log(
     `${lines.length} approved lines · ${writes.length} to freeze · ${diff.length} change vs today's rule`,
   )
+  console.log(`clone rows skipped (never filled here — use --refreeze for clones): ${skippedClones}`)
+  console.log(`already-frozen rows skipped (fill-null never overwrites): ${skippedAlreadyFrozen}`)
   console.log(`diff → received-qty-base-diff-${stamp}.json`)
   if (!APPLY) {
-    console.log('DRY RUN — nothing written. Re-run with --apply.')
+    console.log('DRY RUN — nothing written. Re-run with --fill-null --apply.')
     return
   }
 
@@ -249,6 +273,17 @@ interface DiffRow {
   eachMeasureQty: number | null
   eachMeasureUnit: string | null
   densityGPerMl: number | null
+}
+
+type OrphanReason = 'no parent' | 'ambiguous parent' | 'non-positive totals'
+
+interface OrphanRow {
+  id: string
+  item: string | null
+  supplier: string | null
+  invoice: string | null
+  frozen: number | null
+  reason: OrphanReason
 }
 
 function buildDiffRow(l: ScanLine, computed: NextResult, old: number): DiffRow {
@@ -308,21 +343,38 @@ async function runRefreeze(lines: ScanLine[]) {
   // CLONES: never run through the rule — a clone carries a SHARE of its
   // parent's new value. Orphan when the parent can't be found (missing,
   // ambiguous, or its own recompute was skipped) or either total isn't a
-  // finite number > 0. Orphans keep their frozen value untouched.
-  const orphanIds: string[] = []
+  // finite number > 0. Orphans keep their frozen value untouched — but are
+  // still reported (id, item, supplier, invoice, stored frozen value, and WHY)
+  // so someone can go look at them, rather than vanishing into a bare count.
+  const orphans: OrphanRow[] = []
   for (const l of lines) {
     if (!l.session.parentSessionId) continue
-    const parent = byKey.get(`${l.session.parentSessionId}|${l.rawDescription}|${l.sortOrder}`)
+    const key = `${l.session.parentSessionId}|${l.rawDescription}|${l.sortOrder}`
+    const parent = byKey.get(key)
     const parentNext = parent ? next.get(parent.id) : undefined
     const share = parent && parentNext ? cloneShare(parent.rawLineTotal, l.rawLineTotal) : null
-    if (!parent || !parentNext || share === null) {
-      orphanIds.push(l.id)
+    if (parent && parentNext && share !== null) {
+      next.set(l.id, {
+        base: parentNext.base * share,
+        via: `clone of ${parentNext.via}`,
+        needsBridge: parentNext.needsBridge,
+      })
       continue
     }
-    next.set(l.id, {
-      base: parentNext.base * share,
-      via: `clone of ${parentNext.via}`,
-      needsBridge: parentNext.needsBridge,
+    // ambiguousKeys is never mutated after the `byKey.delete` pass above, so a
+    // key can still be recognised as "was ambiguous" even though byKey no
+    // longer has an entry for it — that's the only way to tell "no parent at
+    // all" apart from "more than one candidate parent".
+    const reason: OrphanReason = !parent
+      ? (ambiguousKeys.has(key) ? 'ambiguous parent' : 'no parent')
+      : 'non-positive totals'
+    orphans.push({
+      id: l.id,
+      item: l.matchedItem?.itemName ?? null,
+      supplier: l.session.supplierName,
+      invoice: l.session.invoiceNumber,
+      frozen: l.receivedQtyBase != null ? Number(l.receivedQtyBase) : null,
+      reason,
     })
   }
 
@@ -342,7 +394,13 @@ async function runRefreeze(lines: ScanLine[]) {
     writes.push({ id: l.id, next: computed.base, prev: l.receivedQtyBase?.toString() ?? null })
   }
 
-  writeFileSync(`received-qty-refreeze-diff-${stamp}.json`, JSON.stringify(diff, null, 2))
+  // The diff file is { changed, orphans } — not a bare array — so the orphan
+  // clones (never derivable here, left alone) are on record beside the rows
+  // that DID change, rather than only a count on the console.
+  writeFileSync(
+    `received-qty-refreeze-diff-${stamp}.json`,
+    JSON.stringify({ changed: diff, orphans }, null, 2),
+  )
 
   const viaCounts = new Map<string, number>()
   let needsBridgeCount = 0
@@ -359,9 +417,14 @@ async function runRefreeze(lines: ScanLine[]) {
     console.log(`  ${via}: ${count}`)
   }
   console.log(`needsBridge: ${needsBridgeCount}`)
-  console.log(`orphan clones (left alone): ${orphanIds.length}`)
+  console.log(`orphan clones (left alone): ${orphans.length}`)
+  if (orphans.length > 0) {
+    const byReason = new Map<string, number>()
+    for (const o of orphans) byReason.set(o.reason, (byReason.get(o.reason) ?? 0) + 1)
+    for (const [reason, count] of byReason) console.log(`  ${reason}: ${count}`)
+  }
   console.log(`skipped — recomputed to <= 0, never frozen: ${skippedZero}`)
-  console.log(`diff → received-qty-refreeze-diff-${stamp}.json`)
+  console.log(`diff ({ changed, orphans }) → received-qty-refreeze-diff-${stamp}.json`)
 
   const packPathChanges = diff.filter((row) => ['printed-pack', 'item-pack', 'none'].includes(baseViaOf(row.via)))
   console.log(
@@ -414,6 +477,10 @@ async function runRefreeze(lines: ScanLine[]) {
     await prisma.invoiceScanItem.update({ where: { id: w.id }, data: { receivedQtyBase: w.next } })
   }
   console.log(`\napplied ${writes.length} · backup → received-qty-refreeze-backup-${stamp}.json`)
+  console.log(
+    'If a re-run after a partial failure writes a SECOND backup file, BOTH backups are needed, ' +
+      'in that order (oldest first), to fully restore.',
+  )
 }
 
 async function main() {
@@ -421,7 +488,7 @@ async function main() {
   if (REFREEZE) {
     await runRefreeze(lines)
   } else {
-    await runOriginal(lines)
+    await runFillNull(lines)
   }
 }
 

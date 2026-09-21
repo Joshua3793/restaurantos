@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cloneShare, isMaterialChange } from '@/lib/invoice/refreeze'
+import { cloneShare, isMaterialChange, parseMode } from '@/lib/invoice/refreeze'
 
 describe('cloneShare', () => {
   it('is the clone/parent ratio when both totals are finite and positive', () => {
@@ -48,5 +48,47 @@ describe('isMaterialChange', () => {
   it('uses the floor of 0.001 for small prev values', () => {
     expect(isMaterialChange(0.01, 0.0115)).toBe(true)  // diff .0015 > max(.001, .00005) = .001
     expect(isMaterialChange(0.01, 0.0105)).toBe(false) // diff .0005 < .001 floor
+  })
+})
+
+// The rule changed underneath the default (fill-null) mode: a bare --apply used
+// to be safe (it only ever filled NULL rows under the OLD rule), but a blanket
+// --apply now with no material-change filter and no clone handling would
+// re-break the pre-2026-06-19 clone rows --refreeze exists to fix. Three
+// explicit modes, refuse anything else.
+describe('parseMode', () => {
+  it('no flags: dry run of fill-null mode', () => {
+    expect(parseMode([])).toEqual({ mode: 'fill-null', apply: false })
+  })
+
+  it('--refreeze alone: dry run of refreeze mode', () => {
+    expect(parseMode(['--refreeze'])).toEqual({ mode: 'refreeze', apply: false })
+  })
+
+  it('--refreeze --apply: applies the refreeze mode', () => {
+    expect(parseMode(['--refreeze', '--apply'])).toEqual({ mode: 'refreeze', apply: true })
+  })
+
+  it('--fill-null --apply: applies the original fill-null mode', () => {
+    expect(parseMode(['--fill-null', '--apply'])).toEqual({ mode: 'fill-null', apply: true })
+  })
+
+  it('--fill-null alone: dry run, ok', () => {
+    expect(parseMode(['--fill-null'])).toEqual({ mode: 'fill-null', apply: false })
+  })
+
+  it('a bare --apply (no mode flag) is refused', () => {
+    const r = parseMode(['--apply'])
+    expect('error' in r).toBe(true)
+  })
+
+  it('--refreeze and --fill-null together are refused (mutually exclusive)', () => {
+    const r = parseMode(['--refreeze', '--fill-null'])
+    expect('error' in r).toBe(true)
+  })
+
+  it('an unrecognised flag is refused', () => {
+    const r = parseMode(['--aply'])
+    expect('error' in r).toBe(true)
   })
 })

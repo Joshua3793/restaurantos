@@ -26,6 +26,7 @@ import {
   isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
 import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit, type SupplierRef } from '@/lib/invoice/resolution'
+import { aggregateSaveResult } from '@/lib/invoice/save-status'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { formatPricePerBase } from '@/lib/utils'
@@ -492,12 +493,20 @@ export function InvoiceReviewDrawer({
 
   // Silent refresh — updates session data without showing the loading spinner,
   // so child component state (expanded cards, staged edits) is preserved.
-  const refreshSession = useCallback(async (id: string) => {
+  // Returns whether it actually landed: a caller that drops a staged optimistic
+  // edit in favour of "the fresh server row" must not do so when there IS no
+  // fresh row (a failed fetch, or a non-OK response) — that would show stale/
+  // missing data instead of just leaving the staged copy in place.
+  const refreshSession = useCallback(async (id: string): Promise<boolean> => {
     try {
-      const res  = await fetch(`/api/invoices/sessions/${id}`, { cache: 'no-store' })
+      const res = await fetch(`/api/invoices/sessions/${id}`, { cache: 'no-store' })
+      if (!res.ok) return false
       const data = await res.json()
       setSession(data)
-    } catch { /* ignore — stale session data stays on screen */ }
+      return true
+    } catch {
+      return false /* ignore — stale session data stays on screen */
+    }
   }, [])
 
   useEffect(() => {
@@ -734,33 +743,47 @@ export function InvoiceReviewDrawer({
   // each other (a single "latest patch" timer used to drop earlier edits).
   const pendingEditsRef = useRef<Map<string, Partial<ScanItem>>>(new Map())
 
-  const persistEdit = useCallback(async (id: string, patch: Partial<ScanItem>) => {
-    if (!session) return
-    setSaveStatus('saving')
+  // Reports success/failure — it does NOT set saveStatus itself. It used to: with
+  // several patches in flight at once (flushPendingEdits' Promise.all), each call
+  // set the chip on ITS OWN completion, so whichever resolved LAST won the race —
+  // a later-resolving success silently reset 'error' back to 'idle' even though
+  // an earlier patch in the same batch never reached the server. The aggregate is
+  // now computed ONCE, after every patch in the batch has settled (aggregateSaveResult).
+  const persistEdit = useCallback(async (id: string, patch: Partial<ScanItem>): Promise<boolean> => {
+    if (!session) return false
     try {
       const res = await fetch(`/api/invoices/sessions/${session.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scanItemId: id, ...patch }),
       })
-      if (!res.ok) setSaveStatus('error')
-      else setSaveStatus('idle')
+      return res.ok
     } catch {
-      setSaveStatus('error')
+      return false
     }
   }, [session])
 
   // Send every staged patch now. Used by the debounce timer and awaited by
   // handleApprove so a consent/edit clicked moments before Approve is never
-  // lost to the debounce window.
-  const flushPendingEdits = useCallback(async () => {
+  // lost to the debounce window. Returns whether EVERY patch in the batch
+  // actually reached the server — callers that drop a staged optimistic edit
+  // (linkExistingItem, bridgeAndReceiveAsCount, setItemDensity) must check this
+  // before doing so: a failed PATCH left in place there used to be
+  // indistinguishable from a successful one — the staged link was dropped either
+  // way, silently falling back to the server's (unlinked) row while the save
+  // indicator raced back to 'idle'.
+  const flushPendingEdits = useCallback(async (): Promise<boolean> => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const pending = pendingEditsRef.current
-    if (pending.size === 0) return
+    if (pending.size === 0) return true
     pendingEditsRef.current = new Map()
-    await Promise.all(
+    setSaveStatus('saving')
+    const results = await Promise.all(
       Array.from(pending.entries()).map(([id, patch]) => persistEdit(id, patch))
     )
+    const status = aggregateSaveResult(results)
+    setSaveStatus(status)
+    return status === 'idle'
   }, [persistEdit])
 
   const updateLine = useCallback((id: string, patch: Partial<ScanItem>) => {
@@ -1030,13 +1053,32 @@ export function InvoiceReviewDrawer({
   // getEffectiveLine lays staged edits OVER the refreshed server row, so the
   // partial snapshot never clears on its own. Wait for the staged patch to reach
   // the server, THEN drop the staged matchedItem (like the bridge/density
-  // resolvers above) so the card falls back to the authoritative server row
+  // resolvers below) so the card falls back to the authoritative server row
   // (...PRICING_SELECT + supplierPrices) and agrees with what approve will read.
+  //
+  // Two failure modes matter here, both silent before this fix:
+  //  - the PATCH itself fails (network, 5xx): flushPendingEdits used to resolve
+  //    as if it had succeeded regardless, so this still dropped the staged
+  //    matchedItem and refreshed — the server row has NO match, but the staged
+  //    matchedItemId survived the drop (dropStagedMatchedItem only removes the
+  //    `matchedItem` key), so isUnlinked() read false and the line never showed
+  //    up as needing attention — approving it would drop the purchase's stock
+  //    entirely, silently. Now: if the flush failed, STOP — do not drop, do not
+  //    refresh. The full staged patch (matchedItemId AND matchedItem) stays in
+  //    place, so the card keeps showing exactly what the user picked, and
+  //    flushPendingEdits has already set the save-error status the user sees.
+  //  - the PATCH lands but the refresh fails: dropping the staged matchedItem
+  //    here would replace a real (if partial) link with nothing. Keep the
+  //    staged copy — it is strictly better than showing no match — and surface
+  //    the failure the same way a failed PATCH does.
   const linkExistingItem = useCallback(async (id: string, result: InventorySearchResult, action: LineItemAction) => {
     updateLine(id, matchPatchFromResult(result, action))
-    await flushPendingEdits()
-    dropStagedMatchedItem(id)
-    if (session) await refreshSession(session.id)
+    const saved = await flushPendingEdits()
+    if (!saved) return
+    if (!session) return
+    const refreshed = await refreshSession(session.id)
+    if (refreshed) dropStagedMatchedItem(id)
+    else setSaveStatus('error')
   }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem, updateLine])
 
   // ── Non-destructive dimension-conflict resolver ──────────────────────────────
@@ -1077,8 +1119,15 @@ export function InvoiceReviewDrawer({
       throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
     }
     await flushPendingEdits()
-    dropStagedMatchedItem(item.id)
-    if (session) await refreshSession(session.id)
+    // Refresh BEFORE dropping the staged matchedItem (not after — the reverse
+    // order rendered one frame of the stale/no-bridge server row between the
+    // drop and the refresh landing), and keep the staged copy if the refresh
+    // itself fails rather than showing nothing.
+    if (session) {
+      const refreshed = await refreshSession(session.id)
+      if (refreshed) dropStagedMatchedItem(item.id)
+      else setSaveStatus('error')
+    }
   }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem])
 
   // ── Non-destructive weight↔volume resolver ──────────────────────────────────
@@ -1105,8 +1154,12 @@ export function InvoiceReviewDrawer({
       throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
     }
     await flushPendingEdits()
-    dropStagedMatchedItem(item.id)
-    if (session) await refreshSession(session.id)
+    // Refresh BEFORE dropping the staged matchedItem — see bridgeAndReceiveAsCount.
+    if (session) {
+      const refreshed = await refreshSession(session.id)
+      if (refreshed) dropStagedMatchedItem(item.id)
+      else setSaveStatus('error')
+    }
   }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem])
 
   // ── Context value ────────────────────────────────────────────────────────────
