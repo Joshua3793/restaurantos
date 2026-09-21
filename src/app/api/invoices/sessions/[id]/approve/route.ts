@@ -13,7 +13,8 @@ import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/line-format'
-import { packReference, casePricePerBase, freezeFormat, pricingBasisFor } from '@/lib/invoice/approve-format'
+import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate } from '@/lib/invoice/approve-format'
+import { canonicalUom } from '@/lib/uom'
 import { lookupDensity } from '@/lib/density'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
@@ -265,7 +266,13 @@ async function doApprove(
         // that field as lineTotal ÷ qtyShipped, which on a weight-shipped line IS
         // the $/weight rate). Prefer it over the stored newPrice there, for the
         // same reason the CASE path already does.
-        const newPurchasePrice = isUomMode
+        //
+        // In WEIGHT mode this is only the STARTING point: `scanItem.rate` is
+        // whatever OCR read out of a price column and may be a per-CASE price
+        // wearing `rateUOM: 'CS'`. weightBasisRate (below, once the rate's unit
+        // is resolved) decides whether to trust it or derive the rate from the
+        // line total — a per-case rate must never be denominated in pounds.
+        let newPurchasePrice = isUomMode
           ? (scanItem.rate != null ? Number(scanItem.rate)
             : (pricedByWeight && scanItem.rawUnitPrice != null) ? Number(scanItem.rawUnitPrice)
             : Number(scanItem.newPrice))
@@ -306,7 +313,11 @@ async function doApprove(
             : (pricedByWeight && wv(scanItem.rawUnit)) ? scanItem.rawUnit!
             : wv(item.baseUnit) ? item.baseUnit!
             : 'kg'
-          resolvedRateUnit = rateUnit
+          // Store the CANONICAL token ('lb', not the line's 'LB'): every reader
+          // canonicalises before converting (getUnitConv / dimensionOf both go
+          // through canonicalUom), so no computed number moves — but the stored
+          // `pricing.rateUnit` is what the item drawer prints as "$15.98 / lb".
+          resolvedRateUnit = canonicalUom(rateUnit) || rateUnit
           // ── Weight↔volume density bridge ────────────────────────────────────
           // A measured rate ($/kg) on an item whose base is the OTHER measured
           // dimension ($/ml) must cross via density (g/ml), not the silent 1:1.
@@ -324,6 +335,24 @@ async function doApprove(
               ? learned
               : lookupDensity(item.itemName ?? scanItem.rawDescription ?? '').gPerMl
             itemForRate = { ...itemAsChain, densityGPerMl: density }
+          }
+          // ── Is the "rate" actually a rate PER THIS UNIT? ────────────────────
+          // Only on a line RECEIVED by weight, where the line's own money fixes
+          // the answer (`received.base` came out of the weight the invoice
+          // billed). A `1 CS @ 41.88` line shipped as "12 LB" carries rate 41.88
+          // with rateUOM 'CS' — a per-CASE price that would otherwise be written
+          // as $41.88 per POUND. Everything else (via 'rate' / 'item-pack' /
+          // 'printed-pack' — the bison family) keeps today's value untouched.
+          if (pricedByWeight) {
+            newPurchasePrice = weightBasisRate({
+              rate:         scanItem.rate != null ? Number(scanItem.rate) : null,
+              rateUOM:      scanItem.rateUOM,
+              rawLineTotal: scanItem.rawLineTotal != null ? Number(scanItem.rawLineTotal) : null,
+              receivedBase: received.base,
+              rateUnit:     resolvedRateUnit,
+              item:         itemForRate,
+              fallback:     newPurchasePrice,
+            }).rate
           }
           // ONE formula for $/rateUnit → $/base (item-model's `ratePerBase`): the
           // same-dimension divide, the each-measure bridge that prices $3.49/lb as
@@ -551,8 +580,20 @@ async function doApprove(
           // this line proves; the pack is not. So keep the chain we already hold
           // (this supplier's, else the item's) and store only the RATE over it —
           // the printed pack still survives in the offerPack provenance triple.
-          // Unreachable before this task: isUomMode required !itemBridge.
-          const packIsTheQuantity = isUomMode && !!itemBridge
+          //
+          // ONLY when the rate crosses the item's dimension, though (the first
+          // cut keyed on "the item has an each-measure", which also caught a
+          // MASS item that merely carries a count bridge — Sausage at $15.95/kg
+          // on a `g` item, whose printed pack IS a pack in the item's own units;
+          // its offer chain then stopped refreshing from the line and, with no
+          // prior offer chain, stored an empty one that reads $0).
+          const lineQtyIsNotAPack = packIsTheQuantity({
+            isUomMode, rateUnit: resolvedRateUnit, item: { dimension: item.dimension, baseUnit: item.baseUnit },
+          })
+          // The chain we already hold for THIS supplier, else the item's.
+          const heldChain = (Array.isArray(lineOffer?.packChain) && (lineOffer!.packChain as PackLink[]).length
+            ? (lineOffer!.packChain as PackLink[])
+            : itemChain)
           const offerChain = (reverseBridge && reverseBasePerCase > 0)
             // Reverse bridge: the offer is a measured purchase — 1 container =
             // reverseBasePerCase base units. A single PACK link reproduces the
@@ -561,7 +602,7 @@ async function doApprove(
                 packChain: [{ unit: itemTopUnit ?? scanItem.rawUnit ?? 'case', per: reverseBasePerCase }] as PackLink[],
                 pricing: { mode: 'PACK' as const, purchasePrice: offerLastPrice },
               }
-            : (hasLinePack && !packIsTheQuantity)
+            : (hasLinePack && !lineQtyIsNotAPack)
             ? formToChain({
                 purchaseUnit:       itemTopUnit ?? scanItem.rawUnit ?? 'case',
                 purchasePrice:      offerLastPrice,
@@ -595,9 +636,16 @@ async function doApprove(
                 // a supplier we have no chain for falls back to the item's.
                 // Pricing follows the resolved mode over the offer's last price.
                 // CASE: PACK over that chain. UOM: RATE over the resolved rate unit.
-                packChain: (Array.isArray(lineOffer?.packChain) && (lineOffer!.packChain as PackLink[]).length
-                  ? (lineOffer!.packChain as PackLink[])
-                  : itemChain),
+                //
+                // …and in UOM mode never an EMPTY chain: offerPricePerBase reads
+                // one as "unpriced" ($0), so a supplier with no chain anywhere (on
+                // an item whose own chain is empty too) would store a RATE nobody
+                // can read. One nominal container stands in — with RATE pricing the
+                // chain is not a divisor. CASE mode is left exactly as it was: there
+                // the chain IS the divisor and inventing one would invent a price.
+                packChain: isUomMode
+                  ? nonEmptyOfferChain(heldChain, itemTopUnit ?? scanItem.rawUnit ?? 'case')
+                  : heldChain,
                 pricing: isUomMode
                   ? { mode: 'RATE', rate: offerLastPrice, rateUnit: resolvedRateUnit }
                   : { mode: 'PACK', purchasePrice: offerLastPrice },
