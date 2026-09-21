@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import {
   effectiveUrgency, autoUrgencyOf, effectivePriority, cadenceReason, whyLabel,
   cappedSuggestedQty, suggestedDraftQty, suggestedBatches, longLeadQty, applyStatusToItem,
@@ -13,6 +13,11 @@ const base = {
   priority: 'LATER' as PrepPriority, suggestedQty: 0,
 }
 const now = Date.parse('2026-09-06T14:00:00.000Z')
+// The fixtures are dated relative to `now`, but planGroups / ladderTimes (and
+// any helper called without `now`) read the real clock — pin it, or every
+// "made 1d ago" item turns due-by-cadence once the calendar passes the fixture.
+beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(now) })
+afterAll(() => { vi.useRealTimers() })
 const day = (d: number) => new Date(now - d * 86_400_000).toISOString()
 const every3 = (lastDaysAgo: number): CadenceStats => ({
   makes: 4, medianIntervalDays: 3, medianQty: 6, lastMadeAt: day(lastDaysAgo),
