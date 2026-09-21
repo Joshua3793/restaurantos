@@ -5,6 +5,7 @@ import { portionsPerBatch } from '@/lib/recipe-portions'
 import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
 import { parseInvoiceDate } from '@/lib/purchase-date'
 import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
+import { resolveLineFormat, pickOffer } from '@/lib/invoice/line-format'
 import { MovementLedger, type LedgerBalance, type LedgerEvent, type LedgerSink } from '@/lib/ledger-balance'
 
 /**
@@ -327,11 +328,13 @@ export async function buildPurchaseMap(
       invoicePackQty: true,
       invoicePackSize: true,
       invoicePackUOM: true,
-      session: { select: { createdAt: true, purchaseDate: true, invoiceDate: true, supplierName: true, invoiceNumber: true, revenueCenterId: true } },
+      receivedQtyBase: true,
+      session: { select: { createdAt: true, purchaseDate: true, invoiceDate: true, supplierName: true, supplierId: true, invoiceNumber: true, revenueCenterId: true } },
       matchedItem: {
         select: {
           id: true,
           ...PRICING_SELECT,
+          supplierPrices: { select: { supplierId: true, supplierName: true, packChain: true, pricing: true } },
         },
       },
     },
@@ -363,6 +366,7 @@ export async function buildPurchaseMap(
     // Decimal columns are stringified here rather than widening LineQtyInput —
     // line-qty.ts is client-safe and must not learn about Prisma types.
     const baseUnits = lineReceivedBaseUnits({
+      receivedQtyBase: si.receivedQtyBase?.toString() ?? null,
       rawQty:         si.rawQty?.toString() ?? null,
       rawUnit:        si.rawUnit,
       totalQty:       si.totalQty?.toString() ?? null,
@@ -371,7 +375,12 @@ export async function buildPurchaseMap(
       invoicePackQty:  si.invoicePackQty?.toString() ?? null,
       invoicePackSize: si.invoicePackSize?.toString() ?? null,
       invoicePackUOM:  si.invoicePackUOM,
-    }, asChainItem(si.matchedItem))
+    }, resolveLineFormat(
+      asChainItem(si.matchedItem),
+      // Offers are stored under the canonical supplier name; supplierId is the
+      // reliable join and the raw session name the fallback.
+      pickOffer(si.matchedItem.supplierPrices, { supplierId: si.session.supplierId, supplierName: si.session.supplierName }),
+    ))
     if (baseUnits <= 0) continue
 
     map.set(si.matchedItemId, (map.get(si.matchedItemId) ?? 0) + baseUnits)

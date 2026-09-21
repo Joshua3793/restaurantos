@@ -5,6 +5,7 @@
 import { convertQty, convertQtyBridged, canonicalUom, UNIT_FACTORS } from '@/lib/uom'
 import { asChainItem, basePerUnit, dimensionOf, type ChainItem } from '@/lib/item-model'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { resolveLineFormat, type OfferFormat } from '@/lib/invoice/line-format'
 
 /** Fields of a scan line that determine how much was received. */
 export interface LineQtyInput {
@@ -17,6 +18,10 @@ export interface LineQtyInput {
   invoicePackQty?: number | string | null
   invoicePackSize?: number | string | null
   invoicePackUOM?: string | null
+  /** Frozen at approve. When > 0 it IS the answer — the live rules below are only
+   *  for lines not yet approved (or not yet backfilled). Callers computing the
+   *  value to freeze must NOT pass it. */
+  receivedQtyBase?: number | string | null
 }
 
 const num = (v: unknown): number => {
@@ -68,6 +73,9 @@ function toBaseUnits(qty: number, unit: string | null | undefined, item: ChainIt
  *  rather than reimplementing it, so theoretical stock, the RC split editor and
  *  the approved-invoice report can never drift apart again. */
 export function lineReceivedBaseUnits(line: LineQtyInput, chainItem: ChainItem): number {
+  const frozen = num(line.receivedQtyBase)
+  if (frozen > 0) return frozen
+
   const qty    = num(line.rawQty)
   const billed = num(line.totalQty)
   const isRate = chainItem.pricing?.mode === 'RATE'
@@ -120,8 +128,13 @@ export interface MatchedItemLike {
 }
 
 /** Received quantity expressed in the item's COUNT UOM — the number the split
- *  must add up to. Returns { qty, countUom }. */
-export function lineReceivedCountQty(line: LineQtyInput, matched: MatchedItemLike): { qty: number; countUom: string } {
+ *  must add up to. Returns { qty, countUom }. `offer` is the line's supplier
+ *  offer (Task 2's resolveLineFormat) — when it carries a usable pack, the line
+ *  is read through THAT pack rather than the item's (which is only the primary
+ *  supplier's). */
+export function lineReceivedCountQty(
+  line: LineQtyInput, matched: MatchedItemLike, offer?: OfferFormat | null,
+): { qty: number; countUom: string } {
   const chainItem = asChainItem({
     dimension: matched.dimension,
     baseUnit:  matched.baseUnit ?? 'each',
@@ -131,6 +144,6 @@ export function lineReceivedCountQty(line: LineQtyInput, matched: MatchedItemLik
   })
   const dims = { dimension: matched.dimension, baseUnit: matched.baseUnit ?? 'each', packChain: matched.packChain, countUnit: matched.countUnit }
   const countUom = resolveCountUom(dims) || chainItem.baseUnit
-  const base = lineReceivedBaseUnits(line, chainItem)
+  const base = lineReceivedBaseUnits(line, resolveLineFormat(chainItem, offer))
   return { qty: convertBaseToCountUom(base, countUom, dims), countUom }
 }

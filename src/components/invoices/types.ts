@@ -71,6 +71,8 @@ export interface ScanItem {
   invoicePackUOM: string | null
   totalQty: string | null
   totalQtyUOM: string | null
+  /** Frozen at approve — the receiving math's answer once it's no longer live. */
+  receivedQtyBase?: number | string | null
   revenueCenterId?: string | null
   /** Per-RC quantity split (count UOM). null/empty = single-RC via revenueCenterId. */
   rcSplit?: Array<{ rcId: string; qty: number }> | null

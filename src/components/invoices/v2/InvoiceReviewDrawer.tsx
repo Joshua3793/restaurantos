@@ -600,7 +600,7 @@ export function InvoiceReviewDrawer({
   )
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i),
+    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }),
   [session?.supplierId, session?.supplierName])
 
   // Group lines into the mock's three sections + per-line invoice numbering.

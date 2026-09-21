@@ -22,7 +22,7 @@ import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, offerForSupplier } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
@@ -84,7 +84,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const mathCheck      = !isSkipped && hasMathCheck(item)
   const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
   const trustCheck     = !isSkipped && needsTrustCheck(item)
-  const badSplit       = !isSkipped && hasInvalidRcSplit(item)
+  const badSplit       = !isSkipped && hasInvalidRcSplit(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
   const isAttention    = unlinked || dimConflict || bridge || mathCheck || bigPrice || trustCheck || badSplit
   const isCatch        = isCatchweight(item)
 
@@ -97,7 +97,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         packChain: item.matchedItem.packChain,
         pricing:   item.matchedItem.pricing,
         countUnit: item.matchedItem.countUnit ?? null,
-      })
+      }, offerForSupplier(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }))
     : null
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0

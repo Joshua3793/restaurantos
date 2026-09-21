@@ -142,3 +142,23 @@ describe('lineReceivedCountQty', () => {
     expect(r.qty).toBeCloseTo(2)
   })
 })
+
+describe('frozen receipts and supplier offers', () => {
+  const romaine = item({
+    dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+    packChain: [{ unit: 'case', per: 4 }, { unit: 'pack', per: 12 }],
+  })
+
+  it('a frozen receivedQtyBase wins over every live rule', () => {
+    expect(lineReceivedBaseUnits(line({ rawQty: 2, receivedQtyBase: '24' }), romaine)).toBe(24)
+  })
+  it('a null or zero frozen value computes live', () => {
+    expect(lineReceivedBaseUnits(line({ rawQty: 2, receivedQtyBase: null }), romaine)).toBe(96)
+    expect(lineReceivedBaseUnits(line({ rawQty: 2, receivedQtyBase: 0 }), romaine)).toBe(96)
+  })
+  it('lineReceivedCountQty reads the line through the supplier offer', () => {
+    const matched = { dimension: 'COUNT', baseUnit: 'each', packChain: romaine.packChain, pricing: romaine.pricing, countUnit: 'each' }
+    expect(lineReceivedCountQty(line({ rawQty: 2 }), matched).qty).toBe(96)
+    expect(lineReceivedCountQty(line({ rawQty: 2 }), matched, { packChain: [{ unit: 'case', per: 12 }] }).qty).toBe(24)
+  })
+})
