@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeSplit, cappedAway, effectiveHours, breakdown, sortPeople } from '@/lib/tips/engine'
+import { computeSplit, cappedAway, effectiveHours, breakdown, idlePeople, sortPeople } from '@/lib/tips/engine'
 import type { TipPerson, TipRoleDef, Denom } from '@/lib/tips/types'
 
 const ROLES: TipRoleDef[] = [
@@ -396,5 +396,29 @@ describe('sortPeople', () => {
     })
     expect(sortPeople(r.people, 'name', 1).map(p => p.name)).toEqual(['Ana', 'Bo'])
     expect(sortPeople(r.people, 'name', -1).map(p => p.name)).toEqual(['Bo', 'Ana'])
+  })
+})
+
+describe('idlePeople', () => {
+  const people = [
+    person({ cookId: 'a', name: 'Worked', hours: [8, 0, 0, 0] }),
+    person({ cookId: 'z', name: 'Zed' }),
+    person({ cookId: 'b', name: 'Bea', roleId: 'lead', hours: [0, 0, 0, 0], edited: [true, false, false, false] }),
+    person({ cookId: 'c', name: 'Off pool', onPool: false }),
+  ]
+  const split = computeSplit({ basis: [100, 0, 0, 0], poolRatePct: 10, roundingStepCents: 100, roles: ROLES, people })
+
+  it('is everyone on the pool the split left out, by name, with zero money', () => {
+    const idle = idlePeople(people, ROLES, split)
+    expect(idle.map(p => p.name)).toEqual(['Bea', 'Zed'])
+    expect(idle[0]).toMatchObject({ roleName: 'Lead', multiplier: 1.5, hoursTotal: 0, tip: 0, envelopeCents: 0 })
+    expect(idle[0].daily).toEqual([0, 0, 0, 0])
+    // An hours override that zeroed the day still rides along, so the row can show and undo it.
+    expect(idle[0].edited[0]).toBe(true)
+  })
+
+  it('never overlaps the paid list', () => {
+    const paid = new Set(split.people.map(p => p.cookId))
+    expect(idlePeople(people, ROLES, split).some(p => paid.has(p.cookId))).toBe(false)
   })
 })

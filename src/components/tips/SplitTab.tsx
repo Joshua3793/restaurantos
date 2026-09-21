@@ -1,8 +1,9 @@
 'use client'
 import { useState } from 'react'
+import { RotateCcw } from 'lucide-react'
 import type { AuditResult, FindingAction } from '@/lib/tips/audit'
-import type { SortKey, SplitPerson, SplitResult, TipRoleDef } from '@/lib/tips/types'
-import { DEFAULT_SORT_DIR, effectiveHours, sortPeople } from '@/lib/tips/engine'
+import type { SortKey, SplitPerson, SplitResult, TipPerson, TipRoleDef } from '@/lib/tips/types'
+import { DEFAULT_SORT_DIR, effectiveHours, idlePeople, sortPeople } from '@/lib/tips/engine'
 import { readHoursCell } from '@/lib/tips/roster'
 import { DayStrip, DayStripLegend, MethodNote, RoleSelect, initials, money } from './kit'
 
@@ -34,8 +35,15 @@ function capSummary(people: SplitPerson[]): string {
     .join(' · ')
 }
 
+const editedDays = (p: TipPerson) => p.edited.filter(Boolean).length
+
 export interface SplitTabProps {
   split: SplitResult
+  /**
+   * The whole roster, not just the people being paid. Anyone on the pool with
+   * no hours stays on the table as a grey row instead of vanishing.
+   */
+  roster: TipPerson[]
   audit: AuditResult
   roles: TipRoleDef[]
   dayLabels: string[]
@@ -52,6 +60,11 @@ export interface SplitTabProps {
   onHoursChange: (cookId: string, dayIndex: number, hours: number | null) => void
   onBoostChange: (cookId: string, dayIndex: number, boost: number) => void
   onClearAdjustments: (cookId: string) => void
+  /**
+   * Put every day this person had typed over back to the clock file. Hours
+   * only — their reward boosts stay exactly as they are.
+   */
+  onRestoreHours: (cookId: string) => void
   onFix: (action: FindingAction) => void
   onGoto: (tab: string) => void
 }
@@ -61,7 +74,12 @@ export function SplitTab(props: SplitTabProps) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'tip', dir: -1 })
   const [open, setOpen] = useState<string | null>(null)
 
-  const rows = sortPeople(split.people, sort.key, sort.dir)
+  // Paid people sort by the chosen column; the no-hours crew always sit under
+  // them by name — every sortable figure on those rows is zero, so sorting
+  // them would only shuffle a block of identical rows around.
+  const idle = idlePeople(props.roster, roles, split)
+  const idleIds = new Set(idle.map(p => p.cookId))
+  const rows = [...sortPeople(split.people, sort.key, sort.dir), ...idle]
   const toggleSort = (key: SortKey) =>
     setSort(s => (s.key === key ? { key, dir: (-s.dir) as 1 | -1 } : { key, dir: DEFAULT_SORT_DIR[key] }))
 
@@ -101,7 +119,7 @@ export function SplitTab(props: SplitTabProps) {
           SHIFT CAPS {capSummary(split.people)}
         </span>
         <button
-          onClick={() => split.people.forEach(p => props.onClearAdjustments(p.cookId))}
+          onClick={() => rows.forEach(p => props.onClearAdjustments(p.cookId))}
           disabled={readOnly}
           className="px-2.5 py-1.5 rounded text-[13px] font-medium text-ink-3 hover:bg-bg-2 hover:text-ink disabled:opacity-40"
         >
@@ -137,6 +155,8 @@ export function SplitTab(props: SplitTabProps) {
 
         {rows.map(p => {
           const isOpen = open === p.cookId
+          const isIdle = idleIds.has(p.cookId)
+          const nEdited = editedDays(p)
           // distributedTotal, not poolTotal: shares are of the money that is
           // actually being handed out. Dividing by poolTotal on a period with
           // an orphan day pool (basis but nobody on shift) would make the
@@ -150,11 +170,12 @@ export function SplitTab(props: SplitTabProps) {
                 style={{ gridTemplateColumns: GRID }}
               >
                 <span className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-7 h-7 rounded-full bg-bg-2 border border-line grid place-items-center font-mono text-[10px] font-semibold text-ink-2 shrink-0">{initials(p.name)}</span>
-                  <span className="font-medium leading-tight">
+                  <span className={`w-7 h-7 rounded-full bg-bg-2 border border-line grid place-items-center font-mono text-[10px] font-semibold shrink-0 ${isIdle ? 'text-ink-4' : 'text-ink-2'}`}>{initials(p.name)}</span>
+                  <span className={`font-medium leading-tight ${isIdle ? 'text-ink-4' : ''}`}>
                     {p.name}
                     <small className="block font-mono text-[9.5px] text-ink-4 font-normal mt-px">
                       #{p.clockId ?? '—'}{p.wage != null ? ` · $${p.wage}/h` : ''}
+                      {nEdited > 0 && <span className="text-blue-text"> · {nEdited} day{nEdited === 1 ? '' : 's'} edited</span>}
                     </small>
                   </span>
                   <span className={`ml-auto text-ink-4 text-[9px] transition-transform ${isOpen ? 'rotate-90 text-gold-2' : ''}`}>▶</span>
@@ -163,17 +184,27 @@ export function SplitTab(props: SplitTabProps) {
                   <RoleSelect value={p.roleId} roles={roles} onChange={id => props.onRoleChange(p.cookId, id)} />
                 </span>
                 <DayStrip person={p} dayLabels={dayLabels} />
-                <span className="font-mono text-[12.5px] text-right text-ink-3">{p.hoursTotal.toFixed(1)}</span>
-                <span className="font-mono text-[12.5px] text-right text-ink-3">{p.weighted.toFixed(1)}</span>
-                <span className="font-mono text-[12.5px] text-right text-ink">{p.hoursTotal ? '$' + (p.tip / p.hoursTotal).toFixed(2) : '—'}</span>
-                <span className="flex items-center gap-2 justify-end">
-                  <span className="w-[30px] h-1.5 rounded-full bg-bg-2 overflow-hidden">
-                    <span className="block h-full bg-ink rounded-full" style={{ width: `${Math.min(100, (share / 13) * 100)}%` }} />
+                {isIdle ? (
+                  // One grey statement across the six figure columns: a row of
+                  // 0.0 / $0.00 would read as "paid nothing", not "did not work".
+                  <span className="font-mono text-[10.5px] text-ink-4 text-right uppercase tracking-[0.02em]" style={{ gridColumn: '4 / -1' }}>
+                    No hours accumulated this period
                   </span>
-                  <span className="font-mono text-[12.5px] text-ink-3">{share.toFixed(1)}%</span>
-                </span>
-                <span className="font-mono text-[13px] font-semibold text-right text-ink">{money(p.tip)}</span>
-                <span className="font-mono text-[12.5px] text-right text-gold-2 font-semibold">{money(p.envelopeCents / 100)}</span>
+                ) : (
+                  <>
+                    <span className="font-mono text-[12.5px] text-right text-ink-3">{p.hoursTotal.toFixed(1)}</span>
+                    <span className="font-mono text-[12.5px] text-right text-ink-3">{p.weighted.toFixed(1)}</span>
+                    <span className="font-mono text-[12.5px] text-right text-ink">{p.hoursTotal ? '$' + (p.tip / p.hoursTotal).toFixed(2) : '—'}</span>
+                    <span className="flex items-center gap-2 justify-end">
+                      <span className="w-[30px] h-1.5 rounded-full bg-bg-2 overflow-hidden">
+                        <span className="block h-full bg-ink rounded-full" style={{ width: `${Math.min(100, (share / 13) * 100)}%` }} />
+                      </span>
+                      <span className="font-mono text-[12.5px] text-ink-3">{share.toFixed(1)}%</span>
+                    </span>
+                    <span className="font-mono text-[13px] font-semibold text-right text-ink">{money(p.tip)}</span>
+                    <span className="font-mono text-[12.5px] text-right text-gold-2 font-semibold">{money(p.envelopeCents / 100)}</span>
+                  </>
+                )}
               </div>
               {isOpen && <PersonDetail {...props} person={p} />}
             </div>
@@ -181,7 +212,9 @@ export function SplitTab(props: SplitTabProps) {
         })}
 
         <div className="grid items-center px-[18px] py-3 bg-bg-2 border-t border-line font-mono text-[12px] font-semibold" style={{ gridTemplateColumns: GRID }}>
-          <span className="text-[10.5px] text-ink-3 uppercase tracking-[0.02em] font-medium">{split.people.length} people</span>
+          <span className="text-[10.5px] text-ink-3 uppercase tracking-[0.02em] font-medium">
+            {split.people.length} paid{idle.length > 0 && <span className="text-ink-4"> · {idle.length} no hours</span>}
+          </span>
           <span />
           <span className="text-[10.5px] text-ink-3 uppercase tracking-[0.02em] font-medium text-center">
             {rewardedDays} rewarded days
@@ -208,8 +241,9 @@ export function SplitTab(props: SplitTabProps) {
 /** The expanded per-person panel: two weeks of editable day cards. */
 function PersonDetail({
   person, dayLabels, rewardTiers, readOnly,
-  onHoursChange, onBoostChange, onClearAdjustments, onCapChange,
+  onHoursChange, onBoostChange, onClearAdjustments, onRestoreHours, onCapChange,
 }: SplitTabProps & { person: SplitPerson }) {
+  const nEdited = editedDays(person)
   const cap = person.dailyHourCap
   const tiers = [1, ...rewardTiers]
   const rewarded = person.boosts.filter(b => b > 1).length
@@ -253,6 +287,15 @@ function PersonDetail({
               h
             </span>
           </label>
+          {nEdited > 0 && !readOnly && (
+            <button
+              onClick={() => onRestoreHours(person.cookId)}
+              title="Put every hand-edited day back to the clock file. Rewards are kept."
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[13px] font-medium text-blue-text hover:bg-blue-soft"
+            >
+              <RotateCcw size={12} />Restore hours
+            </button>
+          )}
           {rewarded > 0 && !readOnly && (
             <button onClick={() => onClearAdjustments(person.cookId)} className="px-2.5 py-1.5 rounded text-[13px] font-medium text-ink-3 hover:bg-bg-2 hover:text-ink">
               Clear rewards
@@ -260,6 +303,12 @@ function PersonDetail({
           )}
         </div>
       </div>
+
+      {person.hoursTotal <= 0 && (
+        <p className="font-mono text-[10.5px] text-ink-3 mb-3.5">
+          NO HOURS ACCUMULATED THIS PERIOD — {readOnly ? 'nothing was paid.' : 'type hours into a day to put them on the pool.'}
+        </p>
+      )}
 
       {weeks.map((week, wi) => (
         <div key={wi}>
@@ -272,21 +321,26 @@ function PersonDetail({
               const h = effectiveHours(person, d)
               const boost = person.boosts[d] ?? 1
               const capped = cap != null && raw > cap
-              // Same two signals as the day strip, at card scale: a gold rail
-              // for a rewarded day, a red rail for a capped one, and BOTH rails
-              // when the day is both — never one hiding the other.
+              const edited = person.edited[d] ?? false
+              const clocked = person.clocked?.[d]
+              // Same signals as the day strip, at card scale: a gold rail for a
+              // rewarded day, a red rail for a capped one, a blue rail for hours
+              // typed in by hand — and every rail that applies, never one
+              // hiding another.
               const frame = h <= 0
-                ? 'bg-transparent border-dashed border-line'
+                ? `bg-transparent border-dashed ${edited ? 'border-blue' : 'border-line'}`
                 : capped && boost > 1 ? 'border-red bg-[#fffdf6]'
                 : capped ? 'border-red bg-paper'
+                : edited ? `border-blue ${boost > 1 ? 'bg-[#fffdf6]' : 'bg-paper'}`
                 : boost > 1 ? 'border-gold bg-[#fffdf6]'
                 : 'border-line bg-paper'
               return (
                 <div key={d} className={`relative overflow-hidden rounded p-[9px_10px_10px] flex flex-col gap-[7px] border ${frame}`}>
-                  {(boost > 1 || capped) && (
+                  {(boost > 1 || capped || edited) && (
                     <span className="absolute inset-y-0 left-0 w-[3px] flex flex-col" aria-hidden>
                       {boost > 1 && <span className="flex-1 bg-gold" />}
                       {capped && <span className="flex-1 bg-red" />}
+                      {edited && <span className="flex-1 bg-blue" />}
                     </span>
                   )}
                   <div className="flex items-baseline justify-between">
@@ -294,7 +348,11 @@ function PersonDetail({
                     <span className={`font-mono text-[10px] ${boost > 1 ? 'text-gold-2' : 'text-ink-4'}`}>{h > 0 ? money(person.daily[d]) : '—'}</span>
                   </div>
                   <div className="flex items-center gap-[5px]">
+                    {/* Uncontrolled, so it is keyed on the value it shows: a
+                        restore changes `raw` underneath it and the box has to
+                        follow, not keep the number that was just undone. */}
                     <input
+                      key={raw}
                       type="number" step="0.25" min="0" max="16" defaultValue={raw}
                       disabled={readOnly}
                       onBlur={e => {
@@ -307,10 +365,25 @@ function PersonDetail({
                         if (c.kind === 'skip') return
                         onHoursChange(person.cookId, d, c.hours)
                       }}
-                      className="w-full font-mono text-[14px] font-semibold border border-line rounded-md px-[7px] py-[5px] outline-none focus:border-gold text-ink bg-paper [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                      className={`w-full min-w-0 font-mono text-[14px] font-semibold border rounded-md px-[7px] py-[5px] outline-none focus:border-gold bg-paper [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none ${edited ? 'border-blue text-blue-text' : 'border-line text-ink'}`}
                     />
                     <span className="font-mono text-[10px] text-ink-4">h</span>
+                    {edited && !readOnly && (
+                      <button
+                        onClick={() => onHoursChange(person.cookId, d, null)}
+                        aria-label={`Restore ${dayLabels[d]} to the clocked hours`}
+                        title={clocked != null ? `Restore the clocked ${clocked}h` : 'Restore the clocked hours'}
+                        className="shrink-0 w-[22px] h-[22px] grid place-items-center rounded border border-blue text-blue-text bg-paper hover:bg-blue-soft"
+                      >
+                        <RotateCcw size={11} />
+                      </button>
+                    )}
                   </div>
+                  {edited && (
+                    <span className="font-mono text-[9px] text-blue-text">
+                      edited by hand{clocked != null ? ` · clock ${clocked}h` : ''}
+                    </span>
+                  )}
                   {capped && <span className="font-mono text-[9px] text-red-text">capped from {raw}h to {cap}h</span>}
                   <div className="flex gap-[3px]">
                     {tiers.map(t => (

@@ -29,6 +29,12 @@ export interface TipPerson {
   boosts: number[]
   /** True on days whose hours came from a manual adjustment rather than the clock file. */
   edited: boolean[]
+  /**
+   * What the clock file says per day, BEFORE any manual override — i.e. what
+   * "Restore hours" puts back. Display only: nothing is ever paid off it.
+   * Optional because payouts frozen before this field existed do not carry it.
+   */
+  clocked?: number[]
 }
 
 export interface Denom {

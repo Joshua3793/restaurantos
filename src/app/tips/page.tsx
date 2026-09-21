@@ -450,7 +450,7 @@ export default function TipsPage() {
 
         {tab === 'split' && (
           <SplitTab
-            split={split} audit={audit} roles={payload.roles}
+            split={split} roster={payload.roster} audit={audit} roles={payload.roles}
             dayLabels={payload.dayLabels}
             rewardTiers={payload.rewardTiers} readOnly={periodReadOnly}
             onCapChange={(cookId, cap) => {
@@ -482,6 +482,15 @@ export default function TipsPage() {
               if (!periodId) return
               void fetch(`/api/tips/periods/${periodId}/adjustments?cookId=${cookId}`, { method: 'DELETE' })
                 .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not clear those adjustments')))
+                .then(async errorMessage => {
+                  const reloaded = await loadPeriod(periodId)
+                  if (errorMessage && reloaded) setError(errorMessage)
+                })
+            }}
+            onRestoreHours={cookId => {
+              if (!periodId) return
+              void fetch(`/api/tips/periods/${periodId}/adjustments?cookId=${cookId}&hoursOnly=true`, { method: 'DELETE' })
+                .then(async r => (r.ok ? null : ((await r.json()).error ?? 'Could not restore those hours')))
                 .then(async errorMessage => {
                   const reloaded = await loadPeriod(periodId)
                   if (errorMessage && reloaded) setError(errorMessage)
