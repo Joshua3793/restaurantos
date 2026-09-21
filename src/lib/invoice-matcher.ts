@@ -168,21 +168,6 @@ function confidenceFromScore(score: number): MatchConfidence {
   return 'NONE'
 }
 
-/** Best fuzzy score of a description against an item's NAME and the descriptions
- *  other invoices have already taught it (its match rules, any supplier). */
-export function bestAliasScore(description: string, itemName: string, aliases: string[]): { score: number; viaAlias: boolean } {
-  const descNorm = normalize(description)
-  const descKey  = keyWords(description)
-  const asItem = (name: string) => ({ itemName: name }) as unknown as InventoryItem
-  const nameScore = scoreMatch(description, asItem(itemName), descNorm, descKey)
-  let best = nameScore, viaAlias = false
-  for (const a of aliases) {
-    const s = scoreMatch(description, asItem(a), descNorm, descKey)
-    if (s > best) { best = s; viaAlias = true }
-  }
-  return { score: best, viaAlias }
-}
-
 /** A match won ONLY through another wording (never the item's own name) is a hint,
  *  not a fact — same downgrade a generic learned rule gets. A HIGH score is capped
  *  to MEDIUM so a human confirms it; approval then saves a rule under this supplier
@@ -190,6 +175,111 @@ export function bestAliasScore(description: string, itemName: string, aliases: s
  *  untouched. */
 export function capAliasConfidence(raw: MatchConfidence, viaAlias: boolean): MatchConfidence {
   return viaAlias && raw === 'HIGH' ? 'MEDIUM' : raw
+}
+
+interface FuzzyCandidate {
+  id: string
+  score: number
+  viaAlias: boolean
+}
+
+/** Total order for the fuzzy tier's winner: higher score wins; on an EQUAL score
+ *  an own-name match beats a match won only through an alias — otherwise a line
+ *  that literally names item B could lose to a strong alias on an unrelated item
+ *  A, decided only by which item the loop happened to visit first. Remaining ties
+ *  break on id ascending so the result never depends on iteration order at all. */
+function isBetterFuzzy(a: FuzzyCandidate, b: FuzzyCandidate): boolean {
+  if (a.score !== b.score) return a.score > b.score
+  if (a.viaAlias !== b.viaAlias) return !a.viaAlias
+  return a.id < b.id
+}
+
+/** Picks the winning candidate under isBetterFuzzy's total order. Exported so the
+ *  ordering itself is unit-tested independently of scoreMatch/normalize — a caller
+ *  can feed it plain {id, score, viaAlias} candidates. matchLineItems' hot loop
+ *  folds over the inventory with this (a running best, [current, next] each
+ *  step) rather than collecting every item into one array per OCR line — same
+ *  total order either way, without an O(items) allocation per line. */
+export function pickBestFuzzy<T extends FuzzyCandidate>(candidates: T[]): T | null {
+  let best: T | null = null
+  for (const c of candidates) {
+    if (!best || isBetterFuzzy(c, best)) best = c
+  }
+  return best
+}
+
+export const MAX_ALIASES_PER_ITEM = 5
+
+/** Groups learned-rule rows into per-item alias lists for the fuzzy tier: capped
+ *  at `max` (the caller orders rows by usefulness — useCount desc, lastUsed desc —
+ *  so a cap keeps the strongest ones), de-duplicated case-insensitively (via the
+ *  same `normalize` tokenization used for scoring), and skipping any alias whose
+ *  normalized form is identical to the item's own name — that case is already
+ *  covered by the item's own-name score and would only ever tie it, never beat it.
+ *  Preserves the input row order; it does not sort. */
+export function groupAliases(
+  rows: { inventoryItemId: string; rawDescription: string }[],
+  itemNameById: Map<string, string>,
+  max: number = MAX_ALIASES_PER_ITEM
+): Map<string, string[]> {
+  const result = new Map<string, string[]>()
+  const seenByItem = new Map<string, Set<string>>()
+  for (const r of rows) {
+    const normKey = normalize(r.rawDescription).join(' ')
+    if (!normKey) continue
+    const ownName = itemNameById.get(r.inventoryItemId)
+    if (ownName && normKey === normalize(ownName).join(' ')) continue
+    const seen = seenByItem.get(r.inventoryItemId) ?? new Set<string>()
+    if (seen.has(normKey)) continue
+    const list = result.get(r.inventoryItemId) ?? []
+    if (list.length >= max) continue
+    seen.add(normKey)
+    seenByItem.set(r.inventoryItemId, seen)
+    list.push(r.rawDescription)
+    result.set(r.inventoryItemId, list)
+  }
+  return result
+}
+
+/** (supplier, SKU) → item, from this session's own supplier-offer rows (already
+ *  scoped to the raw + canonical supplier names — see offerRows). Per item, a
+ *  canonical-name row's code overrides a raw-name row's code for the SAME item
+ *  (mirrors offerByItemId's precedence). But `InventorySupplierPrice` has only a
+ *  non-unique index on (supplierName, supplierItemCode): a stale code can survive
+ *  on an old item's offer after a line gets re-matched elsewhere, so after that
+ *  per-item resolution a code MAY still name more than one distinct item. That is
+ *  ambiguous — there is no signal here for which one is current — so the code is
+ *  omitted from the index entirely rather than guessed; the line falls through to
+ *  tier 1/2 where a human confirms it. */
+export function buildOfferSkuIndex(
+  offerRows: { supplierName: string; supplierItemCode: string | null; inventoryItemId: string }[],
+  canonicalName?: string | null
+): Map<string, string> {
+  const skuByItem = new Map<string, string>()
+  for (const o of offerRows) {
+    if (o.supplierName === canonicalName) continue
+    if (o.supplierItemCode) skuByItem.set(o.inventoryItemId, o.supplierItemCode)
+  }
+  if (canonicalName) {
+    for (const o of offerRows) {
+      if (o.supplierName !== canonicalName) continue
+      if (o.supplierItemCode) skuByItem.set(o.inventoryItemId, o.supplierItemCode)
+    }
+  }
+
+  const itemsBySku = new Map<string, Set<string>>()
+  for (const [itemId, sku] of skuByItem) {
+    const set = itemsBySku.get(sku) ?? new Set<string>()
+    set.add(itemId)
+    itemsBySku.set(sku, set)
+  }
+
+  const index = new Map<string, string>()
+  for (const [sku, itemIds] of itemsBySku) {
+    if (itemIds.size === 1) index.set(sku, [...itemIds][0])
+    // more than one distinct item claims this SKU after resolution → ambiguous, omit
+  }
+  return index
 }
 
 function buildMatchResult(
@@ -337,25 +427,31 @@ export async function matchLineItems(
   // now be known by several suppliers' own wordings. The fuzzy tier scores a
   // line against all of them, not just the item's own name — but only as a
   // hint (capAliasConfidence downgrades a HIGH win to MEDIUM for a human to
-  // confirm). Loaded once, pre-normalized, so the per-item/per-line hot loop
-  // below never re-tokenizes a string.
+  // confirm). Scoped to items actually in play (this query's own inventoryItems)
+  // and ordered by usefulness so groupAliases's cap keeps the strongest ones —
+  // otherwise this read grows with the whole InvoiceMatchRule table forever.
+  // Grouped + pre-normalized once, so the per-item/per-line hot loop below never
+  // re-tokenizes a string.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let aliasRows: any[] = []
   try {
     aliasRows = await prisma.invoiceMatchRule.findMany({
+      where: { inventoryItemId: { in: inventoryItems.map(i => i.id) } },
       select: { inventoryItemId: true, rawDescription: true },
+      orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
     })
   } catch {
     // Table may not exist yet — proceed without aliases
   }
+  const itemNameById = new Map(inventoryItems.map(i => [i.id, i.itemName]))
+  const groupedAliases = groupAliases(aliasRows, itemNameById)
   const aliasesByItem = new Map<string, InventoryItem[]>()
-  for (const r of aliasRows) {
-    const alias = {
-      itemName: r.rawDescription,
-      _normName: normalize(r.rawDescription),
-      _keyName: keyWords(r.rawDescription),
-    } as unknown as InventoryItem
-    aliasesByItem.set(r.inventoryItemId, [...(aliasesByItem.get(r.inventoryItemId) ?? []), alias])
+  for (const [itemId, aliases] of groupedAliases) {
+    aliasesByItem.set(itemId, aliases.map(a => ({
+      itemName: a,
+      _normName: normalize(a),
+      _keyName: keyWords(a),
+    } as unknown as InventoryItem)))
   }
 
   // Supplier names a learned rule could be stored under: the raw OCR name, the
@@ -448,30 +544,26 @@ export async function matchLineItems(
       // table/columns missing on a stale client — fall back to item comparison
     }
   }
+  // Raw-name vs canonical-name partition, computed once and shared by both maps
+  // below — a canonical-name row always takes precedence over a raw-name row for
+  // the same item (offerByItemId) / SKU (offerBySku via buildOfferSkuIndex).
+  const rawOfferRows = offerRows.filter(o => o.supplierName !== canonicalName)
+  const canonicalOfferRows = canonicalName ? offerRows.filter(o => o.supplierName === canonicalName) : []
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const offerByItemId = new Map<string, any>()
   // Insert raw-name rows first so canonical-name rows overwrite them when
   // both exist for the same item — the canonical offer wins.
-  for (const o of offerRows.filter(o => o.supplierName !== canonicalName)) offerByItemId.set(o.inventoryItemId, o)
-  if (canonicalName) {
-    for (const o of offerRows.filter(o => o.supplierName === canonicalName)) offerByItemId.set(o.inventoryItemId, o)
-  }
+  for (const o of rawOfferRows) offerByItemId.set(o.inventoryItemId, o)
+  for (const o of canonicalOfferRows) offerByItemId.set(o.inventoryItemId, o)
 
   // Offer SKUs are the supplier library itself: (supplier, SKU) → item, even
   // when no match rule was ever saved (e.g. an offer that arrived through a
   // merge). offerRows is already filtered to this supplier's names (raw +
-  // canonical) so a SKU only ever resolves within the same supplier. Same
-  // raw-then-canonical-overwrite order as offerByItemId, so a disagreeing
-  // pair for the same SKU resolves to the canonical row.
-  const offerBySku = new Map<string, string>()
-  for (const o of offerRows.filter(o => o.supplierName !== canonicalName)) {
-    if (o.supplierItemCode) offerBySku.set(o.supplierItemCode, o.inventoryItemId)
-  }
-  if (canonicalName) {
-    for (const o of offerRows.filter(o => o.supplierName === canonicalName)) {
-      if (o.supplierItemCode) offerBySku.set(o.supplierItemCode, o.inventoryItemId)
-    }
-  }
+  // canonical) so a SKU only ever resolves within the same supplier; ambiguous
+  // SKUs (claimed by more than one distinct item after raw/canonical
+  // precedence) are omitted by buildOfferSkuIndex, never guessed.
+  const offerBySku = buildOfferSkuIndex(offerRows, canonicalName)
   // Built from inventoryItems (already excludes inactive/tombstoned rows and
   // PREP outputs) so an offer SKU can never resolve to one of those.
   const itemById = new Map(inventoryItems.map(i => [i.id, i]))
@@ -558,23 +650,30 @@ export async function matchLineItems(
     // ── 2. Fuzzy score every inventory item (using pre-normalized names) ───
     const descNorm = normalize(ocrItem.description)
     const descKey  = keyWords(ocrItem.description)
-    let bestScore = 0
+    // Running best under pickBestFuzzy's total order (higher score; on a tie,
+    // an own-name match beats an alias match; remaining ties break on id) — so
+    // the winner never depends on the order normalizedItems happens to be in,
+    // and a line naming item B outright can't lose to a strong alias on a
+    // different item A just because A was visited first.
+    let best: FuzzyCandidate | null = null
     let bestItem: InventoryItem | null = null
-    let bestViaAlias = false
 
     for (const item of normalizedItems) {
       let score = scoreMatch(ocrItem.description, item, descNorm, descKey)
-      let via = false
+      let viaAlias = false
       for (const alias of aliasesByItem.get(item.id) ?? []) {
         const s = scoreMatch(ocrItem.description, alias, descNorm, descKey)
-        if (s > score) { score = s; via = true }
+        if (s > score) { score = s; viaAlias = true }
       }
-      if (score > bestScore) {
-        bestScore = score
-        bestItem = item
-        bestViaAlias = via
-      }
+      const candidate: FuzzyCandidate = { id: item.id, score, viaAlias }
+      const pool: FuzzyCandidate[] = best ? [best, candidate] : [candidate]
+      const winner: FuzzyCandidate | null = pickBestFuzzy(pool)
+      if (winner === candidate) bestItem = item
+      best = winner
     }
+
+    const bestScore = best?.score ?? 0
+    const bestViaAlias = best?.viaAlias ?? false
 
     // A match won through ANOTHER wording is a hint, not a fact — same downgrade
     // a generic learned rule gets. A human confirms it; approval then saves a
