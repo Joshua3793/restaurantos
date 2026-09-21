@@ -168,6 +168,30 @@ function confidenceFromScore(score: number): MatchConfidence {
   return 'NONE'
 }
 
+/** Best fuzzy score of a description against an item's NAME and the descriptions
+ *  other invoices have already taught it (its match rules, any supplier). */
+export function bestAliasScore(description: string, itemName: string, aliases: string[]): { score: number; viaAlias: boolean } {
+  const descNorm = normalize(description)
+  const descKey  = keyWords(description)
+  const asItem = (name: string) => ({ itemName: name }) as unknown as InventoryItem
+  const nameScore = scoreMatch(description, asItem(itemName), descNorm, descKey)
+  let best = nameScore, viaAlias = false
+  for (const a of aliases) {
+    const s = scoreMatch(description, asItem(a), descNorm, descKey)
+    if (s > best) { best = s; viaAlias = true }
+  }
+  return { score: best, viaAlias }
+}
+
+/** A match won ONLY through another wording (never the item's own name) is a hint,
+ *  not a fact — same downgrade a generic learned rule gets. A HIGH score is capped
+ *  to MEDIUM so a human confirms it; approval then saves a rule under this supplier
+ *  and the next invoice reads it back as HIGH via tier 1. Every other confidence is
+ *  untouched. */
+export function capAliasConfidence(raw: MatchConfidence, viaAlias: boolean): MatchConfidence {
+  return viaAlias && raw === 'HIGH' ? 'MEDIUM' : raw
+}
+
 function buildMatchResult(
   ocrItem: OcrLineItem,
   bestItem: InventoryItem,
@@ -308,6 +332,32 @@ export async function matchLineItems(
     },
   })
 
+  // ── Aliases: descriptions this item has been taught under ANY supplier ────
+  // Merging duplicate items carries their match rules along, so an item can
+  // now be known by several suppliers' own wordings. The fuzzy tier scores a
+  // line against all of them, not just the item's own name — but only as a
+  // hint (capAliasConfidence downgrades a HIGH win to MEDIUM for a human to
+  // confirm). Loaded once, pre-normalized, so the per-item/per-line hot loop
+  // below never re-tokenizes a string.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let aliasRows: any[] = []
+  try {
+    aliasRows = await prisma.invoiceMatchRule.findMany({
+      select: { inventoryItemId: true, rawDescription: true },
+    })
+  } catch {
+    // Table may not exist yet — proceed without aliases
+  }
+  const aliasesByItem = new Map<string, InventoryItem[]>()
+  for (const r of aliasRows) {
+    const alias = {
+      itemName: r.rawDescription,
+      _normName: normalize(r.rawDescription),
+      _keyName: keyWords(r.rawDescription),
+    } as unknown as InventoryItem
+    aliasesByItem.set(r.inventoryItemId, [...(aliasesByItem.get(r.inventoryItemId) ?? []), alias])
+  }
+
   // Supplier names a learned rule could be stored under: the raw OCR name, the
   // canonical Supplier name, and the generic '' (supplier-agnostic). Matching by
   // ALL of them is what makes a rule taught on "Sysco Canada, Inc." apply to an
@@ -407,6 +457,25 @@ export async function matchLineItems(
     for (const o of offerRows.filter(o => o.supplierName === canonicalName)) offerByItemId.set(o.inventoryItemId, o)
   }
 
+  // Offer SKUs are the supplier library itself: (supplier, SKU) → item, even
+  // when no match rule was ever saved (e.g. an offer that arrived through a
+  // merge). offerRows is already filtered to this supplier's names (raw +
+  // canonical) so a SKU only ever resolves within the same supplier. Same
+  // raw-then-canonical-overwrite order as offerByItemId, so a disagreeing
+  // pair for the same SKU resolves to the canonical row.
+  const offerBySku = new Map<string, string>()
+  for (const o of offerRows.filter(o => o.supplierName !== canonicalName)) {
+    if (o.supplierItemCode) offerBySku.set(o.supplierItemCode, o.inventoryItemId)
+  }
+  if (canonicalName) {
+    for (const o of offerRows.filter(o => o.supplierName === canonicalName)) {
+      if (o.supplierItemCode) offerBySku.set(o.supplierItemCode, o.inventoryItemId)
+    }
+  }
+  // Built from inventoryItems (already excludes inactive/tombstoned rows and
+  // PREP outputs) so an offer SKU can never resolve to one of those.
+  const itemById = new Map(inventoryItems.map(i => [i.id, i]))
+
   // Build learned map: description → best rule (supplier-specific beats generic)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const learnedMap = new Map<string, any>()
@@ -446,6 +515,17 @@ export async function matchLineItems(
       )
     }
 
+    // ── 0b. Supplier offer SKU (deterministic, no rule ever saved) ─────────
+    const skuItem = ocrItem.supplierItemCode
+      ? itemById.get(offerBySku.get(ocrItem.supplierItemCode) ?? '')
+      : undefined
+    if (skuItem) {
+      const ocrPack = (ocrItem.packQty || ocrItem.packSize)
+        ? { packQty: ocrItem.packQty ?? 1, packSize: ocrItem.packSize ?? 1, packUOM: ocrItem.packUOM ?? 'each' }
+        : parseFormatFromDescription(ocrItem.description)
+      return buildMatchResult(ocrItem, skuItem as unknown as InventoryItem, 'HIGH', 100, ocrPack, offerByItemId.get(skuItem.id) ?? null)
+    }
+
     // ── 1. Check learned rules first ───────────────────────────────────────
     const learned = learnedMap.get(ocrItem.description)
     if (learned?.inventoryItem) {
@@ -480,16 +560,26 @@ export async function matchLineItems(
     const descKey  = keyWords(ocrItem.description)
     let bestScore = 0
     let bestItem: InventoryItem | null = null
+    let bestViaAlias = false
 
     for (const item of normalizedItems) {
-      const score = scoreMatch(ocrItem.description, item, descNorm, descKey)
+      let score = scoreMatch(ocrItem.description, item, descNorm, descKey)
+      let via = false
+      for (const alias of aliasesByItem.get(item.id) ?? []) {
+        const s = scoreMatch(ocrItem.description, alias, descNorm, descKey)
+        if (s > score) { score = s; via = true }
+      }
       if (score > bestScore) {
         bestScore = score
         bestItem = item
+        bestViaAlias = via
       }
     }
 
-    const confidence = confidenceFromScore(bestScore)
+    // A match won through ANOTHER wording is a hint, not a fact — same downgrade
+    // a generic learned rule gets. A human confirms it; approval then saves a
+    // rule under this supplier and the next invoice is HIGH via tier 1.
+    const confidence = capAliasConfidence(confidenceFromScore(bestScore), bestViaAlias)
 
     if (!bestItem || confidence === 'NONE') {
       // No match → PENDING, never CREATE_NEW. CREATE_NEW means "the user
