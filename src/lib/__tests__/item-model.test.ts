@@ -308,3 +308,12 @@ describe('ratePerBase — an UNKNOWN item dimension is not a MISMATCHED one', ()
     expect(ratePerBase(25, 'kg', { dimension: 'MASS', baseUnit: 'each', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
   })
 })
+
+describe('ratePerBase — a malformed dimension string falls back instead of pricing $0', () => {
+  const em = { qty: 0.4, unit: 'lb' }
+  it("'count', 'MASS ' and '' are normalised or ignored", () => {
+    expect(ratePerBase(3.49, 'lb', { dimension: 'count' as never, baseUnit: 'each', eachMeasure: em, densityGPerMl: null })).toBeCloseTo(1.396, 3)
+    expect(ratePerBase(25, 'kg', { dimension: 'MASS ' as never, baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+    expect(ratePerBase(25, 'kg', { dimension: '' as never, baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+  })
+})

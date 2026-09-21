@@ -97,7 +97,10 @@ function basePerEach(item: RateItem): { dim: Dimension; v: number } | null {
  *  fall back to the old same-dimension behaviour. Treating unknown as mismatched
  *  silently priced 56 of 259 live supplier offers at $0. */
 function itemDimension(item: RateItem): Dimension | null {
-  if (item.dimension) return item.dimension
+  // Normalised, because row-shaped callers type it as a plain string: 'count' or
+  // 'MASS ' would otherwise match nothing and price a bridgeable rate at $0.
+  const d = String(item.dimension ?? '').trim().toUpperCase()
+  if (d === 'MASS' || d === 'VOLUME' || d === 'COUNT') return d
   return item.baseUnit ? dimensionOf(item.baseUnit) : null
 }
 
@@ -133,8 +136,10 @@ export function rateIsCostable(rateUnit: string, item: RateItem): boolean {
  *  • KNOWN other dimension, no bridge → 0: UNPRICED. Never rate ÷ conv — that is
  *    a $/g number wearing a $/each label.
  * Two deliberate differences from the old `rate ÷ conv` inside the same
- * dimension: a non-positive rate and a blank rateUnit now price as 0 (neither
- * exists in live data).
+ * dimension: a non-positive, NaN or infinite rate and a blank rateUnit now price as
+ * 0. An UNRECOGNISED rateUnit token ('cs', 'box') reads as COUNT, so on a measured
+ * item it is now 0 where it used to be the raw rate. None exists in live data — the
+ * gate for that is the before/after ppb snapshot, not a count of dimension pairs.
  * The supplier's real price is what is stored; $/each is DERIVED here, so it
  * follows the each-measure when a human corrects it.
  */

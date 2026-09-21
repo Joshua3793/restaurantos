@@ -21,7 +21,7 @@
  */
 import { prisma } from '../src/lib/prisma'
 import { offerPricePerBase } from '../src/lib/supplier-offers'
-import { pricePerBaseUnit as chainPpb, type PackLink, type Pricing } from '../src/lib/item-model'
+import { pricePerBaseUnit as chainPpb, asChainItem, type PackLink, type Pricing } from '../src/lib/item-model'
 import { formToChain } from '../src/lib/item-model-form'
 
 const APPLY = process.argv.includes('--apply')
@@ -74,7 +74,10 @@ async function main() {
 
   for (const item of items) {
     let spine = 0
-    try { spine = chainPpb({ packChain: (item.packChain as PackLink[]) ?? [], pricing: item.pricing as any } as any) } catch { spine = NaN }
+    // The item THROUGH asChainItem — dimension, base unit and bridges — so the spine is
+    // derived by the same rule as the offer beside it. A bare { packChain, pricing } reads
+    // a bridged $/lb RATE unbridged, the two sides diverge, and --apply rewrites the offer.
+    try { spine = chainPpb(asChainItem(item)) } catch { spine = NaN }
     if (!Number.isFinite(spine) || spine <= 0) continue
 
     for (const offer of item.supplierPrices) {
