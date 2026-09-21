@@ -127,6 +127,7 @@ export function resolveRoster(input: ResolveRosterInput): TipPerson[] {
       roleId: c.tipRoleId,
       onPool: c.onTipPool,
       hours, boosts, edited,
+      clocked: clocked.slice(),
     }
   })
 }

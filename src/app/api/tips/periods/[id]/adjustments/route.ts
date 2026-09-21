@@ -96,6 +96,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
  * override and reward boost in the period is real work somebody typed in, and
  * a bare DELETE (a dropped/typo'd query param, a client bug) used to wipe the
  * lot silently. Opting in is one extra param; recovering the data is not.
+ *
+ * `?hoursOnly=true` is "Restore hours": it drops the manual HOURS overrides in
+ * that scope and leaves the reward boosts alone — a mistyped hour should never
+ * cost somebody the reward a manager gave them on purpose. A row that carried
+ * only hours (boost 1) holds nothing afterwards, so it is deleted, same rule
+ * as the PUT above.
  */
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -107,6 +113,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({
         error: 'Pass cookId to clear one person, or all=true to clear every adjustment in this period.',
       }, { status: 400 })
+    }
+    if (req.nextUrl.searchParams.get('hoursOnly') === 'true') {
+      const scope = { periodId: params.id, ...(cookId ? { cookId } : {}), hours: { not: null } }
+      const [deleted, nulled] = await prisma.$transaction([
+        prisma.tipDayAdjustment.deleteMany({ where: { ...scope, boost: 1 } }),
+        prisma.tipDayAdjustment.updateMany({ where: scope, data: { hours: null } }),
+      ])
+      return NextResponse.json({ ok: true, restored: deleted.count + nulled.count })
     }
     const { count } = await prisma.tipDayAdjustment.deleteMany({
       where: { periodId: params.id, ...(cookId ? { cookId } : {}) },

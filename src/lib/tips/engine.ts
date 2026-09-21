@@ -110,6 +110,34 @@ export function computeSplit(input: SplitInput): SplitResult {
 }
 
 /**
+ * The rest of the pool roster — people on the pool who earned nothing this
+ * period because they have no paid hours. `computeSplit` leaves them out of
+ * `people` on purpose (the envelopes, the cash count, the export and the frozen
+ * payout are all lists of people being PAID), so the split table asks for them
+ * separately and paints them grey under the paid rows. That keeps the list
+ * static: zeroing somebody's hours by mistake greys their row, it no longer
+ * removes the only place the mistake could be undone.
+ *
+ * Sorted by name; every money field is zero by construction.
+ */
+export function idlePeople(people: TipPerson[], roles: TipRoleDef[], split: SplitResult): SplitPerson[] {
+  const paid = new Set(split.people.map(p => p.cookId))
+  return people
+    .filter(p => p.onPool && !paid.has(p.cookId))
+    .map(p => {
+      const role = roleOf(p, roles)
+      return {
+        ...p,
+        multiplier: role.multiplier,
+        roleName: role.name,
+        hoursTotal: 0, weighted: 0, tip: 0, envelopeCents: 0,
+        daily: p.hours.map(() => 0),
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
  * Largest-remainder rounding: every envelope is a whole multiple of `step`
  * cents and the envelopes sum EXACTLY to `distributedTotal` (the money
  * actually owed to people — Σ tip) rounded to that step. Deliberately NOT

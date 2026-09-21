@@ -64,6 +64,16 @@ describe('resolveRoster', () => {
     expect(p.edited[0]).toBe(true)
   })
 
+  it('keeps the clock-file hours beside an override, so Restore has something to show', () => {
+    const [p] = run(
+      [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
+      [punch({ clockId: '706', hours: 8 })],
+      [{ cookId: 'c1', dayIndex: 0, hours: 0, boost: 1 }],
+    )
+    expect(p.hours[0]).toBe(0)
+    expect(p.clocked?.[0]).toBe(8)
+  })
+
   it('applies a boost without touching the clocked hours', () => {
     const [p] = run(
       [cook({ id: 'c1', name: 'Ana', clockId: '706' })],
