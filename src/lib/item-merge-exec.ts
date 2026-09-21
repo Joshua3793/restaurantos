@@ -106,6 +106,7 @@ async function itemRow(db: MergeDb, id: string, theoreticalOnHand: number): Prom
     pricing: c.pricing,
     stockOnHand: n(r.stockOnHand),
     eachMeasure: c.eachMeasure ?? null,
+    densityGPerMl: c.densityGPerMl ?? null,
     isActive: r.isActive,
     mergedIntoId: r.mergedIntoId,
     ownedByRecipe: !!r.recipe,
@@ -148,17 +149,17 @@ export async function loadMergeInputs(
   if (!survivor || !absorbed) return null
 
   const w = { inventoryItemId: absorbedId }
-  const scan = await db.invoiceScanItem.findMany({ where: { matchedItemId: absorbedId }, select: { id: true, receivedQtyBase: true } })
+  const scan = await db.invoiceScanItem.findMany({ where: { matchedItemId: absorbedId }, select: { id: true } })
   const ili = await db.invoiceLineItem.findMany({ where: w, select: { id: true } })
   const pa = await db.priceAlert.findMany({ where: w, select: { id: true } })
   const mr = await db.invoiceMatchRule.findMany({ where: w, select: { id: true } })
-  const tr = await db.stockTransfer.findMany({ where: w, select: { id: true, quantity: true } })
-  const wl = await db.wastageLog.findMany({ where: w, select: { id: true, qtyWasted: true, unit: true } })
-  const ri = await db.recipeIngredient.findMany({ where: w, select: { id: true, qtyBase: true, unit: true } })
+  const tr = await db.stockTransfer.findMany({ where: w, select: { id: true } })
+  const wl = await db.wastageLog.findMany({ where: w, select: { id: true } })
+  const ri = await db.recipeIngredient.findMany({ where: w, select: { id: true, unit: true } })
   const cl = await db.countLine.findMany({
     where: w,
     select: {
-      id: true, expectedQty: true, countedQtyBase: true, priceAtCount: true,
+      id: true, countedQtyBase: true,
       countedQty: true, selectedUom: true, entries: true,
     },
   })
@@ -174,18 +175,16 @@ export async function loadMergeInputs(
   })
 
   const rel: MergeRelations = {
-    scanItems: scan.map(s => ({ id: s.id, receivedQtyBase: s.receivedQtyBase == null ? null : Number(s.receivedQtyBase) })),
+    scanItemIds: scan.map(x => x.id),
     invoiceLineItemIds: ili.map(x => x.id),
     priceAlertIds: pa.map(x => x.id),
     matchRuleIds: mr.map(x => x.id),
-    transfers: tr.map(t => ({ id: t.id, quantity: n(t.quantity) })),
-    wastage: wl.map(x => ({ id: x.id, qtyWasted: n(x.qtyWasted), unit: x.unit })),
-    recipeIngredients: ri.map(x => ({ id: x.id, qtyBase: n(x.qtyBase), unit: x.unit })),
+    transferIds: tr.map(x => x.id),
+    wastageIds: wl.map(x => x.id),
+    recipeIngredients: ri.map(x => ({ id: x.id, unit: x.unit })),
     countLines: cl.map(x => ({
       id: x.id,
-      expectedQty: n(x.expectedQty),
       countedQtyBase: x.countedQtyBase == null ? null : Number(x.countedQtyBase),
-      priceAtCount: n(x.priceAtCount),
       countedQty: x.countedQty == null ? null : Number(x.countedQty),
       selectedUom: x.selectedUom,
       entries: asCountEntries(x.entries),

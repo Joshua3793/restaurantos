@@ -5,12 +5,12 @@ import { lineCountedBase, type ItemDims } from '@/lib/count-uom'
 const row = (over: Partial<MergeItemRow>): MergeItemRow => ({
   id: 'x', itemName: 'x', baseUnit: 'g', dimension: 'MASS', countUnit: 'kg',
   packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 10 }, stockOnHand: 0,
-  eachMeasure: null, isActive: true, mergedIntoId: null,
+  eachMeasure: null, densityGPerMl: null, isActive: true, mergedIntoId: null,
   ownedByRecipe: false, inOpenCount: false, theoreticalOnHand: 0, ...over,
 })
 const noRel: MergeRelations = {
-  scanItems: [], invoiceLineItemIds: [], priceAlertIds: [], matchRuleIds: [], transfers: [],
-  wastage: [], recipeIngredients: [], countLines: [], snapshots: [], offers: [], allocations: [], itemRcs: [],
+  scanItemIds: [], invoiceLineItemIds: [], priceAlertIds: [], matchRuleIds: [], transferIds: [],
+  wastageIds: [], recipeIngredients: [], countLines: [], snapshots: [], offers: [], allocations: [], itemRcs: [],
   latestPurchaseSupplier: null, priorAbsorbeeIds: [],
 }
 const noSRel: SurvivorRelations = { offers: [], allocations: [], itemRcs: [], snapshots: [] }
@@ -70,11 +70,62 @@ describe('guards', () => {
       expect(p.guard).not.toBe('NO_BRIDGE')
     })
   })
+
+  describe('IMPORTANT Imp-2: BRIDGE_MISMATCH', () => {
+    it('refuses when a count-bridged (each-measure) recipe line would re-cost differently on the survivor', () => {
+      const s = row({ id: 'S', itemName: S.itemName, eachMeasure: { qty: 150, unit: 'g' } })
+      const a = row({ id: 'A', itemName: A.itemName, eachMeasure: { qty: 200, unit: 'g' } })
+      const p = plan(s, a, { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'each' }] })
+      expect(p.ok).toBe(false)
+      if (p.ok) throw new Error('expected failure')
+      expect(p.guard).toBe('BRIDGE_MISMATCH')
+      expect(p.message).toContain('150')
+      expect(p.message).toContain('200')
+      expect(p.message).toContain(S.itemName)
+      expect(p.message).toContain('Set the same each-measure/density')
+    })
+
+    it('passes when both items carry the same each-measure', () => {
+      const s = row({ id: 'S', eachMeasure: { qty: 150, unit: 'g' } })
+      const a = row({ id: 'A', eachMeasure: { qty: 150, unit: 'g' } })
+      const p = plan(s, a, { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'each' }] })
+      expect(p.ok).toBe(true)
+    })
+
+    it('a recipe line in a same-dimension unit never triggers it, even with mismatched bridges', () => {
+      const s = row({ id: 'S', eachMeasure: { qty: 150, unit: 'g' } })
+      const a = row({ id: 'A', eachMeasure: { qty: 200, unit: 'g' } })
+      const p = plan(s, a, { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'g' }] }) // MASS, same as item dimension
+      expect(p.ok).toBe(true)
+    })
+
+    it('passes when neither item has the needed bridge (already unbridgeable on both sides today)', () => {
+      const p = plan(S, A, { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'each' }] }) // both eachMeasure: null
+      expect(p.ok).toBe(true)
+    })
+
+    it('refuses on a density mismatch for a weight↔volume line', () => {
+      const s = row({ id: 'S', densityGPerMl: 1.0 })
+      const a = row({ id: 'A', densityGPerMl: 0.92 })
+      const p = plan(s, a, { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'ml' }] }) // VOLUME, item is MASS
+      expect(p.ok).toBe(false)
+      if (p.ok) throw new Error('expected failure')
+      expect(p.guard).toBe('BRIDGE_MISMATCH')
+      expect(p.message).toContain('density')
+    })
+
+    it('passes on an equal density for a weight↔volume line', () => {
+      const s = row({ id: 'S', densityGPerMl: 0.92 })
+      const a = row({ id: 'A', densityGPerMl: 0.92 })
+      const p = plan(s, a, { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'ml' }] })
+      expect(p.ok).toBe(true)
+    })
+  })
 })
 
 describe('planMerge ops', () => {
   it('re-points plain tables and tombstones the absorbed row (incl. zeroing its stock) — no factor on the manifest', () => {
-    const p = plan(S, A, { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], matchRuleIds: ['r1'], priceAlertIds: ['p1'] })
+    const p = plan(S, A, { ...noRel, scanItemIds: ['si1'], matchRuleIds: ['r1'], priceAlertIds: ['p1'] })
     if (!p.ok) throw new Error(p.message)
     expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'InvoiceScanItem', ids: ['si1'] })
     expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'InvoiceMatchRule', ids: ['r1'] })
@@ -86,17 +137,10 @@ describe('planMerge ops', () => {
     expect('factor' in p.summary).toBe(false)
   })
 
-  it('a scan item with a receivedQtyBase is re-pointed but never rewritten (same base unit, nothing to convert)', () => {
-    const p = plan(S, A, { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: 10 }] })
-    if (!p.ok) throw new Error(p.message)
-    expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'InvoiceScanItem', ids: ['si1'] })
-    expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'InvoiceScanItem')).toBe(false)
-  })
-
   describe('CRITICAL 1: synthesized offer id, and Crit-3 verbatim pricing', () => {
     it('gets an id from opts.newId, carries packChain+pricing verbatim, and undo deletes by that same id', () => {
       const p = plan(S, row({ id: 'A', packChain: [{ unit: 'lb', per: 453.592 }], pricing: { mode: 'PACK', purchasePrice: 22 } }),
-        { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
       // survivor has zero offers, so I-1 promotes this synthesized one to primary.
@@ -115,7 +159,7 @@ describe('planMerge ops', () => {
 
     it('Crit-3: a RATE-priced absorbed item synthesizes with the RATE pricing object and a finite lastPrice', () => {
       const p = plan(S, row({ id: 'A', pricing: { mode: 'RATE', rate: 3.5, rateUnit: 'g' } }),
-        { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
       expect(created.row.pricing).toEqual({ mode: 'RATE', rate: 3.5, rateUnit: 'g' })
@@ -125,7 +169,7 @@ describe('planMerge ops', () => {
 
     it('does not synthesize when the derived price is not a finite positive number', () => {
       const p = plan(S, row({ id: 'A', packChain: [{ unit: 'lb', per: 453.592 }], pricing: { mode: 'PACK', purchasePrice: 0 } }),
-        { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'create')).toBe(false)
       expect(p.summary.offerSynthesized).toBe(false)
@@ -333,13 +377,35 @@ describe('planMerge ops', () => {
     expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'StockAllocation', ids: ['aA1'] })
   })
 
-  it('a non-colliding allocation with a different countUnit clears par/reorder (still meaningful even at k=1)', () => {
-    const a = row({ id: 'A', countUnit: 'lb' })
-    const p = plan(S, a, { ...noRel, allocations: [{ id: 'aA1', revenueCenterId: 'rc1', quantity: 5, parLevel: 10, reorderQty: 2 }] })
-    if (!p.ok) throw new Error(p.message)
-    const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'StockAllocation' && o.id === 'aA1') as { before: Record<string, unknown>; after: Record<string, unknown> }
-    expect(upd).toBeTruthy()
-    expect(upd.after).toEqual({ parLevel: null, reorderQty: null })
+  describe('IMPORTANT Imp-1: par/reorder — equal countUnit NAMES are not equal MEANINGS', () => {
+    it('same countUnit name, but the two chains give it different meanings ⇒ cleared', () => {
+      // both say "case"; absorbed's case is 4, survivor's is 12 — same name, different meaning.
+      const a = row({ id: 'A', countUnit: 'case', packChain: [{ unit: 'case', per: 4 }] })
+      const s = row({ id: 'S', countUnit: 'case', packChain: [{ unit: 'case', per: 12 }] })
+      const p = plan(s, a, { ...noRel, allocations: [{ id: 'aA1', revenueCenterId: 'rc1', quantity: 5, parLevel: 10, reorderQty: 2 }] })
+      if (!p.ok) throw new Error(p.message)
+      const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'StockAllocation' && o.id === 'aA1') as { after: Record<string, unknown> }
+      expect(upd).toBeTruthy()
+      expect(upd.after).toEqual({ parLevel: null, reorderQty: null })
+    })
+
+    it('same countUnit name, same meaning ⇒ bare repoint (par/reorder untouched)', () => {
+      const a = row({ id: 'A', countUnit: 'case', packChain: [{ unit: 'case', per: 12 }] })
+      const s = row({ id: 'S', countUnit: 'case', packChain: [{ unit: 'case', per: 12 }] })
+      const p = plan(s, a, { ...noRel, allocations: [{ id: 'aA1', revenueCenterId: 'rc1', quantity: 5, parLevel: 10, reorderQty: 2 }] })
+      if (!p.ok) throw new Error(p.message)
+      expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'StockAllocation')).toBe(false)
+      expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'StockAllocation', ids: ['aA1'] })
+    })
+
+    it('"Case" vs "case", equal meaning ⇒ bare repoint (canonical + factor comparison both agree)', () => {
+      const a = row({ id: 'A', countUnit: 'Case', packChain: [{ unit: 'case', per: 12 }] })
+      const s = row({ id: 'S', countUnit: 'case', packChain: [{ unit: 'case', per: 12 }] })
+      const p = plan(s, a, { ...noRel, allocations: [{ id: 'aA1', revenueCenterId: 'rc1', quantity: 5, parLevel: 10, reorderQty: 2 }] })
+      if (!p.ok) throw new Error(p.message)
+      expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'StockAllocation')).toBe(false)
+      expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'StockAllocation', ids: ['aA1'] })
+    })
   })
 
   describe('CRITICAL 1 (Crit-1): count lines use the READERS\' own resolver, never a hand-rolled one', () => {
@@ -354,7 +420,7 @@ describe('planMerge ops', () => {
       const oracle = lineCountedBase(line, dimsOf(absorbed))
       expect(oracle).toBe(5) // sanity: NOT 60 (5 × 12)
 
-      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl1', expectedQty: 0, priceAtCount: 0, ...line }] })
+      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl1', ...line }] })
       if (!p.ok) throw new Error(p.message)
       const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl1') as { after: Record<string, unknown> }
       expect(upd.after.countedQtyBase).toBe(oracle)
@@ -364,7 +430,7 @@ describe('planMerge ops', () => {
       const absorbed = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT', packChain: [{ unit: 'case', per: 4 }, { unit: 'each', per: 12 }] })
       const survivor = row({ id: 'S', baseUnit: 'each', dimension: 'COUNT' })
       const p = plan(survivor, absorbed, { ...noRel, countLines: [
-        { id: 'cl2', expectedQty: 0, priceAtCount: 0, countedQtyBase: null, countedQty: 5, selectedUom: 'portion', entries: null },
+        { id: 'cl2', countedQtyBase: null, countedQty: 5, selectedUom: 'portion', entries: null },
       ] })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl2')).toBe(false)
@@ -378,7 +444,7 @@ describe('planMerge ops', () => {
       const oracle = lineCountedBase(line, dimsOf(absorbed))
       expect(oracle).toBe(48)
 
-      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl3', expectedQty: 0, priceAtCount: 0, ...line }] })
+      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl3', ...line }] })
       if (!p.ok) throw new Error(p.message)
       const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl3') as { after: Record<string, unknown> }
       expect(upd.after.countedQtyBase).toBe(oracle)
@@ -391,10 +457,23 @@ describe('planMerge ops', () => {
       const oracle = lineCountedBase(line, dimsOf(absorbed))
       expect(oracle).toBe(48)
 
-      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl4', expectedQty: 0, priceAtCount: 0, ...line }] })
+      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl4', ...line }] })
       if (!p.ok) throw new Error(p.message)
       const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl4') as { after: Record<string, unknown> }
       expect(upd.after.countedQtyBase).toBe(oracle)
+    })
+
+    it('IMPORTANT Imp-3: "cs" is NOT treated as the legacy word "case" (the reader compares the raw token, not the canonical one)', () => {
+      // absorbed's chain has no literal "cs" link — only the canonical mapping
+      // (cs → case) would make it look resolvable, and the reader does not do that.
+      const absorbed = row({ id: 'A', packChain: [{ unit: 'case', per: 1000 }] })
+      const survivor = row({ id: 'S' })
+      const p = plan(survivor, absorbed, { ...noRel, countLines: [
+        { id: 'cl10', countedQtyBase: null, countedQty: 5, selectedUom: 'cs', entries: null },
+      ] })
+      if (!p.ok) throw new Error(p.message)
+      expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl10')).toBe(false)
+      expect(p.summary.countLinesUnfrozen).toBe(1)
     })
 
     it('entries [{case×2},{each×3}] on a single-link chain [{case,12}] is oracle-equal (27)', () => {
@@ -405,7 +484,7 @@ describe('planMerge ops', () => {
       const oracle = lineCountedBase(line, dimsOf(absorbed))
       expect(oracle).toBe(27)
 
-      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl5', expectedQty: 0, priceAtCount: 0, ...line }] })
+      const p = plan(survivor, absorbed, { ...noRel, countLines: [{ id: 'cl5', ...line }] })
       if (!p.ok) throw new Error(p.message)
       const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl5') as { before: Record<string, unknown>; after: Record<string, unknown> }
       expect(upd.after.countedQtyBase).toBe(oracle)
@@ -417,7 +496,7 @@ describe('planMerge ops', () => {
 
     it('a modern line already in a plain measured unit (kg) with countedQtyBase set needs no op', () => {
       const p = plan(S, A, { ...noRel, countLines: [
-        { id: 'cl6', expectedQty: 0, priceAtCount: 0, countedQtyBase: 750, countedQty: 750, selectedUom: 'kg', entries: null },
+        { id: 'cl6', countedQtyBase: 750, countedQty: 750, selectedUom: 'kg', entries: null },
       ] })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl6')).toBe(false)
@@ -426,7 +505,7 @@ describe('planMerge ops', () => {
 
     it('a line already displayed in the item\'s own base unit needs no op even without a chain-level match', () => {
       const p = plan(S, A, { ...noRel, countLines: [
-        { id: 'cl7', expectedQty: 0, priceAtCount: 0, countedQtyBase: 12, countedQty: 12, selectedUom: 'g', entries: null },
+        { id: 'cl7', countedQtyBase: 12, countedQty: 12, selectedUom: 'g', entries: null },
       ] })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl7')).toBe(false)
@@ -436,7 +515,7 @@ describe('planMerge ops', () => {
       const absorbed = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT' }) // default chain, no 'gal' anywhere
       const survivor = row({ id: 'S', baseUnit: 'each', dimension: 'COUNT' })
       const p = plan(survivor, absorbed, { ...noRel, countLines: [
-        { id: 'cl8', expectedQty: 2, priceAtCount: 0.5, countedQtyBase: null, countedQty: null, selectedUom: 'kg',
+        { id: 'cl8', countedQtyBase: null, countedQty: null, selectedUom: 'kg',
           entries: [{ unit: 'gal', qty: 2 }] }, // VOLUME — matches neither a chain level nor absorbed's COUNT dimension
       ] })
       if (!p.ok) throw new Error(p.message)
@@ -449,7 +528,7 @@ describe('planMerge ops', () => {
       const survivor = row({ id: 'S', baseUnit: 'each', dimension: 'COUNT' })
       const entries = [{ unit: 'case', qty: 2 }, { unit: 'each', qty: 3 }]
       const p = plan(survivor, absorbed, { ...noRel, countLines: [
-        { id: 'cl9', expectedQty: 0, priceAtCount: 0, countedQtyBase: null, countedQty: null, selectedUom: 'each', entries },
+        { id: 'cl9', countedQtyBase: null, countedQty: null, selectedUom: 'each', entries },
       ] })
       if (!p.ok) throw new Error(p.message)
       const fwd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl9') as { before: Record<string, unknown>; after: Record<string, unknown> }
@@ -491,7 +570,7 @@ describe('planMerge ops', () => {
 
 describe('planUndo', () => {
   it('is the exact inverse, in reverse order', () => {
-    const p = plan(S, A, { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }] })
+    const p = plan(S, A, { ...noRel, scanItemIds: ['si1'] })
     if (!p.ok) throw new Error(p.message)
     const undo = planUndo(p.manifest)
     expect(undo[0]).toEqual({
@@ -504,7 +583,7 @@ describe('planUndo', () => {
   it('round-trips every op kind without an `as` cast needed by callers', () => {
     const p = plan(S, A,
       { ...noRel,
-        scanItems: [{ id: 'si1', receivedQtyBase: null }],
+        scanItemIds: ['si1'],
         offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: true }],
       },
       { ...noSRel, offers: [

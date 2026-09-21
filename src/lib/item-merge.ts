@@ -10,10 +10,10 @@
 
 import type { Dimension, PackLink, Pricing, EachMeasure } from '@/lib/item-model'
 import { dimensionOf } from '@/lib/item-model'
-import { canonicalUom } from '@/lib/uom'
+import { canonicalUom, convertQty } from '@/lib/uom'
 import { countUomFactor, lineCountedBase, type ItemDims } from '@/lib/count-uom'
 
-export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT' | 'DIFFERENT_BASE_UNIT' | 'NEEDS_ON_HAND'
+export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT' | 'DIFFERENT_BASE_UNIT' | 'BRIDGE_MISMATCH' | 'NEEDS_ON_HAND'
 export type RepointTable =
   | 'InvoiceScanItem' | 'InvoiceLineItem' | 'PriceAlert' | 'InvoiceMatchRule' | 'StockTransfer' | 'WastageLog'
   | 'RecipeIngredient' | 'CountLine' | 'InventorySnapshot' | 'InventorySupplierPrice' | 'StockAllocation' | 'ItemRevenueCenter'
@@ -23,9 +23,12 @@ export type DeleteTable = 'InventorySupplierPrice' | 'InventorySnapshot' | 'Stoc
 export interface MergeItemRow {
   id: string; itemName: string; baseUnit: string; dimension: Dimension; countUnit: string
   packChain: PackLink[]; pricing: Pricing; stockOnHand: number
-  /** Still read for the count-line reader's dims (an each↔measured bridge can
-   *  matter on a count LINE even when the two ITEMS share a base unit). */
+  /** The count↔measured bridge ("1 each = 150 g"), read for the count-line
+   *  reader's dims (Crit-1) AND compared between items for BRIDGE_MISMATCH (Imp-2). */
   eachMeasure: EachMeasure | null
+  /** The weight↔volume bridge (g/ml), compared between items for BRIDGE_MISMATCH
+   *  (Imp-2) — a recipe line whose unit needs it silently re-costs otherwise. */
+  densityGPerMl: number | null
   isActive: boolean; mergedIntoId: string | null; ownedByRecipe: boolean; inOpenCount: boolean
   theoreticalOnHand: number
 }
@@ -35,19 +38,26 @@ export interface MergeItemRow {
 export interface MergeCountEntry { unit: string; qty: number }
 
 export interface MergeRelations {          // everything that points at the ABSORBED row…
-  scanItems: { id: string; receivedQtyBase: number | null }[]
+  // receivedQtyBase / quantity / qtyWasted are base-unit denominated, and the
+  // base unit is shared (DIFFERENT_BASE_UNIT) — these move unchanged, so only
+  // the id is ever needed (Min-i).
+  scanItemIds: string[]
   invoiceLineItemIds: string[]; priceAlertIds: string[]; matchRuleIds: string[]
-  transfers: { id: string; quantity: number }[]
-  wastage: { id: string; qtyWasted: number; unit: string }[]
-  recipeIngredients: { id: string; qtyBase: number; unit: string }[]
+  transferIds: string[]
+  wastageIds: string[]
+  /** `qtyBase` is base-unit denominated and moves unchanged like the above;
+   *  `unit` is read by the BRIDGE_MISMATCH guard (Imp-2), so it stays. */
+  recipeIngredients: { id: string; unit: string }[]
   countLines: {
-    id: string; expectedQty: number; countedQtyBase: number | null; priceAtCount: number
+    id: string; countedQtyBase: number | null
     // legacy lines carry countedQtyBase: null and must be re-derived — precedence
     // (src/lib/count-uom.ts `lineCountedBase`) is countedQtyBase → entries →
     // countedQty/selectedUom. Re-deriving through the item's CURRENT chain (the
     // survivor's, after this merge) restates history even at k = 1, because the
     // two items still have DIFFERENT pack chains — so we freeze through the
     // ABSORBED chain here first, before that current chain changes underneath it.
+    // expectedQty/priceAtCount are base-unit / $-per-base denominated and move
+    // unchanged (Min-i) — not read here at all.
     countedQty: number | null; selectedUom: string; entries: MergeCountEntry[] | null
   }[]
   // loaded by the executor as FULL database rows (extra fields beyond those
@@ -109,17 +119,42 @@ const ts = (x: string): number => {
   return Number.isFinite(t) ? t : -Infinity
 }
 
-/** The count-uom reader's STRICT resolver (`countUomFactor`) rejects the two
- *  legacy generic purchase words on principle (a write-path guard against a
- *  unit the count sheet never actually offered) — but freezing a legacy line
- *  is a READ of history, not a write, and the reader's own read-path
- *  resolution (`legacy: true`, not exported) explicitly still honours them
- *  (see the `legacy` parameter docs in count-uom.ts: "case" is the outermost
- *  pack, "pack" the second, whenever the item has a chain at all). Carved out
- *  here rather than re-implementing the reader's resolution. */
+/** The `ItemDims` the count-uom reader (and, via `eachMeasure`, the bridge
+ *  check) needs, built the same way from either side of a merge. */
+function itemDims(item: MergeItemRow): ItemDims {
+  return {
+    dimension: item.dimension, baseUnit: item.baseUnit, packChain: item.packChain,
+    countUnit: item.countUnit, eachMeasureQty: item.eachMeasure?.qty ?? null, eachMeasureUnit: item.eachMeasure?.unit ?? null,
+  }
+}
+
+/** Imp-3: the reader's legacy branch (`src/lib/count-uom.ts` ~:138-142)
+ *  compares the RAW lowercased token — `sel === 'case' || sel === 'pack'` —
+ *  with no canonicalisation. `canonicalUom` maps `cs`/`cases` → `case` and
+ *  `pk`/`pkg` → `pack`, so using it here would declare a unit resolvable that
+ *  the reader itself falls back to a bare 1:1 guess for. Match the reader
+ *  exactly: trim + lowercase, nothing more. */
 function isLegacyPackWord(unit: string, chainLength: number): boolean {
-  const u = canonicalUom(unit)
+  const u = unit.trim().toLowerCase()
   return chainLength > 0 && (u === 'case' || u === 'pack')
+}
+
+/** "1 each" as this item's own base-unit quantity, or null with no bridge. */
+function eachMeasureBase(item: MergeItemRow): number | null {
+  const em = item.eachMeasure
+  if (!em) return null
+  const v = convertQty(em.qty, em.unit, item.baseUnit)
+  return v > 0 ? v : null
+}
+
+/** Null-aware, tolerant equality for a bridge value — both-null is equal
+ *  (neither item has the bridge, so a line needing it is already unbridgeable
+ *  on both sides); exactly one null, or a numeric difference past the
+ *  tolerance, is not. */
+function bridgeValuesDiffer(a: number | null, b: number | null): boolean {
+  if (a === null && b === null) return false
+  if (a === null || b === null) return true
+  return Math.abs(a - b) > 1e-9
 }
 
 export function planMerge(
@@ -136,6 +171,31 @@ export function planMerge(
   if (canonicalUom(absorbed.baseUnit) !== canonicalUom(survivor.baseUnit))
     return fail('DIFFERENT_BASE_UNIT',
       `${absorbed.itemName} is tracked in ${absorbed.baseUnit} and ${survivor.itemName} in ${survivor.baseUnit}. Change ${absorbed.itemName} to ${survivor.baseUnit} first (edit the item), then merge.`)
+
+  // Imp-2: a recipe line stored in a unit that NEEDS a bridge to cost against
+  // the item (its dimension differs from the item's) re-costs through
+  // convertQtyBridged(qty, ing.unit, item.baseUnit, item.eachMeasure,
+  // item.densityGPerMl) (src/lib/recipeCosts.ts ~:137) — and the bridge is a
+  // property of the ITEM, not the recipe line. Two items sharing a base unit
+  // can still carry different each-measures or densities, so re-pointing such
+  // a line would silently change what it costs. Refuse rather than convert.
+  const bridgeMismatched = rel.recipeIngredients.filter(ri => {
+    const riDim = dimensionOf(ri.unit)
+    if (riDim === absorbed.dimension) return false // same-dimension unit: never bridged
+    const needsCountBridge = absorbed.dimension === 'COUNT' || riDim === 'COUNT'
+    return needsCountBridge
+      ? bridgeValuesDiffer(eachMeasureBase(absorbed), eachMeasureBase(survivor))
+      : bridgeValuesDiffer(absorbed.densityGPerMl, survivor.densityGPerMl)
+  })
+  if (bridgeMismatched.length > 0) {
+    const firstNeedsCountBridge = absorbed.dimension === 'COUNT' || dimensionOf(bridgeMismatched[0].unit) === 'COUNT'
+    const aVal = firstNeedsCountBridge ? eachMeasureBase(absorbed) : absorbed.densityGPerMl
+    const sVal = firstNeedsCountBridge ? eachMeasureBase(survivor) : survivor.densityGPerMl
+    const bridgeWord = firstNeedsCountBridge ? 'each-measure' : 'density'
+    return fail('BRIDGE_MISMATCH',
+      `${bridgeMismatched.length} recipe line${bridgeMismatched.length === 1 ? '' : 's'} on ${absorbed.itemName} would re-cost differently on ${survivor.itemName}: ${bridgeWord} is ${aVal ?? 'not set'} on ${absorbed.itemName} vs ${sVal ?? 'not set'} on ${survivor.itemName}. Set the same each-measure/density on ${survivor.itemName} first, then merge.`)
+  }
+
   if (Math.abs(toNum(absorbed.theoreticalOnHand)) > 1e-9 && !opts.combinedOnHandProvided)
     return fail('NEEDS_ON_HAND', `${absorbed.itemName} still shows stock on hand. Enter the combined on-hand for both.`)
 
@@ -143,12 +203,12 @@ export function planMerge(
   const repoint = (table: RepointTable, ids: string[]) => { if (ids.length) ops.push({ t: 'repoint', table, ids }) }
 
   // ── plain re-points (no quantity ever needs conversion — same base unit) ─────
-  repoint('InvoiceScanItem', rel.scanItems.map(s => s.id))
+  repoint('InvoiceScanItem', rel.scanItemIds)
   repoint('InvoiceLineItem', rel.invoiceLineItemIds)
   repoint('PriceAlert', rel.priceAlertIds)
   repoint('InvoiceMatchRule', rel.matchRuleIds)
-  repoint('StockTransfer', rel.transfers.map(t => t.id))
-  repoint('WastageLog', rel.wastage.map(w => w.id))
+  repoint('StockTransfer', rel.transferIds)
+  repoint('WastageLog', rel.wastageIds)
   repoint('RecipeIngredient', rel.recipeIngredients.map(r => r.id))
   repoint('CountLine', rel.countLines.map(c => c.id))
 
@@ -167,10 +227,7 @@ export function planMerge(
   // survivor does not share. One update op per line; a line needing none of
   // this gets none. ────────────────────────────────────────────────────────
   let countLinesUnfrozen = 0
-  const absorbedDims: ItemDims = {
-    dimension: absorbed.dimension, baseUnit: absorbed.baseUnit, packChain: absorbed.packChain,
-    countUnit: absorbed.countUnit, eachMeasureQty: absorbed.eachMeasure?.qty ?? null, eachMeasureUnit: absorbed.eachMeasure?.unit ?? null,
-  }
+  const absorbedDims = itemDims(absorbed)
   const chainLen = absorbed.packChain.length
   const resolvable = (unit: string) => countUomFactor(unit, absorbedDims) !== null || isLegacyPackWord(unit, chainLen)
   const isPlainMeasured = (unit: string) => dimensionOf(unit) !== 'COUNT' || canonicalUom(unit) === canonicalUom(absorbed.baseUnit)
@@ -272,7 +329,7 @@ export function planMerge(
   }
 
   const derivedPrice = toNum(absorbed.pricing.mode === 'RATE' ? absorbed.pricing.rate : absorbed.pricing.purchasePrice)
-  const canSynth = rel.offers.length === 0 && rel.scanItems.length > 0 && !!rel.latestPurchaseSupplier
+  const canSynth = rel.offers.length === 0 && rel.scanItemIds.length > 0 && !!rel.latestPurchaseSupplier
     && !sOffer.has(rel.latestPurchaseSupplier!.supplierName)
     && Number.isFinite(derivedPrice) && derivedPrice > 0
 
@@ -334,6 +391,21 @@ export function planMerge(
   // ── per-RC rows: unique (rc, item) ──────────────────────────────────────────
   const sAlloc = new Map(sRel.allocations.map(a => [a.revenueCenterId, a]))
   const moveAllocs: string[] = []
+  const survivorDims = itemDims(survivor)
+  // Imp-1: `parLevel`/`reorderQty` are in the ABSORBED row's countUnit. Two
+  // items can share a countUnit NAME while a unit of it means something
+  // different on each (the spec's own duplicate examples: romaine 12/case vs
+  // 4/case›12/pack; a GF muffin 4/case›6/pack vs 6/case›4/pack) — so equal
+  // NAMES are not equal MEANINGS. Clear whenever the canonical names differ
+  // (Min-ii) OR the two items' own resolvers disagree on how many base units
+  // that name is worth; a null/unresolvable factor on either side also clears.
+  const countUnitMeansSame = (): boolean => {
+    if (canonicalUom(absorbed.countUnit) !== canonicalUom(survivor.countUnit)) return false
+    const af = countUomFactor(absorbed.countUnit, absorbedDims)
+    const sf = countUomFactor(survivor.countUnit, survivorDims)
+    return af !== null && sf !== null && af === sf
+  }
+  const clearParReorder = !countUnitMeansSame()
   for (const a of rel.allocations) {
     const hit = sAlloc.get(a.revenueCenterId)
     if (hit) {
@@ -341,9 +413,7 @@ export function planMerge(
       ops.push({ t: 'delete', table: 'StockAllocation', row: { ...a, inventoryItemId: absorbed.id } })
     } else {
       moveAllocs.push(a.id)
-      // par/reorder are in the absorbed row's COUNT unit — only meaningless on
-      // the survivor when the two items don't even share a count unit.
-      if (absorbed.countUnit !== survivor.countUnit && (a.parLevel != null || a.reorderQty != null))
+      if (clearParReorder && (a.parLevel != null || a.reorderQty != null))
         ops.push({ t: 'update', table: 'StockAllocation', id: a.id,
           before: { parLevel: a.parLevel, reorderQty: a.reorderQty }, after: { parLevel: null, reorderQty: null } })
     }
@@ -373,7 +443,7 @@ export function planMerge(
     ok: true,
     manifest: { survivorId: survivor.id, absorbedId: absorbed.id, ops },
     summary: {
-      invoiceLines: rel.scanItems.length, recipeLines: rel.recipeIngredients.length, countLines: rel.countLines.length,
+      invoiceLines: rel.scanItemIds.length, recipeLines: rel.recipeIngredients.length, countLines: rel.countLines.length,
       snapshots: rel.snapshots.length, offersMoved: moveOffers.length,
       absorbedOffersDroppedStale, absorbedOffersDroppedForSurvivorPrimary, survivorOffersReplaced,
       offerSynthesized: canSynth, primaryPromoted, countLinesUnfrozen,
