@@ -20,6 +20,8 @@ import { QuickCountSheet } from './QuickCountSheet'
 import { MergeItemSheet, MergedItemsRow } from './MergeItemSheet'
 import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 import { lookupDensity } from '@/lib/density'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -239,6 +241,13 @@ function displayStock(item: InventoryItem): number {
 export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = 'z-50', initialEditMode = false }: Props) {
   const { revenueCenters, activeRc } = useRc()
   const defaultRcId = revenueCenters.find(rc => rc.isDefault)?.id ?? null
+  // Default-deny: `role` is null while /api/me is in flight (same pattern as
+  // /app/inventory/page.tsx's canExport) — render nothing until it resolves,
+  // never assume MANAGER. Merge's GET (MergedItemsRow) and POST are both
+  // requireSession('MANAGER') server-side; this just avoids showing a STAFF
+  // user a control (and a 403) they can't use.
+  const { role } = useUser()
+  const canMerge = role !== null && atLeast(role, 'MANAGER')
 
   const [item, setItem] = useState<InventoryItem | null>(null)
   const [loading, setLoading] = useState(true)
@@ -901,10 +910,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} onRepriced={refreshItem} />
 
                 {/* Merge a duplicate item into this one (MANAGER+, non-PREP only — see
-                    item-consolidation Task 10). The drawer has no session/role of its
-                    own to gate on client-side, so this renders for everyone and relies
-                    on the merge route's own requireSession('MANAGER') 403. */}
-                {!item.recipe && (
+                    item-consolidation Task 10). canMerge default-denies while role is
+                    loading and for STAFF/LEAD; the merge routes still enforce
+                    requireSession('MANAGER') server-side regardless. */}
+                {canMerge && !item.recipe && (
                   <div>
                     <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={refreshItem} />
                     <button
