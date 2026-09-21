@@ -3,7 +3,7 @@
 // Spec: docs/superpowers/specs/2026-09-20-item-consolidation-design.md §1.
 
 import type { Dimension, PackLink, Pricing, EachMeasure } from '@/lib/item-model'
-import { dimensionOf, basePerUnit } from '@/lib/item-model'
+import { dimensionOf, basePerUnit, levelBaseUnits } from '@/lib/item-model'
 import { UNIT_FACTORS, canonicalUom } from '@/lib/uom'
 
 export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT' | 'NO_BRIDGE' | 'NEEDS_ON_HAND'
@@ -21,6 +21,10 @@ export interface MergeItemRow {
   theoreticalOnHand: number
 }
 
+/** A stored mixed-unit count entry — see `CountEntry` in src/lib/count-uom.ts
+ *  and the `CountLine.entries` schema comment ("When present it is authoritative"). */
+export interface MergeCountEntry { unit: string; qty: number }
+
 export interface MergeRelations {          // everything that points at the ABSORBED row…
   scanItems: { id: string; receivedQtyBase: number | null }[]
   invoiceLineItemIds: string[]; priceAlertIds: string[]; matchRuleIds: string[]
@@ -29,15 +33,17 @@ export interface MergeRelations {          // everything that points at the ABSO
   recipeIngredients: { id: string; qtyBase: number; unit: string }[]
   countLines: {
     id: string; expectedQty: number; countedQtyBase: number | null; priceAtCount: number
-    // legacy lines carry countedQtyBase: null and must be re-derived from countedQty +
-    // selectedUom (through the CURRENT chain, per readers) — frozen here through the
-    // ABSORBED chain before that current chain becomes the survivor's.
-    countedQty: number | null; selectedUom: string; entries: unknown
+    // legacy lines carry countedQtyBase: null and must be re-derived — precedence
+    // (src/lib/count-uom.ts `lineCountedBase`) is countedQtyBase → entries →
+    // countedQty/selectedUom. Re-deriving through the item's CURRENT chain (the
+    // survivor's, after this merge) restates history, so we freeze through the
+    // ABSORBED chain here first, before that current chain changes underneath it.
+    countedQty: number | null; selectedUom: string; entries: MergeCountEntry[] | null
   }[]
   // loaded by the executor as FULL database rows (extra fields beyond those
   // declared here) so a `delete` op's `row` can re-create the row on undo.
   snapshots: Array<{ id: string; sessionId: string; qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number; source: string } & Record<string, unknown>>
-  offers: Array<{ id: string; supplierName: string; supplierId: string | null; lastUpdated: string; isPrimary: boolean } & Record<string, unknown>>
+  offers: Array<{ id: string; supplierName: string; supplierId: string | null; lastUpdated: string; isPrimary: boolean; packChain?: unknown } & Record<string, unknown>>
   allocations: { id: string; revenueCenterId: string; quantity: number; parLevel: number | null; reorderQty: number | null }[]
   itemRcs: { id: string; revenueCenterId: string }[]
   latestPurchaseSupplier: { supplierId: string | null; supplierName: string } | null
@@ -61,7 +67,18 @@ export type MergePlan = { ok: true; manifest: MergeManifest; summary: MergeSumma
 
 export interface MergeSummary {
   invoiceLines: number; recipeLines: number; countLines: number; snapshots: number
-  offersMoved: number; absorbedOffersDropped: number; survivorOffersReplaced: number; offerSynthesized: boolean; factor: number
+  offersMoved: number
+  /** dropped because the survivor's own offer for that supplier was same-or-newer */
+  absorbedOffersDroppedStale: number
+  /** dropped to protect the survivor's PRIMARY offer, even if the absorbed one was newer */
+  absorbedOffersDroppedForSurvivorPrimary: number
+  survivorOffersReplaced: number
+  offerSynthesized: boolean
+  /** the offer (moved or synthesized) promoted to primary because the survivor had none, or null */
+  primaryPromoted: { supplierName: string } | null
+  /** count lines whose base could not be safely frozen through the absorbed chain (see M-b) */
+  countLinesUnfrozen: number
+  factor: number
   absorbedOnHand: number; survivorOnHand: number
 }
 
@@ -71,8 +88,21 @@ const toBase = (qty: number, unit: string) => qty * (UNIT_FACTORS[canonicalUom(u
 /** Prisma Decimal fields arrive as strings in JSON despite being typed `number` —
  *  never do arithmetic on a raw input field without this. */
 const toNum = (x: unknown): number => Number(x)
-/** `lastUpdated` may arrive as a Date or an ISO string; compare by instant, not string order. */
-const ts = (x: string): number => new Date(x).getTime()
+/** `lastUpdated` may arrive as a Date or an ISO string; compare by instant, not
+ *  string order. An unparsable value is treated as infinitely old (never wins),
+ *  and NaN-vs-NaN never occurs downstream because both sides map to the same
+ *  -Infinity, so a "tie" between two bad dates still resolves deterministically
+ *  (whichever comparison uses it keeps the survivor, per M-a). */
+const ts = (x: string): number => {
+  const t = new Date(x).getTime()
+  return Number.isFinite(t) ? t : -Infinity
+}
+/** Only the LEAF link's `per` is a base-unit count; outer links are pack COUNTS
+ *  (cases per pallet, etc.) and don't change when the base unit's meaning does. */
+function convertLeafByFactor(chain: PackLink[], k: number): PackLink[] {
+  if (!Array.isArray(chain) || chain.length === 0) return chain
+  return chain.map((l, i) => (i === chain.length - 1 ? { unit: l.unit, per: toNum(l.per) * k } : l))
+}
 
 export function baseFactor(absorbed: MergeItemRow, survivor: MergeItemRow): number | null {
   if (absorbed.dimension === survivor.dimension) return 1
@@ -137,27 +167,51 @@ export function planMerge(
       ops.push({ t: 'update', table: 'RecipeIngredient', id: r.id, before: { qtyBase: r.qtyBase, unit: r.unit }, after: { qtyBase: toBase(toNum(r.qtyBase), r.unit) * k, unit: survivor.baseUnit } })
   }
 
-  // ── count lines: freeze legacy null bases through the ABSORBED chain (readers
-  // re-derive countedQtyBase from countedQty+selectedUom through the item's
-  // CURRENT chain, which becomes the survivor's after this merge — freezing
-  // here first is what prevented the $44k drift this codebase already hit
-  // once), then normalise the display pair when the unit's meaning could
-  // differ on the survivor. One update op per line; a line needing none of
-  // this gets none. ─────────────────────────────────────────────────────────
+  // ── count lines: freeze legacy null bases through the ABSORBED chain, then
+  // normalise the display pair when the unit's meaning could differ on the
+  // survivor. C-1: `entries` (the mixed-unit breakdown) is authoritative over
+  // countedQty/selectedUom, per src/lib/count-uom.ts `lineCountedBase` — freeze
+  // from entries first when present, falling back to countedQty/selectedUom
+  // only when entries is absent/empty. M-b: never guess past what
+  // basePerUnit can actually resolve (a chain level, or the absorbed item's own
+  // dimension) — an unresolvable unit leaves that line's base null and is
+  // counted in countLinesUnfrozen for the UI to flag, rather than silently
+  // treated as a 1:1 passthrough. One update op per line; a line needing none
+  // of this gets none. ─────────────────────────────────────────────────────────
+  let countLinesUnfrozen = 0
+  const absorbedLevels = levelBaseUnits(absorbed.packChain)
+  const isResolvable = (unit: string) => unit in absorbedLevels || dimensionOf(unit) === absorbed.dimension
+
   for (const c of rel.countLines) {
-    const isLevelUnit = absorbed.packChain.some(l => l.unit === c.selectedUom)
-    const needsNormalize = conv || isLevelUnit
-    const needsFreeze = c.countedQtyBase == null && c.countedQty != null
+    const entries = Array.isArray(c.entries) && c.entries.length > 0 ? c.entries : null
+    const isLevelUnit = c.selectedUom in absorbedLevels
+    const needsFreeze = c.countedQtyBase == null && (entries != null || c.countedQty != null)
 
     let newBase: number | null = c.countedQtyBase == null ? null : toNum(c.countedQtyBase)
     let baseChanged = false
+    let usedEntriesFreeze = false
+
     if (needsFreeze) {
-      newBase = toNum(c.countedQty) * basePerUnit(absorbed, c.selectedUom) * k
-      baseChanged = true
+      if (entries) {
+        if (entries.every(e => isResolvable(e.unit))) {
+          newBase = entries.reduce((sum, e) => sum + toNum(e.qty) * basePerUnit(absorbed, e.unit), 0) * k
+          baseChanged = true
+          usedEntriesFreeze = true
+        } else {
+          countLinesUnfrozen++
+        }
+      } else if (isResolvable(c.selectedUom)) {
+        newBase = toNum(c.countedQty) * basePerUnit(absorbed, c.selectedUom) * k
+        baseChanged = true
+      } else {
+        countLinesUnfrozen++
+      }
     } else if (newBase != null && conv) {
       newBase = newBase * k
       baseChanged = true
     }
+
+    const needsNormalize = conv || isLevelUnit || usedEntriesFreeze
 
     const before: Record<string, unknown> = {}
     const after: Record<string, unknown> = {}
@@ -167,6 +221,10 @@ export function planMerge(
       before.priceAtCount = c.priceAtCount; after.priceAtCount = toNum(c.priceAtCount) / k
     }
     if (needsNormalize && newBase != null) {
+      // Nulling `entries` here is deliberate: its unit names are meaningless on
+      // the survivor's chain once repointed, and countedQtyBase now carries the
+      // frozen truth for both paths — `before` restores the original array (or
+      // null) exactly, so undo is exact either way.
       before.countedQty = c.countedQty; before.selectedUom = c.selectedUom; before.entries = c.entries
       after.countedQty = newBase; after.selectedUom = survivor.baseUnit; after.entries = null
     }
@@ -196,46 +254,115 @@ export function planMerge(
   repoint('InventorySnapshot', moveSnaps)
 
   // ── offers: unique (item, supplierName) ───────────────────────────────────────
-  // INVARIANT: a merge NEVER deletes the survivor's primary offer, and never
-  // changes which offer is primary on the survivor — food cost must not move
-  // just because two supplier rows were combined. If the survivor's colliding
-  // offer is primary it always wins, regardless of dates; otherwise the newer
-  // `lastUpdated` wins (a tie keeps the survivor's). Moved offers are never
-  // primary. The executor does NOT run a primary-election pass after this —
-  // this manifest is the complete record of every write.
+  // INVARIANT 1: a merge never deletes or reprimaries the survivor's own PRIMARY
+  // offer — if the survivor's colliding offer is primary, the absorbed offer for
+  // that supplier is dropped outright, regardless of dates (this can discard a
+  // genuinely newer price on purpose — summary.absorbedOffersDroppedForSurvivorPrimary
+  // says so). Otherwise the newer `lastUpdated` wins (a tie keeps the survivor's;
+  // summary.absorbedOffersDroppedStale).
+  // INVARIANT 2 (src/lib/primary-offer.ts header): an item with ≥1 offer has
+  // EXACTLY ONE primary. If the survivor has no primary of its own and gains ≥1
+  // offer from this merge, exactly one of the NEW offers (never one of the
+  // survivor's own existing rows) is promoted — the most recently updated among
+  // the moved offers, tie → the one that was primary on the absorbed item, tie →
+  // id ascending; or the synthesized offer when it is the only offer gained. The
+  // planner never syncs the survivor's packChain/pricing off this — that spine
+  // write belongs to primary-offer.ts, not a merge. The executor runs no
+  // primary-election pass of its own; this manifest is the complete record of
+  // every write.
   const sOffer = new Map(sRel.offers.map(o => [o.supplierName, o]))
   const moveOffers: string[] = []
-  let absorbedOffersDropped = 0
+  const movedOffers: MergeRelations['offers'] = []
+  let absorbedOffersDroppedStale = 0
+  let absorbedOffersDroppedForSurvivorPrimary = 0
   let survivorOffersReplaced = 0
   for (const o of rel.offers) {
     const hit = sOffer.get(o.supplierName)
     if (hit) {
-      if (hit.isPrimary || ts(hit.lastUpdated) >= ts(o.lastUpdated)) {
+      if (hit.isPrimary) {
         ops.push({ t: 'delete', table: 'InventorySupplierPrice', row: { ...o, inventoryItemId: absorbed.id } })
-        absorbedOffersDropped++
+        absorbedOffersDroppedForSurvivorPrimary++
+        continue
+      }
+      if (ts(hit.lastUpdated) >= ts(o.lastUpdated)) {
+        ops.push({ t: 'delete', table: 'InventorySupplierPrice', row: { ...o, inventoryItemId: absorbed.id } })
+        absorbedOffersDroppedStale++
         continue
       }
       ops.push({ t: 'delete', table: 'InventorySupplierPrice', row: { ...hit, inventoryItemId: survivor.id } })
       survivorOffersReplaced++
     }
-    if (o.isPrimary) ops.push({ t: 'update', table: 'InventorySupplierPrice', id: o.id, before: { isPrimary: true }, after: { isPrimary: false } })
     moveOffers.push(o.id)
+    movedOffers.push(o)
   }
-  repoint('InventorySupplierPrice', moveOffers)
 
   const derivedPrice = toNum(absorbed.pricing.mode === 'RATE' ? absorbed.pricing.rate : absorbed.pricing.purchasePrice)
-  const synth = rel.offers.length === 0 && rel.scanItems.length > 0 && !!rel.latestPurchaseSupplier
-    && !sOffer.has(rel.latestPurchaseSupplier!.supplierName) && k === 1
+  // I-3: k !== 1 no longer blocks synthesis — the absorbed chain's leaf link
+  // (its base-unit content) converts by k the same way a moved offer's does.
+  const canSynth = rel.offers.length === 0 && rel.scanItems.length > 0 && !!rel.latestPurchaseSupplier
+    && !sOffer.has(rel.latestPurchaseSupplier!.supplierName)
     && Number.isFinite(derivedPrice) && derivedPrice > 0
-  if (synth) ops.push({ t: 'create', table: 'InventorySupplierPrice', row: {
-    id: opts.newId(),
-    inventoryItemId: survivor.id, supplierName: rel.latestPurchaseSupplier!.supplierName,
-    supplierId: rel.latestPurchaseSupplier!.supplierId, isPrimary: false,
-    lastPrice: derivedPrice,
-    packChain: absorbed.packChain, pricing: absorbed.pricing,
-  } })
-  // k !== 1: the absorbed chain is denominated in another base unit, so it cannot
-  // be an offer on the survivor. Frozen receivedQtyBase already preserves history.
+
+  // I-1: decide the promotion winner BEFORE emitting any isPrimary op, since it
+  // depends on the full set of offers actually being moved in.
+  const survivorHasPrimary = sRel.offers.some(o => o.isPrimary)
+  let primaryPromoted: { supplierName: string } | null = null
+  let winnerId: string | null = null
+  if (!survivorHasPrimary) {
+    if (movedOffers.length > 0) {
+      const winner = [...movedOffers].sort((a, b) => {
+        const ta = ts(a.lastUpdated), tb = ts(b.lastUpdated)
+        if (ta !== tb) return tb - ta
+        if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })[0]
+      winnerId = winner.id
+      primaryPromoted = { supplierName: winner.supplierName }
+    } else if (canSynth) {
+      // rel.offers.length === 0 is required for canSynth, so movedOffers is
+      // always empty here — the synthesized offer is the only candidate.
+      primaryPromoted = { supplierName: rel.latestPurchaseSupplier!.supplierName }
+    }
+  }
+
+  for (const o of movedOffers) {
+    // Demote every moved offer that was primary on the absorbed item, EXCEPT
+    // the winner — if the winner was already primary, its flag is simply left
+    // alone (no op at all).
+    if (o.isPrimary && o.id !== winnerId)
+      ops.push({ t: 'update', table: 'InventorySupplierPrice', id: o.id, before: { isPrimary: true }, after: { isPrimary: false } })
+    // I-3: only the LEAF link's `per` (a base-unit count) needs to scale by k;
+    // outer links are pack counts and are unaffected by the base-unit change.
+    if (conv && Array.isArray(o.packChain) && (o.packChain as unknown[]).length > 0)
+      ops.push({ t: 'update', table: 'InventorySupplierPrice', id: o.id,
+        before: { packChain: o.packChain }, after: { packChain: convertLeafByFactor(o.packChain as PackLink[], k) } })
+  }
+  repoint('InventorySupplierPrice', moveOffers)
+  // The winner's promotion (when it wasn't already primary) must land AFTER the
+  // repoint above: setting isPrimary:true while it is still under the absorbed
+  // item's id could collide with that item's own (different) primary offer
+  // under the partial unique index (inventoryItemId) WHERE isPrimary.
+  if (winnerId != null) {
+    const winner = movedOffers.find(o => o.id === winnerId)!
+    if (!winner.isPrimary)
+      ops.push({ t: 'update', table: 'InventorySupplierPrice', id: winnerId, before: { isPrimary: false }, after: { isPrimary: true } })
+  }
+
+  if (canSynth) {
+    ops.push({ t: 'create', table: 'InventorySupplierPrice', row: {
+      id: opts.newId(),
+      inventoryItemId: survivor.id, supplierName: rel.latestPurchaseSupplier!.supplierName,
+      supplierId: rel.latestPurchaseSupplier!.supplierId,
+      isPrimary: !survivorHasPrimary, // movedOffers is always empty when canSynth
+      lastPrice: derivedPrice,
+      packChain: convertLeafByFactor(absorbed.packChain, k),
+      // A RATE offer's rateUnit can reference a dimension that no longer means
+      // anything once the leaf's base-unit content has been rescaled — safer to
+      // omit `pricing` than carry forward a stale unit; a PACK price (a flat
+      // $/purchase-unit) is unaffected by the base-unit change and is kept.
+      ...(absorbed.pricing.mode === 'PACK' ? { pricing: absorbed.pricing } : {}),
+    } })
+  }
 
   // ── per-RC rows: unique (rc, item) ──────────────────────────────────────────
   const sAlloc = new Map(sRel.allocations.map(a => [a.revenueCenterId, a]))
@@ -288,7 +415,9 @@ export function planMerge(
     manifest: { survivorId: survivor.id, absorbedId: absorbed.id, factor: k, ops },
     summary: {
       invoiceLines: rel.scanItems.length, recipeLines: rel.recipeIngredients.length, countLines: rel.countLines.length,
-      snapshots: rel.snapshots.length, offersMoved: moveOffers.length, absorbedOffersDropped, survivorOffersReplaced, offerSynthesized: synth,
+      snapshots: rel.snapshots.length, offersMoved: moveOffers.length,
+      absorbedOffersDroppedStale, absorbedOffersDroppedForSurvivorPrimary, survivorOffersReplaced,
+      offerSynthesized: canSynth, primaryPromoted, countLinesUnfrozen,
       factor: k, absorbedOnHand: absorbed.theoreticalOnHand, survivorOnHand: survivor.theoreticalOnHand,
     },
   }

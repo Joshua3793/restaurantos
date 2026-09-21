@@ -113,9 +113,11 @@ describe('planMerge ops', () => {
         { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
-      expect(created.row).toMatchObject({ inventoryItemId: 'S', supplierName: 'North Arm Farms', isPrimary: false, packChain: [{ unit: 'lb', per: 453.592 }] })
+      // survivor has zero offers, so I-1 promotes this synthesized one to primary.
+      expect(created.row).toMatchObject({ inventoryItemId: 'S', supplierName: 'North Arm Farms', isPrimary: true, packChain: [{ unit: 'lb', per: 453.592 }] })
       expect(typeof created.row.id).toBe('string')
       expect((created.row.id as string).length).toBeGreaterThan(0)
+      expect(p.summary.primaryPromoted).toEqual({ supplierName: 'North Arm Farms' })
 
       const undo = planUndo(p.manifest)
       const del = undo.find(o => o.t === 'delete' && o.table === 'InventorySupplierPrice') as { row: Record<string, unknown> }
@@ -128,18 +130,24 @@ describe('planMerge ops', () => {
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'create')).toBe(false)
       expect(p.summary.offerSynthesized).toBe(false)
+      expect(p.summary.primaryPromoted).toBeNull()
     })
   })
 
   describe('offers', () => {
-    it('offer collision keeps the newer, deletes the older, never leaves two primaries', () => {
+    it('offer collision keeps the newer, deletes the older, and demotes it since the survivor already has a primary elsewhere', () => {
       const p = plan(S, A,
         { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: true }] },
-        { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-08-01', isPrimary: false }] })
+        { ...noSRel, offers: [
+          { id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-08-01', isPrimary: false },
+          { id: 'oKeep', supplierName: 'Keep Co', lastUpdated: '2020-01-01', isPrimary: true },
+        ] })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'delete' && o.table === 'InventorySupplierPrice' && o.row.id === 'oS')).toBe(true)
       expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'InventorySupplierPrice', ids: ['oA'] })
       expect(p.manifest.ops.some(o => o.t === 'update' && o.id === 'oA' && o.after.isPrimary === false)).toBe(true)
+      // the survivor already has its own primary (oKeep, untouched) — nothing new to promote
+      expect(p.summary.primaryPromoted).toBeNull()
     })
 
     it('delete row carries every field of the input row, including undeclared ones, for exact undo', () => {
@@ -172,7 +180,8 @@ describe('planMerge ops', () => {
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oS')).toBe(false)
         expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'InventorySupplierPrice')).toBe(false)
         expect(p.summary.survivorOffersReplaced).toBe(0)
-        expect(p.summary.absorbedOffersDropped).toBe(1)
+        expect(p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(1)
+        expect(p.summary.absorbedOffersDroppedStale).toBe(0)
       })
 
       it('reviewer trace: survivor has a primary (Sysco) plus another offer (Other); absorbed brings a newer Sysco offer — never deleted, never a double primary on undo', () => {
@@ -186,6 +195,153 @@ describe('planMerge ops', () => {
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oS')).toBe(false)
         const undo = planUndo(p.manifest)
         expect(undo.some(o => o.t === 'create' && (o.row as Record<string, unknown>).isPrimary === true && (o.row as Record<string, unknown>).inventoryItemId === S.id)).toBe(false)
+      })
+    })
+
+    describe('MINOR M-c: dropped-offer counters', () => {
+      it('distinguishes a stale drop from a primary-protection drop', () => {
+        const stale = plan(S, A,
+          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2020-01-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-01-01', isPrimary: false }] })
+        if (!stale.ok) throw new Error(stale.message)
+        expect(stale.summary.absorbedOffersDroppedStale).toBe(1)
+        expect(stale.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(0)
+
+        const primaryProtected = plan(S, A,
+          { ...noRel, offers: [{ id: 'oA2', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-09-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS2', supplierName: 'Sysco', lastUpdated: '2020-01-01', isPrimary: true }] })
+        if (!primaryProtected.ok) throw new Error(primaryProtected.message)
+        expect(primaryProtected.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(1)
+        expect(primaryProtected.summary.absorbedOffersDroppedStale).toBe(0)
+      })
+    })
+
+    describe('MINOR M-a: ts() NaN safety', () => {
+      it('an unparsable lastUpdated is treated as oldest; a NaN-vs-NaN tie keeps the survivor', () => {
+        const p = plan(S, A,
+          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: 'not-a-date', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: 'also-not-a-date', isPrimary: false }] })
+        if (!p.ok) throw new Error(p.message)
+        expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oA')).toBe(true)
+        expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oS')).toBe(false)
+        expect(p.summary.absorbedOffersDroppedStale).toBe(1)
+      })
+    })
+
+    describe('IMPORTANT I-1: exactly one primary after a merge', () => {
+      it('scenario H: survivor with zero offers — the most recently updated moved offer is promoted; undo restores the absorbed item\'s original single primary', () => {
+        const p = plan(S, A,
+          { ...noRel, offers: [
+            { id: 'o1', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-01-01', isPrimary: true },
+            { id: 'o2', supplierName: 'Other', supplierId: null, lastUpdated: '2026-06-01', isPrimary: false },
+          ] },
+          { ...noSRel, offers: [] })
+        if (!p.ok) throw new Error(p.message)
+        expect(p.summary.primaryPromoted).toEqual({ supplierName: 'Other' })
+        expect(p.manifest.ops).toContainEqual({ t: 'update', table: 'InventorySupplierPrice', id: 'o1', before: { isPrimary: true }, after: { isPrimary: false } })
+        expect(p.manifest.ops).toContainEqual({ t: 'update', table: 'InventorySupplierPrice', id: 'o2', before: { isPrimary: false }, after: { isPrimary: true } })
+
+        // exactly one primary among the ops that touch isPrimary
+        const primaryOps = p.manifest.ops.filter(o => o.t === 'update' && o.table === 'InventorySupplierPrice' && 'isPrimary' in o.after) as Array<{ id: string; after: Record<string, unknown> }>
+        expect(primaryOps.filter(o => o.after.isPrimary === true).length).toBe(1)
+
+        // ordering: demote(o1) BEFORE the repoint, promote(o2) AFTER it — the
+        // partial unique index (inventoryItemId) WHERE isPrimary must never see
+        // two primaries under the same item at once, forward or on undo.
+        const repointIdx = p.manifest.ops.findIndex(o => o.t === 'repoint' && o.table === 'InventorySupplierPrice')
+        const demoteIdx = p.manifest.ops.findIndex(o => o.t === 'update' && o.id === 'o1')
+        const promoteIdx = p.manifest.ops.findIndex(o => o.t === 'update' && o.id === 'o2')
+        expect(demoteIdx).toBeGreaterThanOrEqual(0)
+        expect(demoteIdx).toBeLessThan(repointIdx)
+        expect(promoteIdx).toBeGreaterThan(repointIdx)
+
+        const undo = planUndo(p.manifest)
+        // undo: o1 becomes primary again, o2 does not — A's original state restored
+        expect(undo).toContainEqual({ t: 'update', table: 'InventorySupplierPrice', id: 'o1', before: { isPrimary: false }, after: { isPrimary: true } })
+        expect(undo).toContainEqual({ t: 'update', table: 'InventorySupplierPrice', id: 'o2', before: { isPrimary: true }, after: { isPrimary: false } })
+      })
+
+      it('a survivor with its own primary offer gets no promotion at all', () => {
+        const p = plan(S, A,
+          { ...noRel, offers: [{ id: 'o1', supplierName: 'Other2', supplierId: null, lastUpdated: '2026-01-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2020-01-01', isPrimary: true }] })
+        if (!p.ok) throw new Error(p.message)
+        expect(p.summary.primaryPromoted).toBeNull()
+        expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'InventorySupplierPrice' && 'isPrimary' in o.after)).toBe(false)
+      })
+
+      it('the synthesized offer is promoted to primary when the survivor has none', () => {
+        const p = plan(S, row({ id: 'A', packChain: [{ unit: 'lb', per: 453.592 }] }),
+          { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        if (!p.ok) throw new Error(p.message)
+        const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
+        expect(created.row.isPrimary).toBe(true)
+        expect(p.summary.primaryPromoted).toEqual({ supplierName: 'North Arm Farms' })
+      })
+    })
+
+    describe('IMPORTANT I-3: moved-offer packChain leaf conversion', () => {
+      it('k=300 each→g: only the leaf link\'s per is converted, and undo restores it', () => {
+        const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
+        const a = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT' })
+        const p = plan(s, a, { ...noRel, offers: [
+          { id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-01-01', isPrimary: false, packChain: [{ unit: 'case', per: 4 }, { unit: 'each', per: 1 }] },
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'InventorySupplierPrice' && o.id === 'oA' && 'packChain' in o.after) as { before: Record<string, unknown>; after: Record<string, unknown> }
+        expect(upd).toBeTruthy()
+        expect(upd.before.packChain).toEqual([{ unit: 'case', per: 4 }, { unit: 'each', per: 1 }])
+        expect(upd.after.packChain).toEqual([{ unit: 'case', per: 4 }, { unit: 'each', per: 300 }])
+
+        const undo = planUndo(p.manifest)
+        const back = undo.find(o => o.t === 'update' && o.id === 'oA' && 'packChain' in o.after) as { before: Record<string, unknown>; after: Record<string, unknown> }
+        expect(back.after).toEqual(upd.before)
+        expect(back.before).toEqual(upd.after)
+      })
+
+      it('k=1: no packChain op for a moved offer', () => {
+        const p = plan(S, A, { ...noRel, offers: [
+          { id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-01-01', isPrimary: false, packChain: [{ unit: 'case', per: 12 }] },
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        expect(p.manifest.ops.some(o => o.t === 'update' && o.id === 'oA' && 'packChain' in o.after)).toBe(false)
+      })
+
+      it('an offer with an empty/non-array packChain gets no packChain op', () => {
+        const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
+        const a = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT' })
+        const p = plan(s, a, { ...noRel, offers: [
+          { id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-01-01', isPrimary: false, packChain: [] },
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        expect(p.manifest.ops.some(o => o.t === 'update' && o.id === 'oA' && 'packChain' in o.after)).toBe(false)
+      })
+
+      it('synthesizes at k !== 1 by converting the absorbed chain\'s leaf', () => {
+        const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
+        const a = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT', packChain: [{ unit: 'case', per: 4 }, { unit: 'each', per: 1 }] })
+        const p = plan(s, a, { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        if (!p.ok) throw new Error(p.message)
+        const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
+        expect(created).toBeTruthy()
+        expect(created.row.packChain).toEqual([{ unit: 'case', per: 4 }, { unit: 'each', per: 300 }])
+        expect(p.summary.offerSynthesized).toBe(true)
+      })
+
+      it('omits pricing for a RATE-priced absorbed item, keeps it for PACK', () => {
+        const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
+        const aRate = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT', pricing: { mode: 'RATE', rate: 2, rateUnit: 'g' } })
+        const p1 = plan(s, aRate, { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        if (!p1.ok) throw new Error(p1.message)
+        const created1 = p1.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
+        expect('pricing' in created1.row).toBe(false)
+        expect(created1.row.lastPrice).toBe(2)
+
+        const aPack = row({ id: 'A', packChain: [{ unit: 'lb', per: 453.592 }], pricing: { mode: 'PACK', purchasePrice: 9 } })
+        const p2 = plan(S, aPack, { ...noRel, scanItems: [{ id: 'si1', receivedQtyBase: null }], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        if (!p2.ok) throw new Error(p2.message)
+        const created2 = p2.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
+        expect(created2.row.pricing).toEqual({ mode: 'PACK', purchasePrice: 9 })
       })
     })
   })
@@ -243,7 +399,7 @@ describe('planMerge ops', () => {
 
     it('freezes a legacy null-base line through the ABSORBED chain, and normalises its display to the survivor base unit', () => {
       const p = plan(S, absorbedWithCase, { ...noRel, countLines: [
-        { id: 'cl1', expectedQty: 0, countedQtyBase: null, priceAtCount: 0, countedQty: 3, selectedUom: 'case', entries: { rows: [1, 2] } },
+        { id: 'cl1', expectedQty: 0, countedQtyBase: null, priceAtCount: 0, countedQty: 3, selectedUom: 'case', entries: null },
       ] })
       if (!p.ok) throw new Error(p.message)
       const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl1') as { before: Record<string, unknown>; after: Record<string, unknown> }
@@ -252,7 +408,7 @@ describe('planMerge ops', () => {
       expect(upd.after.countedQty).toBe(36)
       expect(upd.after.selectedUom).toBe('g')
       expect(upd.after.entries).toBeNull()
-      expect(upd.before).toEqual({ countedQtyBase: null, countedQty: 3, selectedUom: 'case', entries: { rows: [1, 2] } })
+      expect(upd.before).toEqual({ countedQtyBase: null, countedQty: 3, selectedUom: 'case', entries: null })
       expect('expectedQty' in upd.after).toBe(false) // k=1: expected/price untouched
     })
 
@@ -269,11 +425,11 @@ describe('planMerge ops', () => {
       const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
       const a = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT' })
       const p = plan(s, a, { ...noRel, countLines: [
-        { id: 'cl3', expectedQty: 2, countedQtyBase: 5, priceAtCount: 0.9, countedQty: 5, selectedUom: 'each', entries: { x: 1 } },
+        { id: 'cl3', expectedQty: 2, countedQtyBase: 5, priceAtCount: 0.9, countedQty: 5, selectedUom: 'each', entries: null },
       ] })
       if (!p.ok) throw new Error(p.message)
       const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl3') as { before: Record<string, unknown>; after: Record<string, unknown> }
-      expect(upd.before).toEqual({ countedQtyBase: 5, expectedQty: 2, priceAtCount: 0.9, countedQty: 5, selectedUom: 'each', entries: { x: 1 } })
+      expect(upd.before).toEqual({ countedQtyBase: 5, expectedQty: 2, priceAtCount: 0.9, countedQty: 5, selectedUom: 'each', entries: null })
       expect(upd.after.countedQtyBase).toBe(1500)
       expect(upd.after.expectedQty).toBe(600)
       expect(upd.after.priceAtCount as number).toBeCloseTo(0.003)
@@ -286,7 +442,7 @@ describe('planMerge ops', () => {
       const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
       const a = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT' })
       const p = plan(s, a, { ...noRel, countLines: [
-        { id: 'cl3', expectedQty: 2, countedQtyBase: 5, priceAtCount: 0.9, countedQty: 5, selectedUom: 'each', entries: { x: 1 } },
+        { id: 'cl3', expectedQty: 2, countedQtyBase: 5, priceAtCount: 0.9, countedQty: 5, selectedUom: 'each', entries: null },
       ] })
       if (!p.ok) throw new Error(p.message)
       const fwd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl3') as { before: Record<string, unknown>; after: Record<string, unknown> }
@@ -294,6 +450,64 @@ describe('planMerge ops', () => {
       const back = undo.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl3') as { before: Record<string, unknown>; after: Record<string, unknown> }
       expect(back.before).toEqual(fwd.after)
       expect(back.after).toEqual(fwd.before)
+    })
+
+    describe('CRITICAL C-1: entries is authoritative over countedQty/selectedUom', () => {
+      const survivorCount = row({ id: 'S', baseUnit: 'each', dimension: 'COUNT' })
+      const absorbedCount = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT', packChain: [{ unit: 'case', per: 12 }] })
+
+      it('freezes from entries through the ABSORBED chain, ignoring the stale countedQty/selectedUom fallback pair', () => {
+        const p = plan(survivorCount, absorbedCount, { ...noRel, countLines: [
+          { id: 'cl6', expectedQty: 0, countedQtyBase: null, priceAtCount: 0, countedQty: 999, selectedUom: 'bogus-should-be-ignored',
+            entries: [{ unit: 'case', qty: 2 }, { unit: 'each', qty: 3 }] },
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl6') as { before: Record<string, unknown>; after: Record<string, unknown> }
+        expect(upd).toBeTruthy()
+        expect(upd.after.countedQtyBase).toBe(27) // 2 case × 12/case + 3 each × 1/each, k=1
+        expect(upd.after.countedQty).toBe(27)
+        expect(upd.after.selectedUom).toBe('each') // survivor.baseUnit
+        expect(upd.after.entries).toBeNull()
+        expect(upd.before.entries).toEqual([{ unit: 'case', qty: 2 }, { unit: 'each', qty: 3 }])
+      })
+
+      it('undo restores the original entries array exactly', () => {
+        const p = plan(survivorCount, absorbedCount, { ...noRel, countLines: [
+          { id: 'cl6', expectedQty: 0, countedQtyBase: null, priceAtCount: 0, countedQty: null, selectedUom: 'each',
+            entries: [{ unit: 'case', qty: 2 }, { unit: 'each', qty: 3 }] },
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        const undo = planUndo(p.manifest)
+        const back = undo.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl6') as { before: Record<string, unknown>; after: Record<string, unknown> }
+        expect(back.after.entries).toEqual([{ unit: 'case', qty: 2 }, { unit: 'each', qty: 3 }])
+        expect(back.before.entries).toBeNull()
+      })
+
+      it('leaves the base untouched when countedQtyBase is already set, even with entries present, at k=1', () => {
+        const p = plan(survivorCount, absorbedCount, { ...noRel, countLines: [
+          { id: 'cl7', expectedQty: 1, countedQtyBase: 500, priceAtCount: 0.1, countedQty: 500, selectedUom: 'kg',
+            entries: [{ unit: 'case', qty: 2 }] },
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl7')).toBe(false)
+      })
+
+      it('M-b: an entry with an unresolvable unit leaves the line unfrozen; expectedQty/priceAtCount still convert at k≠1', () => {
+        const s = row({ id: 'S', eachMeasure: { qty: 300, unit: 'g' } })
+        const a = row({ id: 'A', baseUnit: 'each', dimension: 'COUNT' }) // default packChain [{case,1000}]
+        const p = plan(s, a, { ...noRel, countLines: [
+          { id: 'cl8', expectedQty: 2, countedQtyBase: null, priceAtCount: 0.5, countedQty: null, selectedUom: 'kg',
+            entries: [{ unit: 'gal', qty: 2 }] }, // VOLUME: matches neither a chain level nor absorbed's COUNT dimension
+        ] })
+        if (!p.ok) throw new Error(p.message)
+        const upd = p.manifest.ops.find(o => o.t === 'update' && o.table === 'CountLine' && o.id === 'cl8') as { before: Record<string, unknown>; after: Record<string, unknown> }
+        expect(upd).toBeTruthy() // conv=true (k=300) still produces an op for expectedQty/priceAtCount
+        expect('countedQtyBase' in upd.after).toBe(false)
+        expect('countedQty' in upd.after).toBe(false)
+        expect(upd.after.expectedQty).toBe(600)
+        expect(upd.after.priceAtCount as number).toBeCloseTo(0.5 / 300)
+        expect(p.summary.countLinesUnfrozen).toBe(1)
+      })
     })
   })
 
