@@ -54,6 +54,27 @@ describe('resolveLineFormat', () => {
     expect(r.pricing).toEqual(romaine.pricing)
     expect(r.packChain).toEqual([{ unit: 'case', per: 12 }])
   })
+
+  it('an offer with a zero or missing PACK price keeps the item pricing but still adopts the chain', () => {
+    for (const pricing of [{ mode: 'PACK', purchasePrice: 0 }, { mode: 'PACK' }, { mode: 'PACK', purchasePrice: 'abc' }]) {
+      const r = resolveLineFormat(romaine, { packChain: [{ unit: 'case', per: 12 }], pricing })
+      expect(r.pricing).toEqual(romaine.pricing)
+      expect(r.packChain).toEqual([{ unit: 'case', per: 12 }])
+    }
+  })
+
+  it('a RATE offer with a zero rate keeps the item pricing', () => {
+    const beef = asChainItem({
+      dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 10000 }],
+      pricing: { mode: 'PACK', purchasePrice: 200 },
+    })
+    const r = resolveLineFormat(beef, { packChain: [{ unit: 'kg', per: 1000 }], pricing: { mode: 'RATE', rate: 0, rateUnit: 'kg' } })
+    expect(r.pricing).toEqual(beef.pricing)
+  })
+
+  it('a chain link with a non-numeric per falls back to the item', () => {
+    expect(resolveLineFormat(romaine, { packChain: [{ unit: 'case', per: 'abc' }] })).toBe(romaine)
+  })
 })
 
 describe('pickOffer', () => {
