@@ -38,9 +38,9 @@ check('costable g↔ml (unchanged)', dimensionallyCostable('g', 'ml'), true)
 // 8800 → offer ppb ~1100× low → corrupts the item spine if the offer becomes
 // primary (syncPrimaryOfferToItem copies the offer chain onto the item).
 //
-// pricePerBaseUnit reads only packChain + pricing — exactly what the production
-// offerPricePerBase(offer) delegates to (chainPpb) — so comparing it here is the
-// same equality the approve route relies on, with no DB.
+// For a PACK price pricePerBaseUnit reads only packChain + pricing, which is all these
+// fixtures exercise. (A RATE also needs the item's dimension and bridges — production
+// prices an offer WITH its item: offerPricePerBase(offer, item).)
 const CASE_PRICE = 41.60   // $/case
 const PACK_QTY   = 8       // loaves per case (invoicePackQty)
 const PER_EACH_G = 1100    // 1 each = 1100 g (the bridge / invoicePackSize)

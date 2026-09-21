@@ -592,13 +592,19 @@ function InventoryPageInner() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Chain item: stock is entered in countUnit, stored in base.
+    // Chain item: stock is entered in countUnit, stored in base. The each-measure
+    // bridge is passed so validateChainItem doesn't reject a bridged RATE — this
+    // form's rate-unit choices stay within the item's own dimension, but the
+    // bridge fields are already in scope here so there's no reason to omit them.
     const ci = {
       dimension: form.dimension,
       baseUnit: DIMENSION_BASE[form.dimension],
       packChain: form.chain,
       pricing: form.pricing,
       countUnit: form.countUnit,
+      eachMeasure: form.eachMeasureQty != null
+        ? { qty: form.eachMeasureQty, unit: form.eachMeasureUnit }
+        : null,
     }
     const errors = validateChainItem(ci)
     if (errors.length) { alert(errors.join('; ')); return }
@@ -651,6 +657,9 @@ function InventoryPageInner() {
     packChain: form.chain,
     pricing: form.pricing,
     countUnit: form.countUnit,
+    eachMeasure: form.eachMeasureQty != null
+      ? { qty: form.eachMeasureQty, unit: form.eachMeasureUnit }
+      : null,
   }
   const pricePreview = chainPricePerBaseUnit(addChainItem)
   const previewPerCount = basePerUnit(addChainItem, form.countUnit)

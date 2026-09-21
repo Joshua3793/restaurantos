@@ -35,16 +35,6 @@ export async function POST(req: NextRequest) {
   delete rest.pricePerBaseUnit; delete rest.baseUnit
   delete rest.dimension; delete rest.pricing; delete rest.countUnit
 
-  const ci: ChainItem = {
-    dimension,
-    baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
-    packChain,
-    pricing,
-    countUnit,
-  }
-  const errors = validateChainItem(ci)
-  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
-
   // Count↔weight bridge — a positive quantity with a unit that can't measure it
   // is a 400, never a silent null (see the [id] PUT route).
   const emQty = Number(eachMeasureQty)
@@ -55,6 +45,21 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
   const emValid = emQty > 0 && !!emUnit && dimensionOf(emUnit) !== 'COUNT'
+
+  // The bridge is passed to validateChainItem so a genuinely bridged RATE (e.g.
+  // $/lb on a new `each` item) doesn't 400 here even though it prices fine once
+  // created — see rateIsCostable in item-model.ts. New items carry no density
+  // yet (this route accepts no densityGPerMl field), so that bridge is omitted.
+  const ci: ChainItem = {
+    dimension,
+    baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
+    packChain,
+    pricing,
+    countUnit,
+    eachMeasure: emValid ? { qty: emQty, unit: emUnit } : null,
+  }
+  const errors = validateChainItem(ci)
+  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
   // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
   const isStocked = body.isStocked !== false

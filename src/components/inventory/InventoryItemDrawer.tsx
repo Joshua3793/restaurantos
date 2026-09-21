@@ -9,6 +9,7 @@ import {
   type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { canonicalUom } from '@/lib/uom'
 import {
   DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
 } from '@/components/inventory/ItemChainEditor'
@@ -584,6 +585,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       onChange={e => setEditForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
                       className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
                     >
+                      {/* a stored unit outside g/ml (e.g. lb) stays selectable, or a click would silently swap it */}
+                      {editForm.eachMeasureUnit && !['g', 'ml'].includes(editForm.eachMeasureUnit) && (
+                        <option value={editForm.eachMeasureUnit}>{editForm.eachMeasureUnit}</option>
+                      )}
                       <option value="g">g</option>
                       <option value="ml">ml</option>
                     </select>
@@ -670,6 +675,12 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     packChain: editForm.chain,
                     pricing: editForm.pricing,
                     countUnit: editForm.countUnit,
+                    // Bridges — without them a bridged RATE (e.g. $/lb on an `each`
+                    // item) previews at $0 even though it prices fine once saved.
+                    eachMeasure: editForm.eachMeasureQty != null
+                      ? { qty: editForm.eachMeasureQty, unit: editForm.eachMeasureUnit }
+                      : null,
+                    densityGPerMl: editForm.densityGPerMl,
                   }
                   const ppbu = isPrep ? Number(item.pricePerBaseUnit ?? 0) : pricePerBaseUnit(ci)
                   const perCount = basePerUnit(ci, editForm.countUnit)
@@ -712,7 +723,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                 {(() => {
                   const c = chainFromItem(item)
-                  const ci = { dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain, pricing: c.pricing, countUnit: c.countUnit }
+                  const ci = {
+                    dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain,
+                    pricing: c.pricing, countUnit: c.countUnit,
+                    // Bridges — without them a bridged RATE (e.g. $/lb on an `each`
+                    // item) reads as $0 here even though it prices fine elsewhere.
+                    eachMeasure: item.eachMeasureQty != null
+                      ? { qty: Number(item.eachMeasureQty), unit: item.eachMeasureUnit ?? 'g' }
+                      : null,
+                    densityGPerMl: item.densityGPerMl != null ? Number(item.densityGPerMl) : null,
+                  }
                   const ppb = pricePerBaseUnit(ci)
                   const lv = levelBaseUnits(c.chain)
                   const dimLabel = c.dimension === 'MASS' ? 'Weight' : c.dimension === 'VOLUME' ? 'Volume' : 'Count'
@@ -729,7 +749,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage area',   item.storageArea?.name || '—'],
                       ['Dimension',      `${dimLabel} · ${ci.baseUnit}`],
-                      ['Pricing',        c.pricing.mode === 'RATE' ? `Rate · per ${c.pricing.rateUnit}` : 'Per pack'],
+                      ['Pricing',        c.pricing.mode === 'RATE' ? `Rate · per ${canonicalUom(c.pricing.rateUnit)}` : 'Per pack'],
                       ['Count unit',     c.countUnit],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]
@@ -772,7 +792,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     </div>
                     <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-blue' : 'text-[#92722f]'}`}>
                       {c.pricing.mode === 'RATE'
-                        ? <>{formatCurrency(c.pricing.rate)} / {c.pricing.rateUnit}</>
+                        ? <>{formatCurrency(c.pricing.rate)} / {canonicalUom(c.pricing.rateUnit)}</>
                         : <>{formatCurrency(c.pricing.purchasePrice)} per {c.chain[0]?.unit ?? 'pack'} &nbsp;|&nbsp; 1 {c.countUnit} = {basePerUnit(ci, c.countUnit).toLocaleString()} {ci.baseUnit}</>
                       }
                     </div>
@@ -907,7 +927,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 </div>
 
                 {/* Supplier offers */}
-                <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} onRepriced={refreshItem} />
+                <SupplierOffersSection
+                  itemId={item.id}
+                  baseUnit={item.baseUnit ?? null}
+                  eachMeasureQty={item.eachMeasureQty ?? null}
+                  eachMeasureUnit={item.eachMeasureUnit ?? null}
+                  onRepriced={refreshItem}
+                />
 
                 {/* Merge a duplicate item into this one (MANAGER+, non-PREP only — see
                     item-consolidation Task 10). canMerge default-denies while role is

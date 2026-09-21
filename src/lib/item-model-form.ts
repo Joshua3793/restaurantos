@@ -92,3 +92,34 @@ export function formToChain(f: ItemFormInput): ChainShape {
     countUnit: f.countUOM || 'each',
   }
 }
+
+/**
+ * Whether an inventory PUT should keep the STORED pricing instead of the
+ * incoming payload's — because the incoming pricing looks like an unmodified
+ * round-trip of a bridged RATE, not a deliberate re-price.
+ *
+ * A bridged RATE (e.g. `{ mode: 'RATE', rate: 5.25, rateUnit: 'lb' }` on an
+ * `each` item) can be LOADED into the edit form untouched, but the form's rate-
+ * unit dropdown only offers units in the item's own dimension (`DIM_UNITS` in
+ * ItemChainEditor.tsx — `['each']` for a COUNT item), so it can never faithfully
+ * redisplay `'lb'`. If the user saves without touching price at all, the safe
+ * thing is to keep the stored pricing verbatim (including its correct
+ * `rateUnit`) rather than trust whatever the broken dropdown round-tripped.
+ *
+ * The decision compares only the fields a human edits to change the PRICE
+ * itself: `mode`, and `rate` (RATE) or `purchasePrice` (PACK). `rateUnit` is
+ * deliberately EXCLUDED from the comparison — it's exactly the field this form
+ * cannot round-trip for a bridged rate, so a changed `rateUnit` alone (with the
+ * same rate number) is a form artifact, not an edit. A changed rate/
+ * purchasePrice number, or a changed mode, means the user really did re-price
+ * the item (by case, on purpose) — their edit wins.
+ *
+ * Only meaningful when the STORED pricing is itself a bridged RATE (the caller
+ * checks `dimensionOf(stored.rateUnit) !== item.dimension` first); returns
+ * false for anything else so callers can call it unconditionally.
+ */
+export function keepBridgedRate(stored: Pricing, incoming: Pricing): boolean {
+  if (stored.mode !== 'RATE') return false
+  if (incoming.mode !== 'RATE') return false
+  return Number(incoming.rate) === Number(stored.rate)
+}

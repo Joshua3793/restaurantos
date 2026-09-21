@@ -124,9 +124,21 @@ export function buildOffer(
   }
 }
 
-/** Reconcile against the matched item — one subtraction at the base unit. */
+/** Reconcile against the matched item — one subtraction at the base unit.
+ *
+ *  The draft is priced WITH the matched item's bridges. It has to be: with
+ *  `opts.bridge` the draft's dimension is forced to COUNT while its RATE stays
+ *  `$/lb`, and a cross-dimension rate on a ChainItem carrying no each-measure
+ *  prices as 0 ("unpriced") — which would report a $3.49/lb line as a −100 %
+ *  PRICE_DELTA against an item whose price barely moved. Bridges always come from
+ *  the ITEM, never from an offer, so there is nothing to take when `matched` is
+ *  null (a NEW item is priced on its own, exactly as before). */
 export function reconcileOffer(offer: OfferDraft, matched: ChainItem | null): ReconcileResult {
-  const newPpb = pricePerBaseUnit({ ...offer, countUnit: undefined, stockOnHand: 0 })
+  const newPpb = pricePerBaseUnit({
+    ...offer, countUnit: undefined, stockOnHand: 0,
+    eachMeasure:    matched?.eachMeasure ?? null,
+    densityGPerMl:  matched?.densityGPerMl ?? null,
+  })
   if (!matched) {
     return { status: 'NEW', newPpb, oldPpb: null, deltaPct: null, dimensionConflict: false }
   }

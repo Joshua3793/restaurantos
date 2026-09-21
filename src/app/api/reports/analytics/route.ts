@@ -429,7 +429,7 @@ async function getPurchasing(ctx: Ctx) {
 async function buildMultiSupplierBlock(win: { gte: Date; lte: Date }) {
   // Items with offers from 2+ suppliers
   const offers = await prisma.inventorySupplierPrice.findMany({
-    include: { inventoryItem: { select: { id: true, itemName: true, baseUnit: true, packChain: true } } },
+    include: { inventoryItem: { select: { id: true, itemName: true, ...PRICING_SELECT } } },
   })
   const byItem = new Map<string, typeof offers>()
   for (const o of offers) {
@@ -477,7 +477,7 @@ async function buildMultiSupplierBlock(win: { gte: Date; lte: Date }) {
     if (itemOffers.length < 2) continue
     const inv = itemOffers[0].inventoryItem
     const offerList = itemOffers
-      .map(o => ({ supplier: o.supplierName, ppb: offerPricePerBase(o), isPrimary: o.isPrimary }))
+      .map(o => ({ supplier: o.supplierName, ppb: offerPricePerBase(o, inv), isPrimary: o.isPrimary }))
       .filter(o => o.ppb > 0)
       .sort((a, b) => a.ppb - b.ppb)
     if (offerList.length < 2) continue

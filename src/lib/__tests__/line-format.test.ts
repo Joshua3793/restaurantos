@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { pickOffer, resolveLineFormat } from '@/lib/invoice/line-format'
 import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
-import { asChainItem } from '@/lib/item-model'
+import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
 // Romaine hearts: the item (primary supplier) is 4 case › 12 pack = 48 each.
 const romaine = asChainItem({
@@ -107,6 +107,21 @@ describe('resolveLineFormat — implausible offer price', () => {
   it('an item with no usable price of its own cannot judge the offer, so the offer is adopted', () => {
     const unpriced = { ...bison, pricing: { mode: 'RATE' as const, rate: 0, rateUnit: 'kg' } }
     expect(resolveLineFormat(unpriced, corrupt).pricing).toEqual(corrupt.pricing)
+  })
+})
+
+describe('resolveLineFormat — cross-dimension RATE offer bridged by the item', () => {
+  it('a $/lb RATE offer on a bridged COUNT item is adopted and is NOT implausible', () => {
+    const eggplantItem = asChainItem({ dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 }, eachMeasureQty: 0.4, eachMeasureUnit: 'lb' })
+    const r = resolveLineFormat(eggplantItem, { packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } })
+    expect(r.pricing).toEqual({ mode: 'RATE', rate: 3.49, rateUnit: 'lb' })
+    // the numbers the implausible-price guard compared: a real 2× gap, not 20×
+    expect(pricePerBaseUnit(r)).toBeCloseTo(1.396, 3)
+    expect(pricePerBaseUnit(eggplantItem)).toBeCloseTo(70.3 / 24, 6)
+  })
+  it('…and is ignored when the item has no bridge', () => {
+    const bare = asChainItem({ dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 } })
+    expect(resolveLineFormat(bare, { packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } }).pricing).toEqual(bare.pricing)
   })
 })
 

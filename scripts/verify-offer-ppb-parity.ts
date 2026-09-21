@@ -7,10 +7,13 @@
  *   TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/verify-offer-ppb-parity.ts
  */
 import { prisma } from '../src/lib/prisma'
+import { PRICING_SELECT } from '../src/lib/item-model'
 import { offerPricePerBase } from '../src/lib/supplier-offers'
 
 async function main() {
-  const offers = await prisma.inventorySupplierPrice.findMany()
+  const offers = await prisma.inventorySupplierPrice.findMany({
+    include: { inventoryItem: { select: PRICING_SELECT } },
+  })
   let noChain = 0, badPpb = 0
   for (const o of offers) {
     const chain = Array.isArray(o.packChain) ? o.packChain : []
@@ -19,7 +22,7 @@ async function main() {
       console.log(`NO-CHAIN  ${o.supplierName} / ${o.inventoryItemId}`)
       continue
     }
-    const ppb = offerPricePerBase(o)
+    const ppb = offerPricePerBase(o, o.inventoryItem)
     if (!Number.isFinite(ppb) || ppb <= 0) {
       badPpb++
       console.log(`BAD-PPB   ${o.supplierName} / ${o.inventoryItemId}  ppb=${ppb}`)

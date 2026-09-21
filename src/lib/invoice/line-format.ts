@@ -3,7 +3,7 @@
 // every line through the item's chain is what forced a second item per supplier
 // (spec 2026-09-20-item-consolidation). Pure + client-safe.
 
-import { type ChainItem, type PackLink, type Pricing, basePerPurchase, dimensionOf, pricePerBaseUnit } from '@/lib/item-model'
+import { type ChainItem, type PackLink, type Pricing, basePerPurchase, rateIsCostable, pricePerBaseUnit } from '@/lib/item-model'
 
 /** The slice of an InventorySupplierPrice row this module reads. */
 export interface OfferFormat {
@@ -53,7 +53,7 @@ export function resolveLineFormat(item: ChainItem, offer: OfferFormat | null | u
   const p = offer?.pricing as Pricing | null | undefined
   const usable = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0
   const packOk = p?.mode === 'PACK' && usable(p.purchasePrice)
-  const rateOk = p?.mode === 'RATE' && usable(p.rate) && !!p.rateUnit && dimensionOf(p.rateUnit) === item.dimension
+  const rateOk = p?.mode === 'RATE' && usable(p.rate) && !!p.rateUnit && rateIsCostable(p.rateUnit, item)
   if (!packOk && !rateOk) return { ...item, packChain: chain }
 
   // Suppliers legitimately differ in price, but not by orders of magnitude: an

@@ -4,6 +4,7 @@
 import type { ScanItem } from '@/components/invoices/types'
 import { comparePricesNormalized, toPricePerSIBase } from '@/lib/invoice-format'
 import { derivePricingMode } from './predicates'
+import { ratePerBase, dimensionOf, eachMeasureOf, densityOf } from '@/lib/item-model'
 
 // ── Line math check ───────────────────────────────────────────────────────────
 // Returns the computed vs. scanned line total so callers can show "check:" row.
@@ -101,11 +102,28 @@ export function computeNormalisedPrices(item: ScanItem): {
   const invPPB    = Number(item.matchedItem.pricePerBaseUnit)
   const baseUnit  = item.matchedItem.baseUnit  // e.g. "g", "ml", "each"
 
-  if (!baseUnit || invPPB <= 0 || invoiceNorm.base !== baseUnit) return null
+  if (!baseUnit || invPPB <= 0) return null
+
+  let invoicePPB = invoiceNorm.price
+  if (invoiceNorm.base !== baseUnit) {
+    // Different SI base than the item's own (e.g. a $/lb invoice line against an
+    // `each` item) — price it through the item's own bridges (each-measure /
+    // density), the same way a supplier offer prices (see offer-price.ts). Still
+    // null when the item has no usable bridge — never a $/g number wearing a
+    // $/each label.
+    const bridged = ratePerBase(costPerUOM.value, costPerUOM.uom, {
+      dimension: dimensionOf(baseUnit),
+      baseUnit,
+      eachMeasure: eachMeasureOf(item.matchedItem),
+      densityGPerMl: densityOf(item.matchedItem),
+    })
+    if (!(bridged > 0)) return null
+    invoicePPB = bridged
+  }
 
   return {
-    pctDiff:      Math.round(((invoiceNorm.price - invPPB) / invPPB) * 10000) / 100,
-    invoicePPB:   invoiceNorm.price,
+    pctDiff:      Math.round(((invoicePPB - invPPB) / invPPB) * 10000) / 100,
+    invoicePPB,
     inventoryPPB: invPPB,
     baseUnit,
   }

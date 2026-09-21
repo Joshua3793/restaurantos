@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { deleteFileBlobs } from '@/lib/invoice-files'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { revertedPricing, priorPpbFromAlerts } from '@/lib/invoice/revert-pricing'
 
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
@@ -66,11 +68,18 @@ export async function DELETE(req: NextRequest) {
       select: {
         id: true, status: true,
         files: { select: { fileUrl: true } },
+        // The item's PRE-approve $/base, frozen by the approve being undone.
+        priceAlerts: {
+          select: { inventoryItemId: true, previousPrice: true },
+          orderBy: { createdAt: 'asc' },
+        },
         scanItems: {
           where: { action: 'UPDATE_PRICE', approved: true },
           select: {
             matchedItemId: true, previousPrice: true,
-            matchedItem: { select: { id: true, baseUnit: true, pricing: true } },
+            // The chain + bridges too — the revert has to know whether the item's
+            // current rate is denominated in ANOTHER dimension than the item.
+            matchedItem: { select: { id: true, ...PRICING_SELECT } },
           },
         },
       },
@@ -78,26 +87,25 @@ export async function DELETE(req: NextRequest) {
     if (!session) continue
 
     if (session.status === 'APPROVED') {
+      const priorPpbByItem = priorPpbFromAlerts(session.priceAlerts)
       for (const scanItem of session.scanItems) {
         if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
-        const prevPrice = Number(scanItem.previousPrice)
-        // Revert the spine by rolling the `pricing` chain back to the previous
-        // price (the computed pricePerBaseUnit is derived from it). The pricing
-        // MODE follows the item's existing chain pricing. The pack FORMAT
-        // (packChain/dimension/countUnit) is untouched — only price changed.
-        const mi = scanItem.matchedItem
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const miPricing = mi.pricing as any
-        const revertedPricing =
-          miPricing?.mode === 'RATE'
-            ? { mode: 'RATE', rate: prevPrice, rateUnit: miPricing.rateUnit || mi.baseUnit || 'each' }
-            : { mode: 'PACK', purchasePrice: prevPrice }
+        // Revert the spine by rolling `pricing` back to the previous price (the
+        // computed pricePerBaseUnit is derived from it). The SHAPE it is poured
+        // into is revert-pricing.ts's job — the item's CURRENT mode is the
+        // post-approve one, and a weight-basis approve can have changed it. The
+        // pack FORMAT (packChain/dimension/countUnit) is untouched.
+        const revert = revertedPricing({
+          previousPrice: Number(scanItem.previousPrice),
+          item: scanItem.matchedItem,
+          priorPpb: priorPpbByItem.get(scanItem.matchedItemId) ?? null,
+        })
         await prisma.inventoryItem.update({
           where: { id: scanItem.matchedItemId },
           data: {
-            purchasePrice: prevPrice,
+            purchasePrice: revert.purchasePrice,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            pricing: revertedPricing as any,
+            pricing: revert.pricing as any,
           },
         })
         pricesReverted++

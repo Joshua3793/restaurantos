@@ -14,6 +14,8 @@ import {
   dimensionOf,
   invoicePackBaseTotal,
   packFormatsDisagree,
+  ratePerBase,
+  rateIsCostable,
   type ChainItem,
 } from '@/lib/item-model'
 import { formToChain, type ItemFormInput } from '@/lib/item-model-form'
@@ -105,7 +107,7 @@ describe('validateChainItem', () => {
     expect(validateChainItem({ ...oil, countUnit: 'kg' })).toContain('countUnit must be a chain level or a same-dimension unit')
     expect(
       validateChainItem({ ...salmon, pricing: { mode: 'RATE', rate: 8.5, rateUnit: 'l' } }),
-    ).toContain('RATE.rateUnit must share the item dimension')
+    ).toContain('RATE.rateUnit must share the item dimension (or be bridged by the item’s each-measure / density)')
   })
 })
 
@@ -221,5 +223,97 @@ describe('packFormatsDisagree', () => {
   it('stays silent on unusable input rather than reporting a false conflict', () => {
     expect(packFormatsDisagree(0, 3000).disagree).toBe(false)
     expect(packFormatsDisagree(3000, 0).disagree).toBe(false)
+  })
+})
+
+describe('ratePerBase — a rate in another dimension prices through the ITEM bridge', () => {
+  const eggplant = { dimension: 'COUNT' as const, baseUnit: 'each', eachMeasure: { qty: 0.4, unit: 'lb' }, densityGPerMl: null }
+  const lettuce  = { dimension: 'COUNT' as const, baseUnit: 'each', eachMeasure: { qty: 250, unit: 'g' }, densityGPerMl: null }
+  const bare     = { dimension: 'COUNT' as const, baseUnit: 'each', eachMeasure: null, densityGPerMl: null }
+
+  it('same dimension is UNCHANGED (rate ÷ conv)', () => {
+    expect(ratePerBase(25, 'kg', { dimension: 'MASS', baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+    expect(ratePerBase(1.99, 'each', bare)).toBeCloseTo(1.99)
+  })
+  it('COUNT item, $/lb: $/g × g per each', () => {
+    expect(ratePerBase(3.49, 'lb', eggplant)).toBeCloseTo(1.396, 3)   // 3.49 × 0.4
+    expect(ratePerBase(5.25, 'lb', lettuce)).toBeCloseTo(2.894, 3)    // 5.25 / 453.592 × 250
+  })
+  it('the derived price moves with the each-measure, nothing stored changes', () => {
+    expect(ratePerBase(5.25, 'lb', { ...lettuce, eachMeasure: { qty: 100, unit: 'g' } })).toBeCloseTo(1.157, 3)
+  })
+  it('measured item, $/each: rate ÷ base per each', () => {
+    const limes = { dimension: 'MASS' as const, baseUnit: 'g', eachMeasure: { qty: 67, unit: 'g' }, densityGPerMl: null }
+    expect(ratePerBase(0.5, 'each', limes)).toBeCloseTo(0.5 / 67, 6)
+  })
+  it('MASS ↔ VOLUME crosses through density, both directions', () => {
+    const oil = { dimension: 'VOLUME' as const, baseUnit: 'ml', eachMeasure: null, densityGPerMl: 0.92 }
+    expect(ratePerBase(10, 'kg', oil)).toBeCloseTo(0.01 * 0.92, 6)          // $/g × g/ml
+    const honey = { dimension: 'MASS' as const, baseUnit: 'g', eachMeasure: null, densityGPerMl: 1.42 }
+    expect(ratePerBase(14.2, 'l', honey)).toBeCloseTo(0.0142 / 1.42, 6)     // $/ml ÷ g/ml
+  })
+  it('no bridge → 0 (unpriced), never rate ÷ conv', () => {
+    expect(ratePerBase(3.49, 'lb', bare)).toBe(0)
+    expect(ratePerBase(3.49, 'lb', { ...eggplant, eachMeasure: { qty: 300, unit: 'ml' } })).toBe(0) // bridge is in the wrong dimension
+    expect(ratePerBase(10, 'kg', { dimension: 'VOLUME', baseUnit: 'ml', eachMeasure: null, densityGPerMl: null })).toBe(0)
+  })
+  it('garbage in → 0', () => {
+    expect(ratePerBase(NaN, 'lb', eggplant)).toBe(0)
+    expect(ratePerBase(3.49, '', eggplant)).toBe(0)
+  })
+  it('rateIsCostable mirrors it', () => {
+    expect(rateIsCostable('lb', eggplant)).toBe(true)
+    expect(rateIsCostable('lb', bare)).toBe(false)
+    expect(rateIsCostable('each', bare)).toBe(true)
+  })
+})
+
+describe('pricePerBaseUnit / validateChainItem with a bridged RATE', () => {
+  const item: ChainItem = {
+    dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }],
+    pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' }, eachMeasure: { qty: 0.4, unit: 'lb' },
+  }
+  it('prices through the bridge', () => expect(pricePerBaseUnit(item)).toBeCloseTo(1.396, 3))
+  it('is valid WITH the bridge and invalid without it', () => {
+    expect(validateChainItem(item)).toEqual([])
+    expect(validateChainItem({ ...item, eachMeasure: null })).toContain('RATE.rateUnit must share the item dimension (or be bridged by the item’s each-measure / density)')
+  })
+  it('PACK is untouched', () => {
+    expect(pricePerBaseUnit({ ...item, pricing: { mode: 'PACK', purchasePrice: 70.3 } })).toBeCloseTo(70.3 / 24)
+  })
+})
+
+describe('ratePerBase — an UNKNOWN item dimension is not a MISMATCHED one', () => {
+  // Hand-built ChainItems reach this function from many call sites; one of them
+  // (offerPricePerBase) used to pass only { packChain, pricing }. Treating
+  // `dimension: undefined` as "another dimension" silently priced 56 of 259 live
+  // supplier offers at $0. Unknown → derive it from baseUnit; nothing to derive
+  // from → the old same-dimension behaviour (rate ÷ conv). Only a KNOWN
+  // cross-dimension pair with no bridge is unpriced.
+  const noDim = (over: Record<string, unknown>) => ({ eachMeasure: null, densityGPerMl: null, ...over }) as never
+
+  it('dimension missing, baseUnit present → derived from baseUnit', () => {
+    expect(ratePerBase(25, 'kg', noDim({ baseUnit: 'g' }))).toBeCloseTo(0.025)
+    expect(ratePerBase(3.49, 'lb', noDim({ baseUnit: 'each' }))).toBe(0)            // known COUNT, no bridge → unpriced
+    expect(ratePerBase(3.49, 'lb', noDim({ baseUnit: 'each', eachMeasure: { qty: 0.4, unit: 'lb' } }))).toBeCloseTo(1.396, 3)
+  })
+  it('dimension AND baseUnit missing → the old behaviour, rate ÷ conv', () => {
+    expect(ratePerBase(25, 'kg', noDim({}))).toBeCloseTo(0.025)
+    expect(rateIsCostable('kg', noDim({}))).toBe(true)
+  })
+  it('pricePerBaseUnit on { packChain, pricing } alone still prices a RATE (the offer shape)', () => {
+    expect(pricePerBaseUnit({ packChain: [{ unit: 'kg', per: 1000 }], pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' } } as never)).toBeCloseTo(0.025)
+  })
+  it('a present dimension always wins over baseUnit', () => {
+    expect(ratePerBase(25, 'kg', { dimension: 'MASS', baseUnit: 'each', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+  })
+})
+
+describe('ratePerBase — a malformed dimension string falls back instead of pricing $0', () => {
+  const em = { qty: 0.4, unit: 'lb' }
+  it("'count', 'MASS ' and '' are normalised or ignored", () => {
+    expect(ratePerBase(3.49, 'lb', { dimension: 'count' as never, baseUnit: 'each', eachMeasure: em, densityGPerMl: null })).toBeCloseTo(1.396, 3)
+    expect(ratePerBase(25, 'kg', { dimension: 'MASS ' as never, baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
+    expect(ratePerBase(25, 'kg', { dimension: '' as never, baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
   })
 })

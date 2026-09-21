@@ -10,9 +10,10 @@
 
 import { prisma } from '@/lib/prisma'
 import {
-  asChainItem, pricePerBaseUnit, levelBaseUnits, dimensionOf,
+  asChainItem, pricePerBaseUnit, levelBaseUnits, dimensionOf, PRICING_SELECT,
   type PackLink, type Pricing,
 } from '@/lib/item-model'
+import { primaryOfferPpb } from '@/lib/offer-price'
 
 // Minimal client surface so callers can pass either `prisma` or a tx client.
 type Db = Pick<typeof prisma, 'inventoryItem' | 'inventorySupplierPrice'>
@@ -60,9 +61,12 @@ export async function ensurePrimary(itemId: string, db: Db = prisma): Promise<st
  * No-op for items with no offers. Returns the ppb delta so callers can fire alerts.
  */
 export async function syncPrimaryOfferToItem(itemId: string, db: Db = prisma): Promise<SyncResult> {
+  // PRICING_SELECT, not the four pricing columns: `asChainItem` and the adopted
+  // ppb below both need the item's BRIDGES (each-measure, density). Without them a
+  // bridged `$/lb` price — the item's own or the primary offer's — reads 0.
   const item = await db.inventoryItem.findUnique({
     where: { id: itemId },
-    select: { dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true },
+    select: { ...PRICING_SELECT },
   })
   if (!item) return { changed: false, oldPpb: 0, newPpb: 0 }
   const oldPpb = pricePerBaseUnit(asChainItem(item))
@@ -78,12 +82,10 @@ export async function syncPrimaryOfferToItem(itemId: string, db: Db = prisma): P
 
   const newChain = primary.packChain as PackLink[]
   const newPricing = primary.pricing as Pricing
-  const newPpb = pricePerBaseUnit({
-    dimension: item.dimension as 'MASS' | 'VOLUME' | 'COUNT',
-    baseUnit: item.baseUnit,
-    packChain: newChain,
-    pricing: newPricing,
-  })
+  // Priced WITH the item (its base unit AND its bridges). Hand-building a
+  // ChainItem from the offer alone made a bridged `$/lb` primary read 0, and the
+  // guard below then turned this sync into a permanent silent no-op.
+  const newPpb = primaryOfferPpb(primary, item)
   if (!Number.isFinite(newPpb) || newPpb <= 0) {
     return { changed: false, oldPpb, newPpb: oldPpb }
   }
