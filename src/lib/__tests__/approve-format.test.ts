@@ -16,8 +16,22 @@ describe('packReference', () => {
   it('item with no offers at all → today’s behaviour, compare against the item', () => {
     expect(packReference(itemChain, null, false)).toEqual({ baseTotal: 48, against: 'item' })
   })
-  it('an offer with an unusable chain behaves like no offer', () => {
-    expect(packReference(itemChain, { packChain: [] }, true)).toBeNull()
+  // An offer row that EXISTS but carries no usable chain is not "a supplier we
+  // have never seen" — it is a supplier we know nothing about the pack of. Going
+  // silent there re-opens the Baking-Powder corruption (a case price written over
+  // a stale item chain after the pack changed), so fall back to the item's chain:
+  // exactly the pre-branch behaviour.
+  it('an offer that exists but has an unusable chain falls back to the item chain', () => {
+    expect(packReference(itemChain, { packChain: [] }, true)).toEqual({ baseTotal: 48, against: 'item' })
+  })
+  it('the PRIMARY supplier with an unusable offer chain is still checked against the item', () => {
+    // The item's chain IS this supplier's pack (primary-offer.ts keeps them in
+    // sync), so the guard must stay armed for them above all.
+    expect(packReference(itemChain, { supplierName: 'Primary Co', packChain: undefined }, true))
+      .toEqual({ baseTotal: 48, against: 'item' })
+  })
+  it('a supplier never seen on an item that has offers is still silent', () => {
+    expect(packReference(itemChain, null, true)).toBeNull()
   })
 })
 

@@ -161,6 +161,11 @@ export async function fetchInventoryList(
       supplierId ? { supplierId } : {},
       storageAreaId ? { storageAreaId } : {},
       isActive !== null && isActive !== '' ? { isActive: isActive === 'true' } : {},
+      // Merge tombstones are never listed — not even by "show inactive", which is
+      // the one filter that would otherwise surface them (a merge leaves the row
+      // inactive on purpose). They carry no stock, no history of their own any
+      // more, and nothing may be done to them but undo, from the survivor.
+      { mergedIntoId: null },
       includeNonStocked ? {} : { isStocked: true },
       needsReview ? { needsReview: true } : {},
     ],

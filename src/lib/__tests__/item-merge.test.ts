@@ -6,7 +6,7 @@ const row = (over: Partial<MergeItemRow>): MergeItemRow => ({
   id: 'x', itemName: 'x', baseUnit: 'g', dimension: 'MASS', countUnit: 'kg',
   packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 10 }, stockOnHand: 0,
   eachMeasure: null, densityGPerMl: null, isActive: true, mergedIntoId: null,
-  ownedByRecipe: false, inOpenCount: false, theoreticalOnHand: 0, ...over,
+  ownedByRecipe: false, inOpenCount: false, theoreticalOnHand: 0, lastCountDate: null, ...over,
 })
 const noRel: MergeRelations = {
   scanItemIds: [], invoiceLineItemIds: [], priceAlertIds: [], matchRuleIds: [], transferIds: [],
@@ -44,6 +44,83 @@ describe('guards', () => {
   it('epsilon-tolerant on-hand guard — negative on-hand still fires, float noise does not', () => {
     expect(guard(plan(S, row({ id: 'A', theoreticalOnHand: -3 })))).toBe('NEEDS_ON_HAND')
     expect(plan(S, row({ id: 'A', theoreticalOnHand: 1e-10 })).ok).toBe(true)
+  })
+
+  // Theoretical on-hand is each item's OWN stockOnHand as of its OWN
+  // lastCountDate, plus the events after it (count-expected.ts). Summing two
+  // items counted on different days therefore double-counts (or loses) every
+  // movement dated between the two dates — and the survivor keeps its own date,
+  // so the absorbed item's events are then re-applied from the wrong baseline.
+  // Only a person can say what is actually on the shelf: ask for the combined
+  // figure whenever the dates differ AND the absorbed item brings movements.
+  describe('count-date mismatch', () => {
+    const withMoves: MergeRelations = { ...noRel, scanItemIds: ['si1'] }
+    const d1 = '2026-09-01T00:00:00.000Z'
+    const d2 = '2026-09-10T00:00:00.000Z'
+
+    it('same count date and zero theoretical on-hand → no guard', () => {
+      const p = plan(row({ id: 'S', lastCountDate: d1 }), row({ id: 'A', lastCountDate: d1 }), withMoves)
+      expect(p.ok).toBe(true)
+    })
+    it('both never counted (null === null) → no guard', () => {
+      expect(plan(S, A, withMoves).ok).toBe(true)
+    })
+    it('different count dates with re-pointed movements → NEEDS_ON_HAND', () => {
+      const p = plan(row({ id: 'S', itemName: S.itemName, lastCountDate: d1 }),
+        row({ id: 'A', itemName: A.itemName, lastCountDate: d2 }), withMoves)
+      expect(guard(p)).toBe('NEEDS_ON_HAND')
+      if (p.ok) throw new Error('expected failure')
+      expect(p.message).toContain('were last counted on different days')
+      expect(p.message).toContain(A.itemName)
+      expect(p.message).toContain(S.itemName)
+    })
+    it('null vs a date counts as different', () => {
+      expect(guard(plan(S, row({ id: 'A', lastCountDate: d2 }), withMoves))).toBe('NEEDS_ON_HAND')
+      expect(guard(plan(row({ id: 'S', lastCountDate: d1 }), A, withMoves))).toBe('NEEDS_ON_HAND')
+    })
+    it('a wastage log or a transfer counts as a movement, just like a purchase', () => {
+      const dates = [row({ id: 'S', lastCountDate: d1 }), row({ id: 'A', lastCountDate: d2 })] as const
+      expect(guard(plan(dates[0], dates[1], { ...noRel, wastageIds: ['w1'] }))).toBe('NEEDS_ON_HAND')
+      expect(guard(plan(dates[0], dates[1], { ...noRel, transferIds: ['t1'] }))).toBe('NEEDS_ON_HAND')
+    })
+    it('different count dates but NO movements on the absorbed item → no guard', () => {
+      // Nothing was absorbed that the survivor's window would re-apply, so the
+      // two baselines can simply be added.
+      const p = plan(row({ id: 'S', lastCountDate: d1 }), row({ id: 'A', lastCountDate: d2 }),
+        { ...noRel, recipeIngredients: [{ id: 'ri1', unit: 'g' }] })
+      expect(p.ok).toBe(true)
+    })
+    it('the combined on-hand clears it', () => {
+      const p = plan(row({ id: 'S', lastCountDate: d1 }), row({ id: 'A', lastCountDate: d2 }),
+        withMoves, noSRel, true)
+      expect(p.ok).toBe(true)
+    })
+  })
+
+  // A row whose stored `dimension` disagrees with its own base unit can't be
+  // reasoned about: every conversion in this planner (and in count-uom) reads
+  // one or the other, so they would silently disagree about the same number.
+  describe('inconsistent unit setup', () => {
+    it('refuses when a row’s dimension does not match its base unit', () => {
+      const bad = row({ id: 'A', itemName: A.itemName, baseUnit: 'g', dimension: 'VOLUME' })
+      const p = plan(S, bad)
+      expect(p.ok).toBe(false)
+      if (p.ok) throw new Error('expected failure')
+      expect(p.guard).toBe('DIFFERENT_BASE_UNIT')
+      expect(p.message).toContain(A.itemName)
+      expect(p.message).toContain('unit setup')
+    })
+    it('refuses on the survivor side too', () => {
+      const bad = row({ id: 'S', itemName: S.itemName, baseUnit: 'each', dimension: 'MASS' })
+      const p = plan(bad, row({ id: 'A', baseUnit: 'each', dimension: 'COUNT', countUnit: 'each', packChain: [{ unit: 'each', per: 1 }] }))
+      expect(p.ok).toBe(false)
+      if (p.ok) throw new Error('expected failure')
+      expect(p.guard).toBe('DIFFERENT_BASE_UNIT')
+      expect(p.message).toContain(S.itemName)
+    })
+    it('leaves a consistent pair alone', () => {
+      expect(plan(S, A).ok).toBe(true)
+    })
   })
 
   describe('v1 SCOPE CUT: DIFFERENT_BASE_UNIT', () => {

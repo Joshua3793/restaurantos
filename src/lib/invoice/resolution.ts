@@ -25,7 +25,14 @@ export function hasInvalidRcSplit(item: ScanItem, ref?: SupplierRef): boolean {
   if (!item.matchedItem) return true
   const entries = split.filter(e => e && e.rcId && Number(e.qty) > 0)
   if (entries.length === 0) return true
-  const { qty: total } = lineReceivedCountQty(item as unknown as Parameters<typeof lineReceivedCountQty>[0], {
+  // WITHOUT `receivedQtyBase`, deliberately — mirroring `lineQtyOf` in
+  // api/invoices/sessions/[id]/approve. That column is the approve route's own
+  // OUTPUT, and a re-approve recomputes it rather than echoing it back. Passing
+  // it here validated the split against the FROZEN total while the server
+  // validated the live one, so on a re-approve of a line whose format changed
+  // the client called a split valid that the server then dropped, silently.
+  const live = { ...(item as unknown as Parameters<typeof lineReceivedCountQty>[0]), receivedQtyBase: null }
+  const { qty: total } = lineReceivedCountQty(live, {
     dimension: item.matchedItem.dimension ?? 'COUNT',
     baseUnit:  item.matchedItem.baseUnit ?? 'each',
     packChain: item.matchedItem.packChain,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM } from '@/lib/invoice-matcher'
+import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule } from '@/lib/invoice-matcher'
 
 describe('capAliasConfidence', () => {
   it('caps a HIGH match won only through an alias down to MEDIUM', () => {
@@ -147,5 +147,37 @@ describe('groupAliases', () => {
     const rows = [{ inventoryItemId: 'item1', rawDescription: 'butter unsalted' }]
     const grouped = groupAliases(rows, itemNameById)
     expect(grouped.has('item1')).toBe(false)
+  })
+})
+
+describe('isSupplierSpecificRule', () => {
+  it('a rule stored under the raw OCR supplier name is supplier-specific', () => {
+    expect(isSupplierSpecificRule('SYSCO Canada, Inc.', 'SYSCO Canada, Inc.', 'Sysco')).toBe(true)
+  })
+  it('…and so is one stored under the canonical Supplier name', () => {
+    expect(isSupplierSpecificRule('Sysco', 'SYSCO Canada, Inc.', 'Sysco')).toBe(true)
+  })
+  it('the generic ("") bucket is never supplier-specific', () => {
+    expect(isSupplierSpecificRule('', 'Sysco', 'Sysco')).toBe(false)
+    expect(isSupplierSpecificRule(null, 'Sysco', 'Sysco')).toBe(false)
+  })
+  it('another supplier’s rule is not this supplier’s', () => {
+    expect(isSupplierSpecificRule('GFS', 'Sysco', 'Sysco')).toBe(false)
+  })
+})
+
+describe('offerSkuTierYieldsToRule', () => {
+  const taught = { supplierName: 'Sysco', inventoryItem: { id: 'i1' } }
+
+  it('stands tier 0b down when a human taught this supplier this description', () => {
+    expect(offerSkuTierYieldsToRule(taught, 'Sysco', 'Sysco')).toBe(true)
+  })
+  it('leaves tier 0b alone for a generic rule — a unique SKU is better evidence', () => {
+    expect(offerSkuTierYieldsToRule({ supplierName: '', inventoryItem: { id: 'i1' } }, 'Sysco', 'Sysco')).toBe(false)
+  })
+  it('leaves tier 0b alone when there is no rule, or the rule points nowhere', () => {
+    expect(offerSkuTierYieldsToRule(null, 'Sysco', 'Sysco')).toBe(false)
+    expect(offerSkuTierYieldsToRule(undefined, 'Sysco', 'Sysco')).toBe(false)
+    expect(offerSkuTierYieldsToRule({ supplierName: 'Sysco', inventoryItem: null }, 'Sysco', 'Sysco')).toBe(false)
   })
 })

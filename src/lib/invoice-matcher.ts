@@ -177,6 +177,42 @@ export function capAliasConfidence(raw: MatchConfidence, viaAlias: boolean): Mat
   return viaAlias && raw === 'HIGH' ? 'MEDIUM' : raw
 }
 
+/** Was this learned rule taught under THIS supplier, rather than sitting in the
+ *  generic ('') bucket? A rule stored under the raw OCR name OR the canonical
+ *  Supplier name counts — they are the same supplier under two spellings (the
+ *  name-variant fix). The generic bucket never does: it was saved when the
+ *  supplier was unknown, so it says nothing about this supplier. */
+export function isSupplierSpecificRule(
+  ruleSupplierName: string | null | undefined,
+  supplierName: string | null | undefined,
+  canonicalName?: string | null,
+): boolean {
+  if (!ruleSupplierName) return false
+  return ruleSupplierName === supplierName || (!!canonicalName && ruleSupplierName === canonicalName)
+}
+
+/**
+ * Must tier 0b (offer SKU) stand down for this line and let tier 1 decide?
+ *
+ * Tier 0b resolves (supplier, SKU) → item straight off the supplier's OFFER
+ * rows, which is deterministic but not always current: a merge or an old
+ * purchase can leave a SKU on an item nobody buys under that code any more.
+ * A learned rule taught under this same supplier for this exact description is
+ * a HUMAN decision about this very line, and it must not lose to a stale SKU —
+ * so when one exists, yield to tier 1, which reads it back at HIGH.
+ *
+ * A generic ('') rule does NOT count: it was not taught about this supplier, and
+ * tier 1 itself only treats it as a MEDIUM hint — a unique SKU is stronger.
+ */
+export function offerSkuTierYieldsToRule(
+  learned: { supplierName?: string | null; inventoryItem?: unknown } | null | undefined,
+  supplierName: string | null | undefined,
+  canonicalName?: string | null,
+): boolean {
+  if (!learned?.inventoryItem) return false
+  return isSupplierSpecificRule(learned.supplierName, supplierName, canonicalName)
+}
+
 interface FuzzyCandidate {
   id: string
   score: number
@@ -608,7 +644,12 @@ export async function matchLineItems(
     }
 
     // ── 0b. Supplier offer SKU (deterministic, no rule ever saved) ─────────
-    const skuItem = ocrItem.supplierItemCode
+    // …unless a human has already taught THIS supplier what this description
+    // means. A SKU carried along by a merge (or simply never re-used) can be
+    // unique and still stale; the taught rule is the more recent human fact, so
+    // tier 0b stands down and tier 1 answers at HIGH.
+    const learnedForLine = learnedMap.get(ocrItem.description)
+    const skuItem = ocrItem.supplierItemCode && !offerSkuTierYieldsToRule(learnedForLine, supplierName, canonicalName)
       ? itemById.get(offerBySku.get(ocrItem.supplierItemCode) ?? '')
       : undefined
     if (skuItem) {
@@ -619,7 +660,7 @@ export async function matchLineItems(
     }
 
     // ── 1. Check learned rules first ───────────────────────────────────────
-    const learned = learnedMap.get(ocrItem.description)
+    const learned = learnedForLine
     if (learned?.inventoryItem) {
       const hasLearnedFormat = !!(learned.invoicePackQty && learned.invoicePackSize)
       const learnedFormat = hasLearnedFormat ? {
@@ -635,8 +676,7 @@ export async function matchLineItems(
       // A rule stored under the raw OR canonical supplier name is supplier-specific
       // (HIGH). Only a generic '' rule on a known supplier is a mere hint (MEDIUM).
       const supplierSpecific = !supplierName
-        || learned.supplierName === supplierName
-        || (!!canonicalName && learned.supplierName === canonicalName)
+        || isSupplierSpecificRule(learned.supplierName, supplierName, canonicalName)
       return buildMatchResult(
         ocrItem,
         learned.inventoryItem as unknown as InventoryItem,

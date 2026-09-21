@@ -75,8 +75,15 @@ async function lockItems(tx: Prisma.TransactionClient, ids: string[]): Promise<v
  * has already rolled back, so report it as a conflict rather than a 500.
  */
 function asConflict(e: unknown, what: string): unknown {
-  if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === 'P2025' || e.code === 'P2002'))
+  if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === 'P2025' || e.code === 'P2002')) {
+    // Log the original first. "Try again" is the right thing to TELL someone,
+    // but a deterministic planner bug (a manifest that deletes a row twice, a
+    // primary-offer op in the wrong order) raises exactly these two codes and
+    // would otherwise be indistinguishable from an honest race — and it would
+    // fail again on every retry, with nothing in the logs to say why.
+    console.error(`[merge] ${what} hit ${e.code}; reported as a conflict`, e)
     return new MergeConflictError(`The data changed while the ${what} was running. Nothing was changed — try again.`)
+  }
   return e
 }
 
@@ -116,6 +123,9 @@ async function itemRow(db: MergeDb, id: string, theoreticalOnHand: number): Prom
     where: { id },
     select: {
       id: true, itemName: true, isActive: true, mergedIntoId: true, stockOnHand: true,
+      // The date `theoreticalOnHand` is measured from — the planner refuses to
+      // add two balances that were last counted on different days.
+      lastCountDate: true,
       ...PRICING_SELECT,
       recipe: { select: { id: true } },
       // Anything not FINALIZED is still open — UPDATING is the transitional
@@ -141,6 +151,7 @@ async function itemRow(db: MergeDb, id: string, theoreticalOnHand: number): Prom
     ownedByRecipe: !!r.recipe,
     inOpenCount: r.countLines.length > 0,
     theoreticalOnHand,
+    lastCountDate: r.lastCountDate ? r.lastCountDate.toISOString() : null,
   }
 }
 

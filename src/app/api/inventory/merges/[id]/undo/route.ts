@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSession, AuthError } from '@/lib/auth'
 import { undoMerge } from '@/lib/item-merge-exec'
+import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 
 export const dynamic = 'force-dynamic'
 // Replays the manifest inside one transaction (30 s budget) after a pre-check
@@ -17,6 +18,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   try {
     const r = await undoMerge(params.id)
+    // An undo moves the same stock-moving rows back onto the absorbed item and
+    // restores both items' stockOnHand — drop the theoretical cache, same as the
+    // merge does.
+    if (r.ok) invalidateTheoreticalCache()
     return r.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: r.error }, { status: r.status })
   } catch (e) {
     console.error('[merge] undo failed', e)

@@ -16,12 +16,20 @@ import type { OfferFormat } from '@/lib/invoice/line-format'
  * one product ended up duplicated per supplier.
  *
  * So the reference is THIS supplier's previous pack:
- *  - this supplier already has an offer → compare against its chain;
- *  - a new supplier on an item that already has offers → there is nothing to
- *    compare against, so the guard stays silent and the line's pack simply
- *    becomes this supplier's offer;
- *  - an item with no offers at all → the item's chain IS its only pack, so keep
- *    today's behaviour exactly.
+ *  - this supplier already has an offer with a usable chain → compare against it;
+ *  - a supplier NEVER SEEN on this item (no offer row at all) while the item does
+ *    have offers → there is nothing to compare against, so the guard stays silent
+ *    and the line's pack simply becomes this supplier's offer;
+ *  - anything else — an item with no offers at all, or an offer row that exists
+ *    but carries no usable chain — falls back to the item's chain, which is the
+ *    pre-branch behaviour.
+ *
+ * That last case is load-bearing and is why the silence is keyed on `lineOffer ==
+ * null` rather than on "we failed to read a pack". An offer row with an empty or
+ * broken chain is not evidence that this supplier is new; for the PRIMARY supplier
+ * the item's chain IS their pack (primary-offer.ts keeps the two in sync), so
+ * going silent there would let a changed pack write a case price over a stale
+ * chain again — the Baking-Powder corruption ($37.61/kg instead of $5.64/kg).
  */
 export function packReference(
   itemChain: PackLink[], lineOffer: OfferFormat | null, itemHasOffers: boolean,
@@ -29,7 +37,7 @@ export function packReference(
   const offerChain = Array.isArray(lineOffer?.packChain) ? (lineOffer!.packChain as PackLink[]) : []
   const offerTotal = offerChain.length ? basePerPurchase(offerChain) : 0
   if (offerTotal > 0) return { baseTotal: offerTotal, against: 'offer' }
-  if (itemHasOffers) return null
+  if (lineOffer == null && itemHasOffers) return null
   const itemTotal = basePerPurchase(itemChain)
   return itemTotal > 0 ? { baseTotal: itemTotal, against: 'item' } : null
 }

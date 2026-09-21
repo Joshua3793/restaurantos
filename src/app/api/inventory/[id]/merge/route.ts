@@ -9,6 +9,7 @@ import {
 } from '@/lib/item-merge-exec'
 import { isSafeRowId, parseCombinedOnHand } from '@/lib/item-merge-rows'
 import { recordQuickCount } from '@/lib/quick-count'
+import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 
 export const dynamic = 'force-dynamic'
 // The ledger read alone is 8-13 s on a busy item, before a transaction that may
@@ -122,6 +123,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (outcome.kind === 'not_found') return NextResponse.json({ error: 'Item not found' }, { status: 404 })
     return NextResponse.json(outcome.plan, { status: 422 })
   }
+
+  // A merge moves purchases, wastage and transfers onto the survivor and zeroes
+  // the absorbed row's stock — every input the theoretical ledger reads. Drop the
+  // cache so the drawer/prep/cost-chrome don't show the pre-merge picture for the
+  // next 30 s. (The Quick Count below drops it again through its own finalize.)
+  invalidateTheoreticalCache()
 
   const done = {
     ok: true as const,

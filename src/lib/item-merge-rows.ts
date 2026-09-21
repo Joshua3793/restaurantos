@@ -116,6 +116,29 @@ export function parseCombinedOnHand(body: unknown):
   return { ok: true, value: { countedQty, selectedUom, rcId } }
 }
 
+// ── 6. tombstone protection ──────────────────────────────────────────────────
+
+/**
+ * What the ordinary inventory routes say when someone edits, reactivates or
+ * deletes a row a merge left behind.
+ */
+export const TOMBSTONE_EDIT_ERROR =
+  'This item was merged into another item. Undo the merge from the surviving item instead.'
+
+/**
+ * The ids among `rows` that are merge tombstones (`mergedIntoId` set).
+ *
+ * A tombstone is not an ordinary inactive item: undo replays a manifest back
+ * onto it and first checks it is still "the tombstone this merge left behind"
+ * (`undoBlocker`). Reactivating it, editing it active, or hard-deleting it
+ * through the normal inventory routes therefore breaks the undo — and a
+ * reactivated tombstone is also un-mergeable (the planner's TOMBSTONE guard
+ * reads the same column), leaving a row nobody can fix. Refuse instead.
+ */
+export function tombstonedRows(rows: Array<{ id: string; mergedIntoId: string | null }>): string[] {
+  return rows.filter(r => r.mergedIntoId != null).map(r => r.id)
+}
+
 /** Every id this schema generates is a cuid or a uuid. Anything else has no
  *  business being interpolated into SQL. */
 const SAFE_ROW_ID = /^[A-Za-z0-9_-]{1,64}$/

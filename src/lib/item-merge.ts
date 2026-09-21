@@ -31,6 +31,12 @@ export interface MergeItemRow {
   densityGPerMl: number | null
   isActive: boolean; mergedIntoId: string | null; ownedByRecipe: boolean; inOpenCount: boolean
   theoreticalOnHand: number
+  /** ISO, or null for a never-counted item. The DATE the item's theoretical
+   *  on-hand is measured FROM — `computeExpectedForItem` (src/lib/count-expected.ts
+   *  ~:574) starts each item's window at its OWN `lastCountDate`. Two items
+   *  counted on different days therefore have on-hand figures that cannot simply
+   *  be added; the planner compares the two dates rather than assuming. */
+  lastCountDate: string | null
 }
 
 /** A stored mixed-unit count entry — see `CountEntry` in src/lib/count-uom.ts
@@ -165,6 +171,15 @@ const eachMeasureLabel = (item: MergeItemRow) => {
   return m ? `${m.v} ${m.dim}` : null
 }
 
+/** A `lastCountDate` as a comparable key: the instant, or the raw string when it
+ *  cannot be parsed (an unreadable date is never silently "equal" to another).
+ *  Null (never counted) stays null and is equal only to null. */
+const countDateKey = (iso: string | null): string | null => {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? String(t) : iso
+}
+
 /** Null-aware, tolerant equality for a bridge value — both-null is equal
  *  (neither item has the bridge, so a line needing it is already unbridgeable
  *  on both sides); exactly one null, or a numeric difference past the
@@ -189,6 +204,19 @@ export function planMerge(
   if (canonicalUom(absorbed.baseUnit) !== canonicalUom(survivor.baseUnit))
     return fail('DIFFERENT_BASE_UNIT',
       `${absorbed.itemName} is tracked in ${absorbed.baseUnit} and ${survivor.itemName} in ${survivor.baseUnit}. Change ${absorbed.itemName} to ${survivor.baseUnit} first (edit the item), then merge.`)
+
+  // …and the same refusal when ONE row is internally inconsistent: a stored
+  // `dimension` that disagrees with its own base unit. Half this planner reads
+  // the dimension (the bridge check, `isPlainMeasured`) and half reads the base
+  // unit (`convertQty`, `countUomFactor`), so such a row makes the two disagree
+  // about the same number — and the base-unit equality above can pass while the
+  // dimensions do not. It is an item-setup defect, not a merge decision: refuse
+  // and let someone fix the item.
+  for (const r of [survivor, absorbed]) {
+    if (dimensionOf(r.baseUnit) !== r.dimension)
+      return fail('DIFFERENT_BASE_UNIT',
+        `${r.itemName}’s unit setup is inconsistent — it is marked ${r.dimension} but tracked in ${r.baseUnit}. Fix the item’s unit setup first (edit the item), then merge.`)
+  }
 
   // Imp-2: a recipe line stored in a unit that NEEDS a bridge to cost against
   // the item (its dimension differs from the item's) re-costs through
@@ -216,6 +244,20 @@ export function planMerge(
 
   if (Math.abs(toNum(absorbed.theoreticalOnHand)) > 1e-9 && !opts.combinedOnHandProvided)
     return fail('NEEDS_ON_HAND', `${absorbed.itemName} still shows stock on hand. Enter the combined on-hand for both.`)
+
+  // Count-date mismatch. Each item's theoretical on-hand is its own stockOnHand
+  // as of its own `lastCountDate` plus the events after it. The merge adds the
+  // two balances and keeps the SURVIVOR's date, so every absorbed movement dated
+  // between the two count dates is then re-applied from a baseline that already
+  // contains it (double-counted) or dropped out of the window entirely — and the
+  // zero-theoretical case above does not catch it, because the error can net to
+  // zero. Movements are what makes the difference observable, so the guard needs
+  // both: differing dates AND at least one re-pointed stock movement.
+  const absorbedMovements = rel.scanItemIds.length + rel.wastageIds.length + rel.transferIds.length
+  if (countDateKey(absorbed.lastCountDate) !== countDateKey(survivor.lastCountDate)
+      && absorbedMovements > 0 && !opts.combinedOnHandProvided)
+    return fail('NEEDS_ON_HAND',
+      `${absorbed.itemName} and ${survivor.itemName} were last counted on different days, so their stock can’t simply be added. Enter the combined on-hand for both.`)
 
   const ops: MergeOp[] = []
   const repoint = (table: RepointTable, ids: string[]) => { if (ids.length) ops.push({ t: 'repoint', table, ids }) }

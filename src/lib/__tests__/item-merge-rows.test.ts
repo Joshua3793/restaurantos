@@ -4,7 +4,7 @@ import {
   toPlain, toPlainRow, REPOINT_FK, TABLE_DELEGATE, NULLABLE_JSON_COLUMNS,
   writeData, mergeOpOrder, undoOpOrder, parseManifest, recipeIngredientRepointIds, asCountEntries,
   repointTableChecks, batchUpdateOps, type BatchedOp,
-  parseCombinedOnHand, isSafeRowId, lockItemsSql,
+  parseCombinedOnHand, isSafeRowId, lockItemsSql, tombstonedRows, TOMBSTONE_EDIT_ERROR,
 } from '../item-merge-rows'
 import type { MergeManifest, MergeOp, UpdateTable } from '../item-merge'
 
@@ -445,5 +445,24 @@ describe('recipeIngredientRepointIds', () => {
 
   it('is empty when no recipe line moved', () => {
     expect(recipeIngredientRepointIds({ survivorId: 's', absorbedId: 'a', ops: [] })).toEqual([])
+  })
+})
+
+describe('tombstonedRows / TOMBSTONE_EDIT_ERROR', () => {
+  it('names every row that was merged away', () => {
+    expect(tombstonedRows([
+      { id: 'a', mergedIntoId: null },
+      { id: 'b', mergedIntoId: 's1' },
+      { id: 'c', mergedIntoId: 's2' },
+    ])).toEqual(['b', 'c'])
+  })
+
+  it('is empty for ordinary rows — including inactive ones that were never merged', () => {
+    expect(tombstonedRows([{ id: 'a', mergedIntoId: null }])).toEqual([])
+    expect(tombstonedRows([])).toEqual([])
+  })
+
+  it('tells the person where the undo actually lives', () => {
+    expect(TOMBSTONE_EDIT_ERROR).toContain('Undo the merge from the surviving item')
   })
 })
