@@ -57,14 +57,14 @@ describe('mergeNotes', () => {
   it('explains a dropped price protected by the survivor primary, singular', () => {
     const notes = mergeNotes(summary({ absorbedOffersDroppedForSurvivorPrimary: 1 }), false)
     expect(notes).toEqual([
-      "A newer 1 price from the duplicate was not kept, because this item's primary supplier offer is protected.",
+      "1 newer price from the duplicate was not kept, because this item's primary supplier offer is protected.",
     ])
   })
 
   it('explains a dropped price protected by the survivor primary, plural', () => {
     const notes = mergeNotes(summary({ absorbedOffersDroppedForSurvivorPrimary: 2 }), false)
     expect(notes).toEqual([
-      "A newer 2 prices from the duplicate were not kept, because this item's primary supplier offer is protected.",
+      "2 newer prices from the duplicate were not kept, because this item's primary supplier offer is protected.",
     ])
   })
 
@@ -103,7 +103,7 @@ describe('mergeNotes', () => {
     }), true)
     expect(notes).toEqual([
       "Sysco becomes this item's primary supplier. Your costing price doesn't change now; it will follow that supplier's next invoice.",
-      "A newer 1 price from the duplicate was not kept, because this item's primary supplier offer is protected.",
+      "1 newer price from the duplicate was not kept, because this item's primary supplier offer is protected.",
       "1 old count line uses a unit that couldn't be resolved and was left as it is.",
       "The duplicate's pack and price were saved as a supplier offer.",
       UNDO_DISABLED_NOTE,

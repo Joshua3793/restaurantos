@@ -340,7 +340,11 @@ async function doApprove(
             },
             item.baseUnit ?? 'each',
           )
-          const ref = packReference((item.packChain as PackLink[]) ?? [], lineOffer, itemOffers.length > 0)
+          // "Item has offers" only silences the guard for a KNOWN supplier never seen on
+          // this item. With no resolvable supplier, lineOffer is always null AND this path
+          // still re-prices the item (legacy direct write) — so it must keep the old check
+          // against the item's own chain, or a changed case is written over a stale pack.
+          const ref = packReference((item.packChain as PackLink[]) ?? [], lineOffer, !!offerSupplierName && itemOffers.length > 0)
           const packs = ref ? packFormatsDisagree(invoiceBaseTotal, ref.baseTotal) : { disagree: false, ratio: 1 }
           if (packs.disagree) {
             console.error(

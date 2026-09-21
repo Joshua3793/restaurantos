@@ -43,7 +43,7 @@ export function mergeNotes(summary: MergeSummary, willDisableUndo: boolean): str
     const priceWord = n === 1 ? 'price' : 'prices'
     const wasWord = n === 1 ? 'was' : 'were'
     notes.push(
-      `A newer ${n} ${priceWord} from the duplicate ${wasWord} not kept, ` +
+      `${n} newer ${priceWord} from the duplicate ${wasWord} not kept, ` +
       `because this item's primary supplier offer is protected.`,
     )
   }

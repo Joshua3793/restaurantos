@@ -62,6 +62,9 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
   // typing must never paint an older query's results (or an older figure's plan).
   const reqId = useRef(0)
   const inFlight = useRef<AbortController | null>(null)
+  // State is read from the render closure, so two clicks in one tick both pass a
+  // `busy` check. The ref flips synchronously.
+  const submitting = useRef(false)
   const searchReqId = useRef(0)
   const searchInFlight = useRef<AbortController | null>(null)
   const onHandReqId = useRef(0)
@@ -206,7 +209,8 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
     && (preview.ok || (willUseOnHand && onHandPlanOk))
 
   async function confirm() {
-    if (!picked || busy || !canConfirm) return
+    if (!picked || busy || !canConfirm || submitting.current) return
+    submitting.current = true
     setBusy(true)
     setConfirmError(null)
     try {
@@ -218,6 +222,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
         body: JSON.stringify(body),
       })
       const d = await r.json().catch(() => null)
+      submitting.current = false
       setBusy(false)
       if (r.status === 409) {
         setConfirmError((d && d.error) || 'The item changed while merging — try again.')
@@ -229,6 +234,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
       }
       setResult(d as ConfirmOk)
     } catch {
+      submitting.current = false
       setBusy(false)
       setConfirmError('The merge could not be completed.')
     }
