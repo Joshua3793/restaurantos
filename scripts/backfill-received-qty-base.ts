@@ -45,14 +45,16 @@ const REFREEZE = argv.includes('--refreeze')
 const APPLY = argv.includes('--apply')
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 
-// Five Sysco per-case lines that carry a stray weight column and must NEVER
-// move under the new rule (global-constraints.md refinement: the new rule only
-// ever moves a line TO a weight — if one of these changes, the rule is wrong).
-const SYSCO_FIVE_NEVER_CHANGE = ['butter', 'halloumi', 'cheese curd', 'goats cheese', 'brioche']
-const hitsSyscoFive = (itemName: string | null | undefined): boolean => {
-  const n = (itemName ?? '').toLowerCase()
-  return SYSCO_FIVE_NEVER_CHANGE.some((needle) => n.includes(needle))
-}
+// Per-case lines that carry a stray billed-weight column but NO printed rate that
+// reproduces their total (Butter "2.86 kg" on 2 × 25 × 454 g; Halloumi; Brioche).
+// They must NEVER move TO a billed weight: if one does, the money check is wrong.
+// (Goats Cheese and Cheese Curd were on this list until 2026-09-21: their printed
+// $/kg × billed weight reproduces the total exactly — genuine catch weight — and
+// the user decided a printed rate is proof.) Exact item names, so an unrelated
+// "cocoa butter" or a per-kg bulk butter line changing legitimately cannot trip it.
+const NEVER_BY_BILLED_WEIGHT = ['butter', 'halloumi', 'brioche unsliced']
+const hitsSyscoFive = (itemName: string | null | undefined, via?: string): boolean =>
+  NEVER_BY_BILLED_WEIGHT.includes((itemName ?? '').trim().toLowerCase()) && (via ?? '').includes('billed-weight')
 
 async function fetchApprovedLines() {
   return prisma.invoiceScanItem.findMany({
@@ -374,9 +376,9 @@ async function runRefreeze(lines: ScanLine[]) {
     }
   }
 
-  const syscoFiveHits = diff.filter((row) => hitsSyscoFive(row.item))
+  const syscoFiveHits = diff.filter((row) => hitsSyscoFive(row.item, row.via))
   console.log(
-    '\n=== SYSCO-FIVE GUARD — Butter / Halloumi / CHEESE CURD / Goats Cheese / Brioche must NOT change ===',
+    '\n=== NO-RATE GUARD — Butter / Halloumi / Brioche Unsliced must NOT move to a billed weight ===',
   )
   if (syscoFiveHits.length === 0) {
     console.log('  (none — clean)')

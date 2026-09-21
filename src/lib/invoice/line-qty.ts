@@ -87,20 +87,26 @@ const isMeasureUnit = (u: string | null | undefined): boolean => {
 const moneyAgrees = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.02, Math.abs(b) * 0.02)
 
 /**
- * Was the billed weight the quantity the line was PRICED on? True only when
- * price × billed reproduces the line total AND price × cases does not. 2026-09-21,
- * 1,773 approved lines: zero disagreements with the OCR pricing mode, and it also
- * covers lines scanned before a mode was recorded. The per-case Sysco lines that
- * carry a stray weight column (Butter "2.86 kg" on 2 × 25 × 454 g) reconcile by
- * CASE and stay on the pack. When both reconcile the line is ambiguous → false.
+ * Was the billed weight the quantity the line was PRICED on?
+ *
+ * The scanner's contract (src/lib/invoice-ocr.ts) matters here: on a per-weight
+ * line `rate` is READ OFF THE PAGE ($/kg shown on the row), while `unitPrice` is
+ * DERIVED as lineTotal ÷ qtyShipped. So "unitPrice × cases = total" is true by
+ * construction (176 of 178 per-weight lines, 2026-09-21) and proves nothing.
+ *
+ *  • A printed `rate` × the billed weight reproducing the line total IS the proof,
+ *    on its own. (Sausage 2 CS: $15.95/kg × 14.6 kg = $232.87.)
+ *  • With NO rate, `rawUnitPrice` stands in as the price — and then a case price
+ *    that also reproduces the total makes the line ambiguous → false.
+ *
+ * Per-case lines that merely carry a weight column have no rate that reconciles
+ * (Butter "2.86 kg" on 2 × 25 × 454 g) and stay on their pack.
  */
 export function billedWeightIsPriced(line: LineQtyInput): boolean {
   const billed = num(line.totalQty), total = num(line.rawLineTotal)
   if (!(billed > 0) || !(total > 0) || !isMeasureUnit(line.totalQtyUOM)) return false
-  const price = num(line.rate) || num(line.rawUnitPrice)
-  if (!(price > 0)) return false
 
-  // Price is per rateUOM; express the billed quantity in that unit first. A rate
+  // The price is per rateUOM; express the billed quantity in that unit first. A rate
   // unit that is present but is NOT a weight/volume of the same dimension ($/case,
   // an unknown token) can never prove a weight — refuse before multiplying.
   let billedInRateUnit = billed
@@ -109,16 +115,18 @@ export function billedWeightIsPriced(line: LineQtyInput): boolean {
     if (dimensionOf(canonicalUom(line.rateUOM)) !== dimensionOf(canonicalUom(line.totalQtyUOM!))) return false
     billedInRateUnit = convertQty(billed, canonicalUom(line.totalQtyUOM!), canonicalUom(line.rateUOM))
   }
+
+  const rate = num(line.rate)
+  if (rate > 0) return moneyAgrees(rate * billedInRateUnit, total)
+
+  const price = num(line.rawUnitPrice)
+  if (!(price > 0)) return false
+  const cases = num(line.rawQty)
   const byWeight = moneyAgrees(price * billedInRateUnit, total)
-  const casePrice = num(line.rawUnitPrice), cases = num(line.rawQty)
-  const byCase = casePrice > 0 && cases > 0 && moneyAgrees(casePrice * cases, total)
+  const byCase = cases > 0 && moneyAgrees(price * cases, total)
   return byWeight && !byCase
 }
 
-/** Base units (g/ml/each) received by a line, for the line's matched item.
- *  THE single receiving rule — `buildPurchaseMap` in count-expected.ts calls this
- *  rather than reimplementing it, so theoretical stock, the RC split editor and
- *  the approved-invoice report can never drift apart again. */
 export function lineReceivedBaseUnits(line: LineQtyInput, chainItem: ChainItem): number {
   return lineReceived(line, chainItem).base
 }

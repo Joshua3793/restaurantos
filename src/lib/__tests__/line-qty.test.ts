@@ -186,7 +186,7 @@ describe('line-first receiving — real lines from the 2026-09-20 audit', () => 
     const r = lineReceived(line({ rawQty: 12, rawUnit: 'lb', totalQty: 12, totalQtyUOM: 'lb', rate: 3.49, rateUOM: 'lb', rawUnitPrice: 3.49, rawLineTotal: 41.88 }), eggplant)
     expect(r.base).toBeCloseTo(30, 1)          // was 12 × 24 = 288
     expect(r.needsBridge).toBe(false)
-    expect(['billed-weight', 'shipped-unit']).toContain(r.via)
+    expect(r.via).toBe('billed-weight')   // $3.49/lb × 12 lb = $41.88: the printed rate proves it
   })
 
   it('same line, item has NO each-measure → today’s value, needsBridge', () => {
@@ -207,8 +207,9 @@ describe('line-first receiving — real lines from the 2026-09-20 audit', () => 
 
   it('per-weight line on a PACK-priced offer (zucchini: 1 ea, billed 3.02 kg)', () => {
     const r = lineReceived(line({ rawQty: 1, rawUnit: 'ea', totalQty: 3.02, totalQtyUOM: 'kg', rate: 6.61, rateUOM: 'kg', rawUnitPrice: 19.96, rawLineTotal: 19.96 }), zucchini)
-    // price×cases (19.96 × 1) ALSO equals the total → ambiguous → today's rule. Pinned on purpose:
-    expect(r.via).toBe('item-pack')
+    // unitPrice (19.96) is DERIVED = total ÷ 1 ea, so 'price × cases = total' proves nothing.
+    // The printed rate does: $6.61/kg × 3.02 kg = $19.96.
+    expect(r).toEqual({ base: 3020, via: 'billed-weight', needsBridge: false })
   })
 
   it('…and the same line once rawUnitPrice is the RATE, not the line total, resolves by weight', () => {
@@ -231,7 +232,8 @@ describe('line-first receiving — real lines from the 2026-09-20 audit', () => 
     expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'kg', rawLineTotal: 10 }))).toBe(false)
     expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'each', rate: 2, rawLineTotal: 10 }))).toBe(false)
     expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'kg', rate: 2, rateUOM: 'l', rawLineTotal: 10 }))).toBe(false)
-    expect(billedWeightIsPriced(line({ rawQty: 5, totalQty: 5, totalQtyUOM: 'kg', rate: 2, rawUnitPrice: 2, rawLineTotal: 10 }))).toBe(false)
+    // no printed rate → rawUnitPrice stands in, and then 'price × cases' reconciling too IS ambiguous
+    expect(billedWeightIsPriced(line({ rawQty: 5, totalQty: 5, totalQtyUOM: 'kg', rawUnitPrice: 2, rawLineTotal: 10 }))).toBe(false)
   })
 
   it('regression locks: frozen wins; a RATE item still prefers the billed weight over the shipped qty', () => {
@@ -241,6 +243,20 @@ describe('line-first receiving — real lines from the 2026-09-20 audit', () => 
     expect(lineReceived(line({ rawQty: 10, rawUnit: 'kg', totalQty: 10.4, totalQtyUOM: 'kg' }), bison)).toEqual({ base: 10400, via: 'rate', needsBridge: false })
     // unit-less billed weight still resolves through the priced unit
     expect(lineReceived(line({ rawQty: null, totalQty: 41.025 }), bison).base).toBeCloseTo(41025)
+  })
+
+  it('a PRINTED rate is proof on its own — the derived unit price reconciling by case is a tautology', () => {
+    // Real line (Acecard sausage): 2 CS, unitPrice 116.435 = 232.87 ÷ 2 (derived by the scanner),
+    // rate $15.95/kg read off the page, billed 14.6 kg → 15.95 × 14.6 = 232.87.
+    const l = line({ rawQty: 2, rawUnit: 'CS', rawUnitPrice: 116.435, totalQty: 14.6, totalQtyUOM: 'kg', rate: 15.95, rateUOM: 'kg', rawLineTotal: 232.87, invoicePackQty: 1, invoicePackSize: 7, invoicePackUOM: 'kg' })
+    expect(billedWeightIsPriced(l)).toBe(true)
+    expect(lineReceived(l, sausage)).toEqual({ base: 14600, via: 'billed-weight', needsBridge: false })
+  })
+
+  it('a printed rate that does NOT reproduce the total proves nothing (Butter keeps its pack)', () => {
+    const l = line({ rawQty: 2, rawUnit: 'CS', rawUnitPrice: 172.79, totalQty: 2.86, totalQtyUOM: 'kg', rate: 7.61, rateUOM: 'kg', rawLineTotal: 345.58, invoicePackQty: 25, invoicePackSize: 454, invoicePackUOM: 'g' })
+    expect(billedWeightIsPriced(l)).toBe(false)
+    expect(lineReceived(l, butter).via).toBe('printed-pack')
   })
 
   it('a rate quoted per CASE (or any unit that is not a weight/volume) can never prove a billed weight', () => {
