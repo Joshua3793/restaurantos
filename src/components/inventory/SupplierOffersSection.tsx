@@ -5,8 +5,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Star } from 'lucide-react'
-import { formatCurrency, formatPricePerBase } from '@/lib/utils'
+import { formatPricePerBase } from '@/lib/utils'
 import type { SupplierOfferStats } from '@/lib/supplier-offers'
+import { offerPriceLabel, offerDerivation } from '@/lib/invoice/offer-copy'
 
 const STABILITY_BADGE: Record<NonNullable<SupplierOfferStats['stability']>, { label: string; cls: string }> = {
   stable:   { label: 'Stable',   cls: 'bg-green-soft text-green-text' },
@@ -30,7 +31,17 @@ function fmtPack(o: SupplierOfferStats): string {
 // $/base shown per kg/L for weight/volume bases so the numbers are readable.
 const fmtPpb = formatPricePerBase
 
-export function SupplierOffersSection({ itemId, baseUnit, onRepriced }: { itemId: string; baseUnit: string | null; onRepriced?: () => void }) {
+export function SupplierOffersSection({
+  itemId, baseUnit, eachMeasureQty, eachMeasureUnit, onRepriced,
+}: {
+  itemId: string
+  baseUnit: string | null
+  /** Count↔weight bridge (Prisma Decimal serialises as a string) — lets a $/lb
+   *  offer on an `each` item show its real derivation instead of just "$0". */
+  eachMeasureQty?: number | string | null
+  eachMeasureUnit?: string | null
+  onRepriced?: () => void
+}) {
   const [offers, setOffers] = useState<SupplierOfferStats[] | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -57,6 +68,7 @@ export function SupplierOffersSection({ itemId, baseUnit, onRepriced }: { itemId
   }
 
   if (!offers || offers.length === 0) return null
+  const item = { baseUnit, eachMeasureQty, eachMeasureUnit }
   const cheapest = Math.min(...offers.map(o => o.pricePerBaseUnit).filter(p => p > 0))
   const primaryOffer = offers.find(o => o.isPrimary)
   const cheaperThanPrimary =
@@ -71,6 +83,7 @@ export function SupplierOffersSection({ itemId, baseUnit, onRepriced }: { itemId
         {offers.map(o => {
           const isCheapest = offers.length > 1 && o.pricePerBaseUnit > 0 && o.pricePerBaseUnit === cheapest
           const badge = o.stability ? STABILITY_BADGE[o.stability] : null
+          const derivation = offerDerivation(o, item, o.pricePerBaseUnit)
           return (
             <div key={o.id} className={`flex items-center gap-3 px-3 py-2.5 ${isCheapest ? 'bg-green-soft/40' : 'bg-paper'}`}>
               <button
@@ -97,7 +110,12 @@ export function SupplierOffersSection({ itemId, baseUnit, onRepriced }: { itemId
                 <div className="font-mono text-[13px] font-semibold text-ink tabular-nums">
                   {fmtPpb(o.pricePerBaseUnit, baseUnit)}
                 </div>
-                <div className="font-mono text-[10.5px] text-ink-4">{formatCurrency(o.lastPrice)}/case{isCheapest ? ' · cheapest' : ''}</div>
+                <div className="font-mono text-[10.5px] text-ink-4">{offerPriceLabel(o)}{isCheapest ? ' · cheapest' : ''}</div>
+                {derivation && (
+                  <div className={`font-mono text-[10.5px] mt-0.5 ${derivation.startsWith('Unpriced') ? 'text-red-text' : 'text-ink-3'}`}>
+                    {derivation}
+                  </div>
+                )}
               </div>
             </div>
           )

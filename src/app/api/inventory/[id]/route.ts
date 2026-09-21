@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
-  DIMENSION_BASE, validateChainItem, withPpb, dimensionOf, type ChainItem,
+  DIMENSION_BASE, validateChainItem, withPpb, dimensionOf, eachMeasureOf, densityOf,
+  type ChainItem, type Pricing,
 } from '@/lib/item-model'
+import { keepBridgedRate } from '@/lib/item-model-form'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
@@ -45,23 +47,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const before = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
-    select: { id: true, allergens: true, mergedIntoId: true },
+    select: {
+      id: true, allergens: true, mergedIntoId: true,
+      dimension: true, pricing: true,
+      eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
+    },
   })
   if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   // A merge tombstone is off-limits to the ordinary edit path: an edit here can
   // set isActive true, which is exactly the state undo refuses to replay onto.
   if (tombstonedRows([before]).length)
     return NextResponse.json({ error: TOMBSTONE_EDIT_ERROR }, { status: 409 })
-
-  const ci: ChainItem = {
-    dimension,
-    baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
-    packChain,
-    pricing,
-    countUnit,
-  }
-  const errors = validateChainItem(ci)
-  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
   // ── Bridge fields ───────────────────────────────────────────────────────────
   // Both bridges are PATCH-shaped: a key that isn't in the body is left alone
@@ -79,6 +75,41 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   const emValid = emQty > 0 && !!emUnit && dimensionOf(emUnit) !== 'COUNT'
   const hasDensity = 'densityGPerMl' in body
+  const nextDensity = hasDensity
+    ? (Number(densityGPerMl) > 0 ? Number(densityGPerMl) : null)
+    : densityOf(before)
+
+  // Step 6: a bridged RATE (rateUnit in another dimension than the item, e.g.
+  // $/lb on an `each` item) can be loaded into the edit form untouched, but the
+  // form's rate-unit dropdown only offers units in the item's OWN dimension, so
+  // it can never faithfully redisplay it. If the incoming pricing looks like an
+  // unmodified round-trip (same mode + rate number — see keepBridgedRate), keep
+  // the stored pricing verbatim rather than let the dropdown silently swap in a
+  // same-dimension unit. A genuine price change always wins.
+  const storedPricing = before.pricing as Pricing | null
+  const finalPricing: Pricing =
+    dimension === before.dimension // a deliberate dimension change is always a deliberate re-price
+      && storedPricing?.mode === 'RATE'
+      && dimensionOf(storedPricing.rateUnit) !== before.dimension
+      && keepBridgedRate(storedPricing, pricing as Pricing)
+      ? storedPricing
+      : pricing
+
+  // The bridges passed to validateChainItem/ci are the EFFECTIVE ones this save
+  // will end up with (incoming when the payload sets them, else the stored
+  // values) — without them a genuinely bridged RATE 400s here even though it
+  // prices fine once saved (see rateIsCostable in item-model.ts).
+  const ci: ChainItem = {
+    dimension,
+    baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
+    packChain,
+    pricing: finalPricing,
+    countUnit,
+    eachMeasure: hasEachMeasure ? (emValid ? { qty: emQty, unit: emUnit } : null) : eachMeasureOf(before),
+    densityGPerMl: nextDensity,
+  }
+  const errors = validateChainItem(ci)
+  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
   await prisma.inventoryItem.update({
     where: { id: params.id },
@@ -86,7 +117,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       ...rest,
       dimension,
       packChain: packChain as any,
-      pricing: pricing as any,
+      pricing: finalPricing as any,
       countUnit,
       baseUnit: ci.baseUnit,
       needsReview: false,
@@ -105,9 +136,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       // Weight↔volume density bridge. Non-destructive: allows a measured invoice
       // in the other dimension to cost correctly without changing the item's
       // dimension, chain, or stock.
-      ...(hasDensity
-        ? { densityGPerMl: Number(densityGPerMl) > 0 ? Number(densityGPerMl) : null }
-        : {}),
+      ...(hasDensity ? { densityGPerMl: nextDensity } : {}),
     },
   })
 
