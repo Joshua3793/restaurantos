@@ -77,6 +77,39 @@ describe('resolveLineFormat', () => {
   })
 })
 
+describe('resolveLineFormat — implausible offer price', () => {
+  // Real row, 2026-09-20 backfill dry run: bison burger / Cleveland Meats was stored
+  // as $25 per GRAM (the item is $25/kg). Unit-less billed weights fell back to the
+  // offer's rate unit and 83 kg of deliveries read as 83 g.
+  const bison = asChainItem({
+    dimension: 'MASS', baseUnit: 'g',
+    packChain: [{ unit: 'each', per: 1 }, { unit: 'each', per: 1000 }],
+    pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' },
+  })
+  const corrupt = { packChain: bison.packChain, pricing: { mode: 'RATE', rate: 25, rateUnit: 'g' } }
+
+  it('an offer priced 1000x off the item keeps the ITEM pricing (chain still adopted)', () => {
+    const r = resolveLineFormat(bison, corrupt)
+    expect(r.pricing).toEqual(bison.pricing)
+    expect(r.packChain).toEqual(bison.packChain)
+  })
+
+  it('a unit-less billed weight is then read in the item rate unit, not grams', () => {
+    const line = { rawQty: 20.51, totalQty: 20.51, totalQtyUOM: null, rateUOM: null }
+    expect(lineReceivedBaseUnits(line, resolveLineFormat(bison, corrupt))).toBeCloseTo(20510)
+  })
+
+  it('a merely different price (4x) is still adopted — suppliers legitimately differ', () => {
+    const pricey = { packChain: bison.packChain, pricing: { mode: 'RATE', rate: 100, rateUnit: 'kg' } }
+    expect(resolveLineFormat(bison, pricey).pricing).toEqual(pricey.pricing)
+  })
+
+  it('an item with no usable price of its own cannot judge the offer, so the offer is adopted', () => {
+    const unpriced = { ...bison, pricing: { mode: 'RATE' as const, rate: 0, rateUnit: 'kg' } }
+    expect(resolveLineFormat(unpriced, corrupt).pricing).toEqual(corrupt.pricing)
+  })
+})
+
 describe('pickOffer', () => {
   const offers = [
     { supplierId: 'sup-a', supplierName: 'Sysco', packChain: [] },
