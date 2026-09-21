@@ -1,8 +1,9 @@
-// Row/manifest plumbing for the merge executor. PURE — no database, no
-// `server-only`: everything decidable without a connection lives here so it can
-// be unit-tested, because the executor itself (item-merge-exec.ts) cannot be.
+// Row/manifest plumbing for the merge executor AND the shapes its routes
+// accept. PURE — no database, no `server-only`: everything decidable without a
+// connection lives here so it can be unit-tested, because the executor itself
+// (item-merge-exec.ts) cannot be.
 //
-// Four jobs:
+// Jobs:
 //   1. toPlain / toPlainRow — a Prisma row → plain JSON (Decimal → number,
 //      Date → ISO string, no undefined). A manifest is stored in a Json column
 //      and replayed months later, so anything that can end up in an op's
@@ -13,6 +14,8 @@
 //   3. writeData — the `null` → `Prisma.DbNull` translation a nullable Json
 //      column needs, keyed by (table, column) rather than scattered at use.
 //   4. Op ordering + manifest re-reading.
+//   5. Request parsing (`parseCombinedOnHand`) and the row-id guard behind the
+//      one piece of literal SQL the executor issues (`lockItemsSql`).
 
 import { Prisma } from '@prisma/client'
 import type {
@@ -75,6 +78,73 @@ export const REPOINT_FK: Record<RepointTable, string> = {
   InventorySupplierPrice: 'inventoryItemId',
   StockAllocation:        'inventoryItemId',
   ItemRevenueCenter:      'inventoryItemId',
+}
+
+// ── 5. request parsing + the row-id guard ────────────────────────────────────
+
+export interface CombinedOnHand { countedQty: number; selectedUom: string; rcId: string }
+
+/**
+ * The merge request's optional `combinedOnHand`, parsed STRICTLY.
+ *
+ * `Number(null)`, `Number('')`, `Number([])` and `Number(false)` are all `0`, so
+ * a coercing parse would turn a malformed body into "the combined on-hand is
+ * zero" — recording a Quick Count that zeroes the item's stock and, because
+ * that count can never be inverted, permanently blocking the undo. Every field
+ * is therefore type-checked, never coerced.
+ *
+ * Absent (or `null`) means "no figure given" and is fine. Present but wrong is
+ * an error the route must surface as a 400 — never silently treated as absent,
+ * which would merge without the figure the person thought they had entered.
+ */
+export function parseCombinedOnHand(body: unknown):
+  | { ok: true; value: CombinedOnHand | null }
+  | { ok: false; error: string } {
+  const raw = (body as { combinedOnHand?: unknown } | null | undefined)?.combinedOnHand
+  if (raw == null) return { ok: true, value: null }
+  if (typeof raw !== 'object' || Array.isArray(raw))
+    return { ok: false, error: 'combinedOnHand must be an object { countedQty, selectedUom, rcId }' }
+
+  const { countedQty, selectedUom, rcId } = raw as Record<string, unknown>
+  if (typeof countedQty !== 'number' || !Number.isFinite(countedQty) || countedQty < 0)
+    return { ok: false, error: 'combinedOnHand.countedQty must be a non-negative number' }
+  if (typeof selectedUom !== 'string' || !selectedUom)
+    return { ok: false, error: 'combinedOnHand.selectedUom is required' }
+  if (typeof rcId !== 'string' || !rcId)
+    return { ok: false, error: 'combinedOnHand.rcId is required' }
+
+  return { ok: true, value: { countedQty, selectedUom, rcId } }
+}
+
+/** Every id this schema generates is a cuid or a uuid. Anything else has no
+ *  business being interpolated into SQL. */
+const SAFE_ROW_ID = /^[A-Za-z0-9_-]{1,64}$/
+export const isSafeRowId = (id: unknown): boolean => typeof id === 'string' && SAFE_ROW_ID.test(id)
+
+/**
+ * `SELECT … FOR UPDATE` over the two items a merge (or undo) touches, as
+ * LITERAL SQL for `$queryRawUnsafe`.
+ *
+ * Why raw at all: Prisma has no row-lock API, and the lock is what closes the
+ * last window — an INSERT that references one of these rows takes `FOR KEY
+ * SHARE` on it, which `FOR UPDATE` conflicts with, so anything trying to attach
+ * a row to either item serializes behind the merge instead of slipping in
+ * between the post-apply sweep and the commit. Why *Unsafe* and literal: this
+ * repo's `DATABASE_URL` is a transaction-mode pooler that does not support
+ * named prepared statements, so hand-built literal SQL is the sanctioned raw
+ * path here (see `toPgTextArray` in src/app/api/prep/settings/route.ts).
+ *
+ * Interpolation is safe only because every id is checked against
+ * {@link isSafeRowId} first — this THROWS rather than emit SQL it cannot vouch
+ * for. Ids are sorted (and de-duplicated) so two concurrent merges over the
+ * same pair, in opposite survivor/absorbed roles, take the two locks in the
+ * same order and cannot deadlock.
+ */
+export function lockItemsSql(ids: string[]): string {
+  const unique = [...new Set(ids)].sort()
+  if (unique.length === 0) throw new Error('lockItemsSql: no ids to lock')
+  for (const id of unique) if (!isSafeRowId(id)) throw new Error(`lockItemsSql: unsafe row id ${JSON.stringify(id)}`)
+  return `SELECT id FROM "InventoryItem" WHERE id IN (${unique.map(id => `'${id}'`).join(',')}) ORDER BY id FOR UPDATE`
 }
 
 /**
@@ -174,6 +244,17 @@ export type BatchedOp =
  *
  * A run of one is returned as the ORIGINAL op object — `before` (which undo
  * needs verbatim) is never rebuilt.
+ *
+ * One behavioural difference to know about: `updateMany` silently matches zero
+ * rows where a single `update` raises P2025. Acceptable for the two runs that
+ * actually occur. On a re-pointable table (allocation par/reorder clears, offer
+ * demotes) every batched id is also carried by a `repoint`, and the executor's
+ * post-apply sweep then proves nothing still references the absorbed item, so a
+ * vanished row cannot pass unnoticed. On `InventoryItem` the only run is the
+ * prior-absorbee `mergedIntoId` re-point; a row that vanished mid-merge took
+ * its whole tombstone chain with it, leaving nothing to strand. The two item
+ * rows the merge turns on are never batched (unique payloads) and are row-
+ * locked for the duration, so those still fail loudly.
  */
 export function batchUpdateOps(ops: MergeOp[]): BatchedOp[] {
   type Upd = Extract<MergeOp, { t: 'update' }>

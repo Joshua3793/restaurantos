@@ -3,7 +3,9 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { undoMerge } from '@/lib/item-merge-exec'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// Replays the manifest inside one transaction (30 s budget) after a pre-check
+// that re-reads three "since the merge" questions — 60 s left no headroom.
+export const maxDuration = 120
 
 // POST /api/inventory/merges/:id/undo → replay the manifest backwards.
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {

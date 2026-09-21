@@ -8,10 +8,11 @@ import {
   type MergeRelations, type MergeSummary, type SurvivorRelations, type UpdateTable,
 } from '@/lib/item-merge'
 import {
-  asCountEntries, batchUpdateOps, mergeOpOrder, parseManifest, recipeIngredientRepointIds,
-  repointTableChecks, REPOINT_FK, TABLE_DELEGATE, toPlainRow, undoOpOrder, writeData,
-  type BatchedOp,
+  asCountEntries, batchUpdateOps, lockItemsSql, mergeOpOrder, parseManifest,
+  recipeIngredientRepointIds, repointTableChecks, REPOINT_FK, TABLE_DELEGATE, toPlainRow,
+  undoOpOrder, writeData, type BatchedOp, type CombinedOnHand,
 } from '@/lib/item-merge-rows'
+import { assertCountableUom, countDimsOf, COUNT_DIMS_SELECT, CountUomError } from '@/lib/count-uom'
 
 /**
  * Plans a merge (with the PURE planner in src/lib/item-merge.ts), applies the
@@ -41,6 +42,30 @@ export class MergeConflictError extends Error {
     super(message)
     this.name = 'MergeConflictError'
   }
+}
+
+/** A request the caller can fix — a count unit this item cannot be counted in,
+ *  a revenue center that does not exist. Thrown from INSIDE the transaction so
+ *  nothing is written; routes map it to 400. */
+export class MergeInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MergeInputError'
+  }
+}
+
+/** Take the two item rows' write locks FIRST, in a fixed order.
+ *
+ *  An INSERT or UPDATE that references either row takes `FOR KEY SHARE` on it,
+ *  which conflicts with `FOR UPDATE` — so from here until COMMIT, nothing else
+ *  can attach a row to either item; it waits. That is what closes the window
+ *  between the post-apply sweep and the commit (the sweep stays, for the rows
+ *  that were already committed when the plan loaded). Literal SQL via
+ *  `$queryRawUnsafe` because a transaction-mode pooler has no named prepared
+ *  statements, and every id is guarded by `isSafeRowId` inside `lockItemsSql`.
+ */
+async function lockItems(tx: Prisma.TransactionClient, ids: string[]): Promise<void> {
+  await tx.$queryRawUnsafe(lockItemsSql(ids))
 }
 
 /**
@@ -81,6 +106,10 @@ export async function loadTheoreticalOnHand(survivorId: string, absorbedId: stri
 }
 
 export interface MergeOnHand { survivor: number; absorbed: number }
+
+export interface MergeInputs {
+  survivor: MergeItemRow; absorbed: MergeItemRow; rel: MergeRelations; sRel: SurvivorRelations
+}
 
 async function itemRow(db: MergeDb, id: string, theoreticalOnHand: number): Promise<MergeItemRow | null> {
   const r = await db.inventoryItem.findUnique({
@@ -128,17 +157,20 @@ async function itemRow(db: MergeDb, id: string, theoreticalOnHand: number): Prom
  *
  * `db` is the transaction client for a real merge (so the plan and the writes
  * see ONE snapshot of the relations) and the plain singleton for a dry run.
- * `onHand` comes from {@link loadTheoreticalOnHand}; omitted, it is fetched here
- * — which is right for a dry run and wrong inside a transaction.
+ *
+ * The overloads make the dangerous call unrepresentable: pass a transaction
+ * client and you MUST also pass the `onHand` computed before it opened, because
+ * fetching it here would reach for the global singleton — a second pooled
+ * connection held while the transaction owns the first.
  */
+export async function loadMergeInputs(survivorId: string, absorbedId: string): Promise<MergeInputs | null>
+export async function loadMergeInputs(survivorId: string, absorbedId: string, tx: MergeDb, onHand: MergeOnHand): Promise<MergeInputs | null>
 export async function loadMergeInputs(
   survivorId: string,
   absorbedId: string,
   db: MergeDb = prisma,
   onHand?: MergeOnHand,
-): Promise<{
-  survivor: MergeItemRow; absorbed: MergeItemRow; rel: MergeRelations; sRel: SurvivorRelations
-} | null> {
+): Promise<MergeInputs | null> {
   // SEQUENTIAL, not Promise.all: `db` is an interactive transaction client on
   // the merge path, which is ONE connection, and no site in this repo has ever
   // issued concurrent queries on one. The extra round trips are noise next to
@@ -331,6 +363,26 @@ async function assertNothingLeftOnAbsorbed(tx: Prisma.TransactionClient, absorbe
   }
 }
 
+/**
+ * Would the combined-on-hand Quick Count succeed? Run inside the merge
+ * transaction, before any write, using the same two functions
+ * `recordQuickCount` itself uses — `assertCountableUom` over `countDimsOf`, and
+ * the revenue center's existence (a quick count must name a real RC).
+ */
+async function assertQuickCountable(
+  tx: Prisma.TransactionClient, survivorId: string, onHand: CombinedOnHand,
+): Promise<void> {
+  const item = await tx.inventoryItem.findUnique({ where: { id: survivorId }, select: COUNT_DIMS_SELECT })
+  if (!item) throw new MergeInputError('Item not found')
+  try { assertCountableUom(onHand.selectedUom, countDimsOf(item)) }
+  catch (e) {
+    if (e instanceof CountUomError) throw new MergeInputError(e.message)
+    throw e
+  }
+  const rc = await tx.revenueCenter.findUnique({ where: { id: onHand.rcId }, select: { id: true } })
+  if (!rc) throw new MergeInputError('That revenue center does not exist.')
+}
+
 export type MergeOutcome =
   | { ok: true; mergeId: string; summary: MergeSummary }
   | { ok: false; kind: 'not_found' }
@@ -361,23 +413,34 @@ export type MergeOutcome =
 export async function planAndExecuteMerge(a: {
   survivorId: string
   absorbedId: string
-  combinedOnHandProvided: boolean
+  /** The figure the person typed, already strictly parsed by
+   *  `parseCombinedOnHand`; null when they gave none. */
+  combinedOnHand: CombinedOnHand | null
   onHand: MergeOnHand
   mergedBy: string
   newId: () => string
 }): Promise<MergeOutcome> {
   try {
     return await prisma.$transaction(async (tx): Promise<MergeOutcome> => {
+      // FIRST statement in the transaction: nothing else may attach a row to
+      // either item until this commits.
+      await lockItems(tx, [a.survivorId, a.absorbedId])
       await assertStillMergeable(tx, a.survivorId, a.absorbedId)
 
       const inputs = await loadMergeInputs(a.survivorId, a.absorbedId, tx, a.onHand)
       if (!inputs) return { ok: false, kind: 'not_found' }
 
       const plan = planMerge(inputs.survivor, inputs.absorbed, inputs.rel, inputs.sRel, {
-        combinedOnHandProvided: a.combinedOnHandProvided,
+        combinedOnHandProvided: !!a.combinedOnHand,
         newId: a.newId,
       })
       if (!plan.ok) return { ok: false, kind: 'guard', plan }
+
+      // Before a single write: prove the Quick Count that follows this
+      // transaction CAN be recorded. A bad unit or a missing revenue center is
+      // then a clean 400 with nothing changed, instead of a merge that lands
+      // and a "Merged, but the on-hand count failed" the person has to chase.
+      if (a.combinedOnHand) await assertQuickCountable(tx, a.survivorId, a.combinedOnHand)
 
       await applyOps(tx, mergeOpOrder(plan.manifest.ops), a.survivorId)
       await assertNothingLeftOnAbsorbed(tx, a.absorbedId)
@@ -414,33 +477,36 @@ export interface UndoableMerge {
  * while nothing NEW hangs off the survivor through a relationship the merge
  * re-pointed — and only while the absorbed row is still the tombstone the merge
  * made it.
+ *
+ * `db` decides WHEN the question is being asked. The GET listing and the cheap
+ * pre-check pass the singleton; the undo transaction passes its own client and
+ * asks again, because otherwise all three "since the merge" checks are read
+ * outside the transaction that acts on them — an invoice approved, a count
+ * finalized or a recipe edited in between would be missed entirely.
  */
-export async function undoBlocker(merge: UndoableMerge): Promise<string | null> {
+export async function undoBlocker(db: MergeDb, merge: UndoableMerge): Promise<string | null> {
   const since = { gte: merge.mergedAt }
   const manifest = parseManifest(merge.manifest)
   if (!manifest) return 'This merge’s record cannot be read, so it cannot be reversed.'
 
   const recipeLineIds = recipeIngredientRepointIds(manifest)
-  // The singleton on purpose: this runs BEFORE (and outside) the undo
-  // transaction, and the route also calls it per row when listing merges.
-  const [inv, cnt, rec, absorbed] = await Promise.all([
-    prisma.invoiceScanItem.count({
-      where: { matchedItemId: merge.survivorId, approved: true, session: { approvedAt: since } },
-    }),
-    prisma.countLine.count({
-      where: { inventoryItemId: merge.survivorId, session: { finalizedAt: since } },
-    }),
-    recipeLineIds.length === 0 ? Promise.resolve(0) : prisma.recipe.count({
-      where: {
-        updatedAt: since,
-        ingredients: { some: { id: { in: recipeLineIds }, inventoryItemId: merge.survivorId } },
-      },
-    }),
-    prisma.inventoryItem.findUnique({
-      where: { id: merge.absorbedId },
-      select: { isActive: true, mergedIntoId: true },
-    }),
-  ])
+  // Sequential: `db` may be an interactive transaction client (one connection).
+  const inv = await db.invoiceScanItem.count({
+    where: { matchedItemId: merge.survivorId, approved: true, session: { approvedAt: since } },
+  })
+  const cnt = await db.countLine.count({
+    where: { inventoryItemId: merge.survivorId, session: { finalizedAt: since } },
+  })
+  const rec = recipeLineIds.length === 0 ? 0 : await db.recipe.count({
+    where: {
+      updatedAt: since,
+      ingredients: { some: { id: { in: recipeLineIds }, inventoryItemId: merge.survivorId } },
+    },
+  })
+  const absorbed = await db.inventoryItem.findUnique({
+    where: { id: merge.absorbedId },
+    select: { isActive: true, mergedIntoId: true },
+  })
 
   // The combined-on-hand Quick Count the merge route records is NOT in the
   // manifest and cannot be inverted — this is the check that catches it.
@@ -466,11 +532,16 @@ export async function undoMerge(mergeId: string): Promise<{ ok: true } | { ok: f
   const manifest = parseManifest(merge.manifest)
   if (!manifest) return { ok: false, status: 409, error: 'Undo is no longer safe: this merge’s record cannot be read.' }
 
-  const blocker = await undoBlocker(merge)
+  // Cheap pre-check on the singleton, for a fast 409 without opening anything.
+  const blocker = await undoBlocker(prisma, merge)
   if (blocker) return { ok: false, status: 409, error: `Undo is no longer safe: ${blocker}` }
 
   try {
     await prisma.$transaction(async tx => {
+      // FIRST statement, same as the merge: lock both item rows so nothing can
+      // attach to either while this replays the manifest.
+      await lockItems(tx, [manifest.survivorId, manifest.absorbedId])
+
       // Same re-read-inside-the-transaction guard the merge uses: two managers
       // clicking Undo at once must not replay the manifest twice.
       const fresh = await tx.itemMerge.findUnique({ where: { id: mergeId }, select: { undoneAt: true } })
@@ -481,6 +552,12 @@ export async function undoMerge(mergeId: string): Promise<{ ok: true } | { ok: f
       })
       if (!absorbed || absorbed.mergedIntoId !== manifest.survivorId || absorbed.isActive)
         throw new MergeConflictError('The absorbed item is no longer the tombstone this merge left behind.')
+
+      // …and ask the three "since the merge" questions AGAIN, now inside the
+      // transaction that is about to act on the answers. The pre-check above
+      // was read on another connection, before this one even opened.
+      const blockedNow = await undoBlocker(tx, merge)
+      if (blockedNow) throw new MergeConflictError(blockedNow)
 
       await applyOps(tx, undoOpOrder(planUndo(manifest)), manifest.absorbedId)
       await tx.itemMerge.update({ where: { id: mergeId }, data: { undoneAt: new Date() } })

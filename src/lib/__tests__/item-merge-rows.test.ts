@@ -4,6 +4,7 @@ import {
   toPlain, toPlainRow, REPOINT_FK, TABLE_DELEGATE, NULLABLE_JSON_COLUMNS,
   writeData, mergeOpOrder, undoOpOrder, parseManifest, recipeIngredientRepointIds, asCountEntries,
   repointTableChecks, batchUpdateOps, type BatchedOp,
+  parseCombinedOnHand, isSafeRowId, lockItemsSql,
 } from '../item-merge-rows'
 import type { MergeManifest, MergeOp, UpdateTable } from '../item-merge'
 
@@ -166,6 +167,94 @@ describe('op ordering', () => {
     expect(mergeOpOrder(ops)).toHaveLength(ops.length)
     expect(undoOpOrder(ops)).toHaveLength(ops.length)
     expect(mergeOpOrder(ops)).not.toBe(ops)
+  })
+})
+
+describe('parseCombinedOnHand', () => {
+  const ok = (v: unknown) => parseCombinedOnHand({ combinedOnHand: v })
+
+  it('reads a valid figure', () => {
+    expect(ok({ countedQty: 12.5, selectedUom: 'each', rcId: 'rc1' }))
+      .toEqual({ ok: true, value: { countedQty: 12.5, selectedUom: 'each', rcId: 'rc1' } })
+  })
+
+  it('accepts a real zero', () => {
+    expect(ok({ countedQty: 0, selectedUom: 'g', rcId: 'rc1' }))
+      .toEqual({ ok: true, value: { countedQty: 0, selectedUom: 'g', rcId: 'rc1' } })
+  })
+
+  it('reads an absent field as "no figure given"', () => {
+    expect(parseCombinedOnHand({})).toEqual({ ok: true, value: null })
+    expect(parseCombinedOnHand({ combinedOnHand: undefined })).toEqual({ ok: true, value: null })
+    expect(parseCombinedOnHand(null)).toEqual({ ok: true, value: null })
+    expect(parseCombinedOnHand({ combinedOnHand: null })).toEqual({ ok: true, value: null })
+  })
+
+  // Number(null) === 0, Number('') === 0, Number([]) === 0, Number(false) === 0.
+  // Coercing any of those would record an un-undoable count that ZEROES the
+  // item's stock from a malformed body — each must be a loud 400 instead.
+  it.each([null, '', [], false, '5', '0', {}, true])('refuses a non-number countedQty: %o', v => {
+    const r = ok({ countedQty: v, selectedUom: 'each', rcId: 'rc1' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/countedQty/)
+  })
+
+  it.each([-1, NaN, Infinity, -Infinity])('refuses a negative or non-finite countedQty: %o', v => {
+    expect(ok({ countedQty: v, selectedUom: 'each', rcId: 'rc1' }).ok).toBe(false)
+  })
+
+  it('refuses a missing or empty unit', () => {
+    expect(ok({ countedQty: 1, selectedUom: '', rcId: 'rc1' }).ok).toBe(false)
+    expect(ok({ countedQty: 1, rcId: 'rc1' }).ok).toBe(false)
+    expect(ok({ countedQty: 1, selectedUom: 2, rcId: 'rc1' }).ok).toBe(false)
+  })
+
+  it('refuses a missing or empty revenue center', () => {
+    expect(ok({ countedQty: 1, selectedUom: 'each', rcId: '' }).ok).toBe(false)
+    expect(ok({ countedQty: 1, selectedUom: 'each' }).ok).toBe(false)
+  })
+
+  it('refuses a combinedOnHand that is present but not an object', () => {
+    expect(ok('12').ok).toBe(false)
+    expect(ok(12).ok).toBe(false)
+    expect(ok([]).ok).toBe(false)
+  })
+})
+
+describe('isSafeRowId / lockItemsSql', () => {
+  it('accepts the id shapes this schema generates (cuid, uuid)', () => {
+    expect(isSafeRowId('cmq8qulra0001we99ipbjw2bl')).toBe(true)
+    expect(isSafeRowId('ce4f1a1e-364e-54ac-3ad3-3acc00000001')).toBe(true)
+    expect(isSafeRowId('a_b-C9')).toBe(true)
+  })
+
+  it('rejects anything that could leave the identifier', () => {
+    for (const bad of ["a'b", 'a b', 'a;DROP', 'a)', '', 'a'.repeat(65), 'é', 'a\nb', 'a/b', 'a\\b', 'a--b '])
+      expect(isSafeRowId(bad), bad).toBe(false)
+    expect(isSafeRowId(undefined)).toBe(false)
+    expect(isSafeRowId(123)).toBe(false)
+    // A bare `--` IS allowed by the charset, and harmlessly so: it can only ever
+    // appear INSIDE a single-quoted literal, where a comment marker is inert,
+    // and the charset excludes the quote and backslash needed to escape one.
+    expect(isSafeRowId('--')).toBe(true)
+  })
+
+  it('builds a literal FOR UPDATE with the ids sorted', () => {
+    expect(lockItemsSql(['b2', 'a1']))
+      .toBe(`SELECT id FROM "InventoryItem" WHERE id IN ('a1','b2') ORDER BY id FOR UPDATE`)
+  })
+
+  it('sorts identically whichever way round the pair is given (no deadlock)', () => {
+    expect(lockItemsSql(['b2', 'a1'])).toBe(lockItemsSql(['a1', 'b2']))
+  })
+
+  it('de-duplicates', () => {
+    expect(lockItemsSql(['a1', 'a1'])).toBe(`SELECT id FROM "InventoryItem" WHERE id IN ('a1') ORDER BY id FOR UPDATE`)
+  })
+
+  it('throws rather than interpolate an id it cannot vouch for', () => {
+    expect(() => lockItemsSql(['ok1', "bad'id"])).toThrow(/unsafe row id/i)
+    expect(() => lockItemsSql([])).toThrow(/no ids/i)
   })
 })
 
