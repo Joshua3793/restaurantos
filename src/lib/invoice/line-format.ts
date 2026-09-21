@@ -37,21 +37,19 @@ export function pickOffer<T extends OfferFormat>(offers: T[] | null | undefined,
 
 /**
  * The ChainItem a line should be received/priced through: the supplier offer's
- * chain + pricing when it has a usable one, else the item unchanged. The chain
- * must have finite per values; the price must be a finite number > 0, else it
- * falls back to the item's pricing. Base unit and bridges always stay the item's.
+ * chain when it has a usable one (else the item unchanged), and the offer's pricing
+ * only when its price is a finite number > 0 (else the item's pricing — never a
+ * silent $0). Base unit and bridges always stay the item's.
  * (A pack PRINTED on the line still wins — that rule lives inside lineReceivedBaseUnits.)
  */
 export function resolveLineFormat(item: ChainItem, offer: OfferFormat | null | undefined): ChainItem {
   const chain = Array.isArray(offer?.packChain) ? (offer!.packChain as PackLink[]) : []
   if (chain.length === 0 || !(basePerPurchase(chain) > 0)) return item
-  // Verify all per values are finite numbers
-  if (!chain.every(link => Number.isFinite(Number(link.per)))) return item
 
   const p = offer?.pricing as Pricing | null | undefined
-  const packPriceOk = p?.mode === 'PACK' && Number.isFinite(Number(p.purchasePrice)) && Number(p.purchasePrice) > 0
-  const ratePriceOk = Number.isFinite(Number(p?.rate)) && Number(p?.rate) > 0
-  const rateOk = p?.mode === 'RATE' && !!p.rateUnit && dimensionOf(p.rateUnit) === item.dimension && ratePriceOk
-  const pricing: Pricing = packPriceOk || rateOk ? (p as Pricing) : item.pricing
+  const usable = (v: unknown) => Number.isFinite(Number(v)) && Number(v) > 0
+  const packOk = p?.mode === 'PACK' && usable(p.purchasePrice)
+  const rateOk = p?.mode === 'RATE' && usable(p.rate) && !!p.rateUnit && dimensionOf(p.rateUnit) === item.dimension
+  const pricing: Pricing = packOk || rateOk ? (p as Pricing) : item.pricing
   return { ...item, packChain: chain, pricing }
 }
