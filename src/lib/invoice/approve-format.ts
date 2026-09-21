@@ -42,7 +42,7 @@ export function rateCrossesItemDimension(rateUnit: string | null | undefined, it
 }
 
 /** A weight/volume unit the canonical table knows — never a count or container. */
-function isMeasureUnit(u: string | null | undefined): boolean {
+export function isMeasureUnit(u: string | null | undefined): boolean {
   if (!u || !u.trim()) return false
   const f = UNIT_FACTORS[canonicalUom(u)]
   return !!f && f.dim !== 'count'
@@ -129,7 +129,7 @@ export function weightBasisRate(a: {
   item: Pick<ChainItem, 'dimension' | 'baseUnit' | 'eachMeasure' | 'densityGPerMl'>
   /** What the caller would otherwise write. */
   fallback: number
-}): { rate: number; source: 'printed' | 'reconciled' | 'derived' | 'fallback' } {
+}): { rate: number; source: 'printed' | 'reconciled' | 'derived' | 'fallback' | 'refused' } {
   // $/base for a rate of exactly 1 per rateUnit == 1 ÷ (base units in one
   // rateUnit) — the spine's own bridge, so the quantity below is expressed
   // exactly as `ratePerBase` will read it back.
@@ -141,11 +141,18 @@ export function weightBasisRate(a: {
   const derived = qtyInRateUnit > 0 && total > 0 ? total / qtyInRateUnit : 0
 
   if (Number.isFinite(printed) && printed > 0) {
-    if (isMeasureUnit(a.rateUOM)) return { rate: printed, source: 'printed' }
+    // Printed per a measure unit — but only the unit the rate will be STORED per.
+    // ('LBS' resolved to a stored 'g' would otherwise write $3.49 per gram.)
+    if (isMeasureUnit(a.rateUOM) && canonicalUom(a.rateUOM!) === canonicalUom(a.rateUnit))
+      return { rate: printed, source: 'printed' }
     if (!a.rateUOM?.trim() && derived > 0 && moneyAgrees(printed * qtyInRateUnit, total))
       return { rate: printed, source: 'reconciled' }
   }
   if (derived > 0) return { rate: derived, source: 'derived' }
+  // A rate printed per a CONTAINER ('CS') with no line total to derive from: the
+  // caller's value is that per-case price, and writing it per pound is a known-
+  // wrong denomination. 0 = unpriced — the approve's zero-price guard skips it.
+  if (a.rateUOM?.trim() && !isMeasureUnit(a.rateUOM)) return { rate: 0, source: 'refused' }
   return { rate: a.fallback, source: 'fallback' }
 }
 

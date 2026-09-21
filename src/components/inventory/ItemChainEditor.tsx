@@ -265,7 +265,7 @@ export function PricingEditor({ dimension, pricing, onChange }: {
             >
               {/* a by-weight rate on an each-item (priced through its each-measure) is outside
                   DIM_UNITS — keep it as an option so the select shows what is stored */}
-              {!DIM_UNITS[dimension].includes(pricing.rateUnit) && <option key={pricing.rateUnit}>{pricing.rateUnit}</option>}
+              {pricing.rateUnit && !DIM_UNITS[dimension].includes(pricing.rateUnit) && <option key={pricing.rateUnit}>{pricing.rateUnit}</option>}
               {DIM_UNITS[dimension].map(u => <option key={u}>{u}</option>)}
             </select>
           </div>

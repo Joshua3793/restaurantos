@@ -13,7 +13,7 @@ import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/line-format'
-import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate } from '@/lib/invoice/approve-format'
+import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
 import { lookupDensity } from '@/lib/density'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -301,8 +301,9 @@ async function doApprove(
           // unit — the scan line's rateUOM — not the physical pack unit. A
           // catch-weight item packed in pieces has packUOM='each' (conv 1),
           // which left the rate unconverted and inflated cost 1000×.
-          const WV = ['g', 'mg', 'kg', 'lb', 'oz', 'ml', 'cl', 'dl', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
-          const wv = (u: string | null | undefined) => !!u && WV.includes(u.toLowerCase())
+          // Canonical test ('LBS', 'pounds', '#' are all lb) — the same one
+          // `weightBasisRate` and the receiving rule use, so they cannot disagree.
+          const wv = (u: string | null | undefined) => isMeasureUnit(u)
           // Fallback when the line carries no usable rateUOM: on a line RECEIVED by
           // weight, the unit the RECEIPT was read in (totalQtyUOM, then the shipped
           // unit) — that is the denominator the money invariant needs, since
