@@ -4,6 +4,21 @@
 
 import { type ChainItem, type PackLink, type Pricing, basePerPurchase, pricePerBaseUnit } from '@/lib/item-model'
 import type { OfferFormat } from '@/lib/invoice/line-format'
+import type { ReceivedVia } from '@/lib/invoice/line-qty'
+
+/**
+ * Price a line by WEIGHT or by CASE? It follows how the line was RECEIVED, which
+ * line-first receiving has already decided with proof (the line's own money):
+ *  • received by weight (`billed-weight` / `shipped-unit`) → WEIGHT, whatever the
+ *    item is. Quantity × price then equals the line total by construction.
+ *  • otherwise the old rule: a per-weight line → WEIGHT, EXCEPT on an item with an
+ *    each-measure, where a printed weight is the SIZE of one each (Brioche
+ *    "8 × 1100 g" per case), not the quantity sold → CASE.
+ */
+export function pricingBasisFor(a: { via: ReceivedVia; ocrPerWeight: boolean; itemHasEachMeasure: boolean }): 'WEIGHT' | 'CASE' {
+  if (a.via === 'billed-weight' || a.via === 'shipped-unit') return 'WEIGHT'
+  return a.ocrPerWeight && !a.itemHasEachMeasure ? 'WEIGHT' : 'CASE'
+}
 
 /**
  * What an invoice line's PRINTED pack should be checked against at approve.

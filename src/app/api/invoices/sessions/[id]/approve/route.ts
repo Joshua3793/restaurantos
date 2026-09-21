@@ -10,13 +10,11 @@ import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
-import { dimensionOf, pricePerBaseUnit, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
-import { dimensionallyCostable } from '@/lib/uom'
-import { lineReceivedCountQty, lineReceivedBaseUnits, type LineQtyInput } from '@/lib/invoice/line-qty'
+import { dimensionOf, pricePerBaseUnit, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
+import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/line-format'
-import { packReference, casePricePerBase, freezeFormat } from '@/lib/invoice/approve-format'
+import { packReference, casePricePerBase, freezeFormat, pricingBasisFor } from '@/lib/invoice/approve-format'
 import { lookupDensity } from '@/lib/density'
-import { densityCrossedPpb } from '@/lib/invoice/density-bridge'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
@@ -206,20 +204,38 @@ async function doApprove(
         })
         const speaks = resolveLineFormat(itemAsChain, lineOffer)
 
+        // How the line was RECEIVED decides how it is PRICED (pricingBasisFor).
+        const received = lineReceived(lineQtyOf(scanItem), speaks)
+        const pricedByWeight = received.via === 'billed-weight' || received.via === 'shipped-unit'
+
         // The line's pricing mode comes straight from the OCR (per_case /
         // per_weight). per_weight → RATE pricing, otherwise PACK. There is no
         // "mode mismatch" to resolve — the offer's mode is authoritative.
         //
-        // A bridged COUNT item is ALWAYS a count purchase — the printed weight
-        // (e.g. Brioche "8×1100g") is the per-each size, not a $/weight billing
-        // rate. Route it through the PACK/CASE path so ppb derives as $/each from
-        // the item's OWN count chain (case price ÷ units per case), exactly like
-        // any other count item. Without this, the 'g' packUOM mis-classifies the
-        // line as per_weight and the dimension guard skips it.
+        // …except that on an item with an each-measure, "the line prints a weight"
+        // does not say which of TWO things the weight is, and the two need opposite
+        // prices:
+        //   • Brioche, `1 CS` whose pack prints "8 × 1100 g": the weight is the SIZE
+        //     of one each. The price is a CASE price, and ppb is $/case ÷ each per
+        //     case, off the item's own count chain — like any other count item.
+        //   • Eggplant, `12 lb @ $3.49/lb`: the weight is the QUANTITY SOLD. $3.49 is
+        //     a rate; dividing it by 24 each per case priced an eggplant at $0.145
+        //     instead of $3.49 × 0.4 lb = $1.396 — ~10× low, and it used to hide
+        //     behind an equally wrong quantity.
+        // Line-first receiving already tells them apart, from the line's own money
+        // (`billedWeightIsPriced`): Brioche arrives via `printed-pack`, eggplant via
+        // `billed-weight` / `shipped-unit`. So ask it rather than assuming — that is
+        // the whole of pricingBasisFor, and it keeps `received quantity × price =
+        // line total` true by construction. The old rule ("a bridged COUNT item is
+        // ALWAYS a count purchase") lives on inside it as the non-weight branch.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const itemBridge = eachMeasureOf(item as any)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const isUomMode = derivePricingMode(scanItem as any) === 'per_weight' && !itemBridge
+        const isUomMode = pricingBasisFor({
+          via: received.via,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ocrPerWeight: derivePricingMode(scanItem as any) === 'per_weight',
+          itemHasEachMeasure: !!itemBridge,
+        }) === 'WEIGHT'
 
         // ── Reverse bridge: a MEASURED item receiving a COUNT line ───────────
         // Mirror of the forward bridge. The line is priced/shipped by count
@@ -243,8 +259,16 @@ async function doApprove(
         // approving it later still wrote the bad value. rawUnitPrice (per-case
         // printed price) and rate ($/kg) are the reliable source and are exactly
         // what the drawer edits, so user corrections are honored.
+        //
+        // On a line RECEIVED by weight the rate is not always printed in its own
+        // column: `12 lb @ $3.49` can carry $3.49 only as rawUnitPrice (OCR derives
+        // that field as lineTotal ÷ qtyShipped, which on a weight-shipped line IS
+        // the $/weight rate). Prefer it over the stored newPrice there, for the
+        // same reason the CASE path already does.
         const newPurchasePrice = isUomMode
-          ? (scanItem.rate != null ? Number(scanItem.rate) : Number(scanItem.newPrice))
+          ? (scanItem.rate != null ? Number(scanItem.rate)
+            : (pricedByWeight && scanItem.rawUnitPrice != null) ? Number(scanItem.rawUnitPrice)
+            : Number(scanItem.newPrice))
           : (scanItem.rawUnitPrice != null ? Number(scanItem.rawUnitPrice) : Number(scanItem.newPrice))
 
         let newPricePerBase: number
@@ -260,6 +284,11 @@ async function doApprove(
         // This 'kg' default is ONLY meaningful inside the isUomMode branch (the
         // density-cross check reads it there); do not rely on it outside that branch.
         let resolvedRateUnit = 'kg'
+        // The item as the RATE must be read against: its own bridges, plus the
+        // density this block resolves (below) when the rate crosses weight↔volume.
+        // Shared with the dimension guard so the price and the check can never
+        // disagree about whether this rate is costable at all.
+        let itemForRate = itemAsChain
         if (isUomMode) {
           // newPurchasePrice is a rate ($/kg, $/lb…). Divide by the RATE's OWN
           // unit — the scan line's rateUOM — not the physical pack unit. A
@@ -267,14 +296,17 @@ async function doApprove(
           // which left the rate unconverted and inflated cost 1000×.
           const WV = ['g', 'mg', 'kg', 'lb', 'oz', 'ml', 'cl', 'dl', 'l', 'lt', 'fl oz', 'tsp', 'tbsp', 'cup', 'gal']
           const wv = (u: string | null | undefined) => !!u && WV.includes(u.toLowerCase())
-          // Fallback when the line carries no usable rateUOM: the item's own
+          // Fallback when the line carries no usable rateUOM: on a line RECEIVED by
+          // weight, the unit the RECEIPT was read in (totalQtyUOM, then the shipped
+          // unit) — that is the denominator the money invariant needs, since
+          // `received.base` came from exactly that unit. Only then the item's own
           // base unit (a measured base IS the rate denominator for a UOM item).
           const rateUnit = wv(scanItem.rateUOM) ? scanItem.rateUOM!
+            : (pricedByWeight && wv(scanItem.totalQtyUOM)) ? scanItem.totalQtyUOM!
+            : (pricedByWeight && wv(scanItem.rawUnit)) ? scanItem.rawUnit!
             : wv(item.baseUnit) ? item.baseUnit!
             : 'kg'
           resolvedRateUnit = rateUnit
-          const uomConv = getUnitConv(rateUnit)
-          newPricePerBase = uomConv > 0 ? newPurchasePrice / uomConv : 0
           // ── Weight↔volume density bridge ────────────────────────────────────
           // A measured rate ($/kg) on an item whose base is the OTHER measured
           // dimension ($/ml) must cross via density (g/ml), not the silent 1:1.
@@ -291,8 +323,14 @@ async function doApprove(
             density = (learned && learned > 0)
               ? learned
               : lookupDensity(item.itemName ?? scanItem.rawDescription ?? '').gPerMl
-            newPricePerBase = densityCrossedPpb(newPricePerBase, rateDim, baseDim, density)
+            itemForRate = { ...itemAsChain, densityGPerMl: density }
           }
+          // ONE formula for $/rateUnit → $/base (item-model's `ratePerBase`): the
+          // same-dimension divide, the each-measure bridge that prices $3.49/lb as
+          // $1.396/each, and the density cross — so the spine, the offer and every
+          // reader derive this number identically. 0 means "unpriced" and is caught
+          // by the guards below; it is never `rate ÷ conv` wearing the wrong label.
+          newPricePerBase = ratePerBase(newPurchasePrice, resolvedRateUnit, itemForRate)
         } else if (reverseBridge && reverseBasePerCase > 0) {
           // Reverse bridge: $/case ÷ (units-per-case × base-per-each) = $/base.
           newPricePerBase = newPurchasePrice / reverseBasePerCase
@@ -393,10 +431,14 @@ async function doApprove(
         // every recipe/count that reads the spine. Skip the price write instead.
         // CASE mode is dimension-agnostic (a case price resolves via the item's
         // own pack structure), so it can never conflict — only UOM/rate mode is
-        // checked here. Weight↔volume is tolerated (density≈1); the genuine
-        // catastrophe is a $/kg (or $/L) rate landing on a COUNT/each item.
+        // checked here. Weight↔volume is tolerated (the density resolved above is
+        // on itemForRate, ≈1 at worst); the genuine catastrophe is a $/kg (or $/L)
+        // rate landing on a COUNT/each item with NO each-measure to bridge it.
+        // `rateIsCostable` is the very predicate `ratePerBase` priced through, so a
+        // rate this guard lets past can never price as 0 for a bridge reason — and
+        // a COUNT item WITH an each-measure now passes, which is the point.
         if (isUomMode && item.baseUnit &&
-            !dimensionallyCostable(resolvedRateUnit, item.baseUnit)) {
+            !rateIsCostable(resolvedRateUnit, itemForRate)) {
           console.error(
             `[approve] Skipping price write for "${scanItem.rawDescription}" — ` +
             `rate unit '${resolvedRateUnit}' (${dimensionOf(resolvedRateUnit)}) ` +
@@ -435,13 +477,13 @@ async function doApprove(
         // over the ITEM's chain, while newPricePerBase may sit on this supplier's
         // offer chain (see casePricePerBase / spineNewPpb above). Quoting the
         // offer's ppb next to the item's oldPpb would state a % the item never moved.
-        const oldPpb = pricePerBaseUnit({
-          dimension: item.dimension as 'MASS' | 'VOLUME' | 'COUNT',
-          baseUnit: item.baseUnit ?? 'each',
-          packChain: (item.packChain as PackLink[]) ?? [],
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          pricing: item.pricing as any,
-        })
+        //
+        // Read through `itemAsChain`, never a hand-built ChainItem: that one
+        // carried no BRIDGES, and an item whose own pricing is a bridged RATE
+        // (`$3.49/lb` on an item counted in `each` — what this route can now write)
+        // would read 0 there. An oldPpb of 0 silently suppresses the PriceAlert and
+        // reports a 0 % change on a price that moved.
+        const oldPpb = pricePerBaseUnit(itemAsChain)
         const writtenPpb = spineNewPpb ?? newPricePerBase
         const changePct = oldPpb > 0 ? ((writtenPpb - oldPpb) / oldPpb) * 100 : 0
         if (scanItem.matchedItemId) priorPpbByItem.set(scanItem.matchedItemId, oldPpb)
@@ -499,6 +541,18 @@ async function doApprove(
           // formToChain is the SANCTIONED legacy-form → pack-chain adapter; the
             // object below is a transient input DTO (qtyUOM/innerQty are vestigial
             // adapter params, never persisted), NOT legacy columns. Do not inline.
+          //
+          // …with ONE exception, new with the weight/case split above: a line
+          // RECEIVED BY WEIGHT on a bridged COUNT item has no pack to build from —
+          // its "pack" (`12 lb`) is the quantity sold. Running it through
+          // formToChain's RATE branch would mint a COUNT chain of `1 × 12 lb =
+          // 5443 each per case`, which is nonsense for counting and would land on
+          // the ITEM if this offer were ever made primary by hand. The rate is what
+          // this line proves; the pack is not. So keep the chain we already hold
+          // (this supplier's, else the item's) and store only the RATE over it —
+          // the printed pack still survives in the offerPack provenance triple.
+          // Unreachable before this task: isUomMode required !itemBridge.
+          const packIsTheQuantity = isUomMode && !!itemBridge
           const offerChain = (reverseBridge && reverseBasePerCase > 0)
             // Reverse bridge: the offer is a measured purchase — 1 container =
             // reverseBasePerCase base units. A single PACK link reproduces the
@@ -507,7 +561,7 @@ async function doApprove(
                 packChain: [{ unit: itemTopUnit ?? scanItem.rawUnit ?? 'case', per: reverseBasePerCase }] as PackLink[],
                 pricing: { mode: 'PACK' as const, purchasePrice: offerLastPrice },
               }
-            : hasLinePack
+            : (hasLinePack && !packIsTheQuantity)
             ? formToChain({
                 purchaseUnit:       itemTopUnit ?? scanItem.rawUnit ?? 'case',
                 purchasePrice:      offerLastPrice,
@@ -532,8 +586,9 @@ async function doApprove(
                 baseUnit:           item.baseUnit ?? undefined,
               })
             : {
-                // No printed pack: keep what we already know about THIS supplier's
-                // pack. Falling back to the item's chain here used to erase it —
+                // No printed pack (or a printed "pack" that is really the quantity
+                // sold): keep what we already know about THIS supplier's pack.
+                // Falling back to the item's chain here used to erase it —
                 // one pack-less invoice from a secondary supplier overwrote their
                 // real case with the primary's, and their offer ppb (and every
                 // cross-supplier comparison built on it) moved by that ratio. Only

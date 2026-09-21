@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { packReference, casePricePerBase, freezeFormat } from '@/lib/invoice/approve-format'
+import { packReference, casePricePerBase, freezeFormat, pricingBasisFor } from '@/lib/invoice/approve-format'
 import { resolveLineFormat } from '@/lib/invoice/line-format'
-import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
-import type { ChainItem } from '@/lib/item-model'
+import { lineReceivedBaseUnits, lineReceived } from '@/lib/invoice/line-qty'
+import { asChainItem, ratePerBase, type ChainItem } from '@/lib/item-model'
 
 const itemChain = [{ unit: 'case', per: 4 }, { unit: 'pack', per: 12 }] // 48
 
@@ -113,5 +113,38 @@ describe('freezeFormat', () => {
     }
     const line = { rawQty: 2, invoicePackQty: 8, invoicePackSize: 1100, invoicePackUOM: 'g' }
     expect(lineReceivedBaseUnits(line, freezeFormat(brioche, { mode: 'PACK', purchasePrice: 40 }))).toBe(16)
+  })
+})
+
+describe('pricingBasisFor — the price basis follows the receiving basis', () => {
+  it('received by weight → WEIGHT, even on a bridged COUNT item (eggplant)', () => {
+    expect(pricingBasisFor({ via: 'billed-weight', ocrPerWeight: true, itemHasEachMeasure: true })).toBe('WEIGHT')
+    expect(pricingBasisFor({ via: 'shipped-unit', ocrPerWeight: false, itemHasEachMeasure: true })).toBe('WEIGHT')
+  })
+  it('Brioche: a per-case line whose pack prints a weight, on a bridged COUNT item → CASE', () => {
+    expect(pricingBasisFor({ via: 'printed-pack', ocrPerWeight: true, itemHasEachMeasure: true })).toBe('CASE')
+  })
+  it('an UNBRIDGED per-weight line keeps today’s UOM path', () => {
+    expect(pricingBasisFor({ via: 'rate', ocrPerWeight: true, itemHasEachMeasure: false })).toBe('WEIGHT')
+    expect(pricingBasisFor({ via: 'item-pack', ocrPerWeight: true, itemHasEachMeasure: false })).toBe('WEIGHT')
+  })
+  it('a plain case line → CASE', () => {
+    expect(pricingBasisFor({ via: 'printed-pack', ocrPerWeight: false, itemHasEachMeasure: false })).toBe('CASE')
+    expect(pricingBasisFor({ via: 'item-pack', ocrPerWeight: false, itemHasEachMeasure: true })).toBe('CASE')
+  })
+})
+
+describe('money invariant: received quantity × $/base = line total (real North Arm Farms lines)', () => {
+  const cases = [
+    { name: 'eggplant 12 lb @ 3.49', em: { q: 0.4, u: 'lb' }, qty: 12, rate: 3.49, total: 41.88 },
+    { name: 'kale 5 lb @ 5.99',      em: { q: 0.5, u: 'lb' }, qty: 5,  rate: 5.99, total: 29.95 },
+    { name: 'lettuce 7.5 lb @ 5.25', em: { q: 250, u: 'g' },  qty: 7.5, rate: 5.25, total: 39.38 },
+  ]
+  for (const c of cases) it(c.name, () => {
+    const item = asChainItem({ dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 50 }, eachMeasureQty: c.em.q, eachMeasureUnit: c.em.u })
+    const got = lineReceived({ rawQty: c.qty, rawUnit: 'lb', totalQty: c.qty, totalQtyUOM: 'lb', rate: c.rate, rateUOM: 'lb', rawUnitPrice: c.rate, rawLineTotal: c.total }, item)
+    expect(['billed-weight', 'shipped-unit']).toContain(got.via)
+    const ppb = ratePerBase(c.rate, 'lb', item)
+    expect(Math.abs(got.base * ppb - c.total)).toBeLessThanOrEqual(Math.max(0.02, c.total * 0.02))
   })
 })
