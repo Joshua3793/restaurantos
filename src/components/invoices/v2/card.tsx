@@ -28,6 +28,8 @@ import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/c
 import { priceDisplayScale } from '@/lib/utils'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
 import type { ScanItem } from '@/components/invoices/types'
+import type { ReceivedVia } from '@/lib/invoice/line-qty'
+import { receivedViaLabel } from '@/lib/invoice/received-copy'
 
 // ─── Zone ────────────────────────────────────────────────────────────────────
 // One delineated band inside an expanded line: an icon-led label header + body.
@@ -478,7 +480,7 @@ const SPLIT_TOL = (total: number) => Math.max(0.001, total * 0.005)
 
 function RcSplitEditor({ rcSplit, received, lineTotal, revenueCenters, onChange }: {
   rcSplit: Array<{ rcId: string; qty: number }>
-  received: { qty: number; countUom: string }
+  received: { qty: number; countUom: string; via: ReceivedVia }
   lineTotal: number
   revenueCenters: RevenueCenter[]
   onChange: (split: Array<{ rcId: string; qty: number }>) => void
@@ -556,6 +558,7 @@ function RcSplitEditor({ rcSplit, received, lineTotal, revenueCenters, onChange 
         <span className="inline-flex items-center gap-1.5">
           {valid ? <Check size={12} className="text-green-text" /> : <span className="text-red-text font-bold">!</span>}
           {sum.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {total.toLocaleString(undefined, { maximumFractionDigits: 2 })} {received.countUom}
+          {receivedViaLabel(received.via) && <span className="text-ink-3"> · {receivedViaLabel(received.via)}</span>}
           {!valid && <span className="text-red-text">— must equal {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
         </span>
         <span className={valid ? 'text-ink-2' : 'text-red-text'}>

@@ -22,6 +22,7 @@ import { computeCostPerUOM, reconcileInvoiceTotals } from '@/lib/invoice/calcula
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { offerForSupplier, type SupplierRef } from '@/lib/invoice/resolution'
+import { receivedViaLabel, receivedNote } from '@/lib/invoice/received-copy'
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -268,6 +269,7 @@ function LineRow({
               {stock.qty > 0 ? (
                 <>
                   <span className="font-mono">{qty(stock.qty)} {stock.countUom}</span>
+                  {receivedViaLabel(stock.via) && <span className="text-ink-3"> · {receivedViaLabel(stock.via)}</span>}
                   <span className="text-ink-4">into stock</span>
                 </>
               ) : (
@@ -278,6 +280,7 @@ function LineRow({
                 : rcName && <span className="text-ink-4">· {rcName}</span>)}
             </div>
           )}
+          {stock && receivedNote(stock) && <p className="text-[12px] text-red-text">{receivedNote(stock)}</p>}
         </div>
 
         {/* purchased — containers billed, with the weight actually shipped beneath.
@@ -377,6 +380,7 @@ function LineRow({
                     {stock.qty > 0
                       ? <>
                           <span className="font-mono">{qty(stock.qty)} {stock.countUom}</span>
+                          {receivedViaLabel(stock.via) && <span className="text-ink-3"> · {receivedViaLabel(stock.via)}</span>}
                           <span className="text-ink-4"> credited to stock</span>
                         </>
                       : <span className="text-gold">nothing credited — the line carries no billed quantity</span>}
