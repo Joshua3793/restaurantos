@@ -24,6 +24,10 @@ export interface InventoryMatch {
   packChain?: unknown
   pricing?: unknown
   countUnit?: string | null
+  // Bridges (PRICING_SELECT already returns them). Decimal serialises as a string.
+  eachMeasureQty?: string | number | null
+  eachMeasureUnit?: string | null
+  densityGPerMl?: string | number | null
   supplierPrices?: Array<{
     id: string
     supplierName: string

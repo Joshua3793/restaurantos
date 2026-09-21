@@ -21,6 +21,7 @@ import path from 'path'
 import { prisma } from '../src/lib/prisma'
 import { asChainItem, pricePerBaseUnit, basePerUnit } from '../src/lib/item-model'
 import { lineReceivedBaseUnits } from '../src/lib/invoice/line-qty'
+import { resolveLineFormat, pickOffer } from '../src/lib/invoice/line-format'
 import { resolveCountUom } from '../src/lib/count-uom'
 
 const [RC_NAME, FROM, TO] = process.argv.slice(2)
@@ -53,8 +54,21 @@ async function main() {
       session: { status: 'APPROVED', purchaseDate: { gte: from, lte: to } },
     },
     include: {
-      matchedItem: { include: { supplier: { select: { name: true } } } },
-      session: { select: { revenueCenterId: true, supplierName: true, purchaseDate: true, invoiceNumber: true } },
+      matchedItem: {
+        include: {
+          supplier: { select: { name: true } },
+          // The line's own supplier may not be the item's PRIMARY offer — without
+          // this the script always priced/received through the primary's pack,
+          // same drift buildPurchaseMap and the approve route were fixed for.
+          supplierPrices: { select: { supplierId: true, supplierName: true, packChain: true, pricing: true } },
+        },
+      },
+      session: {
+        select: {
+          revenueCenterId: true, supplierName: true, supplierId: true, purchaseDate: true, invoiceNumber: true,
+          supplier: { select: { name: true } },
+        },
+      },
     },
   })
 
@@ -72,13 +86,33 @@ async function main() {
   // number | string. Narrow explicitly rather than casting the whole row.
   const dec = (v: unknown): number | null => (v == null ? null : Number(v))
   const qtyInput = (l: (typeof lines)[number]) => ({
+    // A frozen receipt IS the answer (lineReceived's first branch) — matching
+    // buildPurchaseMap so an already-approved purchase can never be re-derived
+    // to a different number here than theoretical stock already credited it.
+    receivedQtyBase: dec(l.receivedQtyBase),
     rawQty: dec(l.rawQty),
     rawUnit: l.rawUnit,
     totalQty: dec(l.totalQty),
     totalQtyUOM: l.totalQtyUOM,
+    // $/uom unit on a per-weight line — without it a catch-weight line billed in
+    // kg at a $/lb rate takes a different branch here than the app (the rate's
+    // OWN unit, not the billed unit, is what the money check reconciles against).
+    rateUOM: l.rateUOM,
     invoicePackQty: dec(l.invoicePackQty),
     invoicePackSize: dec(l.invoicePackSize),
     invoicePackUOM: l.invoicePackUOM,
+    rawUnitPrice: dec(l.rawUnitPrice),
+    rate: dec(l.rate),
+    rawLineTotal: dec(l.rawLineTotal),
+  })
+
+  // The offer belonging to THIS line's supplier — same three-tier join
+  // (buildPurchaseMap, the approve route) — so a non-primary supplier's pack is
+  // read through its own format rather than the item's primary offer.
+  const offerFor = (l: (typeof lines)[number]) => pickOffer(l.matchedItem!.supplierPrices, {
+    supplierId: l.session.supplierId,
+    supplierName: l.session.supplierName,
+    canonicalName: l.session.supplier?.name ?? null,
   })
 
   for (const l of lines) {
@@ -98,11 +132,11 @@ async function main() {
       attribution = 'Split across revenue centres'
     } else if (l.revenueCenterId) {
       if (l.revenueCenterId !== rc.id) continue
-      qtyBase = lineReceivedBaseUnits(qtyInput(l), ci)
+      qtyBase = lineReceivedBaseUnits(qtyInput(l), resolveLineFormat(ci, offerFor(l)))
       attribution = 'Line assigned to this revenue centre'
     } else {
       if (l.session.revenueCenterId !== rc.id) continue
-      qtyBase = lineReceivedBaseUnits(qtyInput(l), ci)
+      qtyBase = lineReceivedBaseUnits(qtyInput(l), resolveLineFormat(ci, offerFor(l)))
       attribution = 'Whole invoice assigned to this revenue centre'
     }
     if (!(qtyBase > 0)) continue

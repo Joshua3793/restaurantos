@@ -72,11 +72,20 @@ describe('freezeFormat', () => {
   }
   const perWeightLine = { rawQty: 18.4, rawUnit: 'KG', totalQty: null, totalQtyUOM: null, rateUOM: 'kg' }
 
-  it('a per-weight line on a PACK-priced item freezes the billed weight, not the case count', () => {
-    // The bug: 18.4 × 9072 g/case.
-    expect(lineReceivedBaseUnits(perWeightLine, beef)).toBeCloseTo(166924.8)
-    // Fixed: 18.4 kg.
+  it('a per-weight line whose shipped unit says KG needs no help any more (line-first receiving)', () => {
+    // Was the bug this helper was written for: 18.4 × 9072 g/case = 166,924.8.
+    // lineReceived now reads the line's own unit, with or without the mode swap.
+    expect(lineReceivedBaseUnits(perWeightLine, beef)).toBeCloseTo(18400)
     expect(lineReceivedBaseUnits(perWeightLine, freezeFormat(beef, { mode: 'RATE', rate: 22, rateUnit: 'kg' })))
+      .toBeCloseTo(18400)
+  })
+
+  it('still earns its keep for a UNIT-LESS weight: only the resolved RATE mode says it is kg', () => {
+    const unitless = { rawQty: 18.4, rawUnit: null, totalQty: null, totalQtyUOM: null, rateUOM: null }
+    // No unit anywhere on the line → a PACK item can only read it as cases.
+    expect(lineReceivedBaseUnits(unitless, beef)).toBeCloseTo(166924.8)
+    // Frozen through the mode the line resolved to → the priced unit (kg) applies.
+    expect(lineReceivedBaseUnits(unitless, freezeFormat(beef, { mode: 'RATE', rate: 22, rateUnit: 'kg' })))
       .toBeCloseTo(18400)
   })
 

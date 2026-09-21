@@ -2,7 +2,7 @@
 // The two must read the line the same way or a split silently disappears at
 // approve — see the frozen-receipt note in src/lib/invoice/line-qty.ts.
 import { describe, it, expect } from 'vitest'
-import { hasInvalidRcSplit } from '@/lib/invoice/resolution'
+import { hasInvalidRcSplit, splitTargetOf } from '@/lib/invoice/resolution'
 import type { ScanItem } from '@/components/invoices/types'
 
 // 1 case = 10 kg = 10,000 g; counted in kg.
@@ -52,5 +52,33 @@ describe('hasInvalidRcSplit', () => {
 
   it('no split at all is not an invalid split', () => {
     expect(hasInvalidRcSplit(line({ rcSplit: null }))).toBe(false)
+  })
+})
+
+// C2 (task-2-fix1.md): the split editor's seeded TARGET used to read `item`
+// unchanged (via: 'frozen' when receivedQtyBase was set), while the validator
+// and approve's lineQtyOf deliberately null it out — reachable via "Review
+// again" on an approved invoice, which PATCHes only `status: 'REVIEW'` and
+// leaves receivedQtyBase set. splitTargetOf is now the ONE function both
+// card.tsx's `received` and hasInvalidRcSplit call, so they can't disagree.
+describe('splitTargetOf — the card computes the exact target hasInvalidRcSplit validates against', () => {
+  it('ignores a frozen receivedQtyBase (96 base units) and returns the LIVE quantity (24 kg)', () => {
+    // 2.4 cases × 10,000 g pack-format = 24,000 g = 24 kg live; frozen (96 g =
+    // 0.096 kg) is a stale number from a different pack — must be ignored.
+    const item = line({ rawQty: '2.4', receivedQtyBase: 96 })
+    const target = splitTargetOf(item)
+    expect(target?.qty).toBeCloseTo(24, 5)
+    expect(target?.countUom).toBe('kg')
+
+    // A split summing to the LIVE target (24) is what hasInvalidRcSplit accepts —
+    // proving the card's seeded target and the validator's target are the same number.
+    expect(hasInvalidRcSplit(line({ rawQty: '2.4', receivedQtyBase: 96, rcSplit: [{ rcId: 'rc1', qty: 24 }] }))).toBe(false)
+    // A split summing to the FROZEN value (what the old buggy target would have
+    // seeded) is correctly rejected once computed live.
+    expect(hasInvalidRcSplit(line({ rawQty: '2.4', receivedQtyBase: 96, rcSplit: [{ rcId: 'rc1', qty: 0.096 }] }))).toBe(true)
+  })
+
+  it('returns null for an unmatched line', () => {
+    expect(splitTargetOf(line({ matchedItem: null }))).toBeNull()
   })
 })

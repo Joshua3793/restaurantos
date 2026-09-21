@@ -20,7 +20,9 @@ import { formatCurrency } from '@/lib/invoice/formatters'
 import { derivePricingMode, isCatchweight } from '@/lib/invoice/predicates'
 import { computeCostPerUOM, reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { offerForSupplier, type SupplierRef } from '@/lib/invoice/resolution'
+import { receivedViaLabel, receivedNote } from '@/lib/invoice/received-copy'
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -97,17 +99,10 @@ function unitPriceLabel(item: ScanItem): string | null {
  *  Returns qty 0 (rather than null) when the line credited nothing, so the report
  *  can say so out loud: a line with no billed quantity is invisible to theoretical
  *  stock, and that gap is exactly what an approved-invoice report should surface. */
-function stockEffect(item: ScanItem, supplier: SupplierRef): { qty: number; countUom: string } | null {
+function stockEffect(item: ScanItem, supplier: SupplierRef): ReturnType<typeof lineReceivedCountQty> | null {
   if (!item.matchedItem || item.action === 'SKIP') return null
-  const m = item.matchedItem
   try {
-    return lineReceivedCountQty(item, {
-      dimension: m.dimension ?? 'COUNT',
-      baseUnit:  m.baseUnit ?? 'each',
-      packChain: m.packChain,
-      pricing:   m.pricing,
-      countUnit: m.countUnit ?? null,
-    }, offerForSupplier(item, supplier))
+    return lineReceivedCountQty(item, matchedLikeOf(item.matchedItem), offerForSupplier(item, supplier))
   } catch {
     return null
   }
@@ -274,6 +269,7 @@ function LineRow({
               {stock.qty > 0 ? (
                 <>
                   <span className="font-mono">{qty(stock.qty)} {stock.countUom}</span>
+                  {receivedViaLabel(stock.via) && <span className="text-ink-3"> · {receivedViaLabel(stock.via)}</span>}
                   <span className="text-ink-4">into stock</span>
                 </>
               ) : (
@@ -284,6 +280,7 @@ function LineRow({
                 : rcName && <span className="text-ink-4">· {rcName}</span>)}
             </div>
           )}
+          {stock && receivedNote(stock) && <p className="text-[12px] text-red-text">{receivedNote(stock)}</p>}
         </div>
 
         {/* purchased — containers billed, with the weight actually shipped beneath.
@@ -383,6 +380,7 @@ function LineRow({
                     {stock.qty > 0
                       ? <>
                           <span className="font-mono">{qty(stock.qty)} {stock.countUom}</span>
+                          {receivedViaLabel(stock.via) && <span className="text-ink-3"> · {receivedViaLabel(stock.via)}</span>}
                           <span className="text-ink-4"> credited to stock</span>
                         </>
                       : <span className="text-gold">nothing credited — the line carries no billed quantity</span>}

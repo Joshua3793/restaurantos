@@ -7,7 +7,6 @@
 import { useRef, useState, useEffect } from 'react'
 import { ChevronDown, ExternalLink, Ban, Undo2, Check, ArrowUp, ArrowDown, Boxes, Calculator, Scale, Building2, Split, Plus, X, AlertTriangle, type LucideIcon } from 'lucide-react'
 import { rcHex } from '@/lib/rc-colors'
-import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import { useDrawerContext } from './context'
 import { LineNumberChip, type IssueKind } from './atoms'
@@ -15,7 +14,6 @@ import {
   LinkPicker,
   CaseStructureEditor,
   InvoiceMathFields,
-  matchPatchFromResult,
   type InventorySearchResult,
 } from './composites'
 import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, NewSupplierNote, AttentionSummary, type SummaryRow } from './issues'
@@ -23,13 +21,15 @@ import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, offerForSupplier } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, splitTargetOf } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
 import { priceDisplayScale } from '@/lib/utils'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
 import type { ScanItem } from '@/components/invoices/types'
+import type { ReceivedVia } from '@/lib/invoice/line-qty'
+import { receivedViaLabel } from '@/lib/invoice/received-copy'
 
 // ─── Zone ────────────────────────────────────────────────────────────────────
 // One delineated band inside an expanded line: an icon-led label header + body.
@@ -100,15 +100,10 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
 
   // RC split: the line's received quantity (count UOM) is the target the split
   // must sum to; the line total is what the money shares must reconcile to.
-  const received = item.matchedItem
-    ? lineReceivedCountQty(item as unknown as Parameters<typeof lineReceivedCountQty>[0], {
-        dimension: item.matchedItem.dimension ?? 'COUNT',
-        baseUnit:  item.matchedItem.baseUnit ?? 'each',
-        packChain: item.matchedItem.packChain,
-        pricing:   item.matchedItem.pricing,
-        countUnit: item.matchedItem.countUnit ?? null,
-      }, offerForSupplier(item, sessionSupplier))
-    : null
+  // splitTargetOf always reads LIVE (never a frozen receivedQtyBase) — the same
+  // function hasInvalidRcSplit validates against, so the seeded target and the
+  // validator can never disagree on a re-opened approved line.
+  const received = splitTargetOf(item, sessionSupplier)
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
   const canSplit     = !!item.matchedItem && !!received && received.qty > 0 && ctx.revenueCenters.length > 1
@@ -150,7 +145,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const handleChangeLink = () => ctx.startLinkPicker(lineId)
 
   const handleSelectLink = (result: InventorySearchResult) => {
-    ctx.updateLine(lineId, matchPatchFromResult(result, 'UPDATE_PRICE'))
+    void ctx.linkExistingItem(lineId, result, 'UPDATE_PRICE')
     ctx.closeLinkPicker()
   }
 
@@ -485,7 +480,7 @@ const SPLIT_TOL = (total: number) => Math.max(0.001, total * 0.005)
 
 function RcSplitEditor({ rcSplit, received, lineTotal, revenueCenters, onChange }: {
   rcSplit: Array<{ rcId: string; qty: number }>
-  received: { qty: number; countUom: string }
+  received: { qty: number; countUom: string; via: ReceivedVia }
   lineTotal: number
   revenueCenters: RevenueCenter[]
   onChange: (split: Array<{ rcId: string; qty: number }>) => void
@@ -563,6 +558,7 @@ function RcSplitEditor({ rcSplit, received, lineTotal, revenueCenters, onChange 
         <span className="inline-flex items-center gap-1.5">
           {valid ? <Check size={12} className="text-green-text" /> : <span className="text-red-text font-bold">!</span>}
           {sum.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {total.toLocaleString(undefined, { maximumFractionDigits: 2 })} {received.countUom}
+          {receivedViaLabel(received.via) && <span className="text-ink-3"> · {receivedViaLabel(received.via)}</span>}
           {!valid && <span className="text-red-text">— must equal {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}
         </span>
         <span className={valid ? 'text-ink-2' : 'text-red-text'}>

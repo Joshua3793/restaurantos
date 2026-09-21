@@ -1,3 +1,4 @@
+// Historical audit: predates line-first receiving (2026-09-21); its inputs omit the money fields on purpose.
 /**
  * READ-ONLY before/after for the receiving fix (2026-08-11).
  *

@@ -125,3 +125,26 @@ describe('classifyDimensionRelationship — after the bridge is saved', () => {
     expect(classifyDimensionRelationship(saved as any).verdict).toBe('IDENTICAL')
   })
 })
+
+// ── Line-first receiving relies on this ──────────────────────────────────────
+// A weight-billed line on a COUNT item with no each-measure cannot be received by
+// its weight (lineReceived falls back to the pack and sets needsBridge). The plan
+// deliberately added NO new review issue for that case because this classifier
+// already raises the blocking "Needs a unit bridge". If this ever stops being
+// true, line-first receiving loses its only pre-approve warning.
+describe('weight-billed line on a COUNT item (North Arm Farms eggplant, 12 lb @ $3.49)', () => {
+  const eggplantLine = (matched: Record<string, unknown>) => line({
+    rawDescription: 'Eggplant, lb', pricingMode: 'per_weight',
+    rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb',
+    rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88',
+    matchedItem: item({ itemName: 'Eggplant', dimension: 'COUNT', baseUnit: 'each', countUnit: 'each', packChain: [{ unit: 'case', per: 24 }], ...matched }),
+  })
+
+  it('no each-measure → PACK_BRIDGE (the review blocks until one is set)', () => {
+    expect(classifyDimensionRelationship(eggplantLine({})).verdict).toBe('PACK_BRIDGE')
+  })
+
+  it('an each-measure in the line’s dimension resolves it', () => {
+    expect(classifyDimensionRelationship(eggplantLine({ eachMeasureQty: '181.4368', eachMeasureUnit: 'g' })).verdict).toBe('IDENTICAL')
+  })
+})
