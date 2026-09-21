@@ -9,6 +9,7 @@ import {
   type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { canonicalUom } from '@/lib/uom'
 import {
   DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
 } from '@/components/inventory/ItemChainEditor'
@@ -584,6 +585,10 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       onChange={e => setEditForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
                       className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
                     >
+                      {/* a stored unit outside g/ml (e.g. lb) stays selectable, or a click would silently swap it */}
+                      {editForm.eachMeasureUnit && !['g', 'ml'].includes(editForm.eachMeasureUnit) && (
+                        <option value={editForm.eachMeasureUnit}>{editForm.eachMeasureUnit}</option>
+                      )}
                       <option value="g">g</option>
                       <option value="ml">ml</option>
                     </select>
@@ -744,7 +749,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage area',   item.storageArea?.name || '—'],
                       ['Dimension',      `${dimLabel} · ${ci.baseUnit}`],
-                      ['Pricing',        c.pricing.mode === 'RATE' ? `Rate · per ${c.pricing.rateUnit}` : 'Per pack'],
+                      ['Pricing',        c.pricing.mode === 'RATE' ? `Rate · per ${canonicalUom(c.pricing.rateUnit)}` : 'Per pack'],
                       ['Count unit',     c.countUnit],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]
@@ -787,7 +792,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     </div>
                     <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-blue' : 'text-[#92722f]'}`}>
                       {c.pricing.mode === 'RATE'
-                        ? <>{formatCurrency(c.pricing.rate)} / {c.pricing.rateUnit}</>
+                        ? <>{formatCurrency(c.pricing.rate)} / {canonicalUom(c.pricing.rateUnit)}</>
                         : <>{formatCurrency(c.pricing.purchasePrice)} per {c.chain[0]?.unit ?? 'pack'} &nbsp;|&nbsp; 1 {c.countUnit} = {basePerUnit(ci, c.countUnit).toLocaleString()} {ci.baseUnit}</>
                       }
                     </div>

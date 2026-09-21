@@ -4,6 +4,10 @@
 
 import { formatCurrency } from '@/lib/utils'
 import { dimensionOf } from '@/lib/item-model'
+import { canonicalUom } from '@/lib/uom'
+
+/** The stored rate unit can be a raw scanner token ('LB') — show the canonical one. */
+const unitLabel = (u: string | null | undefined) => (u ? canonicalUom(u) : '')
 
 interface OfferPricingShape {
   mode?: string
@@ -28,7 +32,7 @@ export interface ItemForOfferCopy {
  */
 export function offerPriceLabel(o: { lastPrice: number; pricing: unknown }): string {
   const p = o.pricing as OfferPricingShape | null
-  if (p?.mode === 'RATE') return `${formatCurrency(Number(p.rate))}/${p.rateUnit}`
+  if (p?.mode === 'RATE') return `${formatCurrency(Number(p.rate))}/${unitLabel(p.rateUnit)}`
   return `${formatCurrency(Number(o.lastPrice))}/case`
 }
 
@@ -59,5 +63,5 @@ export function offerDerivation(
 
   if (!hasBridge || !(ppb > 0)) return 'Unpriced — add a weight per each to this item'
 
-  return `${formatCurrency(Number(p.rate))}/${p.rateUnit} × ${emQty} ${emUnit} each = ${formatCurrency(ppb)}/each`
+  return `${formatCurrency(Number(p.rate))}/${unitLabel(p.rateUnit)} × ${emQty} ${unitLabel(emUnit)} each = ${formatCurrency(ppb)}/each`
 }

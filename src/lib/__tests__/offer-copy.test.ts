@@ -19,3 +19,7 @@ describe('offerDerivation', () => {
     expect(offerDerivation({ pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' } }, { baseUnit: 'g' }, 0.025)).toBe(null) // same dimension: nothing to explain
   })
 })
+
+it('shows a raw scanner unit token canonically', () => {
+  expect(offerPriceLabel({ lastPrice: 5.25, pricing: { mode: 'RATE', rate: 5.25, rateUnit: 'LB' } })).toBe('$5.25/lb')
+})
