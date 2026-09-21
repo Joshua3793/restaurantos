@@ -8,7 +8,7 @@ import {
 import { X, Check, Loader2, AlertTriangle, ChevronUp, ChevronDown, Search, Plus } from 'lucide-react'
 import { DrawerContext, type DrawerContextValue } from './context'
 import { LineItemCard } from './card'
-import { type ReconcileResult } from './composites'
+import { type ReconcileResult, type InventorySearchResult, matchPatchFromResult } from './composites'
 import { ActButton, IssueBadge } from './atoms'
 import { ImpactStrip, AlertBanner, ReviewProgress, SectionDivider, type ImpactMetric, type ReviewSegment } from './chrome'
 import { ImageViewerV2, type BBox } from './ImageViewer'
@@ -25,7 +25,7 @@ import {
 import {
   isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
-import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit } from '@/lib/invoice/resolution'
+import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit, type SupplierRef } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { formatPricePerBase } from '@/lib/utils'
@@ -516,6 +516,11 @@ export function InvoiceReviewDrawer({
   const [acknowledgedPriceLines, setAcknowledgedPriceLines] = useState<Set<string>>(new Set())
   const [acknowledgedConfLines, setAcknowledgedConfLines] = useState<Set<string>>(new Set())
   const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
+  // The best existing-item hit for the line currently in the Create-New modal —
+  // powers the "Add as a supplier instead" banner. Kept as the full search result
+  // (not just the display fields) so onUseExisting can build the link patch
+  // without a second fetch.
+  const [similarForNewItem, setSimilarForNewItem] = useState<(InventorySearchResult & { recipeCount: number; score: number }) | null>(null)
   const [editingInventoryItemId,  setEditingInventoryItemId]  = useState<string | null>(null)
   const [adoptingForItem,         setAdoptingForItem]         = useState<ScanItem | null>(null)
   const [activeBboxItemId,   setActiveBboxItemId]    = useState<string | null>(null)
@@ -536,6 +541,26 @@ export function InvoiceReviewDrawer({
   // editing a line, etc. produces a new `session` object but must NOT wipe the
   // user's in-flight progress (acks, mode writebacks, edits, expansions).
   const initializedSessionRef = useRef<string | null>(null)
+
+  // ── "Add as a supplier instead" lookup for the Create-New modal ─────────────
+  // Fires once per line the moment the modal opens. `cancelled` covers both an
+  // unmount and the modal switching to a different line before the response
+  // lands — the previous effect's cleanup runs before the new one starts.
+  useEffect(() => {
+    if (!creatingNewForItem) { setSimilarForNewItem(null); return }
+    const q = creatingNewForItem.rawDescription?.trim()
+    if (!q) { setSimilarForNewItem(null); return }
+    let cancelled = false
+    fetch(`/api/inventory/search?q=${encodeURIComponent(q)}&limit=1&withUsage=1`)
+      .then(res => res.ok ? res.json() : [])
+      .then((data: Array<InventorySearchResult & { recipeCount: number; score: number }>) => {
+        if (cancelled) return
+        const hit = Array.isArray(data) ? data[0] : null
+        setSimilarForNewItem(hit && hit.score >= 40 ? hit : null)
+      })
+      .catch(() => { if (!cancelled) setSimilarForNewItem(null) })
+    return () => { cancelled = true }
+  }, [creatingNewForItem])
 
   // ── Initialise review state once per session (first load only) ──────────────
   useEffect(() => {
@@ -567,7 +592,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName }) || needsTrustCheck(i)
+          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null }) || needsTrustCheck(i)
         ))
         .map(i => i.id),
     )
@@ -599,9 +624,18 @@ export function InvoiceReviewDrawer({
     [acknowledgedPriceLines, acknowledgedConfLines],
   )
 
+  // ONE supplier ref for every offer lookup in this drawer — the same shape the
+  // approve route builds (supplierId → canonical name → OCR name), so the UI and
+  // the server can never validate a line against different supplier offers.
+  const sessionSupplierRef = useMemo<SupplierRef>(() => ({
+    supplierId:    session?.supplierId ?? null,
+    supplierName:  session?.supplierName ?? null,
+    canonicalName: session?.supplier?.name ?? null,
+  }), [session?.supplierId, session?.supplierName, session?.supplier?.name])
+
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null }) || needsTrustCheck(i) || hasInvalidRcSplit(i),
-  [session?.supplierId, session?.supplierName])
+    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, sessionSupplierRef) || needsTrustCheck(i) || hasInvalidRcSplit(i, sessionSupplierRef),
+  [sessionSupplierRef])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
   const sections = useMemo(() => {
@@ -629,16 +663,16 @@ export function InvoiceReviewDrawer({
     let resolved = 0
     for (const id of initialAttention.lineIds) {
       const line = effectiveLines.find(l => l.id === id)
-      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id), { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null })) resolved++
+      if (!line || isCharge(line) || !lineUnresolved(line, optsFor(id), sessionSupplierRef)) resolved++
     }
     if (initialAttention.supplier && (linkedSupplierId || supplierSkipped)) resolved++
     return { total, resolved }
-  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped, session?.supplierId, session?.supplierName])
+  }, [effectiveLines, initialAttention, optsFor, linkedSupplierId, supplierSkipped, sessionSupplierRef])
 
   // Approve gate — computed over CURRENT state so edits that introduce a new
   // issue re-block approval (the snapshot above only fixes the progress total).
   const currentlyUnresolved =
-    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), { supplierId: session?.supplierId ?? null, supplierName: session?.supplierName ?? null })).length +
+    sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), sessionSupplierRef)).length +
     (supplierNeedsLink && initialAttention.supplier ? 1 : 0)
   const canApprove = currentlyUnresolved === 0
   const disabledReason = canApprove
@@ -1065,6 +1099,7 @@ export function InvoiceReviewDrawer({
     revenueCenters,
     sessionSupplierName: session?.supplierName ?? null,
     sessionSupplierId: session?.supplierId ?? null,
+    sessionSupplierCanonicalName: session?.supplier?.name ?? null,
     sessionRcId: session?.revenueCenterId ?? null,
     editedLines,
     expandedLineIds,
@@ -1366,6 +1401,21 @@ export function InvoiceReviewDrawer({
           sessionId={session?.id ?? ''}
           sessionSupplierId={session?.supplierId ?? null}
           sessionSupplierName={session?.supplierName ?? null}
+          similar={similarForNewItem ? {
+            id:          similarForNewItem.id,
+            itemName:    similarForNewItem.itemName,
+            recipeCount: similarForNewItem.recipeCount,
+          } : null}
+          onUseExisting={(itemId) => {
+            if (creatingNewForItem && similarForNewItem && similarForNewItem.id === itemId) {
+              // Same-good, different supplier — link the line to the existing item as
+              // a NEW supplier offer rather than spawning a duplicate item.
+              updateLine(creatingNewForItem.id, matchPatchFromResult(similarForNewItem, 'ADD_SUPPLIER'))
+            }
+            setCreatingNewForItem(null)
+            setSimilarForNewItem(null)
+            if (session) refreshSession(session.id)
+          }}
           onSaved={(newItemDataJson) => {
             if (creatingNewForItem) {
               updateLine(creatingNewForItem.id, {
@@ -1379,9 +1429,10 @@ export function InvoiceReviewDrawer({
               })
             }
             setCreatingNewForItem(null)
+            setSimilarForNewItem(null)
             if (session) refreshSession(session.id)
           }}
-          onClose={() => setCreatingNewForItem(null)}
+          onClose={() => { setCreatingNewForItem(null); setSimilarForNewItem(null) }}
         />
       )}
     </>
@@ -1396,6 +1447,8 @@ function AddNewItemModal({
   sessionId,
   sessionSupplierId,
   sessionSupplierName,
+  similar,
+  onUseExisting,
   onSaved,
   onClose,
 }: {
@@ -1404,6 +1457,11 @@ function AddNewItemModal({
   /** The invoice's supplier — pre-selected so a new product inherits it. */
   sessionSupplierId: string | null
   sessionSupplierName: string | null
+  /** Best existing-item match for this line's description, when it looks like the
+   *  same good — powers the "Add as a supplier instead" banner. */
+  similar?: { id: string; itemName: string; recipeCount: number } | null
+  /** User chose the existing item over creating a new one. */
+  onUseExisting?: (itemId: string) => void
   /** Receives the configured newItemData as the stored JSON string. */
   onSaved: (newItemDataJson: string) => void
   onClose: () => void
@@ -1511,6 +1569,19 @@ function AddNewItemModal({
 
           {/* Form */}
           <div className="overflow-y-auto px-6 py-5 space-y-4">
+            {similar && onUseExisting && (
+              <div className="mb-3 flex items-start gap-2.5 bg-gold-soft border border-gold-soft rounded-lg px-3 py-2.5">
+                <span className="text-[12.5px] text-ink-2 leading-[1.45] flex-1">
+                  Looks like <b className="font-semibold text-ink">{similar.itemName}</b>
+                  {similar.recipeCount > 0 ? <> (used in {similar.recipeCount} recipe{similar.recipeCount === 1 ? '' : 's'})</> : null}.
+                  A second item splits its stock away from your recipes.
+                </span>
+                <button type="button" onClick={() => onUseExisting(similar.id)}
+                  className="shrink-0 text-[12px] font-semibold text-ink underline underline-offset-2">
+                  Add as a supplier instead
+                </button>
+              </div>
+            )}
             {/* Item name */}
             <div>
               <label className={labelCls}>Item name</label>

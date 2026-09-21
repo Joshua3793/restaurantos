@@ -15,14 +15,15 @@ import {
   LinkPicker,
   CaseStructureEditor,
   InvoiceMathFields,
+  matchPatchFromResult,
   type InventorySearchResult,
 } from './composites'
-import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, AttentionSummary, type SummaryRow } from './issues'
+import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, NewSupplierNote, AttentionSummary, type SummaryRow } from './issues'
 import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, offerForSupplier } from '@/lib/invoice/resolution'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
@@ -77,14 +78,23 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   // an unconfigured CREATE_NEW (legacy auto-match) renders as unlinked instead.
   const isCreateNew = item.action === 'CREATE_NEW' && !!item.newItemData
 
+  // ONE supplier ref for every offer lookup on this card — supplierId → the
+  // linked Supplier's canonical name → the OCR name, exactly as the approve
+  // route resolves it, so the card and the server agree on which offer applies.
+  const sessionSupplier = {
+    supplierId:    ctx.sessionSupplierId,
+    supplierName:  ctx.sessionSupplierName,
+    canonicalName: ctx.sessionSupplierCanonicalName,
+  }
+
   const unlinked       = !isSkipped && isUnlinked(item)
   const dimConflict    = !isSkipped && hasDimensionConflict(item)
   const bridge         = !isSkipped && isBridgeable(item)
   const uomReview      = !isSkipped && hasUnknownUom(item)
   const mathCheck      = !isSkipped && hasMathCheck(item)
-  const bigPrice       = !isSkipped && isBigPriceChange(item, { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName })
+  const bigPrice       = !isSkipped && isBigPriceChange(item, sessionSupplier)
   const trustCheck     = !isSkipped && needsTrustCheck(item)
-  const badSplit       = !isSkipped && hasInvalidRcSplit(item)
+  const badSplit       = !isSkipped && hasInvalidRcSplit(item, sessionSupplier)
   const isAttention    = unlinked || dimConflict || bridge || mathCheck || bigPrice || trustCheck || badSplit
   const isCatch        = isCatchweight(item)
 
@@ -97,7 +107,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
         packChain: item.matchedItem.packChain,
         pricing:   item.matchedItem.pricing,
         countUnit: item.matchedItem.countUnit ?? null,
-      })
+      }, offerForSupplier(item, sessionSupplier))
     : null
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
@@ -107,7 +117,6 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
     priceAck: ctx.acknowledgedPriceLines.has(lineId),
     confAck:  ctx.acknowledgedConfLines.has(lineId),
   }
-  const sessionSupplier = { supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }
 
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
@@ -141,26 +150,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const handleChangeLink = () => ctx.startLinkPicker(lineId)
 
   const handleSelectLink = (result: InventorySearchResult) => {
-    ctx.updateLine(lineId, {
-      matchedItemId: result.id,
-      matchedItem: {
-        id: result.id,
-        itemName: result.itemName,
-        purchasePrice: String(result.purchasePrice),
-        pricePerBaseUnit: String(result.pricePerBaseUnit),
-        baseUnit: result.baseUnit,
-        // Carry the chain so pack display + format prefill + pricing mode derive from it.
-        dimension: result.dimension,
-        packChain: result.packChain,
-        pricing: result.pricing,
-        countUnit: result.countUnit,
-      },
-      action: 'UPDATE_PRICE',
-      // A hand-picked link is no longer a fuzzy match — clear the MEDIUM-match
-      // trust check so ConfIssue stops claiming "description similarity only".
-      matchConfidence: 'HIGH',
-      matchScore: 100,
-    })
+    ctx.updateLine(lineId, matchPatchFromResult(result, 'UPDATE_PRICE'))
     ctx.closeLinkPicker()
   }
 
@@ -382,7 +372,8 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
           {(dimConflict || bridge) && <DimensionConflictIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
-          {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={{ supplierId: ctx.sessionSupplierId, supplierName: ctx.sessionSupplierName }} />}
+          {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={sessionSupplier} />}
+          <NewSupplierNote item={item} sessionSupplier={sessionSupplier} />
           {trustCheck && <ConfIssue item={item} lineId={lineId} />}
         </>
       )}

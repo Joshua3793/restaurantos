@@ -133,6 +133,11 @@ model InventoryItem {
   lastCountQty       Decimal?
   allergens          String[]                 @default([])
   barcode            String?
+  // Set ⇒ this row is a TOMBSTONE absorbed into another item (src/lib/item-merge.ts).
+  // A tombstone is also isActive=false, so every isActive filter already hides it.
+  mergedIntoId       String?
+  mergedInto         InventoryItem?           @relation("ItemMergedInto", fields: [mergedIntoId], references: [id])
+  absorbedItems      InventoryItem[]          @relation("ItemMergedInto")
   // ── Count↔weight bridge (COUNT items only) ──────────────────────────────────
   // Canonical measure of ONE base count unit, e.g. 1 each (loaf) = 1100 g.
   // Lets weight-format invoices normalize to count and weight-based recipes cost.
@@ -495,6 +500,9 @@ model InvoiceScanItem {
   taxFlag            String?        // row-level tax code ("B", "G", "GP")
   lineTaxAmount      Decimal?       // inline tax shown on row (Snow Cap style)
   bbox               Json?          // { page, x, y, w, h } — 0-1 fractions of image dims, for highlight overlay
+  // Base units this line RECEIVED, frozen at approve (like CountLine.countedQtyBase).
+  // A quantity, not a cost. Null = not yet frozen → readers compute live.
+  receivedQtyBase    Decimal?
   matchedItem        InventoryItem? @relation("InventoryInvoiceMatches", fields: [matchedItemId], references: [id])
   revenueCenter      RevenueCenter? @relation("ScanItemRC", fields: [revenueCenterId], references: [id])
   session            InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -530,6 +538,21 @@ model InventorySupplierPrice {
   supplier             Supplier?     @relation(fields: [supplierId], references: [id])
 
   @@unique([inventoryItemId, supplierName])
+}
+
+model ItemMerge {
+  id         String    @id @default(cuid())
+  survivorId String
+  absorbedId String
+  mergedBy   String
+  mergedAt   DateTime  @default(now())
+  undoneAt   DateTime?
+  // MergeManifest (src/lib/item-merge.ts): every re-pointed row id per table and
+  // the before-value of anything overwritten. Undo replays it in reverse.
+  manifest   Json
+
+  @@index([survivorId])
+  @@index([absorbedId])
 }
 
 model PriceAlert {

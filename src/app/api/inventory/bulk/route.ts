@@ -1,10 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncPrepToInventory } from '@/lib/recipeCosts'
+import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 
 export async function POST(req: NextRequest) {
   try {
     const { ids, action, value } = await req.json()
+
+    // Merge tombstones are excluded from every bulk action — activate would make
+    // one un-undoable AND un-mergeable, delete would destroy the row an undo
+    // restores onto. One tombstone in the selection refuses the whole call
+    // rather than silently skipping it: a partial bulk is worse than none.
+    if (Array.isArray(ids) && ids.length > 0) {
+      const merged = await prisma.inventoryItem.findMany({
+        where: { id: { in: ids }, mergedIntoId: { not: null } },
+        select: { id: true, mergedIntoId: true, itemName: true },
+      })
+      const blocked = tombstonedRows(merged)
+      if (blocked.length) {
+        const names = merged.map(m => m.itemName).join(', ')
+        return NextResponse.json(
+          { error: `${TOMBSTONE_EDIT_ERROR} (${names})`, blocked: true, blockedIds: blocked },
+          { status: 409 },
+        )
+      }
+    }
 
     switch (action) {
       case 'activate':

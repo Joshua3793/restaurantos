@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Re-validate server-side — never trust a client-submitted "valid" list.
-    const existing = await prisma.inventoryItem.findMany({ select: { itemName: true } })
+    // Tombstones (merged-away rows) keep their name but are not items any more.
+    const existing = await prisma.inventoryItem.findMany({ where: { mergedIntoId: null }, select: { itemName: true } })
     const existingNamesLower = new Set(existing.map(i => i.itemName.trim().toLowerCase()))
     const report = validateRows(rows, existingNamesLower)
 

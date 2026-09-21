@@ -20,6 +20,7 @@ import { formatCurrency } from '@/lib/invoice/formatters'
 import { derivePricingMode, isCatchweight } from '@/lib/invoice/predicates'
 import { computeCostPerUOM, reconcileInvoiceTotals } from '@/lib/invoice/calculations'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { offerForSupplier, type SupplierRef } from '@/lib/invoice/resolution'
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ function unitPriceLabel(item: ScanItem): string | null {
  *  Returns qty 0 (rather than null) when the line credited nothing, so the report
  *  can say so out loud: a line with no billed quantity is invisible to theoretical
  *  stock, and that gap is exactly what an approved-invoice report should surface. */
-function stockEffect(item: ScanItem): { qty: number; countUom: string } | null {
+function stockEffect(item: ScanItem, supplier: SupplierRef): { qty: number; countUom: string } | null {
   if (!item.matchedItem || item.action === 'SKIP') return null
   const m = item.matchedItem
   try {
@@ -106,7 +107,7 @@ function stockEffect(item: ScanItem): { qty: number; countUom: string } | null {
       packChain: m.packChain,
       pricing:   m.pricing,
       countUnit: m.countUnit ?? null,
-    })
+    }, offerForSupplier(item, supplier))
   } catch {
     return null
   }
@@ -177,13 +178,15 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 // ── line row ──────────────────────────────────────────────────────────────────
 
 function LineRow({
-  item, n, rcName, rcNameFor,
+  item, n, rcName, rcNameFor, supplier,
 }: {
   item: ScanItem
   n: number
   /** RC this line's stock landed in (line override → session default). */
   rcName: string | null
   rcNameFor: (id: string) => string
+  /** The session's supplier — resolves which offer's pack this line receives through. */
+  supplier: SupplierRef
 }) {
   const [open, setOpen] = useState(false)
 
@@ -198,7 +201,7 @@ function LineRow({
   const total      = num(item.rawLineTotal)
   const unitPrice  = unitPriceLabel(item)
   const pack       = packFormat(item)
-  const stock      = stockEffect(item)
+  const stock      = stockEffect(item, supplier)
   const costPer    = computeCostPerUOM(item)
   const prevPrice  = num(item.previousPrice)
   const newPrice   = num(item.newPrice)
@@ -625,6 +628,7 @@ export function ApprovedView({
                   n={i + 1}
                   rcName={item.revenueCenterId ? rcNameFor(item.revenueCenterId) : sessionRcName}
                   rcNameFor={rcNameFor}
+                  supplier={{ supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null }}
                 />
               ))}
             </div>

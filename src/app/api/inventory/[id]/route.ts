@@ -5,6 +5,7 @@ import {
 } from '@/lib/item-model'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
+import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const item = await prisma.inventoryItem.findUnique({
@@ -44,9 +45,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const before = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
-    select: { allergens: true },
+    select: { id: true, allergens: true, mergedIntoId: true },
   })
   if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // A merge tombstone is off-limits to the ordinary edit path: an edit here can
+  // set isActive true, which is exactly the state undo refuses to replay onto.
+  if (tombstonedRows([before]).length)
+    return NextResponse.json({ error: TOMBSTONE_EDIT_ERROR }, { status: 409 })
 
   const ci: ChainItem = {
     dimension,
@@ -171,8 +176,13 @@ async function postUpdate(
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const id = params.id
 
-  const item = await prisma.inventoryItem.findUnique({ where: { id }, select: { id: true } })
+  const item = await prisma.inventoryItem.findUnique({ where: { id }, select: { id: true, mergedIntoId: true } })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // Hard-deleting a tombstone would leave its merge un-undoable (undo restores
+  // rows onto this very id) — and the blocker list below can't see it, because a
+  // merge moved every referencing row onto the survivor.
+  if (tombstonedRows([item]).length)
+    return NextResponse.json({ error: TOMBSTONE_EDIT_ERROR, blocked: true }, { status: 409 })
 
   // Block the hard delete when the item carries real usage/history. Deleting it
   // would either violate a FK (Restrict) or destroy costing/financial history that

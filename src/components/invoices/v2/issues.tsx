@@ -14,7 +14,8 @@ import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { dimensionOf } from '@/lib/item-model'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
-import { offerForSupplier, cheapestOtherOffer } from '@/lib/invoice/resolution'
+import { offerForSupplier, cheapestOtherOffer, type SupplierRef } from '@/lib/invoice/resolution'
+import { isNewSupplierForItem } from '@/lib/invoice/new-supplier'
 import type { ScanItem } from '@/components/invoices/types'
 
 // ─── AttentionSummary ──────────────────────────────────────────────────────────
@@ -501,7 +502,7 @@ export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
 // Info-tone note when the spine price moved only because the purchase switched
 // suppliers: this supplier's own price is steady, but another supplier set the
 // current costing price. Not an issue — needs no decision.
-export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; sessionSupplier: { supplierId: string | null; supplierName: string | null } }) {
+export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; sessionSupplier: SupplierRef }) {
   const norm  = computeNormalisedPrices(item)
   const offer = offerForSupplier(item, sessionSupplier)
   if (!norm || !offer) return null
@@ -524,6 +525,28 @@ export function SupplierSwitchNote({ item, sessionSupplier }: { item: ScanItem; 
         currently comes from a different supplier
         {other ? <> ({other.supplierName} <b className="font-semibold text-ink">{formatCurrency(Number(other.pricePerBaseUnit) * factor)}/{unit}</b>)</> : null}.
         Approving will re-cost at this supplier&rsquo;s price.
+      </span>
+    </div>
+  )
+}
+
+// ─── NewSupplierNote ───────────────────────────────────────────────────────────
+// First purchase of this item from this supplier. Not an issue: approving records
+// the supplier with ITS OWN pack under the same item — no second item needed.
+export function NewSupplierNote({ item, sessionSupplier }: { item: ScanItem; sessionSupplier: SupplierRef }) {
+  if (!isNewSupplierForItem(item, sessionSupplier)) return null
+  const pack = item.invoicePackQty && item.invoicePackSize
+    ? `${Number(item.invoicePackQty)} × ${Number(item.invoicePackSize)} ${item.invoicePackUOM ?? ''}`.trim()
+    : null
+  return (
+    <div className="mx-4 my-2.5 flex items-start gap-2.5 bg-blue-soft border border-blue-soft rounded-lg px-3 py-2.5">
+      <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] px-2 py-[3px] rounded-full bg-blue-soft text-blue-text shrink-0">
+        New supplier
+      </span>
+      <span className="text-[12.5px] text-ink-2 leading-[1.45]">
+        First time buying <b className="font-semibold text-ink">{item.matchedItem?.itemName}</b> from{' '}
+        {sessionSupplier.supplierName ?? 'this supplier'}. It will be added as a supplier of this item
+        {pack ? <> with its own pack (<b className="font-semibold text-ink">{pack}</b>)</> : null} — your costing price does not change.
       </span>
     </div>
   )

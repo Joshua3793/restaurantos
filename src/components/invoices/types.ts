@@ -71,6 +71,8 @@ export interface ScanItem {
   invoicePackUOM: string | null
   totalQty: string | null
   totalQtyUOM: string | null
+  /** Frozen at approve — the receiving math's answer once it's no longer live. */
+  receivedQtyBase?: number | string | null
   revenueCenterId?: string | null
   /** Per-RC quantity split (count UOM). null/empty = single-RC via revenueCenterId. */
   rcSplit?: Array<{ rcId: string; qty: number }> | null
@@ -99,6 +101,9 @@ export interface Session {
   status: SessionStatus
   supplierId: string | null
   supplierName: string | null
+  /** The linked Supplier's own name — the CANONICAL name offers are keyed by.
+   *  `supplierName` above may be the OCR variant, so offer lookups need both. */
+  supplier?: { name: string } | null
   invoiceDate: string | null
   invoiceNumber: string | null
   poNumber?: string | null

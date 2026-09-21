@@ -12,23 +12,33 @@ import { classifyDimensionRelationship } from './classify'
 import { computeNormalisedPrices, computeLineMath } from './calculations'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { lineReceivedCountQty } from '@/lib/invoice/line-qty'
+import { pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
 
-/** An RC split that doesn't sum to the line's received quantity blocks approval. */
-export function hasInvalidRcSplit(item: ScanItem): boolean {
+/** An RC split that doesn't sum to the line's received quantity blocks approval.
+ *  `ref` is the session's supplier — without it the line is read through the
+ *  item's own (primary-supplier) chain, same as before offers existed. */
+export function hasInvalidRcSplit(item: ScanItem, ref?: SupplierRef): boolean {
   const split = item.rcSplit
   if (!Array.isArray(split) || split.length === 0) return false
   if (!item.matchedItem) return true
   const entries = split.filter(e => e && e.rcId && Number(e.qty) > 0)
   if (entries.length === 0) return true
-  const { qty: total } = lineReceivedCountQty(item as unknown as Parameters<typeof lineReceivedCountQty>[0], {
+  // WITHOUT `receivedQtyBase`, deliberately — mirroring `lineQtyOf` in
+  // api/invoices/sessions/[id]/approve. That column is the approve route's own
+  // OUTPUT, and a re-approve recomputes it rather than echoing it back. Passing
+  // it here validated the split against the FROZEN total while the server
+  // validated the live one, so on a re-approve of a line whose format changed
+  // the client called a split valid that the server then dropped, silently.
+  const live = { ...(item as unknown as Parameters<typeof lineReceivedCountQty>[0]), receivedQtyBase: null }
+  const { qty: total } = lineReceivedCountQty(live, {
     dimension: item.matchedItem.dimension ?? 'COUNT',
     baseUnit:  item.matchedItem.baseUnit ?? 'each',
     packChain: item.matchedItem.packChain,
     pricing:   item.matchedItem.pricing,
     countUnit: item.matchedItem.countUnit ?? null,
-  })
+  }, ref ? offerForSupplier(item, ref) : null)
   if (!(total > 0)) return true
   const sum = entries.reduce((s, e) => s + Number(e.qty), 0)
   return Math.abs(sum - total) > Math.max(0.001, total * 0.005)
@@ -48,25 +58,27 @@ export interface ResolveOpts {
 }
 
 // ── Supplier offers on the matched item ──────────────────────────────────────
-export interface SupplierRef { supplierId?: string | null; supplierName?: string | null }
-
-// Offers are stored under the canonical Supplier name; sessions may carry a raw
-// OCR variant. supplierId is the reliable join — name is the fallback.
-function offerMatches(o: { supplierId?: string | null; supplierName: string }, ref: SupplierRef): boolean {
-  if (ref.supplierId && o.supplierId) return o.supplierId === ref.supplierId
-  return !!ref.supplierName && o.supplierName === ref.supplierName
-}
+// Re-exported so existing importers of `./resolution` keep working — line-format's
+// SupplierRef is structurally compatible (it just adds an optional canonicalName).
+export type { SupplierRef } from '@/lib/invoice/line-format'
 
 export function offerForSupplier(item: ScanItem, ref: SupplierRef) {
-  if (!item.matchedItem?.supplierPrices) return null
-  if (!ref.supplierId && !ref.supplierName) return null
-  return item.matchedItem.supplierPrices.find(o => offerMatches(o, ref)) ?? null
+  return pickOffer(item.matchedItem?.supplierPrices ?? null, ref)
+}
+
+// EVERY row belonging to `ref`'s supplier — not just the one pickOffer chose. The
+// unique key is (item, supplierName), so one supplier can still own two rows under
+// OCR name variants; neither is an "other" supplier.
+function isSameSupplier(o: { supplierId?: string | null; supplierName: string }, ref: SupplierRef): boolean {
+  if (ref.supplierId && o.supplierId) return o.supplierId === ref.supplierId
+  return (!!ref.supplierName && o.supplierName === ref.supplierName)
+    || (!!ref.canonicalName && o.supplierName === ref.canonicalName)
 }
 
 /** Cheapest OTHER supplier's offer, for the supplier-switch note. */
 export function cheapestOtherOffer(item: ScanItem, ref: SupplierRef) {
   const offers = (item.matchedItem?.supplierPrices ?? [])
-    .filter(o => !offerMatches(o, ref) && offerPricePerBase(o) > 0)
+    .filter(o => !isSameSupplier(o, ref) && offerPricePerBase(o) > 0)
   if (offers.length === 0) return null
   return offers.reduce((min, o) => offerPricePerBase(o) < offerPricePerBase(min) ? o : min)
 }
@@ -202,7 +214,7 @@ export function lineReasons(item: ScanItem, opts: ResolveOpts, sessionSupplier?:
   }
 
   // Unbalanced RC split — blocks approval until the quantities reconcile.
-  if (hasInvalidRcSplit(item)) {
+  if (hasInvalidRcSplit(item, sessionSupplier ?? undefined)) {
     out.push({
       kind: 'rcsplit',
       title: 'Split doesn’t balance',

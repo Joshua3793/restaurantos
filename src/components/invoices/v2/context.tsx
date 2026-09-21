@@ -16,6 +16,10 @@ export interface DrawerContextValue {
   sessionSupplierName: string | null
   /** Canonical supplier id when the session resolved one — the reliable offer join. */
   sessionSupplierId: string | null
+  /** The linked Supplier's own name — offers are keyed by it, while
+   *  sessionSupplierName may be the OCR variant. Needed so the UI resolves a line
+   *  through the same offer the approve route will. */
+  sessionSupplierCanonicalName: string | null
   /** The invoice's (session-level) revenue center id — the default for unset lines. */
   sessionRcId: string | null
 

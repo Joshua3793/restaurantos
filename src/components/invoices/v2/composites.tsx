@@ -7,7 +7,7 @@ import {
   AlertTriangle, Search, Plus, Check, ArrowRight,
   RotateCcw, ZoomIn, ChevronDown, Link2, Info, X,
 } from 'lucide-react'
-import type { ScanItem } from '@/components/invoices/types'
+import type { ScanItem, LineItemAction } from '@/components/invoices/types'
 import { Pill, VariancePill, ModeToggle } from './atoms'
 import { computeLineMath, computeNormalisedPrices } from '@/lib/invoice/calculations'
 import { formatCurrency } from '@/lib/invoice/formatters'
@@ -32,6 +32,37 @@ export interface InventorySearchResult {
   packChain?: unknown
   pricing?: unknown
   countUnit?: string | null
+}
+
+/**
+ * Builds the ScanItem patch that links a line to an existing inventory item —
+ * the exact shape `handleSelectLink` (card.tsx's link-picker handler) has always
+ * written, pulled out so the "Add as a supplier instead" banner in the Create-New
+ * modal (InvoiceReviewDrawer.tsx) can reuse it with `action: 'ADD_SUPPLIER'`
+ * instead of duplicating the field mapping. Behaviour for the existing link-picker
+ * call site (`action: 'UPDATE_PRICE'`) is unchanged.
+ */
+export function matchPatchFromResult(result: InventorySearchResult, action: LineItemAction): Partial<ScanItem> {
+  return {
+    matchedItemId: result.id,
+    matchedItem: {
+      id: result.id,
+      itemName: result.itemName,
+      purchasePrice: String(result.purchasePrice),
+      pricePerBaseUnit: String(result.pricePerBaseUnit),
+      baseUnit: result.baseUnit,
+      // Carry the chain so pack display + format prefill + pricing mode derive from it.
+      dimension: result.dimension,
+      packChain: result.packChain,
+      pricing: result.pricing,
+      countUnit: result.countUnit,
+    },
+    action,
+    // A hand-picked link is no longer a fuzzy match — clear the MEDIUM-match
+    // trust check so ConfIssue stops claiming "description similarity only".
+    matchConfidence: 'HIGH',
+    matchScore: 100,
+  }
 }
 
 export type ReconcileResult = {

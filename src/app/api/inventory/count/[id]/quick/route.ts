@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { computeExpectedForItem } from '@/lib/count-expected'
-import { finalizeCountSession } from '@/lib/count-finalize'
-import { convertBaseToCountUom, resolveCountUom, countDimsOf, assertCountableUom, CountUomError } from '@/lib/count-uom'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { recordQuickCount } from '@/lib/quick-count'
+import { convertBaseToCountUom, resolveCountUom, countDimsOf } from '@/lib/count-uom'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,58 +56,32 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!rcId)
     return NextResponse.json({ error: 'Pick a revenue center to quick-count' }, { status: 400 })
 
-  const item = await prisma.inventoryItem.findUnique({ where: { id: params.id } })
-  if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  // Validate the unit BEFORE creating anything — finalize would reject it anyway,
-  // but by then the session row exists and is orphaned in a never-finalized state.
-  // Freezing the base here also makes this line chain-edit-proof from birth.
-  let uomFactor: number
-  try { uomFactor = assertCountableUom(selectedUom, countDimsOf(item)) }
-  catch (e) {
-    if (e instanceof CountUomError) {
-      return NextResponse.json({ error: 'Invalid count unit', message: e.message, itemName: item.itemName }, { status: 400 })
-    }
-    throw e
-  }
-
-  const expected = await computeExpectedForItem(params.id, rcId)
-  if (!expected) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  const session = await prisma.countSession.create({
-    data: {
-      label:           `Quick count: ${item.itemName}`,
-      sessionDate:     new Date(),
-      type:            'QUICK',
-      revenueCenterId: rcId,
-      countedBy:       user.name?.trim() || user.email,
-      lines: {
-        create: [{
-          inventoryItemId: item.id,
-          expectedQty:     expected.expectedBase,
-          countedQty,
-          selectedUom,
-          countedQtyBase:  countedQty * uomFactor,
-          priceAtCount:    pricePerBaseUnit(asChainItem(item)),
-          sortOrder:       0,
-        }],
-      },
-    },
+  const result = await recordQuickCount({
+    itemId:      params.id,
+    countedQty,
+    selectedUom,
+    rcId,
+    countedBy:   user.name?.trim() || user.email,
   })
-
-  const result = await finalizeCountSession(session.id)
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
+  if (!result.ok) {
+    // Same body the inline version returned: { error } plus, for an invalid
+    // count unit, { message, itemName }.
+    const failBody: Record<string, unknown> = { error: result.error }
+    if (result.message  !== undefined) failBody.message  = result.message
+    if (result.itemName !== undefined) failBody.itemName = result.itemName
+    return NextResponse.json(failBody, { status: result.status })
+  }
 
   // Read back the locked variance for the UI ("you were X off").
   const line = await prisma.countLine.findFirst({
-    where: { sessionId: session.id },
+    where: { sessionId: result.sessionId },
     select: { variancePct: true, varianceCost: true, expectedQty: true },
   })
 
   return NextResponse.json({
     ok:           true,
-    sessionId:    session.id,
-    expectedBase: Number(line?.expectedQty ?? expected.expectedBase),
+    sessionId:    result.sessionId,
+    expectedBase: Number(line?.expectedQty ?? result.expectedBase),
     variancePct:  line?.variancePct  != null ? Number(line.variancePct)  : 0,
     varianceCost: line?.varianceCost != null ? Number(line.varianceCost) : 0,
     summary:      result.summary,

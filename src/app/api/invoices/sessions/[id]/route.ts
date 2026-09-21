@@ -19,6 +19,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
+      // The CANONICAL supplier name. Offers are keyed by it (canonicalSupplierName)
+      // while `supplierName` may be an OCR variant, so the review UI needs it to
+      // resolve a line through the same offer the approve route will.
+      supplier: { select: { name: true } },
       files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, displayRotation: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
         include: { matchedItem: { select: { id: true, itemName: true, ...PRICING_SELECT, purchasePrice: true, supplierPrices: true } } },
