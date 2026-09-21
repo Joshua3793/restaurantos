@@ -22,6 +22,13 @@ export interface LineQtyInput {
    *  for lines not yet approved (or not yet backfilled). Callers computing the
    *  value to freeze must NOT pass it. */
   receivedQtyBase?: number | string | null
+  /** The three money fields. Together they prove whether a billed weight was the
+   *  PRICED quantity (price × weight = total) or a column that merely sits on the
+   *  invoice (Sysco per-case lines). A caller that omits them never takes the
+   *  billed-weight step — safe, but wrong: pass them everywhere. */
+  rawUnitPrice?: number | string | null
+  rate?: number | string | null
+  rawLineTotal?: number | string | null
 }
 
 const num = (v: unknown): number => {
@@ -68,17 +75,72 @@ function toBaseUnits(qty: number, unit: string | null | undefined, item: ChainIt
   return convertQtyBridged(qty, canon, base, each, density)
 }
 
+export type ReceivedVia = 'frozen' | 'billed-weight' | 'rate' | 'shipped-unit' | 'printed-pack' | 'item-pack' | 'none'
+export interface Received { base: number; via: ReceivedVia; needsBridge: boolean }
+
+/** A weight/volume unit the generic table knows — never a count or a container. */
+const isMeasureUnit = (u: string | null | undefined): boolean => {
+  if (!u) return false
+  const f = UNIT_FACTORS[canonicalUom(u)]
+  return !!f && f.dim !== 'count'
+}
+const moneyAgrees = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.02, Math.abs(b) * 0.02)
+
+/**
+ * Was the billed weight the quantity the line was PRICED on? True only when
+ * price × billed reproduces the line total AND price × cases does not. 2026-09-21,
+ * 1,773 approved lines: zero disagreements with the OCR pricing mode, and it also
+ * covers lines scanned before a mode was recorded. The per-case Sysco lines that
+ * carry a stray weight column (Butter "2.86 kg" on 2 × 25 × 454 g) reconcile by
+ * CASE and stay on the pack. When both reconcile the line is ambiguous → false.
+ */
+export function billedWeightIsPriced(line: LineQtyInput): boolean {
+  const billed = num(line.totalQty), total = num(line.rawLineTotal)
+  if (!(billed > 0) || !(total > 0) || !isMeasureUnit(line.totalQtyUOM)) return false
+  const price = num(line.rate) || num(line.rawUnitPrice)
+  if (!(price > 0)) return false
+
+  // Price is per rateUOM; express the billed quantity in that unit first.
+  let billedInRateUnit = billed
+  if (line.rateUOM && UNIT_FACTORS[canonicalUom(line.rateUOM)]) {
+    if (dimensionOf(canonicalUom(line.rateUOM)) !== dimensionOf(canonicalUom(line.totalQtyUOM!))) return false
+    billedInRateUnit = convertQty(billed, canonicalUom(line.totalQtyUOM!), canonicalUom(line.rateUOM))
+  }
+  const byWeight = moneyAgrees(price * billedInRateUnit, total)
+  const casePrice = num(line.rawUnitPrice), cases = num(line.rawQty)
+  const byCase = casePrice > 0 && cases > 0 && moneyAgrees(casePrice * cases, total)
+  return byWeight && !byCase
+}
+
 /** Base units (g/ml/each) received by a line, for the line's matched item.
  *  THE single receiving rule — `buildPurchaseMap` in count-expected.ts calls this
  *  rather than reimplementing it, so theoretical stock, the RC split editor and
  *  the approved-invoice report can never drift apart again. */
 export function lineReceivedBaseUnits(line: LineQtyInput, chainItem: ChainItem): number {
+  return lineReceived(line, chainItem).base
+}
+
+/** THE receiving rule, with its provenance. Order matters:
+ *  frozen → billed weight proven by the money → RATE (billed, then shipped) →
+ *  shipped unit is a measure → printed pack → the resolved chain. */
+export function lineReceived(line: LineQtyInput, chainItem: ChainItem): Received {
   const frozen = num(line.receivedQtyBase)
-  if (frozen > 0) return frozen
+  if (frozen > 0) return { base: frozen, via: 'frozen', needsBridge: false }
 
   const qty    = num(line.rawQty)
   const billed = num(line.totalQty)
   const isRate = chainItem.pricing?.mode === 'RATE'
+  let needsBridge = false
+  const got = (base: number, via: ReceivedVia): Received => ({ base, via, needsBridge })
+
+  // ── The LINE says it was billed by weight, and its own money proves it. The
+  //    item's / offer's pricing mode is irrelevant: a pack chain means nothing for
+  //    a purchase made by weight.
+  if (billedWeightIsPriced(line)) {
+    const r = toBaseUnits(billed, line.totalQtyUOM, chainItem)
+    if (r !== null) return { base: r, via: 'billed-weight', needsBridge: false }
+    needsBridge = true   // a weight on an item with no bridge to it — fall through, say so
+  }
 
   // ── RATE (per-weight / catch-weight): the invoice bills a measured quantity
   //    directly. Never multiply it by a case size (that was a 10× inflation).
@@ -89,17 +151,25 @@ export function lineReceivedBaseUnits(line: LineQtyInput, chainItem: ChainItem):
     const pricedUnit = chainItem.pricing.mode === 'RATE' ? chainItem.pricing.rateUnit : null
     if (billed > 0) {
       const r = toBaseUnits(billed, line.totalQtyUOM ?? line.rateUOM ?? pricedUnit ?? line.rawUnit, chainItem)
-      if (r !== null) return r
+      if (r !== null) return got(r, 'rate')
     }
     if (qty > 0) {
       const r = toBaseUnits(qty, line.rawUnit ?? line.rateUOM ?? pricedUnit, chainItem)
-      if (r !== null) return r
+      if (r !== null) return got(r, 'rate')
     }
   }
 
   // Everything below expands a count of purchase units, so without one there is
   // nothing left to expand.
-  if (qty <= 0) return 0
+  if (qty <= 0) return got(0, 'none')
+
+  // ── The shipped quantity's OWN unit is a weight/volume ("12 lb"): that is what
+  //    arrived, whatever the item's pack says.
+  if (isMeasureUnit(line.rawUnit)) {
+    const r = toBaseUnits(qty, line.rawUnit, chainItem)
+    if (r !== null) return { base: r, via: 'shipped-unit', needsBridge: false }
+    needsBridge = true
+  }
 
   // CASE pricing (or a RATE line billed in a container unit): expand via the
   // invoice's own pack format when it can reach the base unit…
@@ -108,14 +178,14 @@ export function lineReceivedBaseUnits(line: LineQtyInput, chainItem: ChainItem):
   const packUOM  = line.invoicePackUOM ?? null
   if (packQty > 0 && packSize > 0 && packUOM) {
     const r = toBaseUnits(qty * packQty * packSize, packUOM, chainItem)
-    if (r !== null) return r
+    if (r !== null) return got(r, 'printed-pack')
   }
 
   // …otherwise fall back to the item's OWN chain, which is always denominated in
   // the base unit.
   const top = chainItem.packChain?.[0]?.unit
   const perCase = top ? basePerUnit(chainItem, top) : 1
-  return qty * perCase
+  return got(qty * perCase, 'item-pack')
 }
 
 /** Matched-item row shape (Prisma JSON-serialised) needed to resolve units. */

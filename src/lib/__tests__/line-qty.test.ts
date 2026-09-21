@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lineReceivedBaseUnits, lineReceivedCountQty, type LineQtyInput } from '@/lib/invoice/line-qty'
+import { lineReceivedBaseUnits, lineReceivedCountQty, lineReceived, billedWeightIsPriced, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { asChainItem, type ChainItem } from '@/lib/item-model'
 
 // Item shapes taken from real rows the 2026-08-11 receipt audit flagged.
@@ -160,5 +160,87 @@ describe('frozen receipts and supplier offers', () => {
     const matched = { dimension: 'COUNT', baseUnit: 'each', packChain: romaine.packChain, pricing: romaine.pricing, countUnit: 'each' }
     expect(lineReceivedCountQty(line({ rawQty: 2 }), matched).qty).toBe(96)
     expect(lineReceivedCountQty(line({ rawQty: 2 }), matched, { packChain: [{ unit: 'case', per: 12 }] }).qty).toBe(24)
+  })
+})
+
+describe('line-first receiving — real lines from the 2026-09-20 audit', () => {
+  // COUNT item, 24 each/case, 1 each ≈ 0.4 lb (181.4368 g)
+  const eggplant = item({
+    dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+    packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 },
+    eachMeasureQty: 181.4368, eachMeasureUnit: 'g',
+  })
+  const eggplantNoBridge = item({
+    dimension: 'COUNT', baseUnit: 'each', countUnit: 'each',
+    packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 },
+  })
+  const sausage = item({ dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 7000 }], pricing: { mode: 'PACK', purchasePrice: 60 } })
+  const butter  = item({ dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 11350 }], pricing: { mode: 'PACK', purchasePrice: 120 } })
+  const zucchini = item({ dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'lb', per: 250 }], pricing: { mode: 'PACK', purchasePrice: 19.96 } })
+
+  it('shipped unit is a weight on a COUNT item → bridged through the each-measure', () => {
+    const r = lineReceived(line({ rawQty: 12, rawUnit: 'lb', totalQty: 12, totalQtyUOM: 'lb', rate: 3.49, rateUOM: 'lb', rawUnitPrice: 3.49, rawLineTotal: 41.88 }), eggplant)
+    expect(r.base).toBeCloseTo(30, 1)          // was 12 × 24 = 288
+    expect(r.needsBridge).toBe(false)
+    expect(['billed-weight', 'shipped-unit']).toContain(r.via)
+  })
+
+  it('same line, item has NO each-measure → today’s value, needsBridge', () => {
+    const r = lineReceived(line({ rawQty: 12, rawUnit: 'lb', totalQty: 12, totalQtyUOM: 'lb', rate: 3.49, rateUOM: 'lb', rawUnitPrice: 3.49, rawLineTotal: 41.88 }), eggplantNoBridge)
+    expect(r).toEqual({ base: 288, via: 'item-pack', needsBridge: true })
+  })
+
+  it('cases + a billed weight the money proves → the billed weight', () => {
+    const r = lineReceived(line({ rawQty: 2, rawUnit: 'CS', totalQty: 14.6, totalQtyUOM: 'kg', rate: 8.5, rateUOM: 'kg', rawUnitPrice: 8.5, rawLineTotal: 124.1, invoicePackQty: 1, invoicePackSize: 7, invoicePackUOM: 'kg' }), sausage)
+    expect(r).toEqual({ base: 14600, via: 'billed-weight', needsBridge: false })   // was 14,000 nominal
+  })
+
+  it('a mis-scanned printed pack does not matter when the money proves the weight', () => {
+    const r = lineReceived(line({ rawQty: 4, rawUnit: 'CS', totalQty: 28.7, totalQtyUOM: 'kg', rate: 8.5, rateUOM: 'kg', rawLineTotal: 243.95, invoicePackQty: 1, invoicePackSize: 1, invoicePackUOM: 'kg' }), sausage)
+    expect(r.base).toBe(28700)
+    expect(r.via).toBe('billed-weight')
+  })
+
+  it('per-weight line on a PACK-priced offer (zucchini: 1 ea, billed 3.02 kg)', () => {
+    const r = lineReceived(line({ rawQty: 1, rawUnit: 'ea', totalQty: 3.02, totalQtyUOM: 'kg', rate: 6.61, rateUOM: 'kg', rawUnitPrice: 19.96, rawLineTotal: 19.96 }), zucchini)
+    // price×cases (19.96 × 1) ALSO equals the total → ambiguous → today's rule. Pinned on purpose:
+    expect(r.via).toBe('item-pack')
+  })
+
+  it('…and the same line once rawUnitPrice is the RATE, not the line total, resolves by weight', () => {
+    const r = lineReceived(line({ rawQty: 1, rawUnit: 'ea', totalQty: 3.02, totalQtyUOM: 'kg', rate: 6.61, rateUOM: 'kg', rawUnitPrice: 6.61, rawLineTotal: 19.96 }), zucchini)
+    expect(r).toEqual({ base: 3020, via: 'billed-weight', needsBridge: false })
+  })
+
+  it('Sysco per-case line with a bogus billed-weight column keeps the pack (Butter)', () => {
+    const r = lineReceived(line({ rawQty: 2, rawUnit: 'CS', totalQty: 2.86, totalQtyUOM: 'kg', rawUnitPrice: 172.79, rawLineTotal: 345.58, invoicePackQty: 25, invoicePackSize: 454, invoicePackUOM: 'g' }), butter)
+    expect(r).toEqual({ base: 22700, via: 'printed-pack', needsBridge: false })
+  })
+
+  it('rate unit differs from the billed unit but shares its dimension → converted before the money check', () => {
+    // $8.50/kg, billed 32.19 lb (= 14.6 kg) → 124.10
+    expect(billedWeightIsPriced(line({ rawQty: 2, rawUnit: 'CS', totalQty: 32.187, totalQtyUOM: 'lb', rate: 8.5, rateUOM: 'kg', rawLineTotal: 124.1 }))).toBe(true)
+  })
+
+  it('billedWeightIsPriced refuses: no total, no price, count unit, cross-dimension rate, both reconcile', () => {
+    expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'kg', rate: 2 }))).toBe(false)
+    expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'kg', rawLineTotal: 10 }))).toBe(false)
+    expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'each', rate: 2, rawLineTotal: 10 }))).toBe(false)
+    expect(billedWeightIsPriced(line({ totalQty: 5, totalQtyUOM: 'kg', rate: 2, rateUOM: 'l', rawLineTotal: 10 }))).toBe(false)
+    expect(billedWeightIsPriced(line({ rawQty: 5, totalQty: 5, totalQtyUOM: 'kg', rate: 2, rawUnitPrice: 2, rawLineTotal: 10 }))).toBe(false)
+  })
+
+  it('regression locks: frozen wins; a RATE item still prefers the billed weight over the shipped qty', () => {
+    expect(lineReceived(line({ rawQty: 2, receivedQtyBase: '24' }), sausage)).toEqual({ base: 24, via: 'frozen', needsBridge: false })
+    const bison = item({ dimension: 'MASS', baseUnit: 'g', countUnit: 'kg', packChain: [{ unit: 'each', per: 1 }, { unit: 'each', per: 1000 }], pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' } })
+    // ordered 10 kg, billed 10.4 kg, NO line total → the money cannot speak → RATE branch, billed first
+    expect(lineReceived(line({ rawQty: 10, rawUnit: 'kg', totalQty: 10.4, totalQtyUOM: 'kg' }), bison)).toEqual({ base: 10400, via: 'rate', needsBridge: false })
+    // unit-less billed weight still resolves through the priced unit
+    expect(lineReceived(line({ rawQty: null, totalQty: 41.025 }), bison).base).toBeCloseTo(41025)
+  })
+
+  it('lineReceivedBaseUnits is lineReceived().base for every shape above', () => {
+    const l = line({ rawQty: 2, rawUnit: 'CS', totalQty: 14.6, totalQtyUOM: 'kg', rate: 8.5, rateUOM: 'kg', rawLineTotal: 124.1 })
+    expect(lineReceivedBaseUnits(l, sausage)).toBe(lineReceived(l, sausage).base)
   })
 })
