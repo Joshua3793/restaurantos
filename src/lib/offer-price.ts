@@ -12,6 +12,16 @@
 
 import { pricePerBaseUnit as chainPpb, asChainItem, dimensionOf } from './item-model'
 
+/** The item's own facts, with the offer's chain + pricing standing in for its
+ *  pricing. The ONE place an offer's price meets the item's base unit + bridges. */
+const pricedWithItem = (offer: { packChain?: unknown; pricing?: unknown }, item: OfferItem) => chainPpb(asChainItem({
+  dimension: item.dimension ?? dimensionOf(item.baseUnit ?? 'each'),
+  baseUnit:  item.baseUnit ?? 'each',
+  packChain: offer.packChain,
+  pricing:   offer.pricing,
+  eachMeasureQty: item.eachMeasureQty, eachMeasureUnit: item.eachMeasureUnit ?? null, densityGPerMl: item.densityGPerMl,
+}))
+
 /**
  * The item facts a supplier offer needs in order to be priced: the base unit
  * every offer's $/base is expressed in, and the bridges (each-measure, density)
@@ -44,14 +54,26 @@ export function offerPricePerBase(offer: { packChain?: unknown; pricing?: unknow
   const pricing = offer.pricing && typeof offer.pricing === 'object' ? offer.pricing : null
   if (!chain || !chain.length || !pricing) return 0 // no chain ⇒ unpriced offer
 
-  const baseUnit = item.baseUnit ?? 'each'
-  const dimension = item.dimension ?? dimensionOf(baseUnit)
-
   // The offer supplies the pack and the price; the ITEM supplies the base unit and
   // the bridges. A $/lb offer on an `each` item is only priceable through the
   // item's each-measure — which is why the item is a required argument.
-  return chainPpb(asChainItem({
-    dimension, baseUnit, packChain: chain, pricing,
-    eachMeasureQty: item.eachMeasureQty, eachMeasureUnit: item.eachMeasureUnit ?? null, densityGPerMl: item.densityGPerMl,
-  }))
+  return pricedWithItem({ packChain: chain, pricing }, item)
+}
+
+/**
+ * The $/base an item takes on when it ADOPTS `primary` as its spine
+ * (`syncPrimaryOfferToItem`). Same formula, same bridges — a separate export only
+ * because the adoption path must keep one pre-existing edge semantics that
+ * `offerPricePerBase` deliberately tightened: an offer row whose `packChain` is
+ * present but EMPTY is still priced (it is `basePerPurchase([]) === 1`), because
+ * the spine write's only refusal has always been a non-positive ppb, and turning
+ * one of those rows into "unpriced" here would change a stored number.
+ *
+ * Pricing it WITHOUT the item's bridges is the trap this exists to close: a
+ * bridged `$/lb` primary reads 0, and the caller's "never write a zero ppb" guard
+ * then makes the sync a PERMANENT SILENT NO-OP — the item keeps a stale price for
+ * ever, with nothing logged.
+ */
+export function primaryOfferPpb(primary: { packChain?: unknown; pricing?: unknown }, item: OfferItem): number {
+  return pricedWithItem(primary, item)
 }
