@@ -717,8 +717,14 @@ async function doApprove(
         // rewrite what a past invoice received. Recomputed on every approve —
         // lineQtyOf deliberately omits the stored value — so a re-approve corrects
         // a bad freeze rather than echoing it.
+        // On the WEIGHT path the price above was derived over `received.base`, so
+        // that is the quantity frozen — re-reading the line through the post-write
+        // RATE mode could pick a stray billed column the money never proved
+        // (Butter's "2.86 kg") and break received × price = line total.
         const receivedQtyBase = freezeQty(
-          lineReceivedBaseUnits(lineQtyOf(scanItem), freezeFormat(speaks, newPricing)),
+          pricedByWeight
+            ? received.base
+            : lineReceivedBaseUnits(lineQtyOf(scanItem), freezeFormat(speaks, newPricing)),
           scanItem.id,
         )
 
