@@ -24,7 +24,8 @@ function fuzzyScore(query: string, target: string): number {
 // GET /api/inventory/search?q=flour&limit=10
 // GET /api/inventory/search?barcode=123456&limit=10
 // GET /api/inventory/search?q=flour&limit=1&withUsage=1 — adds recipeCount + score
-// (used by the invoice Create-New modal's "looks like an existing item" banner).
+// (used by the invoice Create-New modal's "looks like an existing item" banner),
+// plus purchaseCount + stockOnHand (used by the item-merge picker, Task 10).
 export async function GET(req: NextRequest) {
   try { await requireSession() }
   catch (e) {
@@ -76,9 +77,15 @@ export async function GET(req: NextRequest) {
       purchasePrice: true,
       ...PRICING_SELECT,
       category: true,
-      // Usage count for the "used in N recipes" banner copy — only selected when
-      // asked for, so the default response shape (every other caller) is untouched.
-      ...(withUsage ? { _count: { select: { recipeIngredients: true } } } : {}),
+      // Usage counts for the "used in N recipes" banner copy and the item-merge
+      // picker (Task 10) — only selected when asked for, so the default response
+      // shape (every other caller) is untouched.
+      ...(withUsage
+        ? {
+            stockOnHand: true,
+            _count: { select: { recipeIngredients: true, invoiceMatches: { where: { approved: true } } } },
+          }
+        : {}),
     },
     orderBy: { itemName: 'asc' },
     take: Math.min(limit * 5, 100),
@@ -87,11 +94,16 @@ export async function GET(req: NextRequest) {
   // Keep the response's pricePerBaseUnit field populated by computing it from
   // the chain (survives the legacy column drop).
   const items = itemsRaw.map(i => {
-    const { _count, ...rest } = i as typeof i & { _count?: { recipeIngredients: number } }
+    const { _count, stockOnHand, ...rest } = i as typeof i & {
+      _count?: { recipeIngredients: number; invoiceMatches: number }
+      stockOnHand?: unknown
+    }
     return {
       ...rest,
       pricePerBaseUnit: pricePerBaseUnit(asChainItem(i)),
-      ...(withUsage && _count ? { recipeCount: _count.recipeIngredients } : {}),
+      ...(withUsage && _count
+        ? { recipeCount: _count.recipeIngredients, purchaseCount: _count.invoiceMatches, stockOnHand: Number(stockOnHand) }
+        : {}),
     }
   })
 

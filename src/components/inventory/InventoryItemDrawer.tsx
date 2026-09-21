@@ -17,6 +17,7 @@ import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { SupplierOffersSection } from './SupplierOffersSection'
 import { QuickCountSheet } from './QuickCountSheet'
+import { MergeItemSheet, MergedItemsRow } from './MergeItemSheet'
 import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { lookupDensity } from '@/lib/density'
@@ -242,6 +243,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const [item, setItem] = useState<InventoryItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [showQuick, setShowQuick] = useState(false)
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [mergeTick, setMergeTick] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState<EditForm>({
@@ -343,6 +346,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     setEditMode(false)
     setSaving(false)
     onUpdated?.(next)
+  }
+
+  // The same refetch SupplierOffersSection's onRepriced already performs —
+  // shared so a merge (which can move offers, recipe lines, count lines, etc.
+  // onto this item) refreshes the drawer the same way a re-price does.
+  function refreshItem() {
+    if (!item) return
+    fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => setItem(normalizeItem(d)))
+    onUpdated?.()
   }
 
   return (
@@ -886,7 +898,23 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 </div>
 
                 {/* Supplier offers */}
-                <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} onRepriced={() => { fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => setItem(normalizeItem(d))); onUpdated?.() }} />
+                <SupplierOffersSection itemId={item.id} baseUnit={item.baseUnit ?? null} onRepriced={refreshItem} />
+
+                {/* Merge a duplicate item into this one (MANAGER+, non-PREP only — see
+                    item-consolidation Task 10). The drawer has no session/role of its
+                    own to gate on client-side, so this renders for everyone and relies
+                    on the merge route's own requireSession('MANAGER') 403. */}
+                {!item.recipe && (
+                  <div>
+                    <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={refreshItem} />
+                    <button
+                      type="button" onClick={() => setMergeOpen(true)}
+                      className="mt-2 text-[12.5px] font-semibold text-ink-2 underline underline-offset-2"
+                    >
+                      Merge another item into this one…
+                    </button>
+                  </div>
+                )}
 
                 {/* Price History */}
                 {priceHistory.length > 0 && (
@@ -921,6 +949,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 item={item}
                 onClose={() => setShowQuick(false)}
                 onDone={() => { setShowQuick(false); onUpdated?.() }}
+              />
+            )}
+
+            {mergeOpen && (
+              <MergeItemSheet
+                survivor={{ id: item.id, itemName: item.itemName, countUnit: item.countUnit ?? item.baseUnit ?? 'each', baseUnit: item.baseUnit ?? 'each' }}
+                rcId={activeRc?.id ?? null}
+                onClose={() => setMergeOpen(false)}
+                onMerged={() => { setMergeTick(t => t + 1); refreshItem() }}
               />
             )}
           </>
