@@ -43,7 +43,7 @@ function jaccard(a: string[], b: string[]) {
 
 async function main() {
   const items = await prisma.inventoryItem.findMany({
-    where: { isActive: true, recipe: null },
+    where: { isActive: true, recipe: null, mergedIntoId: null },
     select: {
       id: true, itemName: true, baseUnit: true, countUnit: true, category: true, packChain: true,
       stockOnHand: true, isStocked: true,

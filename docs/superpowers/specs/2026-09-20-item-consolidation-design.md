@@ -1,7 +1,7 @@
 # Item consolidation — one item, many suppliers
 
 **Date:** 2026-09-20
-**Status:** design approved, not implemented
+**Status:** implemented 2026-09-20 on `feat/item-consolidation` — see "As built" at the end for where the implementation deliberately differs
 **Spec 1 of 3.** Spec 2 (weighted-average costing) and spec 3 (none needed if 3c below ships here) build on this.
 
 ## Problem
@@ -111,3 +111,17 @@ Commit the audit as `scripts/audit-duplicate-items.ts`. **Verify on live data:**
 - Pattern 3, the recipe-coverage gap. The audit script keeps reporting it.
 - A recipe-side "any of these items" ingredient group.
 - Dropping the dead `InvoiceLineItem` table.
+
+## As built (2026-09-20) — deliberate differences from the design above
+
+- **Same-base-unit merges only.** Three review rounds of the planner kept finding defects in the cross-unit conversion layer (recipe lines, count lines, snapshots, offer chains, per-weight offer prices). v1 refuses with `DIFFERENT_BASE_UNIT`; fix the absorbed item's unit first. There is no `factor` anywhere. The ~5 cross-unit duplicate pairs (Kennebec, capers, cucumber, cilantro…) wait for a follow-up.
+- **`BRIDGE_MISMATCH` guard** (not in the design): two same-unit items can still carry different each-measures/densities, which would silently re-cost a re-pointed recipe line stored in a bridged unit.
+- **Offers.** A merge never deletes or re-flags the survivor's primary offer (a collision with it always drops the absorbed offer, even a newer one — surfaced in the summary). When the survivor has no primary at all, one incoming offer is promoted IN THE MANIFEST; the item's spine is never written. The executor never calls `ensurePrimary`.
+- **Count lines.** Legacy lines (`countedQtyBase` null) are frozen through the absorbed item using the count reader's own `lineCountedBase` (authoritative `entries` first); chain-relative display units are normalised to the survivor's base unit; unresolvable units are left alone and counted in `summary.countLinesUnfrozen`.
+- **par/reorder** are cleared when the count unit does not MEAN the same quantity on both items, even if the name matches.
+- **Resolver.** `resolveLineFormat(item, offer)` takes no `line`; offer pricing is adopted only when its price is finite > 0 and within 20× of the item's $/base (`IMPLAUSIBLE_PRICE_RATIO` — found via a real corrupt row, bison / Cleveland Meats stored as $25 per gram).
+- **Freeze.** The receipt is frozen through the pricing mode the line resolved to (`freezeFormat`), and RC clone rows carry their scaled share.
+- **Executor.** Plans inside the applying transaction; a post-apply sweep proves no row still references the absorbed id (else 409 + rollback). Responses carry `willDisableUndo`.
+- **Matcher.** An offer SKU claimed by more than one item is ambiguous and matches nothing at tier 0; an item's own name beats another item's alias on a tied score; aliases are capped at 5 per item.
+- **Live data work done alongside:** migration applied; all 1,881 approved lines frozen (10 corrected — NAF per-lb produce had been over-credited 2–10×); bison offer rate unit fixed; four abandoned open count sessions discarded (they would have blocked nearly every merge).
+- **Follow-ups:** line-first receiving (per-weight line on a PACK offer — zucchini, eggplant; evidence in `docs/audits/2026-09-20-line-first-receiving/`), cross-unit merges, weighted-average costing (spec 2).
