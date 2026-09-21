@@ -100,9 +100,12 @@ export function billedWeightIsPriced(line: LineQtyInput): boolean {
   const price = num(line.rate) || num(line.rawUnitPrice)
   if (!(price > 0)) return false
 
-  // Price is per rateUOM; express the billed quantity in that unit first.
+  // Price is per rateUOM; express the billed quantity in that unit first. A rate
+  // unit that is present but is NOT a weight/volume of the same dimension ($/case,
+  // an unknown token) can never prove a weight — refuse before multiplying.
   let billedInRateUnit = billed
-  if (line.rateUOM && UNIT_FACTORS[canonicalUom(line.rateUOM)]) {
+  if (line.rateUOM) {
+    if (!isMeasureUnit(line.rateUOM)) return false
     if (dimensionOf(canonicalUom(line.rateUOM)) !== dimensionOf(canonicalUom(line.totalQtyUOM!))) return false
     billedInRateUnit = convertQty(billed, canonicalUom(line.totalQtyUOM!), canonicalUom(line.rateUOM))
   }
@@ -131,6 +134,9 @@ export function lineReceived(line: LineQtyInput, chainItem: ChainItem): Received
   const billed = num(line.totalQty)
   const isRate = chainItem.pricing?.mode === 'RATE'
   let needsBridge = false
+  // `got` reads needsBridge AT CALL TIME: a fallback path reports that a weight
+  // step matched but could not convert. The two weight successes return an
+  // explicit `false` instead — a resolved weight never needs a bridge.
   const got = (base: number, via: ReceivedVia): Received => ({ base, via, needsBridge })
 
   // ── The LINE says it was billed by weight, and its own money proves it. The

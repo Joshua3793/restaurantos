@@ -239,6 +239,18 @@ describe('line-first receiving — real lines from the 2026-09-20 audit', () => 
     expect(lineReceived(line({ rawQty: null, totalQty: 41.025 }), bison).base).toBeCloseTo(41025)
   })
 
+  it('a rate quoted per CASE (or any unit that is not a weight/volume) can never prove a billed weight', () => {
+    // $62.05 per CS × 14.6 "kg" would be nonsense arithmetic; the guard must refuse before multiplying.
+    expect(billedWeightIsPriced(line({ rawQty: 2, rawUnit: 'CS', totalQty: 2, totalQtyUOM: 'kg', rate: 62.05, rateUOM: 'CS', rawLineTotal: 124.1 }))).toBe(false)
+    expect(billedWeightIsPriced(line({ totalQty: 2, totalQtyUOM: 'kg', rate: 62.05, rateUOM: 'widget', rawLineTotal: 124.1 }))).toBe(false)
+  })
+
+  it('ORDER: a billed weight proven by the money beats a shipped quantity in a weight unit', () => {
+    // ordered 14 kg, caught 14.6 kg, priced on the caught weight — PACK item, so the RATE branch is not in play
+    const r = lineReceived(line({ rawQty: 14, rawUnit: 'kg', totalQty: 14.6, totalQtyUOM: 'kg', rate: 8.5, rateUOM: 'kg', rawLineTotal: 124.1 }), sausage)
+    expect(r).toEqual({ base: 14600, via: 'billed-weight', needsBridge: false })
+  })
+
   it('lineReceivedBaseUnits is lineReceived().base for every shape above', () => {
     const l = line({ rawQty: 2, rawUnit: 'CS', totalQty: 14.6, totalQtyUOM: 'kg', rate: 8.5, rateUOM: 'kg', rawLineTotal: 124.1 })
     expect(lineReceivedBaseUnits(l, sausage)).toBe(lineReceived(l, sausage).base)
