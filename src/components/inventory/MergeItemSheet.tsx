@@ -153,7 +153,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       <div className="fixed inset-0 z-40 bg-black/40" onClick={result ? finish : onClose} />
       <div className="relative z-50 bg-paper w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-4 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
@@ -251,7 +251,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
               <>
                 <div className="rounded-lg px-3 py-2.5 text-[13px] bg-blue-soft text-ink-2">{preview.message}</div>
                 <label className="block mt-3 text-[13px] text-ink-2">
-                  Combined on hand ({survivor.countUnit})
+                  Combined on hand in this revenue center ({survivor.countUnit})
                   {!rcId && <span className="text-red-text"> — pick a revenue center first</span>}
                   <input
                     type="number" min="0" step="any" inputMode="decimal"
