@@ -77,6 +77,15 @@ export const REPOINT_FK: Record<RepointTable, string> = {
   ItemRevenueCenter:      'inventoryItemId',
 }
 
+/**
+ * Every re-pointable table paired with its FK column, derived from
+ * {@link REPOINT_FK} so a table added to the planner's union cannot be left out
+ * of the post-apply "nothing still points at the absorbed item" sweep.
+ */
+export function repointTableChecks(): Array<{ table: RepointTable; fk: string }> {
+  return (Object.keys(REPOINT_FK) as RepointTable[]).map(table => ({ table, fk: REPOINT_FK[table] }))
+}
+
 /** Every table any op can name (`UpdateTable` ⊇ `RepointTable` ⊇ `DeleteTable`,
  *  and a `create`'s table is a `DeleteTable`) → its Prisma client property. */
 export const TABLE_DELEGATE: Record<UpdateTable, string> = {
@@ -141,6 +150,54 @@ export function mergeOpOrder(ops: MergeOp[]): MergeOp[] {
  *  a restored row can only land once the re-points have freed its unique slot. */
 export function undoOpOrder(ops: MergeOp[]): MergeOp[] {
   return [...ops.filter(o => o.t !== 'create'), ...ops.filter(o => o.t === 'create')]
+}
+
+/** An op as the executor will actually issue it: a manifest op, or a run of
+ *  consecutive identical `update`s collapsed into one `updateMany`. */
+export type BatchedOp =
+  | MergeOp
+  | { t: 'updateMany'; table: UpdateTable; ids: string[]; after: Record<string, unknown> }
+
+/**
+ * Collapse **consecutive** `update` ops that share a table AND an identical
+ * `after` payload into one `updateMany`.
+ *
+ * Adjacent-only, deliberately. The planner's op order is load-bearing — an
+ * offer's demote (`isPrimary: true→false`) must land before the shared
+ * `repoint`, and the winner's promote (`false→true`) after it, or the partial
+ * unique index `(inventoryItemId) WHERE isPrimary` is tripped. A run-length
+ * collapse cannot move an op past anything, so that ordering survives by
+ * construction rather than by a rule someone has to remember. Two ops with the
+ * same payload on different rows also cannot mask each other's constraint
+ * violations: a batch fails exactly when the sequential version's last row
+ * would have.
+ *
+ * A run of one is returned as the ORIGINAL op object — `before` (which undo
+ * needs verbatim) is never rebuilt.
+ */
+export function batchUpdateOps(ops: MergeOp[]): BatchedOp[] {
+  type Upd = Extract<MergeOp, { t: 'update' }>
+  const out: BatchedOp[] = []
+  let run: { key: string; ops: Upd[] } | null = null
+
+  const flush = () => {
+    if (!run) return
+    out.push(run.ops.length === 1
+      ? run.ops[0]
+      : { t: 'updateMany', table: run.ops[0].table, ids: run.ops.map(o => o.id), after: run.ops[0].after })
+    run = null
+  }
+
+  for (const op of ops) {
+    if (op.t !== 'update') { flush(); out.push(op); continue }
+    // Key-order-sensitive on purpose: two payloads that stringify differently
+    // are treated as different rather than normalised and guessed at.
+    const key = `${op.table} ${JSON.stringify(op.after)}`
+    if (run && run.key === key) run.ops.push(op)
+    else { flush(); run = { key, ops: [op] } }
+  }
+  flush()
+  return out
 }
 
 const OP_KINDS = new Set(['repoint', 'update', 'delete', 'create'])

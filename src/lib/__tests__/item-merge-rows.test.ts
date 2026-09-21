@@ -3,8 +3,9 @@ import { Prisma } from '@prisma/client'
 import {
   toPlain, toPlainRow, REPOINT_FK, TABLE_DELEGATE, NULLABLE_JSON_COLUMNS,
   writeData, mergeOpOrder, undoOpOrder, parseManifest, recipeIngredientRepointIds, asCountEntries,
+  repointTableChecks, batchUpdateOps, type BatchedOp,
 } from '../item-merge-rows'
-import type { MergeManifest, MergeOp } from '../item-merge'
+import type { MergeManifest, MergeOp, UpdateTable } from '../item-merge'
 
 /** Stands in for a Prisma Decimal: an object carrying both toNumber and toString. */
 class FakeDecimal {
@@ -168,6 +169,128 @@ describe('op ordering', () => {
   })
 })
 
+describe('repointTableChecks', () => {
+  it('covers every re-pointable table, exactly once, with its own FK column', () => {
+    const checks = repointTableChecks()
+    expect(checks).toHaveLength(Object.keys(REPOINT_FK).length)
+    expect(new Set(checks.map(c => c.table)).size).toBe(checks.length)
+    for (const c of checks) expect(c.fk).toBe(REPOINT_FK[c.table])
+    // The point of deriving it from the Record: a table added to the planner's
+    // union cannot be forgotten by the post-apply "nothing left behind" sweep.
+    expect(checks.map(c => c.table).sort()).toEqual(Object.keys(REPOINT_FK).sort())
+  })
+
+  it('carries the InvoiceScanItem exception', () => {
+    expect(repointTableChecks().find(c => c.table === 'InvoiceScanItem')!.fk).toBe('matchedItemId')
+  })
+})
+
+const upd = (table: UpdateTable, id: string, after: Record<string, unknown>): MergeOp =>
+  ({ t: 'update', table, id, before: { was: id }, after })
+
+const shape = (ops: BatchedOp[]) => ops.map(o =>
+  o.t === 'updateMany' ? `updateMany:${o.table}:${o.ids.join('+')}`
+  : o.t === 'update' ? `update:${o.table}:${o.id}`
+  : o.t === 'repoint' ? `repoint:${o.table}`
+  : `${o.t}:${o.row.id as string}`)
+
+describe('batchUpdateOps', () => {
+  it('merges an adjacent run of identical payloads on one table into one updateMany', () => {
+    const clear = { parLevel: null, reorderQty: null }
+    expect(shape(batchUpdateOps([
+      upd('StockAllocation', 'a1', clear),
+      upd('StockAllocation', 'a2', clear),
+      upd('StockAllocation', 'a3', clear),
+    ]))).toEqual(['updateMany:StockAllocation:a1+a2+a3'])
+  })
+
+  it('leaves a lone update exactly as it was, `before` intact', () => {
+    const ops = [upd('CountLine', 'c1', { countedQtyBase: 27 })]
+    const out = batchUpdateOps(ops)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toBe(ops[0])
+  })
+
+  it('never merges different payloads — a demote and a promote stay apart', () => {
+    expect(shape(batchUpdateOps([
+      upd('InventorySupplierPrice', 'o1', { isPrimary: false }),
+      upd('InventorySupplierPrice', 'o2', { isPrimary: true }),
+    ]))).toEqual(['update:InventorySupplierPrice:o1', 'update:InventorySupplierPrice:o2'])
+  })
+
+  it('never merges across a different table', () => {
+    expect(shape(batchUpdateOps([
+      upd('CountLine', 'c1', { x: 1 }),
+      upd('InventorySnapshot', 's1', { x: 1 }),
+      upd('CountLine', 'c2', { x: 1 }),
+    ]))).toEqual(['update:CountLine:c1', 'update:InventorySnapshot:s1', 'update:CountLine:c2'])
+  })
+
+  it('never merges ACROSS a repoint — the isPrimary promote-after-repoint rule depends on it', () => {
+    const demote = { isPrimary: false }
+    expect(shape(batchUpdateOps([
+      upd('InventorySupplierPrice', 'o1', demote),
+      { t: 'repoint', table: 'InventorySupplierPrice', ids: ['o1', 'o2'] },
+      upd('InventorySupplierPrice', 'o2', demote),
+    ]))).toEqual([
+      'update:InventorySupplierPrice:o1',
+      'repoint:InventorySupplierPrice',
+      'update:InventorySupplierPrice:o2',
+    ])
+  })
+
+  it('never merges across a delete or a create either', () => {
+    const same = { q: 1 }
+    expect(shape(batchUpdateOps([
+      upd('InventorySnapshot', 's1', same),
+      { t: 'delete', table: 'InventorySnapshot', row: { id: 'd1' } },
+      upd('InventorySnapshot', 's2', same),
+      { t: 'create', table: 'InventorySupplierPrice', row: { id: 'n1' } },
+      upd('InventorySnapshot', 's3', same),
+    ]))).toEqual([
+      'update:InventorySnapshot:s1', 'delete:d1',
+      'update:InventorySnapshot:s2', 'create:n1',
+      'update:InventorySnapshot:s3',
+    ])
+  })
+
+  it('preserves relative order and loses no row', () => {
+    const clear = { parLevel: null, reorderQty: null }
+    const ops: MergeOp[] = [
+      { t: 'repoint', table: 'CountLine', ids: ['c1'] },
+      upd('StockAllocation', 'a1', clear),
+      upd('StockAllocation', 'a2', clear),
+      upd('InventoryItem', 'i1', { mergedIntoId: 's' }),
+      upd('InventoryItem', 'i2', { mergedIntoId: 's' }),
+      upd('InventoryItem', 'i3', { isActive: false }),
+    ]
+    expect(shape(batchUpdateOps(ops))).toEqual([
+      'repoint:CountLine',
+      'updateMany:StockAllocation:a1+a2',
+      'updateMany:InventoryItem:i1+i2',
+      'update:InventoryItem:i3',
+    ])
+    const covered = batchUpdateOps(ops).flatMap(o =>
+      o.t === 'updateMany' ? o.ids : o.t === 'update' ? [o.id] : [])
+    expect(covered).toEqual(['a1', 'a2', 'i1', 'i2', 'i3'])
+  })
+
+  it('is a no-op on a manifest with nothing batchable', () => {
+    const ops: MergeOp[] = [
+      upd('CountLine', 'c1', { countedQtyBase: 1 }),
+      upd('CountLine', 'c2', { countedQtyBase: 2 }),
+    ]
+    expect(batchUpdateOps(ops)).toEqual(ops)
+  })
+
+  it('treats a payload key-order difference as a different payload (never guesses)', () => {
+    expect(shape(batchUpdateOps([
+      upd('CountLine', 'c1', { a: 1, b: 2 }),
+      upd('CountLine', 'c2', { b: 2, a: 1 }),
+    ]))).toEqual(['update:CountLine:c1', 'update:CountLine:c2'])
+  })
+})
+
 describe('parseManifest', () => {
   const good: MergeManifest = { survivorId: 's', absorbedId: 'a', ops: [op('repoint', 'CountLine', 'x')] }
 
@@ -181,6 +304,18 @@ describe('parseManifest', () => {
     expect(parseManifest({ survivorId: 's', absorbedId: 'a' })).toBeNull()
     expect(parseManifest({ survivorId: 's', absorbedId: 1, ops: [] })).toBeNull()
     expect(parseManifest({ survivorId: 's', absorbedId: 'a', ops: [{ t: 'nope' }] })).toBeNull()
+    // replaces the deleted `factor: 'x'` case (v1 dropped `factor`): the shape
+    // rules that remain are ops-must-be-an-array and every op must name a kind
+    // AND a table.
+    expect(parseManifest({ survivorId: 's', absorbedId: 'a', ops: {} })).toBeNull()
+    expect(parseManifest({ survivorId: 's', absorbedId: 'a', ops: [{ t: 'repoint' }] })).toBeNull()
+    expect(parseManifest({ survivorId: 's', absorbedId: 'a', ops: [null] })).toBeNull()
+  })
+
+  it('still accepts a pre-v1-cut manifest that carries the removed `factor` key', () => {
+    // Nothing reads `factor` any more; an old stored manifest must stay undoable.
+    const legacy = { survivorId: 's', absorbedId: 'a', factor: 1, ops: [op('repoint', 'CountLine', 'x')] }
+    expect(parseManifest(legacy)).toEqual(legacy)
   })
 })
 

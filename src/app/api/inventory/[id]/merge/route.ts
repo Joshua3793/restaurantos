@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { planMerge } from '@/lib/item-merge'
-import { loadMergeInputs, executeMerge, undoBlocker, MergeConflictError } from '@/lib/item-merge-exec'
+import {
+  loadMergeInputs, loadTheoreticalOnHand, planAndExecuteMerge, undoBlocker, MergeConflictError,
+} from '@/lib/item-merge-exec'
 import { recordQuickCount } from '@/lib/quick-count'
 
 export const dynamic = 'force-dynamic'
@@ -50,30 +52,73 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const absorbedId = typeof body?.absorbedId === 'string' ? body.absorbedId : ''
   if (!absorbedId) return NextResponse.json({ error: 'absorbedId is required' }, { status: 400 })
 
-  const onHand = body?.combinedOnHand
-  const onHandOk = !!onHand
-    && Number.isFinite(Number(onHand.countedQty)) && Number(onHand.countedQty) >= 0
-    && typeof onHand.selectedUom === 'string' && !!onHand.selectedUom
-    && typeof onHand.rcId === 'string' && !!onHand.rcId
+  const onHandInput = body?.combinedOnHand
+  const onHandOk = !!onHandInput
+    && Number.isFinite(Number(onHandInput.countedQty)) && Number(onHandInput.countedQty) >= 0
+    && typeof onHandInput.selectedUom === 'string' && !!onHandInput.selectedUom
+    && typeof onHandInput.rcId === 'string' && !!onHandInput.rcId
 
-  const inputs = await loadMergeInputs(params.id, absorbedId)
-  if (!inputs) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+  // A combined on-hand is recorded as a quick count AFTER the merge. That count
+  // is not in the manifest and cannot be inverted, so it permanently trips the
+  // "counted since the merge" undo blocker — the UI has to say so up front,
+  // which is what this flag is for. Same value on a dry run and the real thing.
+  const willDisableUndo = onHandOk
 
-  const plan = planMerge(inputs.survivor, inputs.absorbed, inputs.rel, inputs.sRel, {
-    combinedOnHandProvided: onHandOk,
-    newId: () => randomUUID(),
-  })
-  if (!plan.ok) return NextResponse.json(plan, { status: 422 })
-  if (body?.dryRun) return NextResponse.json({ ok: true, dryRun: true, summary: plan.summary })
+  // Theoretical on-hand comes from the ledger, which uses the prisma singleton
+  // internally — computed here, outside the merge transaction, and handed in.
+  const onHand = await loadTheoreticalOnHand(params.id, absorbedId)
 
-  const countedBy = user.name?.trim() || user.email
-  let mergeId: string
+  if (body?.dryRun) {
+    const inputs = await loadMergeInputs(params.id, absorbedId, prisma, onHand)
+    if (!inputs) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+    const plan = planMerge(inputs.survivor, inputs.absorbed, inputs.rel, inputs.sRel, {
+      combinedOnHandProvided: onHandOk,
+      newId: () => randomUUID(),
+    })
+    if (!plan.ok) return NextResponse.json(plan, { status: 422 })
+    return NextResponse.json({
+      ok: true,
+      dryRun: true,
+      summary: plan.summary,
+      willDisableUndo,
+      countLinesUnfrozen: plan.summary.countLinesUnfrozen,
+      primaryPromoted: plan.summary.primaryPromoted,
+    })
+  }
+
+  // The real thing: the plan is built INSIDE the transaction that applies it, so
+  // a row attached to the absorbed item in the meantime cannot be left behind.
+  const mergedBy = user.name?.trim() || user.email
+  let outcome
   try {
-    ({ mergeId } = await executeMerge(plan.manifest, countedBy))
+    outcome = await planAndExecuteMerge({
+      survivorId: params.id,
+      absorbedId,
+      combinedOnHandProvided: onHandOk,
+      onHand,
+      mergedBy,
+      newId: () => randomUUID(),
+    })
   } catch (e) {
-    if (e instanceof MergeConflictError) return NextResponse.json({ error: e.message }, { status: 409 })
+    if (e instanceof MergeConflictError)
+      return NextResponse.json({ error: `The item changed while merging — try again. (${e.message})` }, { status: 409 })
     console.error('[merge] failed', e)
     return NextResponse.json({ error: 'The merge could not be completed. Nothing was changed.' }, { status: 500 })
+  }
+
+  if (!outcome.ok) {
+    if (outcome.kind === 'not_found') return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+    return NextResponse.json(outcome.plan, { status: 422 })
+  }
+
+  const done = {
+    ok: true as const,
+    dryRun: false as const,
+    mergeId: outcome.mergeId,
+    summary: outcome.summary,
+    willDisableUndo,
+    countLinesUnfrozen: outcome.summary.countLinesUnfrozen,
+    primaryPromoted: outcome.summary.primaryPromoted,
   }
 
   // AFTER the merge transaction, deliberately outside it: the person's combined
@@ -85,18 +130,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     try {
       const qc = await recordQuickCount({
         itemId: params.id,
-        countedQty: Number(onHand.countedQty),
-        selectedUom: onHand.selectedUom,
-        rcId: onHand.rcId,
-        countedBy,
+        countedQty: Number(onHandInput.countedQty),
+        selectedUom: onHandInput.selectedUom,
+        rcId: onHandInput.rcId,
+        countedBy: mergedBy,
       })
       if (!qc.ok) warning = `Merged, but the on-hand count failed: ${qc.error}. Quick-count the item now.`
     } catch (e) {
       console.error('[merge] combined on-hand quick count failed', e)
       warning = 'Merged, but the on-hand count failed. Quick-count the item now.'
     }
-    if (warning) return NextResponse.json({ ok: true, dryRun: false, mergeId, summary: plan.summary, warning })
+    if (warning) return NextResponse.json({ ...done, warning })
   }
 
-  return NextResponse.json({ ok: true, dryRun: false, mergeId, summary: plan.summary })
+  return NextResponse.json(done)
 }
