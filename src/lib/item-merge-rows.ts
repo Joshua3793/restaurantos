@@ -151,7 +151,7 @@ export function parseManifest(json: unknown): MergeManifest | null {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null
   const m = json as Record<string, unknown>
   if (typeof m.survivorId !== 'string' || typeof m.absorbedId !== 'string') return null
-  if (typeof m.factor !== 'number' || !Array.isArray(m.ops)) return null
+  if (!Array.isArray(m.ops)) return null
   for (const op of m.ops) {
     if (!op || typeof op !== 'object') return null
     const { t, table } = op as { t?: unknown; table?: unknown }

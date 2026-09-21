@@ -74,7 +74,6 @@ async function itemRow(id: string): Promise<MergeItemRow | null> {
     pricing: c.pricing,
     stockOnHand: n(r.stockOnHand),
     eachMeasure: c.eachMeasure ?? null,
-    densityGPerMl: c.densityGPerMl ?? null,
     isActive: r.isActive,
     mergedIntoId: r.mergedIntoId,
     ownedByRecipe: !!r.recipe,
@@ -150,9 +149,8 @@ export async function loadMergeInputs(survivorId: string, absorbedId: string): P
       id: x.id, sessionId: x.sessionId, unit: x.unit, source: x.source,
       qtyOnHand: n(x.qtyOnHand), pricePerBaseUnit: n(x.pricePerBaseUnit), totalValue: n(x.totalValue),
     })),
-    // packChain rides in through toPlainRow's spread (the planner reads it to
-    // scale a moved offer's leaf link) — every column is here, not a subset,
-    // because a dropped offer's delete op has to re-create the row on undo.
+    // every column is here, not a subset, because a dropped offer's delete op
+    // has to re-create the row on undo.
     offers: of.map(o => ({
       ...toPlainRow(o),
       id: o.id, supplierName: o.supplierName, supplierId: o.supplierId,

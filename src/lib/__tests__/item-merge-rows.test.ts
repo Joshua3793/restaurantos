@@ -169,7 +169,7 @@ describe('op ordering', () => {
 })
 
 describe('parseManifest', () => {
-  const good: MergeManifest = { survivorId: 's', absorbedId: 'a', factor: 1, ops: [op('repoint', 'CountLine', 'x')] }
+  const good: MergeManifest = { survivorId: 's', absorbedId: 'a', ops: [op('repoint', 'CountLine', 'x')] }
 
   it('accepts a manifest read back out of the Json column', () => {
     expect(parseManifest(JSON.parse(JSON.stringify(good)))).toEqual(good)
@@ -178,10 +178,9 @@ describe('parseManifest', () => {
   it('rejects anything that is not a manifest', () => {
     expect(parseManifest(null)).toBeNull()
     expect(parseManifest('{}')).toBeNull()
-    expect(parseManifest({ survivorId: 's', absorbedId: 'a', factor: 1 })).toBeNull()
-    expect(parseManifest({ survivorId: 's', absorbedId: 1, factor: 1, ops: [] })).toBeNull()
-    expect(parseManifest({ survivorId: 's', absorbedId: 'a', factor: 'x', ops: [] })).toBeNull()
-    expect(parseManifest({ survivorId: 's', absorbedId: 'a', factor: 1, ops: [{ t: 'nope' }] })).toBeNull()
+    expect(parseManifest({ survivorId: 's', absorbedId: 'a' })).toBeNull()
+    expect(parseManifest({ survivorId: 's', absorbedId: 1, ops: [] })).toBeNull()
+    expect(parseManifest({ survivorId: 's', absorbedId: 'a', ops: [{ t: 'nope' }] })).toBeNull()
   })
 })
 
@@ -209,7 +208,7 @@ describe('asCountEntries', () => {
 describe('recipeIngredientRepointIds', () => {
   it('collects the ids of every RecipeIngredient re-point', () => {
     const m: MergeManifest = {
-      survivorId: 's', absorbedId: 'a', factor: 1,
+      survivorId: 's', absorbedId: 'a',
       ops: [
         { t: 'repoint', table: 'RecipeIngredient', ids: ['r1', 'r2'] },
         { t: 'repoint', table: 'CountLine', ids: ['c1'] },
@@ -221,6 +220,6 @@ describe('recipeIngredientRepointIds', () => {
   })
 
   it('is empty when no recipe line moved', () => {
-    expect(recipeIngredientRepointIds({ survivorId: 's', absorbedId: 'a', factor: 1, ops: [] })).toEqual([])
+    expect(recipeIngredientRepointIds({ survivorId: 's', absorbedId: 'a', ops: [] })).toEqual([])
   })
 })
