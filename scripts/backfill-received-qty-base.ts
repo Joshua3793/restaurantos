@@ -465,6 +465,19 @@ async function runRefreeze(lines: ScanLine[]) {
     return
   }
 
+  // --apply RECOMPUTES from today's chains and offers; it does not replay the diff a
+  // human reviewed. If a pack edit or an approval landed since the dry run, lines can
+  // move along a pack path — a change nobody looked at. The rule itself only ever
+  // moves a line TO a weight, so anything here means the data shifted: stop.
+  if (packPathChanges.length > 0) {
+    console.error(
+      `\nABORTING before any write — ${packPathChanges.length} line(s) would change along a PACK path. ` +
+      'That is not the rule: something else changed since the dry run. Re-run the dry run and review it.',
+    )
+    process.exitCode = 1
+    return
+  }
+
   writeFileSync(
     `received-qty-refreeze-backup-${stamp}.json`,
     JSON.stringify(
