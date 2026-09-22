@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
 import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor } from '@/lib/recipeCosts'
+import type { ItemCostBasis } from '@/lib/cost-basis'
 
 /** $24/case of 12,000 ml → $0.002/ml */
 const oilItem = {
@@ -243,5 +244,40 @@ describe('computeRecipeCost — custom (uncosted) ingredients', () => {
     ]))
     expect(r.dimensionConflicts).toBe(0)
     expect(r.totalCost).toBe(0)
+  })
+})
+
+describe('computeRecipeCost — cost basis', () => {
+  const avg = (p: number): ItemCostBasis => ({ basis: 'AVG_30D', pricePerBase: p, avg: { pricePerBase: p, paid: 1, received: 1, lines: 1, excluded: 0 } })
+  const last = (p: number): ItemCostBasis => ({ basis: 'LAST', pricePerBase: p, fallbackReason: 'no-purchases' })
+
+  it('with no map every line is LAST and the output is byte-identical to today', () => {
+    const r = recipe([ing({ id: 'a', inventoryItemId: 'oil', inventoryItem: oilItem, qtyBase: 500, unit: 'ml' })])
+    const before = computeRecipeCost(r)
+    const after = computeRecipeCost(r, {})
+    expect(after).toEqual({ ...before, basisSummary: { basis: 'LAST', avgLines: 0, lastLines: 1 } })
+    expect(after.ingredients[0].costBasis).toBe('LAST')
+    expect(after.ingredients[0].lineCost).toBeCloseTo(500 * 0.002, 6)
+  })
+  it('a mapped AVG item prices at the map, is tagged, and the summary counts it', () => {
+    const r = recipe([
+      ing({ id: 'a', inventoryItemId: 'oil', inventoryItem: oilItem, qtyBase: 500, unit: 'ml' }),
+      ing({ id: 'b', inventoryItemId: 'chk', inventoryItem: chickenItem, qtyBase: 1000, unit: 'g' }),
+    ])
+    const out = computeRecipeCost(r, { prices: new Map([['oil', avg(0.003)], ['chk', last(20 / 11000)]]) })
+    expect(out.ingredients[0]).toMatchObject({ costBasis: 'AVG_30D', pricePerBaseUnit: 0.003, lineCost: 1.5 })
+    expect(out.ingredients[1].costBasis).toBe('LAST')
+    expect(out.basisSummary).toEqual({ basis: 'AVG_30D', avgLines: 1, lastLines: 1 })
+  })
+  it('a nested prep line takes the basis Task 3 resolved for it', () => {
+    const r = recipe([ing({ id: 'p', linkedRecipeId: 'r2', linkedRecipe: { name: 'Stock', inventoryItem: null }, qtyBase: 100, unit: 'ml', _linkedRecipeCostPerUnit: 0.01, _linkedRecipeYieldUnit: 'ml', _linkedRecipeCostBasis: 'AVG_30D' })])
+    const out = computeRecipeCost(r, { prices: new Map() })
+    expect(out.ingredients[0]).toMatchObject({ costBasis: 'AVG_30D', lineCost: 1 })
+    expect(out.basisSummary.basis).toBe('AVG_30D')
+  })
+  it('a custom ingredient is LAST and counts as a last line', () => {
+    const out = computeRecipeCost(recipe([ing({ id: 'c', customName: 'pinch of love', qtyBase: 1, unit: 'g' })]), { prices: new Map() })
+    expect(out.ingredients[0].costBasis).toBe('LAST')
+    expect(out.basisSummary).toEqual({ basis: 'LAST', avgLines: 0, lastLines: 1 })
   })
 })

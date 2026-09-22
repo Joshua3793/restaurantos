@@ -8,6 +8,7 @@ import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isK
 import { getUnitConv } from './utils'
 import { portionsPerBatch } from './recipe-portions'
 import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import type { CostBasis, ItemCostBasis } from '@/lib/cost-basis'
 
 export interface IngredientWithCost {
   id: string
@@ -34,6 +35,8 @@ export interface IngredientWithCost {
    * When true, `lineCost` is forced to 0 (no garbage contribution).
    */
   dimensionConflict: boolean
+  /** Which price this line was costed at: the 30-day average or the last price. */
+  costBasis: CostBasis
 }
 
 /** The recipe's line settings, read off its prep task row (null = no row). */
@@ -105,9 +108,12 @@ export function computeRecipeCost(
       linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
+      /** The cost basis Task 3 resolved for the linked recipe's synced cost; 'LAST' when absent. */
+      _linkedRecipeCostBasis?: CostBasis
     }>
-  }
-): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[] } {
+  },
+  opts: { prices?: Map<string, ItemCostBasis> } = {}
+): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[]; basisSummary: { basis: CostBasis; avgLines: number; lastLines: number } } {
 
   const ingredientsWithCost: IngredientWithCost[] = recipe.ingredients.map(ing => {
     const qty = Number(ing.qtyBase)
@@ -122,9 +128,12 @@ export function computeRecipeCost(
     // convention; convertQty passes it through 1:1).
     let dimensionConflict = false
     let allergens: string[] = []
+    let costBasis: CostBasis = 'LAST'
 
     if (ing.inventoryItem) {
-      pricePerBaseUnit   = chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
+      const mapped       = ing.inventoryItemId ? opts.prices?.get(ing.inventoryItemId) : undefined
+      pricePerBaseUnit    = mapped ? mapped.pricePerBase : chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
+      costBasis           = mapped?.basis ?? 'LAST'
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
@@ -137,6 +146,7 @@ export function computeRecipeCost(
       lineCostQty = convertQtyBridged(qty, ing.unit, ing.inventoryItem.baseUnit, ingBridge, ingDensity)
     } else if (ing.linkedRecipe) {
       pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
+      costBasis          = ing._linkedRecipeCostBasis ?? 'LAST'
       ingredientName     = ing.linkedRecipe.name
       ingredientType     = 'recipe'
       allergens          = ing.linkedRecipe.inventoryItem?.allergens ?? []
@@ -173,8 +183,13 @@ export function computeRecipeCost(
       ingredientBaseUnit,
       allergens,
       dimensionConflict,
+      costBasis,
     }
   })
+
+  const avgLines  = ingredientsWithCost.filter(i => i.costBasis === 'AVG_30D').length
+  const lastLines = ingredientsWithCost.length - avgLines
+  const basisSummary = { basis: (avgLines > 0 ? 'AVG_30D' : 'LAST') as CostBasis, avgLines, lastLines }
 
   const dimensionConflicts = ingredientsWithCost.filter(i => i.dimensionConflict).length
   const totalCost    = ingredientsWithCost.reduce((s, i) => s + i.lineCost, 0)
@@ -194,7 +209,7 @@ export function computeRecipeCost(
       ? (costPerPortion / menuPrice) * 100
       : null
 
-  return { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost }
+  return { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost, basisSummary }
 }
 
 /**
