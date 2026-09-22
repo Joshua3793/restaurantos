@@ -14,6 +14,7 @@ import {
   type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { primaryOfferPpb } from '@/lib/offer-price'
+import { OFFER_SELECT, offerState, type UndoCollector } from '@/lib/invoice/approve-undo'
 
 // Minimal client surface so callers can pass either `prisma` or a tx client.
 type Db = Pick<typeof prisma, 'inventoryItem' | 'inventorySupplierPrice'>
@@ -33,11 +34,15 @@ function purchasePriceFromPricing(pricing: Pricing): number {
  * Guarantee the item has exactly one primary offer when it has offers.
  * If none (or >1) is primary, promote the most-recently-updated offer.
  * No-op for items with no offers. Returns the primary offer id, or null.
+ *
+ * `undo` (optional) records each offer's pre-write state — only on the branch
+ * that actually writes. The select is widened to the undo selector purely to
+ * feed that capture; no `data:` payload below changes.
  */
-export async function ensurePrimary(itemId: string, db: Db = prisma): Promise<string | null> {
+export async function ensurePrimary(itemId: string, db: Db = prisma, undo?: UndoCollector): Promise<string | null> {
   const offers = await db.inventorySupplierPrice.findMany({
     where: { inventoryItemId: itemId },
-    select: { id: true, isPrimary: true },
+    select: { id: true, ...OFFER_SELECT },
     orderBy: { lastUpdated: 'desc' },
   })
   if (offers.length === 0) return null
@@ -45,6 +50,8 @@ export async function ensurePrimary(itemId: string, db: Db = prisma): Promise<st
   if (primaries.length === 1) return primaries[0].id
   // none, or more than one: promote the most-recently-updated, clear the rest.
   const winner = offers[0].id
+  // Every offer of this item is about to be written (cleared, then one promoted).
+  offers.forEach((o) => undo?.before('OFFER', o.id, offerState(o)))
   await db.inventorySupplierPrice.updateMany({
     where: { inventoryItemId: itemId },
     data: { isPrimary: false },
@@ -123,10 +130,12 @@ export async function setPrimaryOffer(itemId: string, offerId: string, db: Db = 
  * After a manual item edit, mirror the item's chain+pricing onto the primary
  * offer so the invariant (item == primary offer) holds. No-op when no primary.
  */
-export async function mirrorItemToPrimaryOffer(itemId: string, db: Db = prisma): Promise<void> {
+export async function mirrorItemToPrimaryOffer(itemId: string, db: Db = prisma, undo?: UndoCollector): Promise<void> {
   const primary = await db.inventorySupplierPrice.findFirst({
     where: { inventoryItemId: itemId, isPrimary: true },
-    select: { id: true },
+    // Widened to the undo selector so `undo.before` below sees the whole row;
+    // nothing but `primary.id` is used by the write itself.
+    select: { id: true, ...OFFER_SELECT },
   })
   if (!primary) return
   const item = await db.inventoryItem.findUnique({
@@ -134,6 +143,7 @@ export async function mirrorItemToPrimaryOffer(itemId: string, db: Db = prisma):
     select: { packChain: true, pricing: true, purchasePrice: true },
   })
   if (!item) return
+  undo?.before('OFFER', primary.id, offerState(primary))
   await db.inventorySupplierPrice.update({
     where: { id: primary.id },
     data: {

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-vi.mock('@/lib/prisma', () => ({ prisma: {} }))
+// A mutable stand-in for the singleton: modules that reach for `prisma` directly
+// (saveMatchRule) get whatever a test hangs on it; the rest see an empty object,
+// exactly as before. vi.hoisted so the ref exists when vi.mock is hoisted.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const prismaMock = vi.hoisted(() => ({}) as any)
+vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
 import { offerState, itemState, ruleState, canonEqual, UndoCollector } from '@/lib/invoice/approve-undo'
 import { Prisma } from '@prisma/client'
 
@@ -128,5 +133,181 @@ describe('UndoCollector', () => {
     c.created('OFFER', 'o1')
     await c.flush()
     expect(created[0].prev).toBe(Prisma.JsonNull)
+  })
+})
+
+describe('capture hooks', () => {
+  // The non-key half of an offer row — enough for offerState() to be complete.
+  const OFFER_ROW = {
+    lastPrice: '10',
+    packQty: null,
+    packSize: null,
+    packUOM: null,
+    packChain: [],
+    pricing: {},
+    supplierId: null,
+    supplierItemCode: null,
+    lastInvoiceSessionId: null,
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recorder = () => {
+    const touched: string[] = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prevs: any[] = []
+    const createdIds: string[] = []
+    const order: string[] = []
+    const undo = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      before: (k: string, id: string, prev: any) => {
+        touched.push(`${k}:${id}`)
+        prevs.push(prev)
+        order.push(`before:${k}:${id}`)
+      },
+      created: (k: string, id: string) => {
+        createdIds.push(`${k}:${id}`)
+        order.push(`created:${k}:${id}`)
+      },
+      flush: async () => 0,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+    return { touched, prevs, createdIds, order, undo }
+  }
+
+  it('ensurePrimary touches every offer of the item BEFORE clearing/promoting', async () => {
+    const { touched, prevs, order, undo } = recorder()
+    const db = {
+      inventorySupplierPrice: {
+        findMany: async () => [
+          { id: 'a', isPrimary: false, ...OFFER_ROW },
+          { id: 'b', isPrimary: false, ...OFFER_ROW },
+        ],
+        updateMany: async () => {
+          order.push('updateMany')
+          return { count: 2 }
+        },
+        update: async () => {
+          order.push('update')
+          return {}
+        },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+    const { ensurePrimary } = await import('@/lib/primary-offer')
+    await ensurePrimary('item', db, undo)
+    expect(touched.sort()).toEqual(['OFFER:a', 'OFFER:b'])
+    // captured BEFORE the writes, and through the canonical selector
+    expect(order).toEqual(['before:OFFER:a', 'before:OFFER:b', 'updateMany', 'update'])
+    expect(prevs[0]).toMatchObject({ isPrimary: false, lastPrice: 10 })
+  })
+
+  it('ensurePrimary captures nothing when the invariant already holds (it writes nothing)', async () => {
+    const { touched, undo } = recorder()
+    const db = {
+      inventorySupplierPrice: {
+        findMany: async () => [
+          { id: 'a', isPrimary: true, ...OFFER_ROW },
+          { id: 'b', isPrimary: false, ...OFFER_ROW },
+        ],
+        updateMany: async () => {
+          throw new Error('must not write')
+        },
+        update: async () => {
+          throw new Error('must not write')
+        },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+    const { ensurePrimary } = await import('@/lib/primary-offer')
+    expect(await ensurePrimary('item', db, undo)).toBe('a')
+    expect(touched).toEqual([])
+  })
+
+  it('mirrorItemToPrimaryOffer captures the primary offer before overwriting it', async () => {
+    const { touched, prevs, order, undo } = recorder()
+    const db = {
+      inventorySupplierPrice: {
+        findFirst: async () => ({ id: 'p1', isPrimary: true, ...OFFER_ROW }),
+        update: async () => {
+          order.push('update')
+          return {}
+        },
+      },
+      inventoryItem: {
+        findUnique: async () => ({ packChain: [{ unit: 'case', per: 6 }], pricing: { mode: 'PACK' }, purchasePrice: '12' }),
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+    const { mirrorItemToPrimaryOffer } = await import('@/lib/primary-offer')
+    await mirrorItemToPrimaryOffer('item', db, undo)
+    expect(touched).toEqual(['OFFER:p1'])
+    expect(order).toEqual(['before:OFFER:p1', 'update'])
+    expect(prevs[0]).toMatchObject({ isPrimary: true, lastPrice: 10 })
+  })
+
+  it('saveMatchRule touches the sibling rules it strips a code from and the rule it upserts; a new rule is created()', async () => {
+    const { touched, prevs, createdIds, order, undo } = recorder()
+    prismaMock.invoiceMatchRule = {
+      findMany: async () => [
+        {
+          id: 'r9',
+          rawDescription: 'OLD DESC',
+          supplierName: 'Sysco',
+          inventoryItemId: 'other-item',
+          invoicePackQty: null,
+          invoicePackSize: null,
+          invoicePackUOM: null,
+          supplierItemCode: 'CODE1',
+        },
+      ],
+      updateMany: async () => {
+        order.push('updateMany')
+        return { count: 1 }
+      },
+      findUnique: async () => null,
+      upsert: async () => {
+        order.push('upsert')
+        return { id: 'r-new' }
+      },
+    }
+    const { saveMatchRule } = await import('@/lib/invoice-matcher')
+    await saveMatchRule('NEW DESC', 'item1', 'Sysco', null, 'CODE1', undo)
+    expect(touched).toEqual(['MATCH_RULE:r9'])
+    expect(prevs[0]).toMatchObject({ supplierItemCode: 'CODE1', inventoryItemId: 'other-item' })
+    expect(createdIds).toEqual(['MATCH_RULE:r-new'])
+    expect(order).toEqual(['before:MATCH_RULE:r9', 'updateMany', 'upsert', 'created:MATCH_RULE:r-new'])
+  })
+
+  it('saveMatchRule captures an EXISTING rule as prev and does not mark it created', async () => {
+    const { touched, prevs, createdIds, order, undo } = recorder()
+    prismaMock.invoiceMatchRule = {
+      findMany: async () => [],
+      updateMany: async () => ({ count: 0 }),
+      findUnique: async () => ({
+        id: 'r1',
+        rawDescription: 'NEW DESC',
+        supplierName: 'Sysco',
+        inventoryItemId: 'old-item',
+        invoicePackQty: '1',
+        invoicePackSize: '2',
+        invoicePackUOM: 'kg',
+        supplierItemCode: null,
+      }),
+      upsert: async () => {
+        order.push('upsert')
+        return { id: 'r1' }
+      },
+    }
+    const { saveMatchRule } = await import('@/lib/invoice-matcher')
+    await saveMatchRule('NEW DESC', 'item1', 'Sysco')
+      .then(() => undefined)
+      .catch(() => undefined)
+    // no undo passed above → nothing captured
+    expect(touched).toEqual([])
+
+    await saveMatchRule('NEW DESC', 'item1', 'Sysco', undefined, null, undo)
+    expect(touched).toEqual(['MATCH_RULE:r1'])
+    expect(prevs[0]).toMatchObject({ inventoryItemId: 'old-item', invoicePackQty: 1 })
+    expect(createdIds).toEqual([])
   })
 })

@@ -16,6 +16,7 @@ import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/li
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
 import { lookupDensity } from '@/lib/density'
+import { UndoCollector, OFFER_SELECT, offerState, itemState } from '@/lib/invoice/approve-undo'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
@@ -35,12 +36,29 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; itemName: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null; densityGPerMl?: unknown } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; itemName: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null; densityGPerMl?: unknown; purchasePrice?: unknown } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
   let skippedLines = 0
   try {
+    // ── Undo records ────────────────────────────────────────────────────────
+    // What this approval overwrites, captured per row BEFORE its first write and
+    // re-read after its last, so DELETE can put it back. Pure bookkeeping: it
+    // only ever READS around the writes below — no existing payload or order
+    // changes. Idempotency (same rule as the prior-clone cleanup further down):
+    // a reset → re-approve must REPLACE the previous run's records, and the
+    // cleanup has to precede the first flush, so it runs here rather than beside
+    // the clone block (which executes after the per-line loop and would delete
+    // the records this run just wrote).
+    const undo = new UndoCollector(sessionId)
+    await prisma.invoiceApproveUndo
+      .deleteMany({ where: { sessionId } })
+      .catch((e) => console.error('[approve] undo cleanup failed:', e))
+    // Never let bookkeeping fail an approval (the table may not exist yet on an
+    // un-migrated deploy): a lost record degrades DELETE to its legacy path.
+    const flushUndo = () => undo.flush().catch((e) => console.error('[approve] undo flush failed:', e))
+
     const itemsToProcess = session.scanItems.filter(
       item => item.action !== 'SKIP' && item.action !== 'PENDING'
     )
@@ -652,7 +670,20 @@ async function doApprove(
                   : { mode: 'PACK', purchasePrice: offerLastPrice },
               }
 
-          await prisma.inventorySupplierPrice.upsert({
+          // Undo: the offer row as it stands BEFORE this upsert (absent → the
+          // upsert creates it, recorded below once its id is known).
+          const existingOffer = await prisma.inventorySupplierPrice.findUnique({
+            where: {
+              inventoryItemId_supplierName: {
+                inventoryItemId: scanItem.matchedItemId,
+                supplierName:    offerSupplierName,
+              },
+            },
+            select: { id: true, ...OFFER_SELECT },
+          }).catch(() => null)
+          if (existingOffer) undo.before('OFFER', existingOffer.id, offerState(existingOffer))
+
+          const upsertedOffer = await prisma.inventorySupplierPrice.upsert({
             where: {
               inventoryItemId_supplierName: {
                 inventoryItemId: scanItem.matchedItemId,
@@ -686,7 +717,11 @@ async function doApprove(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               pricing:              offerChain.pricing as any,
             },
-          }).catch((e) => console.error('[approve] offer upsert failed:', e))
+            // Return only the id (previously the row was returned and discarded)
+            // so a freshly created offer can be recorded for undo.
+            select: { id: true },
+          }).catch((e) => { console.error('[approve] offer upsert failed:', e); return null })
+          if (!existingOffer && upsertedOffer) undo.created('OFFER', upsertedOffer.id)
         }
 
         // ── Primary-offer authority ─────────────────────────────────────────
@@ -698,7 +733,7 @@ async function doApprove(
         // derive from → legacy direct write so the spine still updates).
         let shouldReprice = true
         if (offerSupplierName) {
-          await ensurePrimary(scanItem.matchedItemId)
+          await ensurePrimary(scanItem.matchedItemId, prisma, undo)
           const primary = await prisma.inventorySupplierPrice.findFirst({
             where: { inventoryItemId: scanItem.matchedItemId, isPrimary: true },
             select: { supplierName: true },
@@ -775,14 +810,21 @@ async function doApprove(
           }
         }
 
+        // Undo: the item's spine BEFORE this approval's write. `item` is the row
+        // read at the top of the run, so it is the pre-run state even when an
+        // earlier line already repriced the same item (first touch wins anyway).
+        if (shouldReprice) undo.before('ITEM', item.id, itemState(item))
+
         await prisma.$transaction(itemOps)
         if (shouldReprice) updatedItemIds.push(scanItem.matchedItemId)
         // Keep the PRIMARY offer's chain == the item's chain so their per-base
         // prices never diverge (non-primary offers keep their own invoice chain
         // for accurate cross-supplier comparison).
         if (shouldReprice && offerSupplierName) {
-          await mirrorItemToPrimaryOffer(scanItem.matchedItemId)
+          await mirrorItemToPrimaryOffer(scanItem.matchedItemId, prisma, undo)
         }
+        // Every write this line makes has landed — read each touched row's `next`.
+        await flushUndo()
         registerLineAllocs(scanItem.matchedItemId, scanItem)
       }
 
@@ -851,6 +893,9 @@ async function doApprove(
             countUnit:          newChain.countUnit,
           },
         })
+        // Undo: an item this approval brought into existence (DELETE removes it,
+        // but only when nothing else has come to reference it).
+        undo.created('ITEM_CREATED', created.id)
         updatedItemIds.push(created.id)
         newItemsCreated++
         registerLineAllocs(created.id, scanItem)
@@ -869,6 +914,7 @@ async function doApprove(
             ),
           },
         })
+        await flushUndo()
       }
 
       // ── All other actions: just mark approved ───────────────────────────
@@ -1075,10 +1121,13 @@ async function doApprove(
               packSize: Number(item.invoicePackSize),
               packUOM:  item.invoicePackUOM ?? 'each',
             } : undefined,
-            item.supplierItemCode
+            item.supplierItemCode,
+            undo,
           ).catch(() => {})
         )
     )
+    // Learned rules are the last thing this approval writes.
+    await flushUndo()
 
     // ── Re-sync PREP costs + recalculate recipe costs for changed items ──
     let recipeAlertsCreated = 0

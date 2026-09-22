@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 import { PRICING_SELECT } from '@/lib/item-model'
+import { RULE_SELECT, ruleState, type UndoCollector } from '@/lib/invoice/approve-undo'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
 const UOM_ALIASES: Record<string, string> = {
@@ -760,7 +761,10 @@ export async function saveMatchRule(
   inventoryItemId: string,
   supplierName?: string | null,
   format?: { packQty: number; packSize: number; packUOM: string } | null,
-  supplierItemCode?: string | null
+  supplierItemCode?: string | null,
+  // Optional undo collector (invoice approve). Reads only — every write below
+  // keeps its exact `data:` payload and order.
+  undo?: UndoCollector
 ): Promise<void> {
   const code = supplierItemCode?.trim() || null
 
@@ -769,17 +773,35 @@ export async function saveMatchRule(
   // fresh confirmation wins — strip the code from the stale rules so tier-0
   // can't keep resurrecting the old mapping.
   if (code && supplierName) {
+    const siblingWhere = {
+      supplierName,
+      supplierItemCode: code,
+      inventoryItemId: { not: inventoryItemId },
+    }
+    if (undo) {
+      const siblings = await prisma.invoiceMatchRule.findMany({
+        where: siblingWhere,
+        select: { id: true, ...RULE_SELECT },
+      })
+      siblings.forEach((r) => undo.before('MATCH_RULE', r.id, ruleState(r)))
+    }
     await prisma.invoiceMatchRule.updateMany({
-      where: {
-        supplierName,
-        supplierItemCode: code,
-        inventoryItemId: { not: inventoryItemId },
-      },
+      where: siblingWhere,
       data: { supplierItemCode: null },
     })
   }
 
-  await prisma.invoiceMatchRule.upsert({
+  // The upsert's target, read before it is written: an existing row is captured
+  // as `prev`, a fresh one is recorded as created (so undo deletes it).
+  const existing = undo
+    ? await prisma.invoiceMatchRule.findUnique({
+        where: { rawDescription_supplierName: { rawDescription, supplierName: supplierName || '' } },
+        select: { id: true, ...RULE_SELECT },
+      })
+    : null
+  if (existing) undo?.before('MATCH_RULE', existing.id, ruleState(existing))
+
+  const row = await prisma.invoiceMatchRule.upsert({
     where: {
       rawDescription_supplierName: {
         rawDescription,
@@ -802,5 +824,7 @@ export async function saveMatchRule(
       ...(code ? { supplierItemCode: code } : {}),
       ...(format ? { invoicePackQty: format.packQty, invoicePackSize: format.packSize, invoicePackUOM: format.packUOM } : {}),
     },
+    select: { id: true },
   })
+  if (undo && !existing) undo.created('MATCH_RULE', row.id)
 }
