@@ -633,7 +633,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
 
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
-const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase }: {
+const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase, showLastPriceTag }: {
   ing: IngredientWithCost
   scaleFactor: number
   canMoveUp: boolean
@@ -648,6 +648,8 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   baseIsSet: boolean
   autoPercent: number | null
   onSetBase: () => void
+  /** Recipe is on AVG_30D and this line's own cost came from the last price — show the contrast tag. */
+  showLastPriceTag?: boolean
 }) {
   const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
@@ -836,6 +838,9 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             <span className="text-ink-4 not-italic text-[11px]">—</span>
           ) : (
             <>
+              {showLastPriceTag && (
+                <span className="mr-1.5 text-[10px] text-ink-4">last price</span>
+              )}
               {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
               {formatCurrency(displayCost)}
             </>
@@ -1770,6 +1775,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   baseIsSet={baseIsSet}
                   autoPercent={autoPercents[ing.id] ?? null}
                   onSetBase={() => setBaseIngredient(ing.id)}
+                  showLastPriceTag={recipe.basisSummary?.basis === 'AVG_30D' && ing.costBasis === 'LAST'}
                   onMoveUp={() => {
                     const prev = recipe.ingredients[idx - 1]
                     // Optimistic: swap immediately
@@ -1910,6 +1916,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                 <span>Synced to Inventory · PREPD item auto-updated on ingredient changes</span>
               </div>
             )}
+            {basisCaption(recipe.basisSummary) && <p className="text-[11px] text-ink-4">{basisCaption(recipe.basisSummary)}</p>}
           </div>
 
           {/* One Method, with waits — sits BELOW the ingredients so they stay in view
