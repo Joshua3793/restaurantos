@@ -21,13 +21,15 @@
 // and getting them wrong is silent data loss rather than a failing plan.
 //
 // 1. `refs` — the reference check for an ITEM_CREATED delete.
-//    `referencedBy` is a list of human-readable phrases ('3 approved invoice
-//    lines', '1 recipe', 'wastage log'). NON-EMPTY ⇒ the item is kept.
+//    `referencedBy` is a list of human-readable phrases ('3 invoice lines (1
+//    unapproved)', '1 recipe', 'wastage log'). NON-EMPTY ⇒ the item is kept.
 //    A target MISSING from the map is also kept: never delete an item whose
 //    references were not checked.
 //
-//    Count EVERY relation that points at `InventoryItem` and does NOT cascade,
-//    because `inventoryItem.delete()` either throws on it or silently guts it:
+//    Count EVERY relation on `InventoryItem` — Restrict, SetNull AND Cascade —
+//    minus the exclusions below, because `inventoryItem.delete()` either
+//    THROWS on it, silently guts it, or silently deletes it along with the
+//    item:
 //
 //      Restrict (the delete THROWS — the whole transaction dies):
 //        InvoiceLineItem.inventoryItem      — approved receipt lines
@@ -42,20 +44,32 @@
 //        RecipeIngredient.inventoryItem     — a recipe ingredient goes $0
 //        Recipe.inventoryItem               — a PREP recipe loses its linked item
 //        PrepItem.linkedInventoryItem       — a prep line loses its stock
-//        InvoiceScanItem.matchedItem        — scan lines on OTHER sessions
+//        InvoiceScanItem.matchedItem        — scan lines on OTHER sessions,
+//                                              approved OR NOT: an unapproved
+//                                              draft's match suggestion is the
+//                                              same SetNull as an approved one
 //        InventoryItem.mergedInto           — a merge tombstone points nowhere
 //      Cascade (the row is DELETED with the item, silently):
 //        InventorySupplierPrice.inventoryItem
-//        StockAllocation.inventoryItem
-//        ItemRevenueCenter.inventoryItem
+//
+//    EXCLUDED entirely — membership rows the item takes with it, not a claim on
+//    stock (a real stock observation is `CountLine`, which is Restrict and IS
+//    counted above):
+//        StockAllocation.inventoryItem      — Cascade
+//        ItemRevenueCenter.inventoryItem    — Cascade
+//    Approve itself creates one of each per (item, non-default RC) pair it
+//    touches, so counting them would make every item an invoice creates on a
+//    non-default RC (e.g. CATERING) permanently `referenced`.
 //
 //    EXCLUDE the rows this same deletion is already removing, or nothing is ever
-//    deletable: this session's (and its RC clones') `InvoiceScanItem` rows; this
-//    session's `PriceAlert` and `RecipeAlert` rows (they cascade with the
-//    session); and the `InventorySupplierPrice` / `InvoiceMatchRule` rows THIS
-//    PLAN deletes. The planner re-adds the one exclusion the loader cannot see
-//    coming: an offer the plan ends up SKIPPING protects its item again, because
-//    the cascade would take it (see `guardCascades`).
+//    deletable: this session's (and its RC clones') `InvoiceScanItem` rows
+//    (they cascade with the session — regardless of `approved`); this
+//    session's `PriceAlert` and `RecipeAlert` rows (same); and the
+//    `InventorySupplierPrice` / `InvoiceMatchRule` rows THIS PLAN deletes. The
+//    planner re-adds the two exclusions the loader cannot see coming: an offer
+//    OR a learned match the plan ends up SKIPPING protects its item again,
+//    because the cascade (offer) or the Restrict FK (match rule) would
+//    otherwise take the whole transaction down (see `guardCascades`).
 //
 // 2. `current.offers` must hold EVERY offer of every item touched by any OFFER
 //    record — not just the recorded ones. A third offer that took the primary
@@ -306,25 +320,44 @@ function guardPrimaryCollisions(recs: UndoRecord[], rows: PlanRow[], input: Plan
 }
 
 /**
- * `InventorySupplierPrice.inventoryItemId` is `onDelete: Cascade`. Deleting a
- * created item takes EVERY offer on it — including one this plan deliberately
- * kept because it had changed since the approval. `refs` cannot see this: the
- * loader counted offers before the plan decided which ones it would skip. So a
- * skipped offer protects its item, here, after both outcomes are known.
+ * Two relations would otherwise blow up a created item's delete once it is
+ * skipped-but-still-there:
+ *
+ *  - `InventorySupplierPrice.inventoryItemId` is `onDelete: Cascade`. Deleting
+ *    a created item takes EVERY offer on it — including one this plan
+ *    deliberately kept because it had changed since the approval.
+ *  - `InvoiceMatchRule.inventoryItemId` is `onDelete: Restrict`. A match rule
+ *    the approval created but someone has since edited is also skipped by the
+ *    planner — and unlike the offer, nothing else catches it: the delete
+ *    THROWS and takes the whole transaction down with it.
+ *
+ * `refs` cannot see either case: the loader counted offers/rules before the
+ * plan decided which ones it would skip. So a skipped offer or a skipped
+ * match rule protects its item, here, after both outcomes are known.
  */
 function guardCascades(recs: UndoRecord[], rows: PlanRow[], input: PlanInput): void {
-  const protectedItems = new Set<string>()
+  const protectedByOffer = new Set<string>()
+  const protectedByRule = new Map<string, string>() // itemId → the rule's display name, for `detail`
   for (let i = 0; i < recs.length; i++) {
-    if (recs[i].kind !== 'OFFER' || rows[i].outcome !== 'skipped') continue
-    const itemId = input.current.offers.get(recs[i].targetId)?.inventoryItemId
-    if (itemId) protectedItems.add(itemId)
+    if (rows[i].outcome !== 'skipped') continue
+    if (recs[i].kind === 'OFFER') {
+      const itemId = input.current.offers.get(recs[i].targetId)?.inventoryItemId
+      if (itemId) protectedByOffer.add(itemId)
+    } else if (recs[i].kind === 'MATCH_RULE') {
+      const itemId = input.current.rules.get(recs[i].targetId)?.inventoryItemId
+      if (typeof itemId === 'string') protectedByRule.set(itemId, rows[i].name)
+    }
   }
-  if (protectedItems.size === 0) return
+  if (protectedByOffer.size === 0 && protectedByRule.size === 0) return
 
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].kind !== 'ITEM_CREATED' || rows[i].outcome !== 'deleted') continue
-    if (!protectedItems.has(rows[i].targetId)) continue
-    rows[i] = skip(rows[i], 'referenced', 'a supplier price on this item was kept')
+    const itemId = rows[i].targetId
+    if (protectedByOffer.has(itemId)) {
+      rows[i] = skip(rows[i], 'referenced', 'a supplier price on this item was kept')
+    } else if (protectedByRule.has(itemId)) {
+      rows[i] = skip(rows[i], 'referenced', `a learned match ("${protectedByRule.get(itemId)}") on this item was kept`)
+    }
   }
 }
 

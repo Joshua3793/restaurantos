@@ -10,6 +10,7 @@ import {
   referencePhrases,
   plannedRowDeletes,
   emptyRefCounts,
+  loadItemRefs,
   type RefCounts,
 } from '@/lib/invoice/rollback-load'
 
@@ -33,8 +34,10 @@ describe('referencePhrases', () => {
   // One case per relation the loader counts. If a relation is ever dropped from
   // RefCounts this table stops compiling — which is the point: the reference
   // check is the only thing standing between a rollback and silent data loss.
+  // `invoiceLines` is exercised separately below (it carries the unapproved
+  // detail). `stockAllocations`/`revenueCenters` are gone on purpose — see the
+  // dedicated describe block below.
   const RELATIONS: Array<[keyof RefCounts, string]> = [
-    ['approvedInvoiceLines', '2 approved invoice lines'],
     ['receiptLines', '2 receipt lines'],
     ['snapshots', '2 count snapshots'],
     ['countLines', '2 count lines'],
@@ -47,8 +50,6 @@ describe('referencePhrases', () => {
     ['prepItems', '2 prep items'],
     ['mergedItems', '2 merged items'],
     ['supplierOffers', '2 supplier prices'],
-    ['stockAllocations', '2 stock allocations'],
-    ['revenueCenters', '2 revenue centers'],
   ]
   it.each(RELATIONS)('counts %s', (key, phrase) => {
     expect(referencePhrases(counts({ [key]: 2 }))).toEqual([phrase])
@@ -61,6 +62,47 @@ describe('referencePhrases', () => {
 
   it('ignores negative or non-finite counts rather than printing them', () => {
     expect(referencePhrases(counts({ recipes: -1, countLines: NaN }))).toEqual([])
+  })
+})
+
+// `RefCounts` no longer has a field for these — Fix 3. Both relations are
+// `onDelete: Cascade` membership rows (StockAllocation, ItemRevenueCenter) that
+// approve itself creates for every (item, non-default RC) pair it touches, not
+// a claim on stock. Counting them would make every item an invoice creates on
+// a non-default RC (e.g. CATERING) permanently `referenced`.
+describe('RefCounts — StockAllocation and ItemRevenueCenter are not fields at all', () => {
+  it('emptyRefCounts has no stockAllocations/revenueCenters key', () => {
+    const empty = emptyRefCounts() as unknown as Record<string, unknown>
+    expect(empty).not.toHaveProperty('stockAllocations')
+    expect(empty).not.toHaveProperty('revenueCenters')
+  })
+})
+
+// `InvoiceScanItem.matchedItem` is SetNull. The old loader counted only
+// `approved: true` lines, so deleting a created item could silently null a
+// DRAFT invoice's match suggestion on another session. Fix 4: count ALL scan
+// lines outside this session (and its clones), and call out how many are
+// unapproved so the preview says why the count includes drafts.
+describe('referencePhrases — invoice lines carry the unapproved detail', () => {
+  it('is empty with no invoice lines', () => {
+    expect(referencePhrases(counts({ invoiceLines: 0, unapprovedInvoiceLines: 0 }))).toEqual([])
+  })
+
+  it('is a plain count when every line is approved', () => {
+    expect(referencePhrases(counts({ invoiceLines: 2, unapprovedInvoiceLines: 0 }))).toEqual(['2 invoice lines'])
+  })
+
+  it('is singular at 1 with no unapproved lines', () => {
+    expect(referencePhrases(counts({ invoiceLines: 1, unapprovedInvoiceLines: 0 }))).toEqual(['1 invoice line'])
+  })
+
+  it('appends the unapproved detail when some lines are drafts', () => {
+    expect(referencePhrases(counts({ invoiceLines: 2, unapprovedInvoiceLines: 1 }))).toEqual(['2 invoice lines (1 unapproved)'])
+  })
+
+  it('keeps invoice lines right after receipt lines, same relative slot as before', () => {
+    expect(referencePhrases(counts({ receiptLines: 1, invoiceLines: 2, unapprovedInvoiceLines: 0 })))
+      .toEqual(['1 receipt line', '2 invoice lines'])
   })
 })
 
@@ -168,5 +210,80 @@ describe('plannedRowDeletes', () => {
       new Map(),
     )
     expect([...got.offerIds]).toEqual(['o1'])
+  })
+})
+
+// ── loadItemRefs — Fix 3 (StockAllocation/ItemRevenueCenter excluded) and
+// Fix 4 (all InvoiceScanItem rows counted, unapproved called out) ───────────
+type GroupRow = { _count: { _all: number } } & Record<string, unknown>
+
+/** A minimal `Db` stand-in: every model the loader touches, each `groupBy`
+ *  resolving to fixture rows keyed by model name (ignoring the query args —
+ *  the fixtures are pre-filtered as if the query had already run). Leaving a
+ *  key OUT entirely (rather than defaulting it to `[]`) is deliberate where a
+ *  test wants "if the loader still queries this table, blow up".
+ */
+function fakeDb(rows: Partial<Record<string, GroupRow[]>> = {}) {
+  const groupBy = (name: string) => async () => rows[name] ?? []
+  return {
+    invoiceSession: { findMany: async () => rows.clones ?? [] },
+    invoiceLineItem: { groupBy: groupBy('invoiceLineItem') },
+    invoiceScanItem: { groupBy: groupBy('invoiceScanItem') },
+    inventorySnapshot: { groupBy: groupBy('inventorySnapshot') },
+    countLine: { groupBy: groupBy('countLine') },
+    wastageLog: { groupBy: groupBy('wastageLog') },
+    stockTransfer: { groupBy: groupBy('stockTransfer') },
+    priceAlert: { groupBy: groupBy('priceAlert') },
+    inventorySupplierPrice: { groupBy: groupBy('inventorySupplierPrice') },
+    stockAllocation: { groupBy: groupBy('stockAllocation') },
+    itemRevenueCenter: { groupBy: groupBy('itemRevenueCenter') },
+    recipeIngredient: { groupBy: groupBy('recipeIngredient') },
+    recipe: { groupBy: groupBy('recipe') },
+    prepItem: { groupBy: groupBy('prepItem') },
+    inventoryItem: { groupBy: groupBy('inventoryItem') },
+    invoiceMatchRule: { groupBy: groupBy('invoiceMatchRule') },
+  }
+}
+
+const noPlanned = { offerIds: new Set<string>(), ruleIds: new Set<string>() }
+const asDb = (db: ReturnType<typeof fakeDb>) => db as unknown as Parameters<typeof loadItemRefs>[0]
+
+describe('loadItemRefs — StockAllocation and ItemRevenueCenter are excluded entirely', () => {
+  it('a created item whose only relations are one StockAllocation row and one ItemRevenueCenter row is deletable', async () => {
+    const db = fakeDb({
+      stockAllocation: [{ inventoryItemId: 'new-item', _count: { _all: 1 } }],
+      itemRevenueCenter: [{ inventoryItemId: 'new-item', _count: { _all: 1 } }],
+    })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: [] })
+  })
+})
+
+describe('loadItemRefs — every InvoiceScanItem row outside this session counts, approved or not', () => {
+  it('counts an unapproved scan line on another session and calls it out', async () => {
+    const db = fakeDb({
+      invoiceScanItem: [{ matchedItemId: 'new-item', approved: false, _count: { _all: 1 } }],
+    })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: ['1 invoice line (1 unapproved)'] })
+  })
+
+  it('mixes approved and unapproved lines into one phrase', async () => {
+    const db = fakeDb({
+      invoiceScanItem: [
+        { matchedItemId: 'new-item', approved: true, _count: { _all: 1 } },
+        { matchedItemId: 'new-item', approved: false, _count: { _all: 1 } },
+      ],
+    })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: ['2 invoice lines (1 unapproved)'] })
+  })
+
+  it('says nothing extra when every counted line is approved', async () => {
+    const db = fakeDb({
+      invoiceScanItem: [{ matchedItemId: 'new-item', approved: true, _count: { _all: 2 } }],
+    })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: ['2 invoice lines'] })
   })
 })

@@ -10,8 +10,11 @@
 // is silent data loss rather than a failing plan:
 //
 //  1. `refs` — every relation pointing at a created `InventoryItem`, counted,
-//     minus exactly the rows this same deletion removes. A target MISSING from
-//     the map is kept, so a failed count can only ever be too cautious.
+//     minus `StockAllocation`/`ItemRevenueCenter` (membership rows, not a claim
+//     on stock — approve creates one of each per non-default RC it touches) and
+//     minus exactly the rows this same deletion removes. `InvoiceScanItem` is
+//     counted whether or not it is approved. A target MISSING from the map is
+//     kept, so a failed count can only ever be too cautious.
 //  2. `current.offers` — EVERY offer of every item an OFFER record touches, not
 //     just the recorded ones, so the planner can see a third offer that took the
 //     primary flag after the approval.
@@ -67,17 +70,26 @@ export class RollbackRefused extends Error {
 // ── the reference check ──────────────────────────────────────────────────────
 
 /**
- * Every relation that points at `InventoryItem`, one field each. Deleting a
+ * Every relation that points at `InventoryItem`, minus `StockAllocation` and
+ * `ItemRevenueCenter` (see the loader's contract header in `rollback.ts`:
+ * they are membership rows the item takes with it, not a claim on stock, and
+ * approve creates one of each per non-default RC on every item it touches —
+ * counting them would make those items permanently `referenced`). Deleting a
  * created item either THROWS on these (Restrict), silently leaves the row
  * pointing at nothing (SetNull), or silently takes the row with it (Cascade) —
  * all three are reasons to keep the item, so all three are counted. What is NOT
  * counted is only what this same deletion removes anyway (see `loadRollbackInputs`).
  */
 export interface RefCounts {
-  /** InvoiceScanItem.matchedItem — approved lines on OTHER sessions (SetNull). */
-  approvedInvoiceLines: number
   /** InvoiceLineItem.inventoryItem — legacy receipt lines (Restrict). */
   receiptLines: number
+  /** InvoiceScanItem.matchedItem — ALL lines on OTHER sessions, approved or
+   *  not (SetNull): an unapproved draft's match suggestion is silently nulled
+   *  exactly like an approved one would be. */
+  invoiceLines: number
+  /** The subset of `invoiceLines` that are NOT approved — surfaced as a detail
+   *  on the `invoiceLines` phrase, e.g. '2 invoice lines (1 unapproved)'. */
+  unapprovedInvoiceLines: number
   /** InventorySnapshot.inventoryItem — frozen count valuations (Restrict). */
   snapshots: number
   /** CountLine.inventoryItem (Restrict). */
@@ -100,24 +112,18 @@ export interface RefCounts {
   mergedItems: number
   /** InventorySupplierPrice — minus the offers this plan deletes (Cascade). */
   supplierOffers: number
-  /** StockAllocation.inventoryItem (Cascade). */
-  stockAllocations: number
-  /** ItemRevenueCenter.inventoryItem (Cascade). */
-  revenueCenters: number
 }
 
-/** The order phrases appear in, and how each one reads at 1 and at n. */
-const REFERENCE_LABELS: ReadonlyArray<readonly [keyof RefCounts, string, string]> = [
-  ['receiptLines', 'receipt line', 'receipt lines'],
-  ['approvedInvoiceLines', 'approved invoice line', 'approved invoice lines'],
+/** The order phrases appear in (after `invoiceLines`, handled separately
+ *  because it carries the unapproved detail — see `referencePhrases`), and
+ *  how each one reads at 1 and at n. */
+const OTHER_LABELS: ReadonlyArray<readonly [Exclude<keyof RefCounts, 'invoiceLines' | 'unapprovedInvoiceLines' | 'receiptLines'>, string, string]> = [
   ['snapshots', 'count snapshot', 'count snapshots'],
   ['countLines', 'count line', 'count lines'],
   ['wastageLogs', 'wastage log', 'wastage logs'],
   ['stockTransfers', 'stock transfer', 'stock transfers'],
   ['priceAlerts', 'price alert', 'price alerts'],
   ['supplierOffers', 'supplier price', 'supplier prices'],
-  ['stockAllocations', 'stock allocation', 'stock allocations'],
-  ['revenueCenters', 'revenue center', 'revenue centers'],
   ['recipeIngredients', 'recipe ingredient', 'recipe ingredients'],
   ['recipes', 'recipe', 'recipes'],
   ['prepItems', 'prep item', 'prep items'],
@@ -126,19 +132,28 @@ const REFERENCE_LABELS: ReadonlyArray<readonly [keyof RefCounts, string, string]
 ]
 
 export function emptyRefCounts(): RefCounts {
-  const out = {} as RefCounts
-  for (const [key] of REFERENCE_LABELS) out[key] = 0
+  const out = { receiptLines: 0, invoiceLines: 0, unapprovedInvoiceLines: 0 } as RefCounts
+  for (const [key] of OTHER_LABELS) out[key] = 0
   return out
 }
 
-/** `['3 approved invoice lines', '1 recipe']`. Empty ⇒ the item is deletable. */
+/** `['3 invoice lines (1 unapproved)', '1 recipe']`. Empty ⇒ the item is deletable. */
 export function referencePhrases(counts: RefCounts): string[] {
   const phrases: string[] = []
-  for (const [key, one, many] of REFERENCE_LABELS) {
-    const n = counts[key]
-    if (!Number.isFinite(n) || n <= 0) continue
-    phrases.push(`${n} ${n === 1 ? one : many}`)
+  const push = (n: number, one: string, many: string) => {
+    if (Number.isFinite(n) && n > 0) phrases.push(`${n} ${n === 1 ? one : many}`)
   }
+
+  push(counts.receiptLines, 'receipt line', 'receipt lines')
+
+  const invoiceLines = counts.invoiceLines
+  if (Number.isFinite(invoiceLines) && invoiceLines > 0) {
+    const base = `${invoiceLines} ${invoiceLines === 1 ? 'invoice line' : 'invoice lines'}`
+    const unapproved = counts.unapprovedInvoiceLines
+    phrases.push(Number.isFinite(unapproved) && unapproved > 0 ? `${base} (${unapproved} unapproved)` : base)
+  }
+
+  for (const [key, one, many] of OTHER_LABELS) push(counts[key], one, many)
   return phrases
 }
 
@@ -331,19 +346,39 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
   }
 }
 
+/** `InvoiceScanItem` grouped by `[matchedItemId, approved]` → two tallies: the
+ *  total per item, and the subset of that total which is NOT approved. */
+function tallyScanItems(
+  rows: Array<{ matchedItemId: string | null; approved: boolean; _count: { _all: number } }>,
+): { total: Map<string, number>; unapproved: Map<string, number> } {
+  const total = new Map<string, number>()
+  const unapproved = new Map<string, number>()
+  for (const r of rows) {
+    if (typeof r.matchedItemId !== 'string') continue
+    total.set(r.matchedItemId, (total.get(r.matchedItemId) ?? 0) + r._count._all)
+    if (r.approved === false) unapproved.set(r.matchedItemId, (unapproved.get(r.matchedItemId) ?? 0) + r._count._all)
+  }
+  return { total, unapproved }
+}
+
 /**
- * One `referencedBy` list per created item. Every relation on `InventoryItem` is
- * counted; the only things left out are the rows this same deletion removes:
+ * One `referencedBy` list per created item. Every relation on `InventoryItem`
+ * is counted EXCEPT `StockAllocation` and `ItemRevenueCenter` (membership rows
+ * approve itself creates for every non-default RC on every item it touches —
+ * see the loader's contract header in `rollback.ts`). The remaining exclusions
+ * are only the rows this same deletion removes anyway:
  *
  *  • this session's AND its RC clones' `InvoiceScanItem` rows (they cascade with
- *    their session — the clones are deleted in the same transaction),
+ *    their session — the clones are deleted in the same transaction). Every
+ *    OTHER session's rows count, approved or not — an unapproved draft's match
+ *    suggestion is the same SetNull as an approved one,
  *  • this session's `PriceAlert` rows (same),
  *  • the `InventorySupplierPrice` / `InvoiceMatchRule` rows this plan deletes.
  *
  * An offer or a learned match added to the item AFTER the approval has no undo
  * record, is not in those exclusions, and correctly keeps the item alive.
  */
-async function loadItemRefs(
+export async function loadItemRefs(
   db: Db,
   sessionId: string,
   createdItemIds: string[],
@@ -361,14 +396,17 @@ async function loadItemRefs(
   const count = { _all: true } as const
 
   const [
-    receiptLines, approvedInvoiceLines, snapshots, countLines, wastageLogs, stockTransfers,
-    priceAlerts, supplierOffers, stockAllocations, revenueCenters,
+    receiptLines, scanItems, snapshots, countLines, wastageLogs, stockTransfers,
+    priceAlerts, supplierOffers,
     recipeIngredients, recipes, prepItems, mergedItems, matchRules,
   ] = await Promise.all([
     db.invoiceLineItem.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
+    // ALL scan lines outside this session and its clones — approved or not
+    // (Fix: an unapproved DRAFT invoice's suggested match is `SetNull`, same as
+    // an approved one; the old `approved: true` filter silently let it null).
     db.invoiceScanItem.groupBy({
-      by: ['matchedItemId'],
-      where: { matchedItemId: inItems, approved: true, sessionId: { notIn: goneSessionIds } },
+      by: ['matchedItemId', 'approved'],
+      where: { matchedItemId: inItems, sessionId: { notIn: goneSessionIds } },
       _count: count,
     }),
     db.inventorySnapshot.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
@@ -385,8 +423,6 @@ async function loadItemRefs(
       where: { inventoryItemId: inItems, id: { notIn: [...planned.offerIds] } },
       _count: count,
     }),
-    db.stockAllocation.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
-    db.itemRevenueCenter.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     db.recipeIngredient.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     db.recipe.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     db.prepItem.groupBy({ by: ['linkedInventoryItemId'], where: { linkedInventoryItemId: inItems }, _count: count }),
@@ -398,17 +434,16 @@ async function loadItemRefs(
     }),
   ])
 
+  const { total: invoiceLines, unapproved: unapprovedInvoiceLines } = tallyScanItems(scanItems)
+
   const byRelation = {
     receiptLines: tally(receiptLines, 'inventoryItemId'),
-    approvedInvoiceLines: tally(approvedInvoiceLines, 'matchedItemId'),
     snapshots: tally(snapshots, 'inventoryItemId'),
     countLines: tally(countLines, 'inventoryItemId'),
     wastageLogs: tally(wastageLogs, 'inventoryItemId'),
     stockTransfers: tally(stockTransfers, 'inventoryItemId'),
     priceAlerts: tally(priceAlerts, 'inventoryItemId'),
     supplierOffers: tally(supplierOffers, 'inventoryItemId'),
-    stockAllocations: tally(stockAllocations, 'inventoryItemId'),
-    revenueCenters: tally(revenueCenters, 'inventoryItemId'),
     recipeIngredients: tally(recipeIngredients, 'inventoryItemId'),
     recipes: tally(recipes, 'inventoryItemId'),
     prepItems: tally(prepItems, 'linkedInventoryItemId'),
@@ -418,7 +453,9 @@ async function loadItemRefs(
 
   for (const itemId of createdItemIds) {
     const counts = emptyRefCounts()
-    for (const key of Object.keys(byRelation) as Array<keyof RefCounts>) {
+    counts.invoiceLines = invoiceLines.get(itemId) ?? 0
+    counts.unapprovedInvoiceLines = unapprovedInvoiceLines.get(itemId) ?? 0
+    for (const key of Object.keys(byRelation) as Array<keyof typeof byRelation>) {
       counts[key] = byRelation[key].get(itemId) ?? 0
     }
     refs.set(itemId, { referencedBy: referencePhrases(counts) })

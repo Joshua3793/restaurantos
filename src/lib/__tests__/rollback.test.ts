@@ -262,6 +262,55 @@ describe('planRollback — ITEM_CREATED', () => {
     )
     expect(plan.rows.map(r => r.outcome)).toEqual(['deleted', 'deleted'])
   })
+
+  // `InvoiceMatchRule.inventoryItemId` is `onDelete: Restrict` — not Cascade like
+  // an offer. Deleting a created item while a Restrict FK still points at it
+  // doesn't quietly gut a row, it THROWS and aborts the whole transaction. A
+  // match rule the approval created but someone has since edited is SKIPPED by
+  // the planner (still equals `next`? no), so it survives and must protect its
+  // item exactly like a kept offer does.
+  it('keeps a created item when a match rule pointing at it was kept: Restrict would throw', () => {
+    const ruleNext = ruleCanon({ inventoryItemId: 'new-item' })
+    const plan = planRollback(
+      input({
+        records: [
+          { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleNext },
+          rec,
+        ],
+        current: {
+          offers: new Map(),
+          items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
+          // edited since the approval (supplierItemCode moved) ⇒ skipped 'changed-since'
+          rules: new Map([['r1', ruleCanon({ inventoryItemId: 'new-item', supplierItemCode: 'CHANGED' })]]),
+        },
+        refs: new Map([['new-item', noRefs]]),
+      })
+    )
+    expect(plan.rows[0]).toMatchObject({ kind: 'MATCH_RULE', outcome: 'skipped', reason: 'changed-since' })
+    expect(plan.rows[1]).toMatchObject({ kind: 'ITEM_CREATED', outcome: 'skipped', reason: 'referenced' })
+    expect(plan.rows[1].write).toBeUndefined()
+    // detail names the rule, mirroring the offer's guardCascades message
+    expect(plan.rows[1].detail).toContain('CILANTRO BUNCH')
+  })
+
+  it('still deletes a created item whose match rule is deleted with it', () => {
+    const ruleNext = ruleCanon({ inventoryItemId: 'new-item' })
+    const plan = planRollback(
+      input({
+        records: [
+          { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleNext },
+          rec,
+        ],
+        current: {
+          offers: new Map(),
+          items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
+          rules: new Map([['r1', ruleNext]]),
+        },
+        refs: new Map([['new-item', noRefs]]),
+      })
+    )
+    expect(plan.rows.map(r => r.outcome)).toEqual(['deleted', 'deleted'])
+  })
 })
 
 describe('planRollback — apply order', () => {
