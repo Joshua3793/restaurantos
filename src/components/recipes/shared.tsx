@@ -78,6 +78,8 @@ export interface IngredientWithCost {
   allergens?: string[]
   /** Recipe unit is a different dimension than the item's base unit — line is costed at $0. */
   dimensionConflict?: boolean
+  /** Which basis this line's pricePerBaseUnit/lineCost came from. Optional: cached/optimistic rows may lack it. */
+  costBasis?: 'AVG_30D' | 'LAST'
 }
 
 export interface Recipe {
@@ -113,6 +115,8 @@ export interface Recipe {
   foodCostPct: number | null
   /** Count of ingredients whose unit dimension doesn't match the item's base unit. */
   dimensionConflicts?: number
+  /** Which basis the recipe's cost is on, and how the ingredient lines split across it. Optional: cached/optimistic rows may lack it. */
+  basisSummary?: { basis: 'AVG_30D' | 'LAST'; avgLines: number; lastLines: number }
   usedInCount?: number
   usedInRecipes?: Array<{ id: string; name: string; type: string }>
   allergens?: string[]
@@ -141,6 +145,14 @@ export const CATEGORY_PALETTE = [
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+/** Caption for the cost basis a recipe was priced on — null when there's nothing to say
+ *  (the recipe is entirely on LAST, so there's no average to contrast against). */
+function basisCaption(s: Recipe['basisSummary']): string | null {
+  if (!s || s.basis !== 'AVG_30D') return null
+  const n = s.avgLines + s.lastLines
+  return s.lastLines === 0 ? 'Costed at the 30-day average' : `Costed at the 30-day average · ${s.lastLines} of ${n} ingredients at last price`
+}
+
 export function foodCostClass(pct: number | null): string {
   if (pct === null) return 'text-ink-3'
   if (pct < FOOD_COST_GREEN) return 'text-green'
@@ -543,6 +555,9 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
                       {formatQtyUnit(ing.qtyBase, ing.unit)}
                     </td>
                     <td className="py-1.5 text-right text-ink-3">
+                      {recipe.basisSummary?.basis === 'AVG_30D' && ing.costBasis === 'LAST' && (
+                        <span className="mr-1.5 text-[10px] text-ink-4">last price</span>
+                      )}
                       {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
                       {formatCurrency(ing.lineCost)}
                     </td>
@@ -581,6 +596,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
               </div>
             )}
           </div>
+          {basisCaption(recipe.basisSummary) && <p className="text-[11px] text-ink-4 -mt-4 mb-6">{basisCaption(recipe.basisSummary)}</p>}
 
           {/* Method — the steps with their waits */}
           {(() => {
@@ -617,7 +633,7 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
 
 
 // ─── IngredientRow ────────────────────────────────────────────────────────────
-const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase }: {
+const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase, showLastPriceTag }: {
   ing: IngredientWithCost
   scaleFactor: number
   canMoveUp: boolean
@@ -632,6 +648,8 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   baseIsSet: boolean
   autoPercent: number | null
   onSetBase: () => void
+  /** Recipe is on AVG_30D and this line's own cost came from the last price — show the contrast tag. */
+  showLastPriceTag?: boolean
 }) {
   const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
@@ -820,6 +838,9 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             <span className="text-ink-4 not-italic text-[11px]">—</span>
           ) : (
             <>
+              {showLastPriceTag && (
+                <span className="mr-1.5 text-[10px] text-ink-4">last price</span>
+              )}
               {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
               {formatCurrency(displayCost)}
             </>
@@ -1754,6 +1775,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   baseIsSet={baseIsSet}
                   autoPercent={autoPercents[ing.id] ?? null}
                   onSetBase={() => setBaseIngredient(ing.id)}
+                  showLastPriceTag={recipe.basisSummary?.basis === 'AVG_30D' && ing.costBasis === 'LAST'}
                   onMoveUp={() => {
                     const prev = recipe.ingredients[idx - 1]
                     // Optimistic: swap immediately
@@ -1894,6 +1916,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                 <span>Synced to Inventory · PREPD item auto-updated on ingredient changes</span>
               </div>
             )}
+            {basisCaption(recipe.basisSummary) && <p className="text-[11px] text-ink-4">{basisCaption(recipe.basisSummary)}</p>}
           </div>
 
           {/* One Method, with waits — sits BELOW the ingredients so they stay in view

@@ -8,6 +8,8 @@ import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isK
 import { getUnitConv } from './utils'
 import { portionsPerBatch } from './recipe-portions'
 import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import { windowedAvgCost } from '@/lib/cost-basis'
+import type { CostBasis, ItemCostBasis } from '@/lib/cost-basis'
 
 export interface IngredientWithCost {
   id: string
@@ -34,6 +36,8 @@ export interface IngredientWithCost {
    * When true, `lineCost` is forced to 0 (no garbage contribution).
    */
   dimensionConflict: boolean
+  /** Which price this line was costed at: the 30-day average or the last price. */
+  costBasis: CostBasis
 }
 
 /** The recipe's line settings, read off its prep task row (null = no row). */
@@ -77,6 +81,8 @@ export interface RecipeWithCost {
   allergens: string[]
   baseIngredientId: string | null
   prep: RecipePrep | null
+  /** Which basis this recipe's lines were costed on, and how the lines split. */
+  basisSummary: { basis: CostBasis; avgLines: number; lastLines: number }
 }
 
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
@@ -105,9 +111,12 @@ export function computeRecipeCost(
       linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
+      /** The cost basis Task 3 resolved for the linked recipe's synced cost; 'LAST' when absent. */
+      _linkedRecipeCostBasis?: CostBasis
     }>
-  }
-): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[] } {
+  },
+  opts: { prices?: Map<string, ItemCostBasis> } = {}
+): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[]; basisSummary: { basis: CostBasis; avgLines: number; lastLines: number } } {
 
   const ingredientsWithCost: IngredientWithCost[] = recipe.ingredients.map(ing => {
     const qty = Number(ing.qtyBase)
@@ -122,9 +131,12 @@ export function computeRecipeCost(
     // convention; convertQty passes it through 1:1).
     let dimensionConflict = false
     let allergens: string[] = []
+    let costBasis: CostBasis = 'LAST'
 
     if (ing.inventoryItem) {
-      pricePerBaseUnit   = chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
+      const mapped       = ing.inventoryItemId ? opts.prices?.get(ing.inventoryItemId) : undefined
+      pricePerBaseUnit    = mapped ? mapped.pricePerBase : chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
+      costBasis           = mapped?.basis ?? 'LAST'
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
@@ -137,6 +149,7 @@ export function computeRecipeCost(
       lineCostQty = convertQtyBridged(qty, ing.unit, ing.inventoryItem.baseUnit, ingBridge, ingDensity)
     } else if (ing.linkedRecipe) {
       pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
+      costBasis          = ing._linkedRecipeCostBasis ?? 'LAST'
       ingredientName     = ing.linkedRecipe.name
       ingredientType     = 'recipe'
       allergens          = ing.linkedRecipe.inventoryItem?.allergens ?? []
@@ -173,8 +186,13 @@ export function computeRecipeCost(
       ingredientBaseUnit,
       allergens,
       dimensionConflict,
+      costBasis,
     }
   })
+
+  const avgLines  = ingredientsWithCost.filter(i => i.costBasis === 'AVG_30D').length
+  const lastLines = ingredientsWithCost.length - avgLines
+  const basisSummary = { basis: (avgLines > 0 ? 'AVG_30D' : 'LAST') as CostBasis, avgLines, lastLines }
 
   const dimensionConflicts = ingredientsWithCost.filter(i => i.dimensionConflict).length
   const totalCost    = ingredientsWithCost.reduce((s, i) => s + i.lineCost, 0)
@@ -194,7 +212,7 @@ export function computeRecipeCost(
       ? (costPerPortion / menuPrice) * 100
       : null
 
-  return { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost }
+  return { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost, basisSummary }
 }
 
 /**
@@ -240,8 +258,110 @@ export function linkedRecipeUnitCost(linked: {
   }
 }
 
-/** Fetch a full recipe with computed costs, resolving linked recipe costs. */
-export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | null> {
+/**
+ * Per-request costing context. Built once at the top of a recipe/menu read and
+ * threaded down through every nested PREP so the whole page shares ONE
+ * windowedAvgCost read, ONE fetch per prep, and ONE cycle guard.
+ */
+export interface CostContext {
+  basis: CostBasis
+  prices: Map<string, ItemCostBasis>
+  /** One fetch per prep per request. */
+  memo: Map<string, RecipeWithCost | null>
+  /** Recipes on the current recursion path — a repeat is a cycle. ONE path per
+   *  context: cost recipes SEQUENTIALLY with a shared ctx, never under
+   *  Promise.all, or two branches see each other's ids as a spurious cycle and
+   *  silently price a nested prep at its spine. */
+  visiting: Set<string>
+  /** Every raw item id already put to `windowedAvgCost` in this request, whether
+   *  or not it came back with a price. A PREP-linked item is deliberately NEVER
+   *  priced (its cost is its recipe's), so `prices` alone can't tell "not asked"
+   *  from "asked and skipped" — without this sentinel every recipe on the page
+   *  re-queries the same prep ids. */
+  asked: Set<string>
+  /** As-of date for the window, fixed when the context is built so every merge in
+   *  the request measures the same 30 days. */
+  asOf: Date
+}
+
+/** Build the per-request context: ONE windowedAvgCost for every raw item id given. */
+export async function costContext(basis: CostBasis, itemIds: string[], asOf?: Date): Promise<CostContext> {
+  // Pin the instant here: the nested merges below re-use it, so a request that
+  // straddles midnight can't cost half its lines against a different window.
+  const at = asOf ?? new Date()
+  const prices = basis === 'AVG_30D'
+    ? await windowedAvgCost(itemIds, at)
+    : new Map<string, ItemCostBasis>()
+  return { basis, prices, memo: new Map(), visiting: new Set(), asked: new Set(itemIds), asOf: at }
+}
+
+/**
+ * Cost each linked-prep ingredient. LAST (ctx null, or ctx on the LAST basis):
+ * the linked item's spine, exactly as always. AVG_30D: recurse into the prep on
+ * the same basis — its cost per yield unit is its averaged batch cost ÷ its
+ * yield — memoised per request. A cycle, or a nested yield unit in a different
+ * dimension than the spine, falls back to the spine, tagged LAST.
+ *
+ * Exported so the recipe LIST route costs nested preps through this one path
+ * instead of re-implementing the recursion.
+ */
+export async function resolveLinkedRecipes<T extends {
+  linkedRecipeId: string | null
+  unit: string
+  linkedRecipe: Parameters<typeof linkedRecipeUnitCost>[0] | null
+}>(
+  ingredients: T[],
+  ctx: CostContext | null,
+): Promise<Array<T & { _linkedRecipeCostPerUnit: number; _linkedRecipeYieldUnit: string; _linkedRecipeCostBasis: CostBasis }>> {
+  const out: Array<T & { _linkedRecipeCostPerUnit: number; _linkedRecipeYieldUnit: string; _linkedRecipeCostBasis: CostBasis }> = []
+  for (const ing of ingredients) {
+    let costPerUnit = 0
+    let yieldUnit: string = ing.unit
+    let costBasis: CostBasis = 'LAST'
+    if (ing.linkedRecipe) {
+      const spine = linkedRecipeUnitCost(ing.linkedRecipe)
+      costPerUnit = spine.costPerUnit
+      yieldUnit   = spine.yieldUnit
+      if (ctx && ctx.basis === 'AVG_30D' && ing.linkedRecipeId && !ctx.visiting.has(ing.linkedRecipeId)) {
+        const nested = await fetchRecipeWithCost(ing.linkedRecipeId, { ctx })
+        // convertQty passes a CROSS-dimension conversion through 1:1, so a prep
+        // whose yieldUnit has drifted out of its synced item's dimension (a stale
+        // sync: recipe now yields `each`, item still in `g`) would divide the
+        // batch cost by the raw yield number and be off by the whole unit factor.
+        // No usable conversion exists — take the spine, tagged LAST.
+        const sameDimension = nested ? dimensionOf(nested.yieldUnit) === dimensionOf(yieldUnit) : false
+        if (nested && sameDimension && nested.baseYieldQty > 0) {
+          // The spine prices per the synced item's canonical base unit (g/ml);
+          // convert the recipe's yield into that unit so the two agree.
+          const yieldInBase = convertQty(nested.baseYieldQty, nested.yieldUnit, yieldUnit)
+          if (Number.isFinite(yieldInBase) && yieldInBase > 0) {
+            const perBase = nested.totalCost / yieldInBase
+            if (Number.isFinite(perBase) && perBase >= 0) {
+              costPerUnit = perBase
+              costBasis   = nested.basisSummary.basis
+            }
+          }
+        }
+      }
+    }
+    out.push({ ...ing, _linkedRecipeCostPerUnit: costPerUnit, _linkedRecipeYieldUnit: yieldUnit, _linkedRecipeCostBasis: costBasis })
+  }
+  return out
+}
+
+/**
+ * Fetch a full recipe with computed costs, resolving linked recipe costs.
+ *
+ * With no options (every caller outside the recipe/menu surfaces) this is the
+ * behaviour it has always had: raw lines read the item's spine and a nested PREP
+ * reads its synced item's spine — no extra query runs.
+ */
+export async function fetchRecipeWithCost(
+  id: string,
+  opts: { basis?: CostBasis; ctx?: CostContext } = {},
+): Promise<RecipeWithCost | null> {
+  if (opts.ctx?.memo.has(id)) return opts.ctx.memo.get(id)!
+
   const recipe = await prisma.recipe.findUnique({
     where: { id },
     include: {
@@ -264,22 +384,35 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
   })
   if (!recipe) return null
 
-  // Resolve linked recipe cost-per-unit (with conversion inside the linked recipe too)
-  const ingredientsWithLinked = recipe.ingredients.map(ing => {
-    let linkedCostPerUnit = 0
-    let linkedYieldUnit   = ing.unit
-    if (ing.linkedRecipe) {
-      const resolved    = linkedRecipeUnitCost(ing.linkedRecipe)
-      linkedCostPerUnit = resolved.costPerUnit
-      linkedYieldUnit   = resolved.yieldUnit
+  const rawIds = recipe.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : []))
+  let ctx: CostContext | null = opts.ctx ?? null
+  if (!ctx && opts.basis === 'AVG_30D') {
+    ctx = await costContext('AVG_30D', rawIds)
+  } else if (ctx && ctx.basis === 'AVG_30D') {
+    // A nested prep brings raw item ids the caller's context never knew about.
+    // `asked` — not `prices` — is the guard: a PREP-linked id never gets a price
+    // entry, so keying off `prices` alone re-queries it for every recipe that
+    // uses it.
+    const missing = Array.from(new Set(rawIds.filter(itemId => !ctx!.prices.has(itemId) && !ctx!.asked.has(itemId))))
+    if (missing.length > 0) {
+      for (const itemId of missing) ctx.asked.add(itemId)
+      const extra = await windowedAvgCost(missing, ctx.asOf)
+      for (const [itemId, basis] of extra) ctx.prices.set(itemId, basis)
     }
-    return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
-  })
+  }
 
-  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
+  // Resolve linked recipe cost-per-unit (with conversion inside the linked recipe
+  // too). On the average basis this recurses into the nested prep; `visiting`
+  // brackets the recursion so a cycle falls back to the spine while a diamond
+  // (two paths to the same prep) still resolves on both, memoised.
+  ctx?.visiting.add(id)
+  const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
+  ctx?.visiting.delete(id)
+
+  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary } = computeRecipeCost({
     ...recipe,
     ingredients: ingredientsWithLinked,
-  })
+  }, { prices: ctx?.prices })
 
   const allergens = Array.from(new Set(recipe.ingredients.flatMap(ing => [
     ...(ing.inventoryItem?.allergens ?? []),
@@ -288,7 +421,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
   ])))
 
-  return {
+  const result: RecipeWithCost = {
     id: recipe.id,
     name: recipe.name,
     type: recipe.type,
@@ -329,7 +462,11 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
           stations: recipe.prepItems[0].stations,
         }
       : null,
+    basisSummary,
   }
+
+  ctx?.memo.set(id, result)
+  return result
 }
 
 /**

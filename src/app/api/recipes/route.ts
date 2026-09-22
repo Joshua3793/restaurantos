@@ -1,13 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, linkedRecipeUnitCost, resyncPrepRecipe } from '@/lib/recipeCosts'
+import { computeRecipeCost, costContext, resolveLinkedRecipes, resyncPrepRecipe } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopedRcWhere, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 import type { Prisma } from '@prisma/client'
+import type { IngredientWithCost } from '@/lib/recipeCosts'
+import type { CostBasis } from '@/lib/cost-basis'
 import { validateMethod } from '@/lib/recipe-method'
+
+/**
+ * One row of the recipe-list payload. Named so the accumulator below is typed as
+ * it is built: a bare `const result = []` is an evolving `any[]`, which accepts a
+ * dropped or misspelled field without a murmur — the same class of hole that let
+ * the detail route quietly stop returning `stages`/`method`.
+ */
+interface RecipeRow {
+  id: string
+  name: string
+  type: string
+  categoryId: string
+  categoryName: string
+  categoryColor: string | null
+  inventoryItemId: string | null
+  revenueCenterId: string | null
+  baseYieldQty: number
+  yieldUnit: string
+  portionSize: number | null
+  portionUnit: string | null
+  baseIngredientId: string | null
+  menuPrice: number | null
+  isActive: boolean
+  notes: string | null
+  createdAt: Date
+  updatedAt: Date
+  ingredients: IngredientWithCost[]
+  totalCost: number
+  costPerPortion: number | null
+  foodCostPct: number | null
+  dimensionConflicts: number
+  usedInCount: number
+  allergens: string[]
+  basisSummary: { basis: CostBasis; avgLines: number; lastLines: number }
+}
 
 export async function GET(req: NextRequest) {
   let user
@@ -101,24 +138,38 @@ export async function GET(req: NextRequest) {
     orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
   })
 
-  const result = recipes.map(recipe => {
-    const ingredientsWithLinked = recipe.ingredients.map(ing => {
-      let linkedCostPerUnit = 0
-      let linkedYieldUnit   = ing.unit
-      if (ing.linkedRecipe) {
-        const resolved    = linkedRecipeUnitCost(ing.linkedRecipe)
-        linkedCostPerUnit = resolved.costPerUnit
-        linkedYieldUnit   = resolved.yieldUnit
-      }
-      return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
-    })
+  // ONE windowedAvgCost for the union of ingredient ids on the page; nested preps
+  // are memoised per request via the shared ctx. A sequential `for` loop — not
+  // `.map(async)` — because CostContext.visiting is shared and not Promise.all-safe
+  // (see Task 3): interleaved recursion could see another branch's id and
+  // spuriously report a cycle.
+  const pageIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
 
-    const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
-      ...recipe,
-      ingredients: ingredientsWithLinked,
-    })
+  // Pre-seed the context with the raw ingredient ids of every prep linked from the
+  // page. Without this each nested recursion discovers its own raw ids and fires
+  // its own windowedAvgCost — one extra round trip per distinct prep. One cheap
+  // read here folds them all into the single up-front query. (Preps nested more
+  // than one level deep still merge on discovery, once each — `ctx.asked`.)
+  const linkedIds = [...new Set(recipes.flatMap(r => r.ingredients.flatMap(i => i.linkedRecipeId ? [i.linkedRecipeId] : [])))]
+  const linkedPreps = linkedIds.length > 0
+    ? await prisma.recipe.findMany({
+        where: { id: { in: linkedIds } },
+        select: { ingredients: { select: { inventoryItemId: true } } },
+      })
+    : []
+  const nestedIds = linkedPreps.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
 
-    return {
+  const ctx = await costContext('AVG_30D', [...new Set([...pageIds, ...nestedIds])])
+  const result: RecipeRow[] = []
+  for (const recipe of recipes) {
+    const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
+
+    const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary } = computeRecipeCost(
+      { ...recipe, ingredients: ingredientsWithLinked },
+      { prices: ctx.prices },
+    )
+
+    result.push({
       id: recipe.id,
       name: recipe.name,
       type: recipe.type,
@@ -147,8 +198,9 @@ export async function GET(req: NextRequest) {
         ...(ing.inventoryItem?.allergens ?? []),
         ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
       ]))),
-    }
-  })
+      basisSummary,
+    })
+  }
 
   return NextResponse.json(result)
 }

@@ -8,6 +8,8 @@ import {
   DIMENSION_BASE, pricePerBaseUnit, basePerUnit, levelBaseUnits,
   type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
+// cost-basis.ts imports Prisma at runtime — type-only import so it isn't bundled client-side.
+import type { ItemCostBasis } from '@/lib/cost-basis'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { canonicalUom } from '@/lib/uom'
 import {
@@ -77,6 +79,8 @@ interface InventoryItem {
   needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
+  /** 30-day weighted-average cost basis (null for PREP-linked items — they're never averaged). */
+  costBasis?: ItemCostBasis | null
   // Chain model (authoritative)
   dimension?: Dimension | null
   packChain?: PackLink[] | null
@@ -235,6 +239,28 @@ function baseToDisplay(item: InventoryItem, base: number): number {
 
 function displayStock(item: InventoryItem): number {
   return baseToDisplay(item, Number(item.stockOnHand))
+}
+
+// Shows the 30-day weighted-average cost recipes are actually priced on, next to the
+// item's last (stored) price — so a chef can see why a recipe's cost moved without
+// this item's own price block having changed. `last` is the item's pricePerBaseUnit.
+function CostBasisRow({ cb, baseUnit, last }: { cb: ItemCostBasis; baseUnit: string; last: number }) {
+  const label = <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">30-day average</div>
+  if (cb.fallbackReason === 'implausible' && cb.avg) {
+    const ratio = Math.round(Math.max(cb.avg.pricePerBase / last, last / cb.avg.pricePerBase))
+    return <div>{label}<div className="text-[13px] text-red-text mt-1">Average ignored — {ratio}× off the last price; check this item&rsquo;s receipts</div></div>
+  }
+  if (cb.basis !== 'AVG_30D' || !cb.avg) {
+    return <div>{label}<div className="text-[13px] text-ink-3 mt-1">No purchases in 30 days — recipes use the last price.</div></div>
+  }
+  const delta = last > 0 ? Math.round((cb.avg.pricePerBase / last - 1) * 100) : null
+  return (
+    <div>{label}
+      <div className="font-medium text-ink mt-1">{formatPricePerBase(cb.avg.pricePerBase, baseUnit)}
+        <span className="text-ink-3 font-normal"> · {cb.avg.lines} invoice{cb.avg.lines === 1 ? '' : 's'} · {formatCurrency(cb.avg.paid)} for {cb.avg.received.toLocaleString()} {baseUnit}{delta !== null ? ` · ${delta > 0 ? '+' : ''}${delta} % vs last price` : ''}</span>
+      </div>
+    </div>
+  )
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -797,6 +823,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       }
                     </div>
                   </div>
+
+                  {/* What recipes actually cost this item at — the 30-day weighted average,
+                      shown next to (not instead of) the price block above. PREP items have
+                      no costBasis: their cost comes from the recipe, never an average. */}
+                  {!item.recipe && item.costBasis && (
+                    <div className="bg-paper border border-line rounded-[10px] p-3 col-span-2">
+                      <CostBasisRow cb={item.costBasis} baseUnit={ci.baseUnit} last={ppb} />
+                    </div>
+                  )}
                 </div>
                   )
                 })()}
