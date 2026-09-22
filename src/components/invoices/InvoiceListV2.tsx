@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import { Trash2, X, ChevronsUpDown, ChevronUp, ChevronDown, Search, FileText, Upload, MoreHorizontal, RotateCcw } from 'lucide-react'
 import { SessionSummary, SessionStatus } from './types'
 import { formatCurrency } from '@/lib/utils'
@@ -20,6 +20,64 @@ const COL_DEFAULT_DIR: Record<ColKey, ColDir> = {
 
 const STATUS_ORDER: Record<string, number> = {
   REVIEW: 0, GROUPING: 0, PROCESSING: 1, APPROVING: 1, UPLOADING: 2, APPROVED: 3, REJECTED: 4, ERROR: 5,
+}
+
+// ── Delete plan (mirrors GET /api/invoices/sessions/[id]/delete-plan) ───────
+
+type UndoKind = 'OFFER' | 'ITEM' | 'MATCH_RULE' | 'ITEM_CREATED'
+type PlanOutcome = 'restored' | 'deleted' | 'skipped' | 'best-effort'
+
+interface DeletePlanRow {
+  kind: UndoKind
+  targetId: string
+  name: string
+  outcome: PlanOutcome
+  reason?: 'changed-since' | 'gone' | 'referenced' | 'approved before undo records existed'
+  detail?: string
+}
+
+interface DeletePlan {
+  legacy: boolean
+  isClone: boolean
+  rows: DeletePlanRow[]
+  summary: { restored: number; deleted: number; skipped: number; bestEffort: number }
+}
+
+// Verbatim — the clone tooltip and the 409 `deleteSession` throws both read this.
+const CLONE_MESSAGE = 'This is an RC copy — delete the original invoice instead'
+const LEGACY_SENTENCE =
+  'Approved before rollback records existed — price reverts are best-effort; supplier prices and learned matches are not restored.'
+
+const plural = (n: number, word: string, pluralWord = `${word}s`) => (n === 1 ? word : pluralWord)
+
+// n/m/k/s/learned come straight from the plan's rows, never the aggregate
+// `summary` — summary sums across every kind, and the copy needs to keep
+// supplier prices (OFFER), item prices (ITEM), new products (ITEM_CREATED) and
+// learned matches (MATCH_RULE) apart.
+function planCounts(plan: DeletePlan) {
+  const n = plan.rows.filter(r => r.kind === 'OFFER' && r.outcome === 'restored').length
+  const m = plan.rows.filter(r => r.kind === 'ITEM' && r.outcome === 'restored').length
+  const k = plan.rows.filter(r => r.kind === 'ITEM_CREATED' && r.outcome === 'deleted').length
+  const s = plan.rows.filter(r => (r.kind === 'OFFER' || r.kind === 'ITEM') && r.outcome === 'skipped').length
+  const learned = plan.rows.filter(r => r.kind === 'MATCH_RULE' && (r.outcome === 'restored' || r.outcome === 'deleted')).length
+  return { n, m, k, s, learned }
+}
+
+// The first segment (supplier + item prices) always shows, even at zero; every
+// other segment is dropped when its count is zero.
+function planSummaryText(plan: DeletePlan): string {
+  const { n, m, k, s, learned } = planCounts(plan)
+  const segments = [`Restores ${n} supplier ${plural(n, 'price')} and ${m} item ${plural(m, 'price')}`]
+  if (k > 0) segments.push(`removes ${k} new ${plural(k, 'product')}`)
+  if (s > 0) segments.push(`${s} ${plural(s, 'price')} ${s === 1 ? 'stays' : 'stay'} (changed since)`)
+  if (learned > 0) segments.push(`${learned} learned ${plural(learned, 'match', 'matches')} removed`)
+  return segments.join(' · ')
+}
+
+// Up to 3 names behind a skip that carries a `detail` — enough to say WHAT
+// stayed put, not just how many.
+function skippedNames(plan: DeletePlan): string[] {
+  return plan.rows.filter(r => r.outcome === 'skipped' && r.detail).map(r => r.name).slice(0, 3)
 }
 
 interface Props {
@@ -121,6 +179,11 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
   const [isBulkDeleting, setIsBulkDeleting]       = useState(false)
 
+  const [deletePlan, setDeletePlan]               = useState<DeletePlan | null>(null)
+  const [deletePlanLoading, setDeletePlanLoading] = useState(false)
+  const [bulkPlans, setBulkPlans]                 = useState<Map<string, DeletePlan>>(new Map())
+  const [bulkPlansLoading, setBulkPlansLoading]   = useState(false)
+
   const reviewCount = sessions.filter(s => s.status === 'REVIEW').length
 
   const handleSort = (col: ColKey) => {
@@ -173,6 +236,66 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
   const someSelected = filtered.some(s => selectedIds.has(s.id))
   const selectedInView = filtered.filter(s => selectedIds.has(s.id))
   const hasApproved    = selectedInView.some(s => s.status === 'APPROVED')
+
+  // Stable across renders unless the actual set of selected APPROVED ids
+  // changes — `selectedInView` is a fresh array every render, so depending on
+  // it directly would refetch on every keystroke in the search box.
+  const approvedSelectedKey = useMemo(
+    () => selectedInView.filter(s => s.status === 'APPROVED').map(s => s.id).join(','),
+    [selectedInView],
+  )
+
+  // What deleting THIS session would restore/skip — the same loader and
+  // planner the DELETE runs, nothing applied. Only worth asking for an
+  // approved session; every other status keeps its static copy.
+  useEffect(() => {
+    if (!deleteConfirm || deleteConfirm.status !== 'APPROVED') {
+      setDeletePlan(null)
+      setDeletePlanLoading(false)
+      return
+    }
+    let alive = true
+    setDeletePlan(null)
+    setDeletePlanLoading(true)
+    fetch(`/api/invoices/sessions/${deleteConfirm.id}/delete-plan`)
+      .then(r => (r.ok ? (r.json() as Promise<DeletePlan>) : Promise.reject(new Error('Failed to load plan'))))
+      .then(d => { if (alive) { setDeletePlan(d); setDeletePlanLoading(false) } })
+      .catch(() => { if (alive) setDeletePlanLoading(false) })
+    return () => { alive = false }
+  }, [deleteConfirm])
+
+  // Bulk: one plan per selected APPROVED session, so the confirm shows a line
+  // per invoice instead of one blended count.
+  useEffect(() => {
+    if (!bulkDeleteConfirm) {
+      setBulkPlans(new Map())
+      setBulkPlansLoading(false)
+      return
+    }
+    const ids = approvedSelectedKey ? approvedSelectedKey.split(',') : []
+    if (ids.length === 0) {
+      setBulkPlans(new Map())
+      setBulkPlansLoading(false)
+      return
+    }
+    let alive = true
+    setBulkPlansLoading(true)
+    Promise.all(
+      ids.map(id =>
+        fetch(`/api/invoices/sessions/${id}/delete-plan`)
+          .then(r => (r.ok ? (r.json() as Promise<DeletePlan>) : null))
+          .then(plan => [id, plan] as const)
+          .catch(() => [id, null] as const),
+      ),
+    ).then(entries => {
+      if (!alive) return
+      const map = new Map<string, DeletePlan>()
+      for (const [id, plan] of entries) if (plan) map.set(id, plan)
+      setBulkPlans(map)
+      setBulkPlansLoading(false)
+    })
+    return () => { alive = false }
+  }, [bulkDeleteConfirm, approvedSelectedKey])
 
   const toggleOne = (id: string) => {
     setSelectedIds(prev => {
@@ -365,7 +488,11 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                         )}
                         <button
                           onClick={() => { setDeleteConfirm({ id: s.id, status: s.status }); setOpenMenu(null) }}
-                          className="w-full px-3 py-2 text-left text-[13px] text-red-text hover:bg-red-soft/50 inline-flex items-center gap-2"
+                          disabled={!!s.parentSessionId}
+                          title={s.parentSessionId ? CLONE_MESSAGE : undefined}
+                          className={`w-full px-3 py-2 text-left text-[13px] inline-flex items-center gap-2 ${
+                            s.parentSessionId ? 'text-ink-4 opacity-60 cursor-not-allowed' : 'text-red-text hover:bg-red-soft/50'
+                          }`}
                         >
                           <Trash2 size={12} /> {s.status === 'GROUPING' ? 'Discard batch' : 'Delete'}
                         </button>
@@ -439,7 +566,11 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
                         )}
                         <button
                           onClick={() => { setDeleteConfirm({ id: s.id, status: s.status }); setOpenMenu(null) }}
-                          className="w-full px-3 py-2 text-left text-[13px] text-red-text hover:bg-red-soft/50 inline-flex items-center gap-2"
+                          disabled={!!s.parentSessionId}
+                          title={s.parentSessionId ? CLONE_MESSAGE : undefined}
+                          className={`w-full px-3 py-2 text-left text-[13px] inline-flex items-center gap-2 ${
+                            s.parentSessionId ? 'text-ink-4 opacity-60 cursor-not-allowed' : 'text-red-text hover:bg-red-soft/50'
+                          }`}
                         >
                           <Trash2 size={12} /> {s.status === 'GROUPING' ? 'Discard batch' : 'Delete'}
                         </button>
@@ -468,18 +599,13 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
           onCancel={() => setDeleteConfirm(null)}
           onConfirm={() => handleDelete(deleteConfirm.id, deleteConfirm.status)}
           confirming={isDeleting}
+          disableConfirm={deletePlanLoading || deletePlan?.isClone === true}
           title={deleteConfirm.status === 'GROUPING' ? 'Discard this batch?' : 'Delete invoice?'}
-          body={
-            deleteConfirm.status === 'APPROVED'
-              ? 'This will remove the approved invoice and reverse its price updates.'
-              : deleteConfirm.status === 'GROUPING'
-                ? (() => {
-                    const s = sessions.find(x => x.id === deleteConfirm.id)
-                    const n = s?.files.length ?? 0
-                    return `This deletes ${n} ${s ? batchNoun(s, n) : 'files'}. Nothing has been scanned, so no invoice, price or stock is affected.`
-                  })()
-                : 'This will permanently delete the invoice session.'
-          }
+          body={(() => {
+            const s = sessions.find(x => x.id === deleteConfirm.id)
+            if (!s) return 'This will permanently delete the invoice session.'
+            return <DeletePlanBody session={s} plan={deletePlan} loading={deletePlanLoading} />
+          })()}
           confirmLabel={deleteConfirm.status === 'GROUPING' ? 'Discard batch' : 'Delete'}
         />
       )}
@@ -490,10 +616,19 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
           onCancel={() => setBulkDeleteConfirm(false)}
           onConfirm={handleBulkDelete}
           confirming={isBulkDeleting}
+          // A selected RC copy is refused per id by the route (409) and reported in
+          // the toast — it must not block the rest of the batch.
+          disableConfirm={hasApproved && bulkPlansLoading}
           title={`Delete ${selectedInView.length} invoice${selectedInView.length !== 1 ? 's' : ''}?`}
           body={
             hasApproved
-              ? `${selectedInView.filter(s => s.status === 'APPROVED').length} approved invoice(s) selected — their price updates will be reversed.`
+              ? (
+                <BulkDeletePlanLines
+                  approvedSessions={selectedInView.filter(s => s.status === 'APPROVED')}
+                  plans={bulkPlans}
+                  loading={bulkPlansLoading}
+                />
+              )
               : 'All selected invoice sessions will be permanently deleted.'
           }
           warning={hasApproved}
@@ -504,14 +639,15 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
   )
 }
 
-function ConfirmModal({ onCancel, onConfirm, confirming, title, body, warning = false, confirmLabel }: {
+function ConfirmModal({ onCancel, onConfirm, confirming, title, body, warning = false, confirmLabel, disableConfirm = false }: {
   onCancel: () => void
   onConfirm: () => void
   confirming: boolean
   title: string
-  body: string
+  body: ReactNode
   warning?: boolean
   confirmLabel: string
+  disableConfirm?: boolean
 }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onCancel}>
@@ -530,19 +666,77 @@ function ConfirmModal({ onCancel, onConfirm, confirming, title, body, warning = 
             {body}
           </div>
         ) : (
-          <p className="text-[13px] text-ink-2 leading-[1.5] mb-4">{body}</p>
+          <div className="text-[13px] text-ink-2 leading-[1.5] mb-4">{body}</div>
         )}
         <div className="flex gap-2">
           <button onClick={onCancel}
             className="flex-1 px-3 py-2 rounded-[9px] border border-line bg-paper text-[13px] text-ink-2 hover:border-ink-3 transition-colors">
             Cancel
           </button>
-          <button onClick={onConfirm} disabled={confirming}
+          <button onClick={onConfirm} disabled={confirming || disableConfirm}
             className="flex-1 px-3 py-2 rounded-[9px] bg-red text-white text-[13px] font-medium hover:bg-red disabled:opacity-50 transition-colors">
             {confirming ? 'Deleting…' : confirmLabel}
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// The single-delete modal body: today's static copy for a non-approved session
+// or a batch discard, the fetched plan's counts for an approved one — the
+// clone message and the legacy sentence both pre-empt the counts entirely.
+function DeletePlanBody({ session, plan, loading }: {
+  session: SessionSummary
+  plan: DeletePlan | null
+  loading: boolean
+}) {
+  if (session.status === 'GROUPING') {
+    const n = session.files.length
+    return <>{`This deletes ${n} ${batchNoun(session, n)}. Nothing has been scanned, so no invoice, price or stock is affected.`}</>
+  }
+  if (session.status !== 'APPROVED') {
+    return <>This will permanently delete the invoice session.</>
+  }
+  if (loading) return <>Checking what this will change…</>
+  if (!plan) return <>This will remove the approved invoice and reverse its price updates.</>
+  if (plan.isClone) return <>{CLONE_MESSAGE}</>
+  if (plan.legacy) return <>{LEGACY_SENTENCE}</>
+  const names = skippedNames(plan)
+  return (
+    <>
+      <div>{planSummaryText(plan)}</div>
+      {names.length > 0 && <div className="text-[11px] text-ink-4 mt-1">{names.join(', ')}</div>}
+    </>
+  )
+}
+
+// Bulk: one line per selected APPROVED session — its own counts, its own
+// legacy/clone caveat, never a single blended total.
+function BulkDeletePlanLines({ approvedSessions, plans, loading }: {
+  approvedSessions: SessionSummary[]
+  plans: Map<string, DeletePlan>
+  loading: boolean
+}) {
+  if (loading) return <>Checking what this will change…</>
+  return (
+    <div className="space-y-1.5">
+      {approvedSessions.map(s => {
+        const plan = plans.get(s.id)
+        const label = s.supplierName ?? 'Unknown supplier'
+        const line = !plan
+          ? '—'
+          : plan.isClone
+            ? CLONE_MESSAGE
+            : plan.legacy
+              ? LEGACY_SENTENCE
+              : planSummaryText(plan)
+        return (
+          <div key={s.id} className="text-[12.5px] leading-[1.4]">
+            <span className="font-medium">{label}</span>: {line}
+          </div>
+        )
+      })}
     </div>
   )
 }

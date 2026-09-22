@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 import { PRICING_SELECT } from '@/lib/item-model'
+import { RULE_SELECT, ruleState, type UndoCollector } from '@/lib/invoice/approve-undo'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
 const UOM_ALIASES: Record<string, string> = {
@@ -760,7 +761,10 @@ export async function saveMatchRule(
   inventoryItemId: string,
   supplierName?: string | null,
   format?: { packQty: number; packSize: number; packUOM: string } | null,
-  supplierItemCode?: string | null
+  supplierItemCode?: string | null,
+  // Optional undo collector (invoice approve). Reads only — every write below
+  // keeps its exact `data:` payload and order.
+  undo?: UndoCollector
 ): Promise<void> {
   const code = supplierItemCode?.trim() || null
 
@@ -769,17 +773,54 @@ export async function saveMatchRule(
   // fresh confirmation wins — strip the code from the stale rules so tier-0
   // can't keep resurrecting the old mapping.
   if (code && supplierName) {
+    const siblingWhere = {
+      supplierName,
+      supplierItemCode: code,
+      inventoryItemId: { not: inventoryItemId },
+    }
+    if (undo) {
+      // Approve wraps the whole `saveMatchRule` call in `.catch(() => {})`, so
+      // a transient failure of THIS read must never propagate and lose a
+      // learned match the upsert below would otherwise still write. But a
+      // caught failure is not "no siblings" either — it is "unknown" — and the
+      // only safe response to "unknown" is to capture nothing for it: the
+      // `.catch` here returns `[]`, so `forEach` records no `before()` for any
+      // sibling this run couldn't actually read. The `updateMany` write itself
+      // is not gated on this read and always runs.
+      const siblings = await prisma.invoiceMatchRule
+        .findMany({ where: siblingWhere, select: { id: true, ...RULE_SELECT } })
+        .catch(() => [])
+      siblings.forEach((r) => undo.before('MATCH_RULE', r.id, ruleState(r)))
+    }
     await prisma.invoiceMatchRule.updateMany({
-      where: {
-        supplierName,
-        supplierItemCode: code,
-        inventoryItemId: { not: inventoryItemId },
-      },
+      where: siblingWhere,
       data: { supplierItemCode: null },
     })
   }
 
-  await prisma.invoiceMatchRule.upsert({
+  // The upsert's target, read before it is written: an existing row is captured
+  // as `prev`, a fresh one is recorded as created (so undo deletes it). Same
+  // caught-failure hazard as above, but the consequence of guessing wrong is
+  // worse here: treating a failed read as "row not found" would make the
+  // `!existing` check below call `created()` for a rule that may have existed
+  // all along, and a later rollback would DELETE it instead of leaving it
+  // alone. `existingReadFailed` keeps "read failed" distinguishable from "read
+  // succeeded, found nothing" so `created()` only fires on the latter.
+  let existingReadFailed = false
+  const existing = undo
+    ? await prisma.invoiceMatchRule
+        .findUnique({
+          where: { rawDescription_supplierName: { rawDescription, supplierName: supplierName || '' } },
+          select: { id: true, ...RULE_SELECT },
+        })
+        .catch(() => {
+          existingReadFailed = true
+          return null
+        })
+    : null
+  if (existing) undo?.before('MATCH_RULE', existing.id, ruleState(existing))
+
+  const row = await prisma.invoiceMatchRule.upsert({
     where: {
       rawDescription_supplierName: {
         rawDescription,
@@ -802,5 +843,7 @@ export async function saveMatchRule(
       ...(code ? { supplierItemCode: code } : {}),
       ...(format ? { invoicePackQty: format.packQty, invoicePackSize: format.packSize, invoicePackUOM: format.packUOM } : {}),
     },
+    select: { id: true },
   })
+  if (undo && !existing && !existingReadFailed) undo.created('MATCH_RULE', row.id)
 }

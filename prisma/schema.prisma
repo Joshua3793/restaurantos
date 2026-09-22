@@ -431,8 +431,27 @@ model InvoiceSession {
   supplier        Supplier?         @relation("SupplierInvoiceSessions", fields: [supplierId], references: [id])
   priceAlerts     PriceAlert[]
   recipeAlerts    RecipeAlert[]
+  approveUndos    InvoiceApproveUndo[]
 
   @@index([purchaseDate])
+}
+
+// Undo records for an invoice approval. Approve captures, per row it touches,
+// the state BEFORE its first write (`prev`) and AFTER its last (`next`) through
+// ONE canonical selector per kind (see src/lib/invoice/approve-undo.ts); DELETE
+// restores `prev` only while the row still equals `next`.
+model InvoiceApproveUndo {
+  id        String         @id @default(cuid())
+  sessionId String
+  session   InvoiceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  kind      String
+  targetId  String
+  prev      Json?
+  next      Json
+  createdAt DateTime       @default(now())
+
+  @@unique([sessionId, kind, targetId])
+  @@index([kind, targetId])
 }
 
 model InvoiceFile {

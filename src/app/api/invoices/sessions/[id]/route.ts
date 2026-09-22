@@ -5,9 +5,13 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, withPpb } from '@/lib/item-model'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
-import { deleteFileBlobs } from '@/lib/invoice-files'
-import { revertedPricing, priorPpbFromAlerts } from '@/lib/invoice/revert-pricing'
-import { atLeast } from '@/lib/roles'
+import { deleteSession, RollbackRefused } from '@/lib/invoice/rollback-load'
+
+// `deleteSession`'s rollback transaction is given 30s of headroom
+// (`TX_OPTIONS` in rollback-load.ts) for a large invoice's serial restores —
+// past the Vercel function default, which would kill the request (and the
+// transaction with it) before Prisma's own timeout ever fires.
+export const maxDuration = 300
 
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -212,11 +216,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 // DELETE /api/invoices/sessions/[id]
-// For APPROVED sessions, reverts inventory prices that were applied.
-// Gate by what is being thrown away: a session with NO scan items (an unsorted
-// batch, an upload that never OCR'd) has touched nothing — anyone who can
-// upload can discard it. Once lines exist, history and possibly the spine are
-// involved, and that stays a manager's call.
+// Deletes the session and rolls back what its approval wrote — supplier offers,
+// item prices, learned matches and items it created — in ONE transaction, from
+// the undo records the approve route left behind. A row someone has edited since
+// the approval is never overwritten; it comes back in `skipped` saying why.
+// Sessions approved before those records existed fall back to today's
+// best-effort price revert (`legacy: true`).
+//
+// The load, the gate, the plan and the transaction all live in
+// `deleteSession` — shared verbatim with the bulk DELETE and the `delete-plan`
+// preview, so what the preview promises is what this does.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   let user
   try { user = await requireSession() }
@@ -225,72 +234,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     throw e
   }
 
-  const session = await prisma.invoiceSession.findUnique({
-    where: { id: params.id },
-    select: {
-      id: true,
-      status: true,
-      _count: { select: { scanItems: true } },
-      // Blob refs, captured before the cascade delete takes the rows away.
-      files: { select: { fileUrl: true } },
-      // The item's PRE-approve $/base, frozen by the approve being undone. The
-      // only pre-approve pricing state this schema persists (see revert-pricing).
-      priceAlerts: {
-        select: { inventoryItemId: true, previousPrice: true },
-        orderBy: { createdAt: 'asc' },
-      },
-      scanItems: {
-        where: { action: 'UPDATE_PRICE', approved: true },
-        select: {
-          matchedItemId: true,
-          previousPrice: true,
-          matchedItem: {
-            // The chain + bridges too: the revert has to know whether the item's
-            // current rate is denominated in ANOTHER dimension than the item.
-            select: { id: true, ...PRICING_SELECT },
-          },
-        },
-      },
-    },
-  })
-
-  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (session._count.scanItems > 0 && !atLeast(user.role, 'MANAGER')) {
-    return NextResponse.json({ error: 'Only a manager can delete an invoice that has been scanned' }, { status: 403 })
+  try {
+    return NextResponse.json(await deleteSession(params.id, user))
+  } catch (e) {
+    if (e instanceof RollbackRefused) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
   }
-
-  let pricesReverted = 0
-
-  // Revert inventory prices if session was approved
-  if (session.status === 'APPROVED' && session.scanItems.length > 0) {
-    const priorPpbByItem = priorPpbFromAlerts(session.priceAlerts)
-    for (const scanItem of session.scanItems) {
-      if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
-
-      // Revert the spine by rolling `pricing` back to the previous price (the
-      // computed pricePerBaseUnit derives from it). The SHAPE it is poured into
-      // is revert-pricing.ts's job: the item's current mode is the post-approve
-      // one, and a weight-basis approve can have changed it. Pack FORMAT untouched.
-      const revert = revertedPricing({
-        previousPrice: Number(scanItem.previousPrice),
-        item: scanItem.matchedItem,
-        priorPpb: priorPpbByItem.get(scanItem.matchedItemId) ?? null,
-      })
-
-      await prisma.inventoryItem.update({
-        where: { id: scanItem.matchedItemId },
-        data: {
-          purchasePrice: revert.purchasePrice,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          pricing: revert.pricing as any,
-        },
-      })
-      pricesReverted++
-    }
-  }
-
-  await prisma.invoiceSession.delete({ where: { id: params.id } })
-  // Rows first, bytes second: the delete must succeed even if the CDN doesn't.
-  const blobs = await deleteFileBlobs(session.files)
-  return NextResponse.json({ ok: true, pricesReverted, blobsDeleted: blobs.deleted, blobsFailed: blobs.failed })
 }
