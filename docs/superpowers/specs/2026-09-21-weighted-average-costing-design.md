@@ -1,7 +1,7 @@
 # Weighted-average costing for recipes and menu — design
 
 **Date:** 2026-09-21
-**Status:** design, not implemented
+**Status:** implemented
 **Builds on:** `2026-09-20-item-consolidation-design.md` (purchases pool across suppliers, receipts frozen as `receivedQtyBase`), `2026-09-21-line-first-receiving-design.md`, `2026-09-21-weight-priced-count-items-design.md`.
 
 ## The problem
@@ -117,3 +117,19 @@ One grouped Prisma query per request (`groupBy matchedItemId` with `_sum` on `ra
 ## Out of scope
 
 Cost history charts; per-supplier averages; a settings toggle for the window; moving COGS, variance, valuation or alerts to the average. Each is its own later decision.
+
+## As built
+
+Implemented in six tasks on `feat/weighted-average-costing` (`d71ee1e`..`45081b3`): `cost-basis.ts` and its fold/window/guard → `computeRecipeCost`'s price map, per-line `costBasis`, `basisSummary` → `fetchRecipeWithCost`'s memoised, cycle-safe recursion into nested preps → the four recipe/menu routes plus `GET /api/inventory/[id]` → the recipe panel caption/tags and the item drawer's 30-day-average card. All of it derived at read time; nothing stored, no migration.
+
+Deviations from the design as written:
+
+- **The ingredient picker's prep results stay on the spine.** `search-ingredients` averages inventory-item results (`costBasis` from `windowedAvgCost`), but `recipeResults` (PREP recipes shown in the same picker) keep reading the synced item's last price and are tagged `'LAST'` unconditionally — recursing every PREP recipe's full nested-prep average on every keystroke (up to 50 rows per query) wasn't worth it. This one surface knowingly breaks §3's "the cost shown while building is the cost the saved recipe will show"; the saved recipe (list/detail routes) shows the correctly averaged cost once opened.
+- **`CostContext` is not `Promise.all`-safe** — its `visiting` set brackets one recursion path, so two top-level recipes sharing one context in parallel could spuriously flag each other's ids as cycles. The list route (`GET /api/recipes`) costs the page's recipes in a sequential `for...of` over one shared `ctx` instead of `Promise.all`. Task 6's sizing script calls `fetchRecipeWithCost` twice per recipe (LAST and AVG_30D) via `Promise.all`, which is safe only because neither call passes a `ctx` — each builds its own internal context, so there's nothing shared to race.
+- **The spec's §6 fixture arithmetic had a floating-point-brittle assertion** (`41.88 / 30` asserted as the literal `1.396` via exact `toMatchObject`, but IEEE-754 gives `1.3960000000000001`); the test now asserts `basis` and uses `toBeCloseTo(1.396, 4)` for the number. `foldCostBasis` itself is unchanged.
+- **A brief typo in the recursion test suite**: a one-ingredient pizza fixture was asserted at `lastLines: 1`, but `computeRecipeCost` defines `lastLines = ingredients.length − avgLines`, so a fully-averaged single-ingredient recipe is `lastLines: 0`. The test was written to the correct value; `computeRecipeCost`'s arithmetic (already reviewed in Task 2) was not changed.
+- **The editable ingredient row (`IngredientRow` in `shared.tsx`) does not show a `last price` tag** — only the read-only `RecipePrintModal` does. The design's copy list and §3 didn't specify copy for the editable row, so none was invented.
+- Two smaller recursion notes carried as known behaviour rather than fixed: a missing nested recipe is re-queried once per referencing line (not memoised as `null`, recursion still terminates); a raw item that is itself PREP-linked is re-queried once per recipe that uses it (bounded, not unbounded, since recipes themselves are memoised).
+- **Task 6's sizing script** (`docs/audits/2026-09-21-weighted-average-costing/wac-sizing.ts`) is copied from this doc's §7 with one fix: the design's `select` spread both an explicit `baseUnit: true` and `...PRICING_SELECT` (which already selects `baseUnit`), which `tsc` rejects as a duplicate key (TS2783); the explicit key was dropped. Imports are relative (`../../../src/lib/...`), matching the other scripts already under `docs/audits/`, rather than the `@/` alias the design's snippet used.
+
+_Sizing: (controller fills in after the read-only run)_
