@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
-import { deleteFileBlobs } from '@/lib/invoice-files'
-import { PRICING_SELECT } from '@/lib/item-model'
-import { revertedPricing, priorPpbFromAlerts } from '@/lib/invoice/revert-pricing'
+import { deleteSession, RollbackRefused, type DeleteSessionResult } from '@/lib/invoice/rollback-load'
 
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
@@ -46,10 +44,17 @@ export async function GET(req: NextRequest) {
 
 // DELETE /api/invoices/sessions — bulk delete sessions by id list
 // Body: { ids: string[] }
+//
+// Each id runs the SAME `deleteSession` the single DELETE does — one
+// transaction per session, so one refusal never rolls back the ids that already
+// succeeded. A refused id (an RC copy → 409, a missing session → 404) is
+// collected into `refused` and the loop carries on.
 export async function DELETE(req: NextRequest) {
-  // Same gate as the single-id DELETE: this reverts spine prices and deletes
-  // history, and it had no auth check at all until 2026-09-03.
-  try { await requireSession('MANAGER') }
+  // Same gate as the single-id DELETE, and stricter: bulk is always MANAGER.
+  // This reverts spine prices and deletes history, and it had no auth check at
+  // all until 2026-09-03.
+  let user
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
@@ -59,67 +64,19 @@ export async function DELETE(req: NextRequest) {
   if (!Array.isArray(ids) || ids.length === 0)
     return NextResponse.json({ error: 'ids array required' }, { status: 400 })
 
-  let pricesReverted = 0
-  const blobsToFree: { fileUrl: string }[] = []
+  const sessions: Array<{ id: string } & DeleteSessionResult> = []
+  const refused: Array<{ id: string; error: string; status: number }> = []
 
   for (const id of ids) {
-    const session = await prisma.invoiceSession.findUnique({
-      where: { id },
-      select: {
-        id: true, status: true,
-        files: { select: { fileUrl: true } },
-        // The item's PRE-approve $/base, frozen by the approve being undone.
-        priceAlerts: {
-          select: { inventoryItemId: true, previousPrice: true },
-          orderBy: { createdAt: 'asc' },
-        },
-        scanItems: {
-          where: { action: 'UPDATE_PRICE', approved: true },
-          select: {
-            matchedItemId: true, previousPrice: true,
-            // The chain + bridges too — the revert has to know whether the item's
-            // current rate is denominated in ANOTHER dimension than the item.
-            matchedItem: { select: { id: true, ...PRICING_SELECT } },
-          },
-        },
-      },
-    })
-    if (!session) continue
-
-    if (session.status === 'APPROVED') {
-      const priorPpbByItem = priorPpbFromAlerts(session.priceAlerts)
-      for (const scanItem of session.scanItems) {
-        if (!scanItem.matchedItemId || scanItem.previousPrice === null || !scanItem.matchedItem) continue
-        // Revert the spine by rolling `pricing` back to the previous price (the
-        // computed pricePerBaseUnit is derived from it). The SHAPE it is poured
-        // into is revert-pricing.ts's job — the item's CURRENT mode is the
-        // post-approve one, and a weight-basis approve can have changed it. The
-        // pack FORMAT (packChain/dimension/countUnit) is untouched.
-        const revert = revertedPricing({
-          previousPrice: Number(scanItem.previousPrice),
-          item: scanItem.matchedItem,
-          priorPpb: priorPpbByItem.get(scanItem.matchedItemId) ?? null,
-        })
-        await prisma.inventoryItem.update({
-          where: { id: scanItem.matchedItemId },
-          data: {
-            purchasePrice: revert.purchasePrice,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            pricing: revert.pricing as any,
-          },
-        })
-        pricesReverted++
-      }
+    try {
+      sessions.push({ id, ...(await deleteSession(id, user)) })
+    } catch (e) {
+      if (e instanceof RollbackRefused) { refused.push({ id, error: e.message, status: e.status }); continue }
+      throw e
     }
-
-    await prisma.invoiceSession.delete({ where: { id } })
-    blobsToFree.push(...session.files)
   }
 
-  // Rows first, bytes second — one CDN call for the whole batch, best-effort.
-  const blobs = await deleteFileBlobs(blobsToFree)
-
-  return NextResponse.json({ ok: true, deleted: ids.length, pricesReverted, blobsDeleted: blobs.deleted, blobsFailed: blobs.failed })
+  return NextResponse.json({ ok: true, sessions, refused })
 }
 
 // POST /api/invoices/sessions — create a new session
