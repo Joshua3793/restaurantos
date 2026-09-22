@@ -297,7 +297,7 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
 type Outcome = 'ok' | 'permanent' | 'transient'
 
 /** 5xx, or a 4xx that isn't actually a decision about the mutation — see THE RETRY RULE above. */
-function isTransientStatus(status: number): boolean {
+export function isTransientStatus(status: number): boolean {
   return status >= 500 || status === 401 || status === 408 || status === 429
 }
 

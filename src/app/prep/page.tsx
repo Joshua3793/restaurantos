@@ -10,7 +10,7 @@ import {
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { fmtDuration, serviceStatus, upcomingInfo, formatServiceStatus, type RcService } from '@/lib/service-hours'
-import { savePrepCache, loadPrepCache, savePlanCache, loadPlanCache, loadQueue, enqueueMutation, flushQueue } from '@/lib/prep-offline'
+import { savePrepCache, loadPrepCache, savePlanCache, loadPlanCache, loadQueue, enqueueMutation, flushQueue, isTransientStatus } from '@/lib/prep-offline'
 import type { PrepItemRich, PrepLogData } from '@/components/prep/types'
 import PrepAlertBanner from '@/components/prep/PrepAlertBanner'
 import './prep-board.css'
@@ -191,6 +191,11 @@ export default function PrepPage() {
       if (!skipSpinner) setLoading(true)
     }
     const seqAtStart = mutationSeq.current
+    // A background poll that starts while an item's write is still on its way
+    // reads the list from BEFORE that write — on a phone on kitchen signal the
+    // Done PUT can take seconds, so the poll put the job straight back on the
+    // To Do. Such a snapshot is never applied; the next poll reconciles.
+    const writeInFlightAtStart = opChains.current.size > 0
     try {
       const res  = await fetch(`/api/prep/items?active=${activeOnly}&includeHidden=true`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -216,6 +221,7 @@ export default function PrepPage() {
       setIsOffline(false)
       setCacheAge(null)
       if (mutationSeq.current !== seqAtStart) return
+      if (silent && (writeInFlightAtStart || opChains.current.size > 0)) return
       setItems(fetched)
       setHiddenItems(hidden)
       savePrepCache(fetched, { fetchedAt: Date.now() })
@@ -697,21 +703,38 @@ export default function PrepPage() {
     // so a redundant create from a stale `_opt_` id just returns the existing log.
     const prevOp = opChains.current.get(itemId) ?? Promise.resolve()
     const runOp = prevOp.catch(() => {}).then(async () => {
+      let logId = item.todayLog?.id
+      // A write the server never answered (no signal, lapsed session, 5xx) goes
+      // on the offline queue instead of being dropped: the old code ignored the
+      // response, so a failed Done showed on the phone and the next poll quietly
+      // put the job back on the To Do. A refusal (other 4xx) is a real answer —
+      // say what the server said and reload.
+      const keepForRetry = () => {
+        enqueueMutation({ type: 'status', itemId, logId: logId && !logId.startsWith('_opt_') ? logId : null, status: newStatus, actualQty, revenueCenterId: item.revenueCenterId ?? activeRcId })
+        setPendingCount(n => n + 1)
+        setActionError('No connection to the server — saved on this device, it will send by itself.')
+      }
+      const refused = async (res: Response) => {
+        const body = await res.json().catch(() => null)
+        setActionError(body?.error ? `Not saved: ${body.error}` : 'Status update failed — try again.')
+        load()
+      }
       try {
-        let logId = item.todayLog?.id
         if (!logId || logId.startsWith('_opt_')) {
-          const log = await fetch('/api/prep/logs', {
+          const res = await fetch('/api/prep/logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prepItemId: itemId, revenueCenterId: activeRcId }),
-          }).then(r => r.json())
+          })
+          if (!res.ok) return isTransientStatus(res.status) ? keepForRetry() : refused(res)
+          const log = await res.json()
           logId = log.id
           setItems(prev => prev.map(i => {
             if (i.id !== itemId || !i.todayLog) return i
             return { ...i, todayLog: { ...i.todayLog, id: log.id } }
           }))
         }
-        await fetch(`/api/prep/logs/${logId}`, {
+        const res = await fetch(`/api/prep/logs/${logId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -719,9 +742,9 @@ export default function PrepPage() {
             ...(actualQty !== undefined ? { actualPrepQty: actualQty } : {}),
           }),
         })
+        if (!res.ok) return isTransientStatus(res.status) ? keepForRetry() : refused(res)
       } catch {
-        setActionError('Status update failed — try again.')
-        load()
+        keepForRetry()   // never reached the server
       }
     })
     opChains.current.set(itemId, runOp)
