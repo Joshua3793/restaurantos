@@ -51,7 +51,7 @@ export function DimensionToggle({ dimension, onChange }: {
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-ink-3 mb-1">Dimension</label>
+      <label className="block text-xs font-medium text-ink-3 mb-1">Measured by</label>
       <div className="flex gap-2 p-1 bg-bg-2 rounded-xl">
         {(['MASS', 'VOLUME', 'COUNT'] as Dimension[]).map(d => (
           <button
