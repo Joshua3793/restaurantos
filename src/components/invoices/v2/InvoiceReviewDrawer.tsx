@@ -1625,7 +1625,10 @@ function AddNewItemModal({
   }, [])
 
   const baseUnit = DIMENSION_BASE[dimension]
-  const chainItem = { dimension, baseUnit, packChain: chain, pricing, countUnit }
+  const chainItem = {
+    dimension, baseUnit, packChain: chain, pricing, countUnit,
+    eachMeasure: Number(eachMeasureQty) > 0 ? { qty: Number(eachMeasureQty), unit: eachMeasureUnit } : null,
+  }
   const ppb = pricePerBaseUnit(chainItem)
   const perCount = basePerUnit(chainItem, countUnit)
   const seedRate = seed.pricing.mode === 'RATE' ? seed.pricing.rate : null
@@ -1751,10 +1754,33 @@ function AddNewItemModal({
               dimension={dimension}
               onChange={d => {
                 setDimension(d)
+                // A by-weight line's real price is $/measure (e.g. $/lb) — that
+                // never changes shape just because the item is now COUNTED in
+                // units. Flipping to COUNT keeps the stored rate bridged on the
+                // measure unit (ratePerBase resolves $/each via eachMeasure at
+                // read time); flipping back to a measured dimension restores it
+                // the same way. Only a non-by-weight RATE (the old behaviour)
+                // falls back to the dimension's own units.
+                const keepMeasure = byWeight && !!measure
                 setPricing(p => p.mode === 'RATE'
-                  ? { mode: 'RATE', rate: p.rate, rateUnit: measure && DIM_UNITS[d].includes(measure) ? measure : DIM_UNITS[d][0] }
+                  ? {
+                      mode: 'RATE',
+                      rate: p.rate,
+                      rateUnit: keepMeasure
+                        ? measure
+                        : measure && DIM_UNITS[d].includes(measure) ? measure : DIM_UNITS[d][0],
+                    }
                   : p)
-                const opts = countUnitOptions(d, chain)
+                // Same for the pack chain: a by-weight item flipped to COUNT
+                // needs the ordinary single count-level link (the chain isn't
+                // what prices it — the bridged rate above is); flipping back to
+                // a measured dimension restores the chain the line was seeded
+                // with.
+                const nextChain = keepMeasure
+                  ? (d === 'COUNT' ? [{ unit: 'each', per: 1 }] : seed.packChain)
+                  : chain
+                setChain(nextChain)
+                const opts = countUnitOptions(d, nextChain)
                 setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
               }}
             />
