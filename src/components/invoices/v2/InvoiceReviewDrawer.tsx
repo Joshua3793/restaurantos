@@ -1609,6 +1609,12 @@ function AddNewItemModal({
   const [countUnit, setCountUnit] = useState<string>(seed.countUnit)
   const [eachMeasureQty,  setEachMeasureQty]  = useState<number | null>(null)
   const [eachMeasureUnit, setEachMeasureUnit] = useState<string>('g')
+  // Snapshot of the chain the chef was editing right before a COUNT round-trip
+  // (PackChainEditor edits are NOT re-derived from `seed` — they must survive
+  // COUNT → measured). Set when flipping TO COUNT, consumed (and cleared) when
+  // flipping back to a measured dimension; `seed.packChain` is only the
+  // fallback for the very first flip, when nothing has been edited yet.
+  const [chainBeforeCount, setChainBeforeCount] = useState<PackLink[] | null>(null)
 
   useEffect(() => {
     fetch('/api/categories').then(r => r.json()).then((data: { name: string }[]) => {
@@ -1759,9 +1765,10 @@ function AddNewItemModal({
                 // units. Flipping to COUNT keeps the stored rate bridged on the
                 // measure unit (ratePerBase resolves $/each via eachMeasure at
                 // read time); flipping back to a measured dimension restores it
-                // the same way. Only a non-by-weight RATE (the old behaviour)
-                // falls back to the dimension's own units.
-                const keepMeasure = byWeight && !!measure
+                // the same way. This only applies to a COUNT ↔ measured-dimension
+                // transition — a measured → measured flip (MASS ↔ VOLUME) goes
+                // through the pre-existing handler below exactly as before.
+                const keepMeasure = byWeight && !!measure && (dimension === 'COUNT' || d === 'COUNT')
                 setPricing(p => p.mode === 'RATE'
                   ? {
                       mode: 'RATE',
@@ -1774,11 +1781,20 @@ function AddNewItemModal({
                 // Same for the pack chain: a by-weight item flipped to COUNT
                 // needs the ordinary single count-level link (the chain isn't
                 // what prices it — the bridged rate above is); flipping back to
-                // a measured dimension restores the chain the line was seeded
-                // with.
-                const nextChain = keepMeasure
-                  ? (d === 'COUNT' ? [{ unit: 'each', per: 1 }] : seed.packChain)
-                  : chain
+                // a measured dimension restores whatever chain the chef was
+                // editing right before the COUNT round-trip (`chainBeforeCount`),
+                // never the original `seed.packChain` once it's been edited —
+                // `seed.packChain` is only the fallback for the very first flip.
+                let nextChain: PackLink[]
+                if (keepMeasure && d === 'COUNT') {
+                  setChainBeforeCount(chain)
+                  nextChain = [{ unit: 'each', per: 1 }]
+                } else if (keepMeasure) {
+                  nextChain = chainBeforeCount ?? seed.packChain
+                  setChainBeforeCount(null)
+                } else {
+                  nextChain = chain
+                }
                 setChain(nextChain)
                 const opts = countUnitOptions(d, nextChain)
                 setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
