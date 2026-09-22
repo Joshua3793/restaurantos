@@ -48,7 +48,15 @@ export function foldCostBasis(a: { lines: CostLine[]; lastPricePerBase: number }
   return { basis: 'AVG_30D', pricePerBase: avgPpb, avg }
 }
 
-/** purchaseDate is the invoice's own calendar date stored at UTC midnight (parseInvoiceDate). */
+/**
+ * Purchases dated within the 30 days before now — the start day counted whole.
+ *
+ * `purchaseDate` is the invoice's own calendar date stored at UTC midnight
+ * (`parseInvoiceDate`), so the lower bound is floored to UTC midnight: an invoice
+ * dated exactly 30 days ago is IN, whatever time of day `asOf` is. The window is
+ * therefore up to 31 calendar days wide, which is the point — a day is either
+ * wholly in or wholly out, never half-counted by the clock.
+ */
 export function costWindow(asOf: Date): { gte: Date; lte: Date } {
   const gte = new Date(asOf.getTime() - COST_WINDOW_DAYS * 86_400_000)
   gte.setUTCHours(0, 0, 0, 0)

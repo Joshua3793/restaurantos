@@ -273,23 +273,34 @@ export interface CostContext {
    *  Promise.all, or two branches see each other's ids as a spurious cycle and
    *  silently price a nested prep at its spine. */
   visiting: Set<string>
-  /** As-of date for the window; nested merges reuse it so the whole page agrees. */
-  asOf?: Date
+  /** Every raw item id already put to `windowedAvgCost` in this request, whether
+   *  or not it came back with a price. A PREP-linked item is deliberately NEVER
+   *  priced (its cost is its recipe's), so `prices` alone can't tell "not asked"
+   *  from "asked and skipped" — without this sentinel every recipe on the page
+   *  re-queries the same prep ids. */
+  asked: Set<string>
+  /** As-of date for the window, fixed when the context is built so every merge in
+   *  the request measures the same 30 days. */
+  asOf: Date
 }
 
 /** Build the per-request context: ONE windowedAvgCost for every raw item id given. */
 export async function costContext(basis: CostBasis, itemIds: string[], asOf?: Date): Promise<CostContext> {
+  // Pin the instant here: the nested merges below re-use it, so a request that
+  // straddles midnight can't cost half its lines against a different window.
+  const at = asOf ?? new Date()
   const prices = basis === 'AVG_30D'
-    ? await windowedAvgCost(itemIds, asOf)
+    ? await windowedAvgCost(itemIds, at)
     : new Map<string, ItemCostBasis>()
-  return { basis, prices, memo: new Map(), visiting: new Set(), asOf }
+  return { basis, prices, memo: new Map(), visiting: new Set(), asked: new Set(itemIds), asOf: at }
 }
 
 /**
  * Cost each linked-prep ingredient. LAST (ctx null, or ctx on the LAST basis):
  * the linked item's spine, exactly as always. AVG_30D: recurse into the prep on
  * the same basis — its cost per yield unit is its averaged batch cost ÷ its
- * yield — memoised per request; a cycle falls back to the spine, tagged LAST.
+ * yield — memoised per request. A cycle, or a nested yield unit in a different
+ * dimension than the spine, falls back to the spine, tagged LAST.
  *
  * Exported so the recipe LIST route costs nested preps through this one path
  * instead of re-implementing the recursion.
@@ -313,7 +324,13 @@ export async function resolveLinkedRecipes<T extends {
       yieldUnit   = spine.yieldUnit
       if (ctx && ctx.basis === 'AVG_30D' && ing.linkedRecipeId && !ctx.visiting.has(ing.linkedRecipeId)) {
         const nested = await fetchRecipeWithCost(ing.linkedRecipeId, { ctx })
-        if (nested && nested.baseYieldQty > 0) {
+        // convertQty passes a CROSS-dimension conversion through 1:1, so a prep
+        // whose yieldUnit has drifted out of its synced item's dimension (a stale
+        // sync: recipe now yields `each`, item still in `g`) would divide the
+        // batch cost by the raw yield number and be off by the whole unit factor.
+        // No usable conversion exists — take the spine, tagged LAST.
+        const sameDimension = nested ? dimensionOf(nested.yieldUnit) === dimensionOf(yieldUnit) : false
+        if (nested && sameDimension && nested.baseYieldQty > 0) {
           // The spine prices per the synced item's canonical base unit (g/ml);
           // convert the recipe's yield into that unit so the two agree.
           const yieldInBase = convertQty(nested.baseYieldQty, nested.yieldUnit, yieldUnit)
@@ -373,8 +390,12 @@ export async function fetchRecipeWithCost(
     ctx = await costContext('AVG_30D', rawIds)
   } else if (ctx && ctx.basis === 'AVG_30D') {
     // A nested prep brings raw item ids the caller's context never knew about.
-    const missing = rawIds.filter(itemId => !ctx!.prices.has(itemId))
+    // `asked` — not `prices` — is the guard: a PREP-linked id never gets a price
+    // entry, so keying off `prices` alone re-queries it for every recipe that
+    // uses it.
+    const missing = Array.from(new Set(rawIds.filter(itemId => !ctx!.prices.has(itemId) && !ctx!.asked.has(itemId))))
     if (missing.length > 0) {
+      for (const itemId of missing) ctx.asked.add(itemId)
       const extra = await windowedAvgCost(missing, ctx.asOf)
       for (const [itemId, basis] of extra) ctx.prices.set(itemId, basis)
     }

@@ -7,7 +7,44 @@ import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopedRcWhere, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
 import type { Prisma } from '@prisma/client'
+import type { IngredientWithCost } from '@/lib/recipeCosts'
+import type { CostBasis } from '@/lib/cost-basis'
 import { validateMethod } from '@/lib/recipe-method'
+
+/**
+ * One row of the recipe-list payload. Named so the accumulator below is typed as
+ * it is built: a bare `const result = []` is an evolving `any[]`, which accepts a
+ * dropped or misspelled field without a murmur — the same class of hole that let
+ * the detail route quietly stop returning `stages`/`method`.
+ */
+interface RecipeRow {
+  id: string
+  name: string
+  type: string
+  categoryId: string
+  categoryName: string
+  categoryColor: string | null
+  inventoryItemId: string | null
+  revenueCenterId: string | null
+  baseYieldQty: number
+  yieldUnit: string
+  portionSize: number | null
+  portionUnit: string | null
+  baseIngredientId: string | null
+  menuPrice: number | null
+  isActive: boolean
+  notes: string | null
+  createdAt: Date
+  updatedAt: Date
+  ingredients: IngredientWithCost[]
+  totalCost: number
+  costPerPortion: number | null
+  foodCostPct: number | null
+  dimensionConflicts: number
+  usedInCount: number
+  allergens: string[]
+  basisSummary: { basis: CostBasis; avgLines: number; lastLines: number }
+}
 
 export async function GET(req: NextRequest) {
   let user
@@ -106,9 +143,24 @@ export async function GET(req: NextRequest) {
   // `.map(async)` — because CostContext.visiting is shared and not Promise.all-safe
   // (see Task 3): interleaved recursion could see another branch's id and
   // spuriously report a cycle.
-  const rawIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
-  const ctx = await costContext('AVG_30D', rawIds)
-  const result = []
+  const pageIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
+
+  // Pre-seed the context with the raw ingredient ids of every prep linked from the
+  // page. Without this each nested recursion discovers its own raw ids and fires
+  // its own windowedAvgCost — one extra round trip per distinct prep. One cheap
+  // read here folds them all into the single up-front query. (Preps nested more
+  // than one level deep still merge on discovery, once each — `ctx.asked`.)
+  const linkedIds = [...new Set(recipes.flatMap(r => r.ingredients.flatMap(i => i.linkedRecipeId ? [i.linkedRecipeId] : [])))]
+  const linkedPreps = linkedIds.length > 0
+    ? await prisma.recipe.findMany({
+        where: { id: { in: linkedIds } },
+        select: { ingredients: { select: { inventoryItemId: true } } },
+      })
+    : []
+  const nestedIds = linkedPreps.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
+
+  const ctx = await costContext('AVG_30D', [...new Set([...pageIds, ...nestedIds])])
+  const result: RecipeRow[] = []
   for (const recipe of recipes) {
     const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
 

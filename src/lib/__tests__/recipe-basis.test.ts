@@ -27,13 +27,21 @@ vi.mock('@/lib/prisma', () => ({
   },
 }))
 
-import { fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { costContext, fetchRecipeWithCost } from '@/lib/recipeCosts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ITEMS: Record<string, any> = {
   // $20 / 20,000 g → $0.001/g on the LAST basis
   flour: { itemName: 'Flour', dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'bag', per: 20000 }], pricing: { mode: 'PACK', purchasePrice: 20 }, allergens: ['Wheat'] },
   water: { itemName: 'Water', dimension: 'VOLUME', baseUnit: 'ml', packChain: [{ unit: 'l', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 0 }, allergens: [] },
+}
+
+// A PREP-linked raw item: windowedAvgCost's `recipe: null` filter drops it, so it
+// NEVER lands in ctx.prices. Kept OUT of ITEMS so the mocked findMany returns
+// nothing for it, exactly like the real query.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const PREP_LINKED: Record<string, any> = {
+  jam: { itemName: 'Bacon Jam', dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'batch', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 5 }, allergens: [] },
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,7 +53,7 @@ const base = (id: string, over: any) => ({
 })
 const invIng = (id: string, itemId: string, qty: string, unit: string) => ({
   id, sortOrder: 0, qtyBase: qty, unit, notes: null, recipePercent: null,
-  inventoryItemId: itemId, linkedRecipeId: null, customName: null, inventoryItem: ITEMS[itemId], linkedRecipe: null,
+  inventoryItemId: itemId, linkedRecipeId: null, customName: null, inventoryItem: ITEMS[itemId] ?? PREP_LINKED[itemId], linkedRecipe: null,
 })
 // The spine of the linked prep: syncPrepToInventory wrote $5 / 1000 g batch = $0.005/g.
 const prepIng = (id: string, recipeId: string, qty: string, unit: string) => ({
@@ -130,5 +138,39 @@ describe('fetchRecipeWithCost basis', () => {
 
   it('a missing recipe is still null', async () => {
     expect(await fetchRecipeWithCost('nope', { basis: 'AVG_30D' })).toBeNull()
+  })
+
+  it('a PREP-linked raw id — which never gets a price entry — is asked for ONCE per context', async () => {
+    // Two different recipes use the same PREP-linked raw item. It can never land
+    // in ctx.prices (windowedAvgCost filters `recipe: null`), so without the
+    // `asked` sentinel every recipe on the page re-queries it: the N+1.
+    graph.toastA = base('toastA', { ingredients: [invIng('ta', 'jam', '10', 'g')] })
+    graph.toastB = base('toastB', { ingredients: [invIng('tb', 'jam', '20', 'g')] })
+    const ctx = await costContext('AVG_30D', [])
+    await fetchRecipeWithCost('toastA', { ctx })
+    await fetchRecipeWithCost('toastB', { ctx })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jamCalls = itemFindMany.mock.calls.filter((c: any[]) => (c[0].where.id.in as string[]).includes('jam'))
+    expect(jamCalls).toHaveLength(1)
+  })
+
+  it('ids the context was seeded with are never re-asked, even by a nested prep', async () => {
+    const ctx = await costContext('AVG_30D', ['flour'])
+    await fetchRecipeWithCost('pizza', { ctx })   // pizza → dough → flour
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(itemFindMany.mock.calls.map((c: any[]) => c[0].where.id.in)).toEqual([['flour']])
+  })
+
+  it('a nested prep whose yield unit is a DIFFERENT dimension than its spine falls back to the spine', async () => {
+    scanFindMany.mockResolvedValue([{ matchedItemId: 'flour', rawLineTotal: '30', receivedQtyBase: '10000' }])
+    // Stale sync: the recipe now yields 10 `each` (portions) but its synced item
+    // is still denominated in g. convertQty passes 10 each → 10 g through 1:1, so
+    // perBase would be $3/10 = $0.30/g — 60× the spine's $0.005/g.
+    graph.portioned = base('portioned', { baseYieldQty: '10', yieldUnit: 'each', ingredients: [invIng('pi', 'flour', '1000', 'g')] })
+    graph.plate = base('plate', { type: 'MENU', ingredients: [prepIng('p1', 'portioned', '100', 'g')] })
+
+    const r = await fetchRecipeWithCost('plate', { basis: 'AVG_30D' })
+    expect(r!.ingredients[0]).toMatchObject({ pricePerBaseUnit: 0.005, lineCost: 0.5, costBasis: 'LAST' })
+    scanFindMany.mockReset()
   })
 })
