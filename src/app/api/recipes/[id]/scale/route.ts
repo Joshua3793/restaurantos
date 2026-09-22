@@ -18,7 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Invalid factor' }, { status: 400 })
   }
 
-  const recipe = await fetchRecipeWithCost(params.id)
+  const recipe = await fetchRecipeWithCost(params.id, { basis: 'AVG_30D' })
   if (!recipe) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const scaled = {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, linkedRecipeUnitCost, resyncPrepRecipe } from '@/lib/recipeCosts'
+import { computeRecipeCost, costContext, resolveLinkedRecipes, resyncPrepRecipe } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
@@ -101,24 +101,23 @@ export async function GET(req: NextRequest) {
     orderBy: [{ category: { sortOrder: 'asc' } }, { name: 'asc' }],
   })
 
-  const result = recipes.map(recipe => {
-    const ingredientsWithLinked = recipe.ingredients.map(ing => {
-      let linkedCostPerUnit = 0
-      let linkedYieldUnit   = ing.unit
-      if (ing.linkedRecipe) {
-        const resolved    = linkedRecipeUnitCost(ing.linkedRecipe)
-        linkedCostPerUnit = resolved.costPerUnit
-        linkedYieldUnit   = resolved.yieldUnit
-      }
-      return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
-    })
+  // ONE windowedAvgCost for the union of ingredient ids on the page; nested preps
+  // are memoised per request via the shared ctx. A sequential `for` loop — not
+  // `.map(async)` — because CostContext.visiting is shared and not Promise.all-safe
+  // (see Task 3): interleaved recursion could see another branch's id and
+  // spuriously report a cycle.
+  const rawIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
+  const ctx = await costContext('AVG_30D', rawIds)
+  const result = []
+  for (const recipe of recipes) {
+    const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
 
-    const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
-      ...recipe,
-      ingredients: ingredientsWithLinked,
-    })
+    const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary } = computeRecipeCost(
+      { ...recipe, ingredients: ingredientsWithLinked },
+      { prices: ctx.prices },
+    )
 
-    return {
+    result.push({
       id: recipe.id,
       name: recipe.name,
       type: recipe.type,
@@ -147,8 +146,9 @@ export async function GET(req: NextRequest) {
         ...(ing.inventoryItem?.allergens ?? []),
         ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
       ]))),
-    }
-  })
+      basisSummary,
+    })
+  }
 
   return NextResponse.json(result)
 }

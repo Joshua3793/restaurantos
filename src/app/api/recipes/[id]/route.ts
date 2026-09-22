@@ -10,7 +10,7 @@ import { numOrNull } from '@/lib/prep-utils'
 import { requireSession, AuthError } from '@/lib/auth'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const recipe = await fetchRecipeWithCost(params.id)
+  const recipe = await fetchRecipeWithCost(params.id, { basis: 'AVG_30D' })
   if (!recipe) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const upstream = await prisma.recipeIngredient.findMany({
@@ -134,7 +134,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const prepItemAffecting = name !== undefined || categoryId !== undefined || yieldUnit !== undefined || isActive !== undefined || revenueCenterId !== undefined
   if (prepItemAffecting) await syncPrepItemFromRecipe(params.id).catch(e => console.error('[recipe PATCH] prep-item sync', e))
 
-  const updated = await fetchRecipeWithCost(params.id)
+  const updated = await fetchRecipeWithCost(params.id, { basis: 'AVG_30D' })
   return NextResponse.json(updated)
 }
 

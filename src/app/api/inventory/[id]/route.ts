@@ -6,6 +6,7 @@ import {
 } from '@/lib/item-model'
 import { keepBridgedRate } from '@/lib/item-model-form'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { windowedAvgCost } from '@/lib/cost-basis'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 
@@ -22,8 +23,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   // Populate a computed `pricePerBaseUnit` so the InventoryItemDrawer / recipes
-  // PREP modal keep reading it after the legacy column is dropped.
-  return NextResponse.json(withPpb(item))
+  // PREP modal keep reading it after the legacy column is dropped. costBasis is
+  // null for a PREP-linked item — windowedAvgCost never averages those (its cost
+  // comes from the recipe, not invoice receipts).
+  const costBasis = item.recipe ? null : (await windowedAvgCost([item.id])).get(item.id) ?? null
+  return NextResponse.json({ ...withPpb(item), costBasis })
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
