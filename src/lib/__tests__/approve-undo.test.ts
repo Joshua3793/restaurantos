@@ -127,12 +127,17 @@ describe('UndoCollector', () => {
     expect(await c.flush()).toBe(0)
   })
 
-  it('created() records prev = null (written as Prisma.JsonNull, the SQL-NULL sentinel a nullable Json column requires)', async () => {
+  it('created() records prev = null (written as Prisma.DbNull, the SQL-NULL sentinel a nullable Json column requires)', async () => {
     const { created, db: d } = db()
     const c = new UndoCollector('s1', d)
     c.created('OFFER', 'o1')
     await c.flush()
-    expect(created[0].prev).toBe(Prisma.JsonNull)
+    // DbNull = SQL NULL, which reads back as JS `null` — what the planner tests
+    // for ("this row did not exist before the approval; delete it"). JsonNull
+    // would store the JSON scalar `null` instead: a present value, invisible to
+    // `{ prev: null }`, and indistinguishable in the row from a real Canon.
+    expect(created[0].prev).toBe(Prisma.DbNull)
+    expect(created[0].prev).not.toBe(Prisma.JsonNull)
   })
 
   it('flush() refreshes next for an already-flushed entry whose row was rewritten by a later write: updateMany, no duplicate create; a third flush with no further change writes nothing', async () => {

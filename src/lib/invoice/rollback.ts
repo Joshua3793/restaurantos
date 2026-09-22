@@ -14,6 +14,57 @@
 // `revertedPricing` rule, extended to ADD_SUPPLIER lines, flagged 'best-effort':
 // offers, learned match rules and created items cannot be restored at all,
 // because nothing recorded what they looked like.
+//
+// ── THE LOADER'S CONTRACT (Task 4) ──────────────────────────────────────────
+// The planner is pure: everything it knows about the world outside the undo
+// records arrives in `PlanInput`. Three parts of that input are load-bearing,
+// and getting them wrong is silent data loss rather than a failing plan.
+//
+// 1. `refs` — the reference check for an ITEM_CREATED delete.
+//    `referencedBy` is a list of human-readable phrases ('3 approved invoice
+//    lines', '1 recipe', 'wastage log'). NON-EMPTY ⇒ the item is kept.
+//    A target MISSING from the map is also kept: never delete an item whose
+//    references were not checked.
+//
+//    Count EVERY relation that points at `InventoryItem` and does NOT cascade,
+//    because `inventoryItem.delete()` either throws on it or silently guts it:
+//
+//      Restrict (the delete THROWS — the whole transaction dies):
+//        InvoiceLineItem.inventoryItem      — approved receipt lines
+//        InventorySnapshot.inventoryItem    — frozen count valuations
+//        CountLine.inventoryItem            — count lines
+//        WastageLog.inventoryItem           — wastage
+//        StockTransfer.inventoryItem        — RC transfers
+//        PriceAlert.inventoryItem           — price alerts
+//        InvoiceMatchRule.inventoryItem     — learned matches
+//      SetNull by default (optional FK — the row SURVIVES, pointing at nothing;
+//      just as bad, and it does not announce itself):
+//        RecipeIngredient.inventoryItem     — a recipe ingredient goes $0
+//        Recipe.inventoryItem               — a PREP recipe loses its linked item
+//        PrepItem.linkedInventoryItem       — a prep line loses its stock
+//        InvoiceScanItem.matchedItem        — scan lines on OTHER sessions
+//        InventoryItem.mergedInto           — a merge tombstone points nowhere
+//      Cascade (the row is DELETED with the item, silently):
+//        InventorySupplierPrice.inventoryItem
+//        StockAllocation.inventoryItem
+//        ItemRevenueCenter.inventoryItem
+//
+//    EXCLUDE the rows this same deletion is already removing, or nothing is ever
+//    deletable: this session's (and its RC clones') `InvoiceScanItem` rows; this
+//    session's `PriceAlert` and `RecipeAlert` rows (they cascade with the
+//    session); and the `InventorySupplierPrice` / `InvoiceMatchRule` rows THIS
+//    PLAN deletes. The planner re-adds the one exclusion the loader cannot see
+//    coming: an offer the plan ends up SKIPPING protects its item again, because
+//    the cascade would take it (see `guardCascades`).
+//
+// 2. `current.offers` must hold EVERY offer of every item touched by any OFFER
+//    record — not just the recorded ones. A third offer that took the primary
+//    flag after the approval is invisible otherwise, and restoring the flag onto
+//    the recorded offer would trip the partial unique index
+//    `(inventoryItemId) WHERE isPrimary` and kill the transaction.
+//
+// 3. `legacy.lines` must be ordered by `sortOrder`, and `legacy.priceAlerts` by
+//    `createdAt asc` — see `LegacyInput`.
 import { Prisma } from '@prisma/client'
 import type { prisma } from '@/lib/prisma'
 import {
@@ -42,6 +93,9 @@ export interface PlanRow {
   name: string
   outcome: Outcome
   reason?: SkipReason
+  /** The specifics behind `reason` — the joined reference list, or which other
+   *  offer is holding the primary flag. For the preview; nothing branches on it. */
+  detail?: string
   write?: { table: RollbackTable; op: 'update' | 'delete'; data?: Canon }
 }
 
@@ -66,18 +120,22 @@ export type CurrentOffer = Canon & { inventoryItemId: string; supplierName: stri
 export type CurrentItem = Canon & { itemName: string }
 
 export interface ItemRefs {
-  /** Approved scan lines pointing at the item from OTHER sessions. */
-  approvedLinesElsewhere: number
-  recipeIngredients: number
-  countLines: number
-  /** Offers that will still exist after this rollback (the loader excludes the
-   *  session's own created-offer targets — see Task 4 step 1). */
-  offers: number
+  /** Everything still pointing at the item, in words the preview can print —
+   *  e.g. `['3 approved invoice lines', '1 recipe']`. Empty ⇒ safe to delete.
+   *  See THE LOADER'S CONTRACT at the top of this file for what to count. */
+  referencedBy: string[]
 }
 
 export interface LegacyLine {
+  /** Today's DELETE reads `where: { action: 'UPDATE_PRICE', approved: true }`.
+   *  An unapproved line never moved a price, so reverting to its
+   *  `previousPrice` would invent one. Anything but `true` is ignored. */
+  approved: boolean
   matchedItemId: string | null
-  previousPrice: number | null
+  /** Prisma `Decimal | number | string | null`. `Number()`d; a value that is not
+   *  a finite number (null, '', junk) means "no pre-session price" and is
+   *  skipped — the line is left alone rather than reverted to 0. */
+  previousPrice: unknown
   action: string
   matchedItem: ChainItemRow | null
   /** Optional display name; the plan falls back to the item id. */
@@ -86,7 +144,19 @@ export interface LegacyLine {
 
 export interface LegacyInput {
   status: string
+  /**
+   * MUST be ordered by `sortOrder` (the invoice's own line order). The legacy
+   * path emits one row per qualifying line and does NOT deduplicate: a session
+   * that re-priced the same item on two lines writes twice and the LAST write
+   * wins. That is today's behaviour, and it is only deterministic if the lines
+   * arrive in a defined order.
+   */
   lines: LegacyLine[]
+  /**
+   * MUST be ordered `createdAt asc`. `priorPpbFromAlerts` is first-wins per
+   * item: only the earliest alert quotes the item's pre-session $/base, and it
+   * is the proof the cross-dimension revert decides on.
+   */
   priceAlerts: Array<{ inventoryItemId: string; previousPrice: unknown }>
 }
 
@@ -155,9 +225,10 @@ function nameFor(rec: UndoRecord, input: PlanInput): string {
   return input.current.items.get(rec.targetId)?.itemName || rec.targetId
 }
 
-function isReferenced(refs: ItemRefs | undefined): boolean {
-  if (!refs) return true // not checked ⇒ not deleted
-  return refs.approvedLinesElsewhere > 0 || refs.recipeIngredients > 0 || refs.countLines > 0 || refs.offers > 0
+/** `null` ⇒ safe to delete. A string ⇒ keep it, and that string says why. */
+function referenceDetail(refs: ItemRefs | undefined): string | null {
+  if (!refs) return 'references not checked' // absent from `refs` ⇒ never deleted
+  return refs.referencedBy.length > 0 ? refs.referencedBy.join(', ') : null
 }
 
 function planOne(rec: UndoRecord, input: PlanInput): PlanRow {
@@ -182,12 +253,79 @@ function planOne(rec: UndoRecord, input: PlanInput): PlanRow {
   }
 
   if (rec.kind === 'ITEM_CREATED') {
-    if (isReferenced(input.refs.get(rec.targetId))) return { ...base, outcome: 'skipped', reason: 'referenced' }
+    const detail = referenceDetail(input.refs.get(rec.targetId))
+    if (detail !== null) return { ...base, outcome: 'skipped', reason: 'referenced', detail }
     return { ...base, outcome: 'deleted', write: { table, op: 'delete' } }
   }
 
   if (rec.prev === null) return { ...base, outcome: 'deleted', write: { table, op: 'delete' } }
   return { ...base, outcome: 'restored', write: { table, op: 'update', data: rec.prev } }
+}
+
+const skip = (row: PlanRow, reason: SkipReason, detail: string): PlanRow => ({
+  kind: row.kind,
+  targetId: row.targetId,
+  name: row.name,
+  outcome: 'skipped',
+  reason,
+  detail,
+})
+
+/**
+ * The primary flag is single-occupancy per item (partial unique index
+ * `(inventoryItemId) WHERE isPrimary`). Ordering surrenders it before it is
+ * claimed — but only among the offers this plan KNOWS about. If a third offer
+ * took the flag after the approval and nothing in this plan clears it, claiming
+ * it back would throw inside the transaction and take the whole rollback down.
+ * Downgrade instead: the world moved on, which is exactly 'changed-since'.
+ *
+ * `rows[i]` corresponds to `recs[i]` — both are in applied order.
+ */
+function guardPrimaryCollisions(recs: UndoRecord[], rows: PlanRow[], input: PlanInput): void {
+  // Offers this plan leaves NOT primary: deleted outright, or restored to a
+  // `prev` that was not primary.
+  const cleared = new Set<string>()
+  for (let i = 0; i < recs.length; i++) {
+    if (recs[i].kind !== 'OFFER') continue
+    if (rows[i].outcome === 'deleted') cleared.add(recs[i].targetId)
+    else if (rows[i].outcome === 'restored' && recs[i].prev?.isPrimary !== true) cleared.add(recs[i].targetId)
+  }
+
+  for (let i = 0; i < recs.length; i++) {
+    const rec = recs[i]
+    if (rec.kind !== 'OFFER' || rows[i].outcome !== 'restored' || rec.prev?.isPrimary !== true) continue
+    const itemId = input.current.offers.get(rec.targetId)?.inventoryItemId
+    if (!itemId) continue
+    for (const [id, o] of input.current.offers) {
+      if (id === rec.targetId || o.inventoryItemId !== itemId) continue
+      if (o.isPrimary !== true || cleared.has(id)) continue
+      rows[i] = skip(rows[i], 'changed-since', 'another supplier is primary now')
+      break
+    }
+  }
+}
+
+/**
+ * `InventorySupplierPrice.inventoryItemId` is `onDelete: Cascade`. Deleting a
+ * created item takes EVERY offer on it — including one this plan deliberately
+ * kept because it had changed since the approval. `refs` cannot see this: the
+ * loader counted offers before the plan decided which ones it would skip. So a
+ * skipped offer protects its item, here, after both outcomes are known.
+ */
+function guardCascades(recs: UndoRecord[], rows: PlanRow[], input: PlanInput): void {
+  const protectedItems = new Set<string>()
+  for (let i = 0; i < recs.length; i++) {
+    if (recs[i].kind !== 'OFFER' || rows[i].outcome !== 'skipped') continue
+    const itemId = input.current.offers.get(recs[i].targetId)?.inventoryItemId
+    if (itemId) protectedItems.add(itemId)
+  }
+  if (protectedItems.size === 0) return
+
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].kind !== 'ITEM_CREATED' || rows[i].outcome !== 'deleted') continue
+    if (!protectedItems.has(rows[i].targetId)) continue
+    rows[i] = skip(rows[i], 'referenced', 'a supplier price on this item was kept')
+  }
 }
 
 /**
@@ -202,10 +340,16 @@ function legacyRows(legacy: LegacyInput): PlanRow[] {
   const priorPpbByItem = priorPpbFromAlerts(legacy.priceAlerts)
   const rows: PlanRow[] = []
   for (const line of legacy.lines) {
+    if (line.approved !== true) continue
     if (line.action !== 'UPDATE_PRICE' && line.action !== 'ADD_SUPPLIER') continue
-    if (!line.matchedItemId || line.previousPrice === null || !line.matchedItem) continue
+    if (!line.matchedItemId || !line.matchedItem) continue
+    // Prisma Decimal | number | string. `Number(null)` is 0 and `Number('')` is
+    // 0 — both would revert a live price to zero — so the empties go first.
+    if (line.previousPrice === null || line.previousPrice === undefined || line.previousPrice === '') continue
+    const previousPrice = Number(line.previousPrice)
+    if (!Number.isFinite(previousPrice)) continue
     const revert = revertedPricing({
-      previousPrice: Number(line.previousPrice),
+      previousPrice,
       item: line.matchedItem,
       priorPpb: priorPpbByItem.get(line.matchedItemId) ?? null,
     })
@@ -230,7 +374,19 @@ export function planRollback(input: PlanInput): RollbackPlan {
   let rows: PlanRow[]
 
   if (input.records.length > 0) {
-    rows = ordered(input.records).map(rec => planOne(rec, input))
+    const recs = ordered(input.records)
+    rows = recs.map(rec => planOne(rec, input))
+    // Both run after every outcome is known, and in this order: a primary
+    // collision turns an OFFER row into a skip, and a skipped OFFER then
+    // protects its item from the cascade.
+    guardPrimaryCollisions(recs, rows, input)
+    guardCascades(recs, rows, input)
+    // The legacy discriminator is "no records on an APPROVED session" — which a
+    // RECORDED session whose `UndoCollector.flush()` failed also looks like.
+    // That misread is the safe direction: best-effort price reverts beat no
+    // rollback at all, and the banner tells the user the offers and learned
+    // matches were not restored. `legacy: true` is set ONLY on this branch, so
+    // a session with even one record never claims it.
   } else if (input.legacy && input.legacy.status === 'APPROVED') {
     legacy = true
     rows = legacyRows(input.legacy)
@@ -262,37 +418,74 @@ export function planRollback(input: PlanInput): RollbackPlan {
 }
 
 // `packChain` and `pricing` are the Json columns in every selector's field set.
-// A nullable Json column takes the Prisma.JsonNull sentinel to be set to NULL —
-// a plain JS null is rejected by the generated client.
+// A nullable Json column takes a sentinel, not a plain JS null, which the
+// generated client rejects — and the sentinel is Prisma.DbNull: SQL NULL, "this
+// offer has no chain". Prisma.JsonNull would store the JSON scalar `null`, a
+// present value that `{ packChain: null }` no longer finds. `prev` came from a
+// column that was SQL NULL; it goes back as SQL NULL.
 const JSON_FIELDS = new Set(['packChain', 'pricing'])
 
 function toPrismaData(data: Canon): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(data)) out[k] = JSON_FIELDS.has(k) && v === null ? Prisma.JsonNull : v
+  for (const [k, v] of Object.entries(data)) out[k] = JSON_FIELDS.has(k) && v === null ? Prisma.DbNull : v
   return out
 }
 
-/** Apply a plan, in plan order, inside the caller's transaction. */
-export async function executeRollback(tx: Db, plan: RollbackPlan): Promise<void> {
-  for (const row of plan.rows) {
-    const w = row.write
-    if (!w) continue
-    const where = { id: row.targetId }
+async function applyRow(tx: Db, row: PlanRow): Promise<void> {
+  const w = row.write
+  if (!w) return
+  const where = { id: row.targetId }
 
-    if (w.op === 'delete') {
-      if (w.table === 'offer') await tx.inventorySupplierPrice.delete({ where })
-      else if (w.table === 'item') await tx.inventoryItem.delete({ where })
-      else await tx.invoiceMatchRule.delete({ where })
-      continue
-    }
-
-    const data = toPrismaData(w.data ?? {})
-    if (w.table === 'offer') {
-      await tx.inventorySupplierPrice.update({ where, data: data as unknown as Prisma.InventorySupplierPriceUncheckedUpdateInput })
-    } else if (w.table === 'item') {
-      await tx.inventoryItem.update({ where, data: data as unknown as Prisma.InventoryItemUncheckedUpdateInput })
-    } else {
-      await tx.invoiceMatchRule.update({ where, data: data as unknown as Prisma.InvoiceMatchRuleUncheckedUpdateInput })
-    }
+  if (w.op === 'delete') {
+    if (w.table === 'offer') await tx.inventorySupplierPrice.delete({ where })
+    else if (w.table === 'item') await tx.inventoryItem.delete({ where })
+    else await tx.invoiceMatchRule.delete({ where })
+    return
   }
+
+  const data = toPrismaData(w.data ?? {})
+  if (w.table === 'offer') {
+    await tx.inventorySupplierPrice.update({ where, data: data as unknown as Prisma.InventorySupplierPriceUncheckedUpdateInput })
+  } else if (w.table === 'item') {
+    await tx.inventoryItem.update({ where, data: data as unknown as Prisma.InventoryItemUncheckedUpdateInput })
+  } else {
+    await tx.invoiceMatchRule.update({ where, data: data as unknown as Prisma.InvoiceMatchRuleUncheckedUpdateInput })
+  }
+}
+
+/**
+ * Everything except the created-item deletes: offer/item/rule restores and
+ * deletes, plus the legacy best-effort rows. Runs FIRST, while the session row
+ * is still there.
+ */
+export async function executeRestores(tx: Db, plan: RollbackPlan): Promise<void> {
+  for (const row of plan.rows) {
+    if (row.kind === 'ITEM_CREATED') continue
+    await applyRow(tx, row)
+  }
+}
+
+/**
+ * The created-item deletes, on their own, because they can only run once the
+ * session is gone: the session's own approved `InvoiceLineItem` rows point at
+ * the item with `onDelete: Restrict`, so deleting it any earlier throws.
+ * The route's order is: restores → delete RC clones → delete session → THIS.
+ */
+export async function executeCreatedItemDeletes(tx: Db, plan: RollbackPlan): Promise<void> {
+  for (const row of plan.rows) {
+    if (row.kind !== 'ITEM_CREATED') continue
+    await applyRow(tx, row)
+  }
+}
+
+/**
+ * Both halves, in order — the whole plan in one pass.
+ *
+ * NOT for the route: the created-item deletes must be separated by the session
+ * delete (see `executeCreatedItemDeletes`). This exists so a caller that has no
+ * session to delete — the tests — can apply a plan in one call.
+ */
+export async function executeRollback(tx: Db, plan: RollbackPlan): Promise<void> {
+  await executeRestores(tx, plan)
+  await executeCreatedItemDeletes(tx, plan)
 }

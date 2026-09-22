@@ -174,9 +174,13 @@ export class UndoCollector {
             sessionId: this.sessionId,
             kind: e.kind,
             targetId: e.targetId,
-            // Prisma: a nullable Json column takes Prisma.JsonNull for SQL NULL —
-            // passing a plain `null`/`undefined` is rejected by the generated client's types.
-            prev: e.prev === null ? Prisma.JsonNull : (e.prev as Prisma.InputJsonValue),
+            // Prisma: a nullable Json column takes a sentinel, not a plain
+            // `null`/`undefined`, which the generated client's types reject.
+            // DbNull is SQL NULL — "this row did not exist before the approval",
+            // which reads back as JS `null` and is what the planner tests for.
+            // JsonNull would store the JSON scalar `null`: a present value,
+            // invisible to a `{ prev: null }` filter.
+            prev: e.prev === null ? Prisma.DbNull : (e.prev as Prisma.InputJsonValue),
             next: next as Prisma.InputJsonValue,
           })
           e.lastNext = next
