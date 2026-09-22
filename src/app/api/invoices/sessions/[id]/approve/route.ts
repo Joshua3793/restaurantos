@@ -6,7 +6,7 @@ import { ensurePrimary, mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
-import { getUnitConv, deriveBaseUnit } from '@/lib/utils'
+import { getUnitConv } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
@@ -15,6 +15,7 @@ import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQty
 import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/line-format'
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
+import { seedFromScanLine, validateCreateNew } from '@/lib/invoice/create-new-seed'
 import { lookupDensity } from '@/lib/density'
 import { UndoCollector, OFFER_SELECT, offerState, itemState, offerCaptureFor } from '@/lib/invoice/approve-undo'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -36,7 +37,7 @@ interface ApproveResult {
 async function doApprove(
   sessionId: string,
   approvedBy: string,
-  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; itemName: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null; densityGPerMl?: unknown; purchasePrice?: unknown } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
+  session: { id: string; revenueCenterId: string | null; supplierName: string | null; supplierId: string | null; invoiceDate: string | null; invoiceNumber: string | null; scanItems: Array<{ id: string; action: string; matchedItemId: string | null; matchedItem: { id: string; itemName: string; dimension: string; baseUnit: string | null; packChain: any; pricing: any; countUnit: string | null; eachMeasureQty: any; eachMeasureUnit: string | null; densityGPerMl?: unknown; purchasePrice?: unknown } | null; newPrice: any; previousPrice: any; priceDiffPct: any; rawDescription: string; rawQty: any; rawUnit: string | null; rawUnitPrice: any; pricingMode: string | null; rawLineTotal: any; invoicePackQty: any; invoicePackSize: any; invoicePackUOM: string | null; totalQty: any; totalQtyUOM: string | null; rate: any; rateUOM: string | null; revenueCenterId: string | null; rcSplit: any; sortOrder: number; newItemData: string | null; matchConfidence: any; matchScore: any; supplierItemCode: string | null }> }
 ): Promise<ApproveResult> {
   let priceAlertsCreated = 0
   let newItemsCreated = 0
@@ -865,17 +866,20 @@ async function doApprove(
                 countUnit: newData.countUnit || 'each',
               }
             : formToChain({
-                purchaseUnit:       newData.purchaseUnit || scanItem.rawUnit || 'each',
-                purchasePrice:      Number(newData.purchasePrice) || Number(scanItem.newPrice) || 0,
-                qtyPerPurchaseUnit: Number(newData.qtyPerPurchaseUnit) || 1,
-                qtyUOM:             'each',
-                innerQty:           null,
-                packSize:           Number(newData.packSize) || 1,
-                packUOM:            newData.packUOM || 'each',
-                priceType:          newData.priceType === 'UOM' ? 'UOM' : 'CASE',
-                countUOM:           newData.countUOM || 'each',
-                baseUnit:           newData.baseUnit || deriveBaseUnit('each', newData.packUOM || 'each', Number(newData.packSize) || 1),
+                ...seedFromScanLine(scanItem),
+                ...(newData.purchaseUnit ? { purchaseUnit: newData.purchaseUnit } : {}),
+                ...(newData.purchasePrice ? { purchasePrice: Number(newData.purchasePrice) } : {}),
+                ...(newData.baseUnit ? { baseUnit: newData.baseUnit } : {}),
               })
+        // A counted item bought by weight needs to know how much "one" weighs
+        // (eachMeasureQty) — without it there's no way to convert the receipt
+        // (weight) into the units the item is counted in.
+        const gate = validateCreateNew({ line: scanItem, dimension: newChain.dimension, eachMeasureQty: newData.eachMeasureQty })
+        if (!gate.ok) {
+          console.error(`[approve] Skipping "${scanItem.rawDescription}" — ${gate.error}`)
+          skippedLines++
+          continue
+        }
         // Headline purchasePrice for the column: PACK price, or RATE rate.
         const newPurchasePrice = newChain.pricing.mode === 'RATE'
           ? Number(newChain.pricing.rate) || 0
@@ -900,6 +904,11 @@ async function doApprove(
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             pricing:            newChain.pricing as any,
             countUnit:          newChain.countUnit,
+            // How much one count-unit weighs, for a counted item bought by
+            // weight (e.g. "one head" = 250 g) — lets receipts/counts convert
+            // between the supplier's weight and the item's count unit.
+            eachMeasureQty:     Number(newData.eachMeasureQty) > 0 ? Number(newData.eachMeasureQty) : null,
+            eachMeasureUnit:    Number(newData.eachMeasureQty) > 0 && newData.eachMeasureUnit ? canonicalUom(newData.eachMeasureUnit) : null,
           },
         })
         // Undo: an item this approval brought into existence (DELETE removes it,
