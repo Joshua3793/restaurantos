@@ -229,6 +229,7 @@ export default function InvoicesPage() {
   }, [selectedSessionId, fetchSessions, toast])
 
   const handleBulkDelete = useCallback(async (ids: string[]): Promise<void> => {
+    const refusedIds = new Set<string>()
     const idSet = new Set(ids)
     setSessions(prev => prev.filter(s => !idSet.has(s.id)))
     try {
@@ -251,6 +252,7 @@ export default function InvoicesPage() {
       // timeout, …) — the bulk route never throws for those, it reports them.
       const data: { refused?: Array<{ id: string; error: string; status: number }> } = await res.json().catch(() => ({}))
       if (data.refused && data.refused.length > 0) {
+        data.refused.forEach(r => refusedIds.add(r.id))
         toast.show({
           type: 'warning',
           title: `${data.refused.length} of ${ids.length} invoice${ids.length === 1 ? '' : 's'} could not be deleted`,
@@ -264,7 +266,9 @@ export default function InvoicesPage() {
     }
     fetchSessions()
     setKpiRefreshKey(k => k + 1)
-    if (selectedSessionId && ids.includes(selectedSessionId)) setSelectedSessionId(null)
+    // Close the detail pane only for a session that was actually removed — a
+    // refused id (an RC copy, a failed rollback) is still there to look at.
+    if (selectedSessionId && ids.includes(selectedSessionId) && !refusedIds.has(selectedSessionId)) setSelectedSessionId(null)
   }, [selectedSessionId, fetchSessions, toast])
 
   const handleRetry = useCallback(async (id: string) => {

@@ -616,7 +616,9 @@ export function InvoiceListV2({ sessions, onSelect, onUploadClick, onScanClick, 
           onCancel={() => setBulkDeleteConfirm(false)}
           onConfirm={handleBulkDelete}
           confirming={isBulkDeleting}
-          disableConfirm={hasApproved && (bulkPlansLoading || Array.from(bulkPlans.values()).some(p => p.isClone))}
+          // A selected RC copy is refused per id by the route (409) and reported in
+          // the toast — it must not block the rest of the batch.
+          disableConfirm={hasApproved && bulkPlansLoading}
           title={`Delete ${selectedInView.length} invoice${selectedInView.length !== 1 ? 's' : ''}?`}
           body={
             hasApproved
