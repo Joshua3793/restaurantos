@@ -230,11 +230,20 @@ async function main() {
     else table(healthy)
   }
 
-  const all = [...shape, ...evidence]
-  console.log(`\n${all.length} item(s) to repair: ${all.map((f) => f.itemName).join(', ') || '(none)'}`)
-  if (all.length > 0) {
-    console.log('\nRepair dry run for exactly these:')
-    console.log(`  npx tsx scripts/repair-create-new-shape.ts ${all.map((f) => `--item ${f.itemId}`).join(' ')}`)
+  // The paste-ready command is SECTION A ONLY. Section B is a candidate list —
+  // half of it is legitimately counted stock (ENGLISH MUFFIN GF 4PK) — and a
+  // runnable line containing those ids is an invitation to repair a product that
+  // was never broken. B's ids are printed to be read, one per line, never in a
+  // command.
+  console.log(`\n${shape.length} item(s) with a self-contradictory shape: ${shape.map((f) => f.itemName).join(', ') || '(none)'}`)
+  if (shape.length > 0) {
+    console.log('\nRepair dry run for section A:')
+    console.log(`  npx tsx scripts/repair-create-new-shape.ts ${shape.map((f) => `--item ${f.itemId}`).join(' ')}`)
+  }
+  if (evidence.length > 0) {
+    console.log(`\nCANDIDATES — decide per item (section B, ${evidence.length}). Judge each from its birth line above,`)
+    console.log('then add the ones you have decided to repair to the command yourself:')
+    for (const f of evidence) console.log(`  ${f.itemId}  ${f.itemName}`)
   }
 
   const file = `create-new-shape-audit-${stamp}.json`

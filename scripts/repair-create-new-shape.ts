@@ -67,11 +67,15 @@
  *                 (COUNTED/CARRIED — src/lib/count-snapshot-source.ts), exactly
  *                 as finalize sums them.
  *
- * NOT rewritten, deliberately: `CountLine.variancePct` / `varianceCost`. The
- * formula is finalize's — `(qtyBase − expectedQty) × ppb` — but `expectedQty` is
- * itself frozen in the OLD base unit and is not part of this repair, so
- * recomputing would subtract a stale expectation from a corrected count and
- * produce a confident, wrong number. The dry run says so per item.
+ * NOT rewritten, deliberately: `CountLine.variancePct` / `varianceCost` /
+ * `expectedQty`. The variance formula is finalize's — `(qtyBase − expectedQty) ×
+ * ppb` — but `expectedQty` is itself frozen in the OLD base unit and is not part
+ * of this repair, so recomputing would subtract a stale expectation from a
+ * corrected count and produce a confident, wrong number. Also not rewritten:
+ * `StockTransfer`, `WastageLog` and `InvoiceLineItem` rows, whose quantities are
+ * likewise in the old base unit — theoretical stock resets at each count, so a
+ * movement older than the latest count changes no displayed number. The dry run
+ * COUNTS all three per item so a non-zero one gets a human's eye.
  *
  * The measure unit comes from the item's own most recent by-weight approved line
  * (`lineMeasureUnit`); `--measure <itemId>=lb` overrides it, and an item with no
@@ -85,7 +89,8 @@
  * `--apply` writes `create-new-repair-backup-<stamp>.json` with every previous
  * value BEFORE the first write, then, per item, RE-READS every row it is about
  * to touch and skips the WHOLE item if any of them moved since planning — the
- * diff a human approved is never replayed blind. Each item's writes go in one
+ * diff a human approved is never replayed blind, and the run exits 3 when any
+ * item was refused that way. Each item's writes go in one
  * `$transaction`, so an item is never half-repaired. Session totals are the one
  * cross-item write (two repaired items can share a count session), so they are
  * summed once over ALL plans and written in a final transaction, only for
@@ -247,6 +252,29 @@ async function fetchSessions(sessionIds: string[]) {
   })
 }
 
+/** Rows that hang off the item in the OLD base unit and are NOT part of this
+ *  repair — counted per item so the dry run states the size of what it is
+ *  leaving behind rather than staying silent about it. */
+async function fetchUntouched(ids: string[]) {
+  const [transfers, wastage, lineItems] = await Promise.all([
+    prisma.stockTransfer.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: { in: ids } }, _count: { _all: true } }),
+    prisma.wastageLog.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: { in: ids } }, _count: { _all: true } }),
+    prisma.invoiceLineItem.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: { in: ids } }, _count: { _all: true } }),
+  ])
+  const counts = new Map<string, { transfers: number; wastage: number; lineItems: number }>()
+  const bump = (id: string, k: 'transfers' | 'wastage' | 'lineItems', n: number) => {
+    const row = counts.get(id) ?? { transfers: 0, wastage: 0, lineItems: 0 }
+    row[k] = n
+    counts.set(id, row)
+  }
+  for (const r of transfers) bump(r.inventoryItemId, 'transfers', r._count._all)
+  for (const r of wastage) bump(r.inventoryItemId, 'wastage', r._count._all)
+  for (const r of lineItems) bump(r.inventoryItemId, 'lineItems', r._count._all)
+  return counts
+}
+type UntouchedCounts = { transfers: number; wastage: number; lineItems: number }
+const NO_UNTOUCHED: UntouchedCounts = { transfers: 0, wastage: 0, lineItems: 0 }
+
 const dec = (v: unknown): string | null => (v == null ? null : String(v))
 const n = (v: unknown): number => Number(v)
 
@@ -394,7 +422,7 @@ const offerMoved = (o: OfferRewriteRow): boolean =>
   JSON.stringify(o.before.pricing ?? null) !== JSON.stringify(o.pricing) ||
   o.before.packQty !== o.packQty || o.before.packSize !== o.packSize || o.before.packUOM !== o.packUOM
 
-function printPlan(p: ItemPlan) {
+function printPlan(p: ItemPlan, untouched: UntouchedCounts) {
   const i = p.item
   console.log(`\n────────────────────────────────────────────────────────────`)
   console.log(`${i.itemName}   (${i.id})`)
@@ -469,11 +497,18 @@ function printPlan(p: ItemPlan) {
     console.log(`    allocation ${a.revenueCenterId}: ${leaveNote(a)}`)
   }
 
-  console.log(`\n  NOT rewritten, on purpose: CountLine.variancePct / varianceCost.`)
-  console.log(`    count-finalize computes them as (countedQtyBase − expectedQty) × ppb, but expectedQty is ITSELF`)
-  console.log(`    frozen in the old base unit and is not part of this repair. Recomputing would subtract a stale`)
-  console.log(`    expectation from a corrected count. Left as they are — re-open and re-finalize the session if`)
-  console.log(`    the variance numbers matter.`)
+  console.log(`\n  NOT rewritten, on purpose: CountLine.variancePct / varianceCost / expectedQty.`)
+  console.log(`    count-finalize computes variance as (countedQtyBase − expectedQty) × ppb, but expectedQty is`)
+  console.log(`    ITSELF frozen in the old base unit and is not part of this repair. Recomputing would subtract a`)
+  console.log(`    stale expectation from a corrected count. Left as they are — re-open and re-finalize the session`)
+  console.log(`    if the variance numbers matter.`)
+  console.log(`\n  ALSO left untouched — movement rows this item carries, quantities still in the OLD base unit:`)
+  console.log(`    StockTransfer:    ${untouched.transfers} row(s)`)
+  console.log(`    WastageLog:       ${untouched.wastage} row(s)`)
+  console.log(`    InvoiceLineItem:  ${untouched.lineItems} row(s)`)
+  console.log(`    Theoretical stock is computed on read from counts + receipts, and a count is the reset point, so`)
+  console.log(`    a stale movement older than the latest count changes no displayed number. Rows dated AFTER the`)
+  console.log(`    latest count still carry their old unit — review them by hand if any of the above is non-zero.`)
 
   if (p.blocked.length > 0) {
     console.log(`\n  BLOCKED — ${p.blocked.length} unresolved decision(s):`)
@@ -626,7 +661,7 @@ async function main() {
     process.exit(2)
   }
 
-  const [lines, countRows, snaps, allocs, offers] = await Promise.all([
+  const [lines, countRows, snaps, allocs, offers, untouched] = await Promise.all([
     fetchLines(itemIds),
     fetchCountLines(itemIds),
     fetchSnapshots(itemIds),
@@ -635,6 +670,7 @@ async function main() {
       select: { inventoryItemId: true, revenueCenterId: true, quantity: true },
     }),
     fetchOffers(itemIds),
+    fetchUntouched(itemIds),
   ])
 
   // A --count-unit-override for a line id that isn't among the named items'
@@ -699,7 +735,7 @@ async function main() {
   )
 
   console.log(`${items.length} item(s) named · ${offers.length} supplier offer(s) · ${lines.length} approved line(s) · ${countRows.length} count line(s) · ${snaps.length} snapshot(s)`)
-  for (const p of plans) printPlan(p)
+  for (const p of plans) printPlan(p, untouched.get(p.item.id) ?? NO_UNTOUCHED)
   for (const r of refused) console.log(`\n${r.item.itemName} (${r.item.id}) — REFUSED: ${r.error}`)
 
   console.log(`\n────────────────────────────────────────────────────────────`)
@@ -721,7 +757,8 @@ async function main() {
       before: { dimension: p.item.dimension, baseUnit: p.item.baseUnit, packChain: p.item.packChain, pricing: p.item.pricing, countUnit: p.item.countUnit, purchasePrice: p.stock.purchasePrice.old, pricePerBaseUnit: p.ppbBefore },
       after: { ...p.rewrite, pricePerBaseUnit: p.ppb },
       stock: p.stock,
-      varianceNotRewritten: 'variancePct / varianceCost left as-is: expectedQty is frozen in the old base unit',
+      varianceNotRewritten: 'variancePct / varianceCost / expectedQty left as-is: expectedQty is frozen in the old base unit',
+      untouchedMovementRows: untouched.get(p.item.id) ?? NO_UNTOUCHED,
       blocked: p.blocked,
       offers: p.offers.map((o) => ({
         id: o.id, supplier: o.offer.supplierName, isPrimary: o.offer.isPrimary,
@@ -841,6 +878,15 @@ async function main() {
   }
 
   console.log(`\napplied ${applied} item(s) · refused ${skipped}`)
+  // A partial apply must not look like success to a shell, a CI step or a human
+  // skimming the tail of a log — exit 3, the same code an --apply blocked by an
+  // unresolved decision uses. `process.exitCode` (not `process.exit`) so the
+  // `finally` below still disconnects Prisma.
+  if (skipped > 0) {
+    console.error(`\n${skipped} item(s) were REFUSED mid-apply and are unchanged — the database is partly repaired.`)
+    console.error('Re-run the dry run to re-plan against the rows as they are now, then --apply again.')
+    process.exitCode = 3
+  }
 }
 
 main()
