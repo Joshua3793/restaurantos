@@ -43,6 +43,36 @@ export const offerState = (row: OfferRowLike): Canon => canon(row, OFFER_FIELDS)
 export const itemState = (row: ItemRowLike): Canon => canon(row, ITEM_FIELDS)
 export const ruleState = (row: RuleRowLike): Canon => canon(row, RULE_FIELDS)
 
+/**
+ * What the approve route should record for an offer it just upserted, given
+ * whether the PRE-upsert `findUnique` read actually succeeded.
+ *
+ * That read is wrapped in a `.catch` because a transient failure must never
+ * fail the approval — but treating a failed read the same as "no existing
+ * row" is a data-loss hazard: the upsert still runs (and may UPDATE a row
+ * that predates this invoice), and `existing == null` would make the caller
+ * think it just CREATED that row, recording `prev: null` — so a later
+ * rollback would DELETE a supplier offer this approval never created. When
+ * the read fails we genuinely don't know the prior state, so the only safe
+ * choice is to record nothing for that offer this run (`{ kind: 'none' }`);
+ * the write itself is never affected.
+ */
+export type OfferCaptureAction =
+  | { kind: 'before'; id: string; prev: Canon }
+  | { kind: 'created'; id: string }
+  | { kind: 'none' }
+
+export function offerCaptureFor(
+  readOk: boolean,
+  existing: (OfferRowLike & { id: string }) | null,
+  upserted: { id: string } | null
+): OfferCaptureAction {
+  if (!readOk) return { kind: 'none' }
+  if (existing) return { kind: 'before', id: existing.id, prev: offerState(existing) }
+  if (upserted) return { kind: 'created', id: upserted.id }
+  return { kind: 'none' }
+}
+
 function stable(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v as object).sort().map(k => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`
@@ -54,7 +84,14 @@ export function canonEqual(a: Canon | null, b: Canon | null): boolean {
   return stable(a) === stable(b)
 }
 
-type Entry = { kind: UndoKind; targetId: string; prev: Canon | null; flushed: boolean }
+// `lastNext` is the Canon this collector last PERSISTED for the entry — absent
+// (`undefined`) until the first successful create. It is how a later flush
+// tells "already has a row, refresh it if next moved" apart from "next never
+// resolved on the first attempt, leave it alone" (the latter matches the
+// entry's original give-up-on-first-miss behaviour; a row that truly
+// disappeared between capture and flush was never a case this collector
+// recovered from).
+type Entry = { kind: UndoKind; targetId: string; prev: Canon | null; flushed: boolean; lastNext?: Canon }
 
 export class UndoCollector {
   private entries = new Map<string, Entry>()
@@ -76,12 +113,21 @@ export class UndoCollector {
     if (!this.entries.has(k)) this.entries.set(k, { kind, targetId, prev: null, flushed: false })
   }
 
-  /** Read `next` for every unflushed entry through its selector and write the records. */
+  /**
+   * Re-read `next` for EVERY touched target — flushed or not — through its
+   * selector. A not-yet-flushed entry is written for the first time
+   * (`createMany`, `skipDuplicates` so a race with another flush can't throw);
+   * an already-flushed entry whose row moved since its last persisted `next`
+   * gets that `next` refreshed in place (`updateMany`, `prev` untouched) — the
+   * fix for two lines in one invoice touching the same offer/item: line 1's
+   * flush would otherwise leave a stale `next₁` that line 2's write no longer
+   * matches, so DELETE would skip a row this approval DID fully unwind.
+   */
   async flush(): Promise<number> {
-    const pending = [...this.entries.values()].filter(e => !e.flushed)
-    if (pending.length === 0) return 0
+    const all = [...this.entries.values()]
+    if (all.length === 0) return 0
 
-    const idsFor = (kinds: UndoKind[]) => pending.filter(e => kinds.includes(e.kind)).map(e => e.targetId)
+    const idsFor = (kinds: UndoKind[]) => all.filter(e => kinds.includes(e.kind)).map(e => e.targetId)
     const offerIds = idsFor(['OFFER'])
     const itemIds = idsFor(['ITEM', 'ITEM_CREATED'])
     const ruleIds = idsFor(['MATCH_RULE'])
@@ -111,31 +157,44 @@ export class UndoCollector {
       return r ? itemState(r) : null
     }
 
-    const data = pending.flatMap(e => {
-      const next = nextOf(e)
-      if (!next) return []
-      const row: {
-        sessionId: string
-        kind: UndoKind
-        targetId: string
-        prev: Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue
-        next: Prisma.InputJsonValue
-      } = {
-        sessionId: this.sessionId,
-        kind: e.kind,
-        targetId: e.targetId,
-        // Prisma: a nullable Json column takes Prisma.JsonNull for SQL NULL —
-        // passing a plain `null`/`undefined` is rejected by the generated client's types.
-        prev: e.prev === null ? Prisma.JsonNull : (e.prev as Prisma.InputJsonValue),
-        next: next as Prisma.InputJsonValue,
-      }
-      return [row]
-    })
+    const toCreate: {
+      sessionId: string
+      kind: UndoKind
+      targetId: string
+      prev: Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue
+      next: Prisma.InputJsonValue
+    }[] = []
+    const toUpdate: { kind: UndoKind; targetId: string; next: Canon }[] = []
 
-    if (data.length) await this.db.invoiceApproveUndo.createMany({ data, skipDuplicates: true })
-    pending.forEach(e => {
+    for (const e of all) {
+      const next = nextOf(e)
+      if (next) {
+        if (!e.flushed) {
+          toCreate.push({
+            sessionId: this.sessionId,
+            kind: e.kind,
+            targetId: e.targetId,
+            // Prisma: a nullable Json column takes Prisma.JsonNull for SQL NULL —
+            // passing a plain `null`/`undefined` is rejected by the generated client's types.
+            prev: e.prev === null ? Prisma.JsonNull : (e.prev as Prisma.InputJsonValue),
+            next: next as Prisma.InputJsonValue,
+          })
+          e.lastNext = next
+        } else if (e.lastNext !== undefined && !canonEqual(e.lastNext, next)) {
+          toUpdate.push({ kind: e.kind, targetId: e.targetId, next })
+          e.lastNext = next
+        }
+      }
       e.flushed = true
-    })
-    return data.length
+    }
+
+    if (toCreate.length) await this.db.invoiceApproveUndo.createMany({ data: toCreate, skipDuplicates: true })
+    for (const u of toUpdate) {
+      await this.db.invoiceApproveUndo.updateMany({
+        where: { sessionId: this.sessionId, kind: u.kind, targetId: u.targetId },
+        data: { next: u.next as Prisma.InputJsonValue },
+      })
+    }
+    return toCreate.length + toUpdate.length
   }
 }

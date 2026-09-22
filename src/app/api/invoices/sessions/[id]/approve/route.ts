@@ -16,7 +16,7 @@ import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/li
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
 import { lookupDensity } from '@/lib/density'
-import { UndoCollector, OFFER_SELECT, offerState, itemState } from '@/lib/invoice/approve-undo'
+import { UndoCollector, OFFER_SELECT, offerState, itemState, offerCaptureFor } from '@/lib/invoice/approve-undo'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
@@ -54,10 +54,10 @@ async function doApprove(
     const undo = new UndoCollector(sessionId)
     await prisma.invoiceApproveUndo
       .deleteMany({ where: { sessionId } })
-      .catch((e) => console.error('[approve] undo cleanup failed:', e))
+      .catch((e) => console.error(`[approve-undo] session ${sessionId}: cleanup failed:`, e))
     // Never let bookkeeping fail an approval (the table may not exist yet on an
     // un-migrated deploy): a lost record degrades DELETE to its legacy path.
-    const flushUndo = () => undo.flush().catch((e) => console.error('[approve] undo flush failed:', e))
+    const flushUndo = () => undo.flush().catch((e) => console.error(`[approve-undo] session ${sessionId}: flush failed:`, e))
 
     const itemsToProcess = session.scanItems.filter(
       item => item.action !== 'SKIP' && item.action !== 'PENDING'
@@ -671,7 +671,15 @@ async function doApprove(
               }
 
           // Undo: the offer row as it stands BEFORE this upsert (absent → the
-          // upsert creates it, recorded below once its id is known).
+          // upsert creates it, recorded below once its id is known). The read
+          // is wrapped in `.catch` so a transient failure never fails the
+          // approval — but a failed read must NOT be treated as "no existing
+          // row": the upsert below still runs and may UPDATE a pre-existing
+          // offer, and recording that as a `created()` (prev: null) would let
+          // a later rollback DELETE an offer this invoice never created.
+          // `offerReadOk` tracks the read outcome separately so a failure
+          // records nothing at all for this offer this run.
+          let offerReadOk = true
           const existingOffer = await prisma.inventorySupplierPrice.findUnique({
             where: {
               inventoryItemId_supplierName: {
@@ -680,8 +688,7 @@ async function doApprove(
               },
             },
             select: { id: true, ...OFFER_SELECT },
-          }).catch(() => null)
-          if (existingOffer) undo.before('OFFER', existingOffer.id, offerState(existingOffer))
+          }).catch(() => { offerReadOk = false; return null })
 
           const upsertedOffer = await prisma.inventorySupplierPrice.upsert({
             where: {
@@ -721,7 +728,9 @@ async function doApprove(
             // so a freshly created offer can be recorded for undo.
             select: { id: true },
           }).catch((e) => { console.error('[approve] offer upsert failed:', e); return null })
-          if (!existingOffer && upsertedOffer) undo.created('OFFER', upsertedOffer.id)
+          const offerCapture = offerCaptureFor(offerReadOk, existingOffer, upsertedOffer)
+          if (offerCapture.kind === 'before') undo.before('OFFER', offerCapture.id, offerCapture.prev)
+          else if (offerCapture.kind === 'created') undo.created('OFFER', offerCapture.id)
         }
 
         // ── Primary-offer authority ─────────────────────────────────────────

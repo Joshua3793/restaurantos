@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const prismaMock = vi.hoisted(() => ({}) as any)
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
-import { offerState, itemState, ruleState, canonEqual, UndoCollector } from '@/lib/invoice/approve-undo'
+import { offerState, itemState, ruleState, canonEqual, UndoCollector, offerCaptureFor } from '@/lib/invoice/approve-undo'
 import { Prisma } from '@prisma/client'
 
 describe('state selectors', () => {
@@ -133,6 +133,103 @@ describe('UndoCollector', () => {
     c.created('OFFER', 'o1')
     await c.flush()
     expect(created[0].prev).toBe(Prisma.JsonNull)
+  })
+
+  it('flush() refreshes next for an already-flushed entry whose row was rewritten by a later write: updateMany, no duplicate create; a third flush with no further change writes nothing', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const created: any[] = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updated: any[] = []
+    // A live row, mutated between flushes to simulate a second scan line
+    // rewriting the same offer after the first line's flush already ran.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = {
+      id: 'o1',
+      lastPrice: '1',
+      packQty: null,
+      packSize: null,
+      packUOM: null,
+      packChain: [],
+      pricing: {},
+      supplierId: null,
+      supplierItemCode: null,
+      isPrimary: true,
+      lastInvoiceSessionId: 's1',
+    }
+    const d = {
+      inventorySupplierPrice: { findMany: async () => [row] },
+      inventoryItem: { findMany: async () => [] },
+      invoiceMatchRule: { findMany: async () => [] },
+      invoiceApproveUndo: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        createMany: async ({ data }: any) => {
+          created.push(...data)
+          return { count: data.length }
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        updateMany: async (args: any) => {
+          updated.push(args)
+          return { count: 1 }
+        },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any
+    const c = new UndoCollector('s1', d)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    c.before('OFFER', 'o1', { lastPrice: 0 } as any)
+
+    expect(await c.flush()).toBe(1)
+    expect(created).toHaveLength(1)
+    expect(created[0].next.lastPrice).toBe(1)
+    expect(updated).toHaveLength(0)
+
+    // Line 2 rewrites the row after line 1's flush already ran.
+    row.lastPrice = '2'
+    expect(await c.flush()).toBe(1)
+    expect(created).toHaveLength(1) // no duplicate create — the row already has one
+    expect(updated).toHaveLength(1)
+    expect(updated[0]).toMatchObject({
+      where: { sessionId: 's1', kind: 'OFFER', targetId: 'o1' },
+    })
+    expect(updated[0].data.next.lastPrice).toBe(2)
+    // prev is never part of the update payload.
+    expect(updated[0].data.prev).toBeUndefined()
+
+    // No further change → no writes of any kind.
+    expect(await c.flush()).toBe(0)
+    expect(created).toHaveLength(1)
+    expect(updated).toHaveLength(1)
+  })
+})
+
+describe('offerCaptureFor', () => {
+  const existing = { id: 'o1', ...{
+    lastPrice: '10', packQty: null, packSize: null, packUOM: null, packChain: [],
+    pricing: {}, supplierId: null, supplierItemCode: null, isPrimary: true, lastInvoiceSessionId: null,
+  } }
+
+  it('records "before" the existing row when the pre-upsert read succeeded and found one', () => {
+    const action = offerCaptureFor(true, existing, { id: 'o1' })
+    expect(action).toMatchObject({ kind: 'before', id: 'o1' })
+    if (action.kind === 'before') expect(action.prev.lastPrice).toBe(10)
+  })
+
+  it('records "created" when the read succeeded and found nothing, but the upsert produced a row', () => {
+    const action = offerCaptureFor(true, null, { id: 'o2' })
+    expect(action).toEqual({ kind: 'created', id: 'o2' })
+  })
+
+  it('records nothing when the read failed — even though the upsert went on to update a pre-existing row', () => {
+    // The exact hazard: a transient read failure must never be treated as
+    // "row did not exist", because that would record prev: null for a row
+    // that predates this invoice — a later rollback would then DELETE it.
+    const action = offerCaptureFor(false, null, { id: 'o3' })
+    expect(action).toEqual({ kind: 'none' })
+  })
+
+  it('records nothing when the read succeeded, found nothing, AND the upsert itself failed', () => {
+    const action = offerCaptureFor(true, null, null)
+    expect(action).toEqual({ kind: 'none' })
   })
 })
 
