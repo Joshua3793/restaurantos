@@ -42,6 +42,10 @@ async function doApprove(
   let priceAlertsCreated = 0
   let newItemsCreated = 0
   let skippedLines = 0
+  // A skipped CREATE_NEW is a DIFFERENT failure from a skipped price write: no
+  // product was created at all, so "price not updated" would describe a row that
+  // does not exist. Collected separately so the session message can say which.
+  const skippedCreateNew: string[] = []
   try {
     // ── Undo records ────────────────────────────────────────────────────────
     // What this approval overwrites, captured per row BEFORE its first write and
@@ -846,9 +850,10 @@ async function doApprove(
         // skip instead and leave the line un-approved.
         if (!scanItem.newItemData) {
           console.error(
-            `[approve] Skipping CREATE_NEW for "${scanItem.rawDescription}" — no newItemData configured`
+            `[approve] Not creating a product for "${scanItem.rawDescription}" — the line was never configured in the Add new product form (no newItemData)`
           )
           skippedLines++
+          skippedCreateNew.push(`"${scanItem.rawDescription}" was never configured in the Add new product form`)
           continue
         }
         const newData = JSON.parse(scanItem.newItemData)
@@ -866,9 +871,19 @@ async function doApprove(
                 countUnit: newData.countUnit || 'each',
               }
             : formToChain({
+                // The line's own seed is the FLOOR — a by-weight line with no
+                // legacy pack fields still opens as a weight item. Everything the
+                // chef actually typed into the old form overrides it, field for
+                // field, exactly as the pre-seed fallback honoured them: dropping
+                // any of these silently rebuilt the item as `1 × 1 each`.
                 ...seedFromScanLine(scanItem),
                 ...(newData.purchaseUnit ? { purchaseUnit: newData.purchaseUnit } : {}),
                 ...(newData.purchasePrice ? { purchasePrice: Number(newData.purchasePrice) } : {}),
+                ...(newData.qtyPerPurchaseUnit ? { qtyPerPurchaseUnit: Number(newData.qtyPerPurchaseUnit) } : {}),
+                ...(newData.packSize ? { packSize: Number(newData.packSize) } : {}),
+                ...(newData.packUOM ? { packUOM: newData.packUOM } : {}),
+                ...(newData.priceType ? { priceType: newData.priceType === 'UOM' ? 'UOM' as const : 'CASE' as const } : {}),
+                ...(newData.countUOM ? { countUOM: newData.countUOM } : {}),
                 ...(newData.baseUnit ? { baseUnit: newData.baseUnit } : {}),
               })
         // A counted item bought by weight needs to know how much "one" weighs
@@ -876,8 +891,9 @@ async function doApprove(
         // (weight) into the units the item is counted in.
         const gate = validateCreateNew({ line: scanItem, dimension: newChain.dimension, eachMeasureQty: newData.eachMeasureQty })
         if (!gate.ok) {
-          console.error(`[approve] Skipping "${scanItem.rawDescription}" — ${gate.error}`)
+          console.error(`[approve] Not creating a product for "${scanItem.rawDescription}" — ${gate.error}`)
           skippedLines++
+          skippedCreateNew.push(`"${scanItem.rawDescription}": ${gate.error}`)
           continue
         }
         // Headline purchasePrice for the column: PACK price, or RATE rate.
@@ -971,8 +987,26 @@ async function doApprove(
       }
     }
 
-    // Mark session as APPROVED. If any lines were skipped (price not safely
-    // resolvable), surface that on the session so it isn't silently lost.
+    // Mark session as APPROVED. If any lines were skipped, surface that on the
+    // session so it isn't silently lost — and say WHICH failure it was. A price
+    // write that could not be resolved left the item alone; a CREATE_NEW that was
+    // refused never created the product at all, so it must not be reported as a
+    // price that was not updated.
+    const plural = (n: number) => (n === 1 ? '' : 's')
+    const priceSkips = skippedLines - skippedCreateNew.length
+    const skipParts: string[] = []
+    if (priceSkips > 0) {
+      skipParts.push(
+        `${priceSkips} line${plural(priceSkips)} skipped — price not updated ` +
+        `(a dimension conflict or unresolvable price blocked the write).`,
+      )
+    }
+    if (skippedCreateNew.length > 0) {
+      skipParts.push(
+        `${skippedCreateNew.length} new product${plural(skippedCreateNew.length)} not created — ` +
+        `${skippedCreateNew.join('; ')}.`,
+      )
+    }
     const approvedNow = new Date()
     await prisma.invoiceSession.update({
       where: { id: sessionId },
@@ -984,10 +1018,8 @@ async function doApprove(
         // ALL purchase-spend reporting windows on this. See src/lib/purchase-date.ts.
         purchaseDate: resolvePurchaseDate(session.invoiceDate, approvedNow),
         revenueCenterId: effectiveSessionRcId,
-        ...(skippedLines > 0
-          ? {
-              errorMessage: `${skippedLines} line${skippedLines === 1 ? '' : 's'} skipped — price not updated (a dimension conflict or unresolvable price blocked the write). Re-open the invoice to review.`,
-            }
+        ...(skipParts.length > 0
+          ? { errorMessage: `${skipParts.join(' ')} Re-open the invoice to review.` }
           : {}),
       },
     })
