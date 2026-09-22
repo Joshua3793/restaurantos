@@ -1,7 +1,7 @@
 # Creating a product from a by-weight invoice line gets the right dimension — design
 
 **Date:** 2026-09-22
-**Status:** design, not implemented
+**Status:** implemented
 **Builds on:** `2026-09-21-weight-priced-count-items-design.md` (the each-measure model this reuses for the COUNT case), `2026-09-21-line-first-receiving-design.md` (the receipt is frozen through the created item).
 
 ## The problem
@@ -54,3 +54,14 @@ For a `CREATE_NEW` line, approve:
 ## Out of scope
 
 Normalising the 30 correctly-dimensioned by-weight items whose chain link is labelled `each` for a pound (count-unit display only; pricing is RATE so costs are right); the create-new modal's other fields; merging duplicates.
+
+## As built (2026-09-22)
+
+- `seedFromScanLine` reproduces the modal's old per-case literal exactly, field for field, for a per-case line (asserted in `src/lib/__tests__/create-new-seed.test.ts`) — the by-weight path is additive, not a rewrite of the existing case.
+- The COUNT flip never relabels the stored rate. The dimension toggle keeps `pricing.rateUnit` on the line's measure unit (`$/lb`, never `$/each`) whenever COUNT is on either side of the flip, deriving `$/each` from the each-measure at read time (the #135 bridge) instead of mislabelling the unit. A first pass (`6768ed8`) always restored `seed.packChain` on the way back out of COUNT, which silently discarded a chef's own chain edit and also fired on plain MASS↔VOLUME flips; the fix (`62a4935`) snapshots the live chain into `chainBeforeCount` the instant COUNT is entered, restores it (not the original seed) on the way back, and scopes the whole by-weight branch to flips that actually touch COUNT — a MASS↔VOLUME flip is untouched by any of this.
+- `scripts/audit-create-new-shape.ts` reports two findings, not one:
+  - **A — self-contradictory shape** (COUNT with a measure-unit chain link, RATE per each over a measured pack, or a measure link with `per === 1`): Potatoes Kennebec O/S, TRSM Sour Tuscan Salami, Kohlrabi Green.
+  - **B — born from a by-weight `CREATE_NEW` line, still COUNT with no each-measure** (a shape A's predicate can't see on its own, since most of the catalogue is legitimately `COUNT` / `[{each:1}]` / `RATE $/each`): a candidate list scoped to items whose most recent approved `CREATE_NEW` line was by-weight. Fennel O/S is the real hit; the same scan also surfaces items that are genuinely counted and were excluded — e.g. ENGLISH MUFFIN GF 4PK, which is `CREATE_NEW`-born from a by-weight-shaped line but is correctly a counted product with no weight relationship to repair. B is a worklist for a human, not an auto-repair queue.
+- The repair script never rewrites `stockOnHand` or `StockAllocation.quantity` — both are printed per item in the dry run for hand review, on the reasoning that theoretical stock is computed from counts + receipts on read and the stored figures are expected to be inert either way.
+- Salami's `3.135 each` count line (entered after the item was flipped to COUNT, so the corrected item has no `each` level to resolve it against) is handled via `--count-unit-override <lineId>=lb`, matching the `3.135 lb` count immediately before it in the same session.
+- _Repair: (controller fills in after the run)_
