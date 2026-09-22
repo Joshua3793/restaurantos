@@ -268,7 +268,10 @@ export interface CostContext {
   prices: Map<string, ItemCostBasis>
   /** One fetch per prep per request. */
   memo: Map<string, RecipeWithCost | null>
-  /** Recipes on the current recursion path — a repeat is a cycle. */
+  /** Recipes on the current recursion path — a repeat is a cycle. ONE path per
+   *  context: cost recipes SEQUENTIALLY with a shared ctx, never under
+   *  Promise.all, or two branches see each other's ids as a spurious cycle and
+   *  silently price a nested prep at its spine. */
   visiting: Set<string>
   /** As-of date for the window; nested merges reuse it so the whole page agrees. */
   asOf?: Date
