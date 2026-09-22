@@ -66,6 +66,7 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onP
   const rasterCache = useRef<Map<string, Raster>>(new Map())
 
   const stageRef  = useRef<HTMLDivElement>(null)
+  const imgRef    = useRef<HTMLImageElement>(null)
   const dragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
 
   // A single PDF file is paged by its INTERNAL pages (activeIdx = page index);
@@ -90,6 +91,15 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onP
 
   const imgSrc = singlePdf ? raster?.url : file?.fileUrl
   const plateReady = (isImage && !!file?.fileUrl) || (singlePdf && !!raster)
+
+  // ── Natural size for an image the browser already had ──────────────────────
+  // A cached image can finish loading before React attaches onLoad, so onLoad
+  // never fires, `natural` stays null, and the row highlight is never drawn.
+  useEffect(() => {
+    const el = imgRef.current
+    if (singlePdf || natural || !el?.complete || !el.naturalWidth) return
+    setNatural({ w: el.naturalWidth, h: el.naturalHeight })
+  }, [imgSrc, singlePdf, natural])
 
   // ── Stage size — ONE ResizeObserver ─────────────────────────────────────────
   useEffect(() => {
@@ -312,6 +322,7 @@ export function ImageViewerV2({ files, activeBbox, sessionId, onFileRotated, onP
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
+              ref={imgRef}
               src={imgSrc}
               alt={file.fileName}
               draggable={false}

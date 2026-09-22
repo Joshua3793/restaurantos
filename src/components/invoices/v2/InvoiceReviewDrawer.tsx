@@ -5,7 +5,7 @@
 import {
   useState, useEffect, useCallback, useMemo, useRef,
 } from 'react'
-import { X, Check, Loader2, AlertTriangle, ChevronUp, ChevronDown, Search, Plus } from 'lucide-react'
+import { X, Check, Loader2, AlertTriangle, ChevronUp, ChevronDown, ChevronLeft, Search, Plus, Eye } from 'lucide-react'
 import { DrawerContext, type DrawerContextValue } from './context'
 import { LineItemCard } from './card'
 import { type ReconcileResult, type InventorySearchResult, matchPatchFromResult } from './composites'
@@ -1188,7 +1188,7 @@ export function InvoiceReviewDrawer({
     setLineRc,
     startLinkPicker: (id) => setPickingLinkForId(id),
     closeLinkPicker: ()   => setPickingLinkForId(null),
-    openCreateNew:          (item) => setCreatingNewForItem(item),
+    openCreateNew:          (item) => { setCreatingNewForItem(item); setActiveBboxItemId(item.id) },
     openInventoryEdit:      (id)   => setEditingInventoryItemId(id),
     adoptInvoiceFormat:     (item) => setAdoptingForItem(item),
     bridgeAndReceiveAsCount,
@@ -1311,7 +1311,7 @@ export function InvoiceReviewDrawer({
                       : 'text-ink-4'
                   }`}
                 >
-                  Review items
+                  {creatingNewForItem ? 'New product' : 'Review items'}
                 </button>
                 <button
                   onClick={() => setMobileTab('image')}
@@ -1353,7 +1353,7 @@ export function InvoiceReviewDrawer({
               )}
 
               {/* ── Review panel ───────────────────────────────────────────── */}
-              <div className={`flex flex-col flex-1 min-w-0 min-h-0 md:flex-none md:w-[680px] overflow-hidden ${
+              <div className={`relative flex flex-col flex-1 min-w-0 min-h-0 md:flex-none md:w-[680px] overflow-hidden ${
                 session.files.length > 0 && mobileTab === 'image' ? 'hidden md:flex' : 'flex'
               }`}>
                 {/* Review progress + segmented filter */}
@@ -1440,6 +1440,55 @@ export function InvoiceReviewDrawer({
                     <span className="text-[13px] text-ink-3">Approving…</span>
                   </div>
                 )}
+
+                {/* Create new product — takes over the review column so the invoice
+                    image stays in view (desktop: side by side; mobile: the tab bar
+                    flips between the two and the form keeps what was typed). */}
+                {creatingNewForItem && (
+                  <CreateNewProductPanel
+                    item={creatingNewForItem}
+                    sessionId={session.id}
+                    sessionSupplierId={session.supplierId ?? null}
+                    sessionSupplierName={session.supplierName ?? null}
+                    hasImage={session.files.length > 0}
+                    similar={similarForNewItem ? {
+                      id:          similarForNewItem.id,
+                      itemName:    similarForNewItem.itemName,
+                      recipeCount: similarForNewItem.recipeCount,
+                    } : null}
+                    onUseExisting={(itemId) => {
+                      if (creatingNewForItem && similarForNewItem && similarForNewItem.id === itemId) {
+                        // Same-good, different supplier — link the line to the existing item as
+                        // a NEW supplier offer rather than spawning a duplicate item. Waits for
+                        // the PATCH, then drops the staged partial matchedItem and refreshes —
+                        // see linkExistingItem.
+                        void linkExistingItem(creatingNewForItem.id, similarForNewItem, 'ADD_SUPPLIER')
+                      } else if (session) {
+                        refreshSession(session.id)
+                      }
+                      setCreatingNewForItem(null)
+                      setSimilarForNewItem(null)
+                    }}
+                    onSaved={(newItemDataJson) => {
+                      if (creatingNewForItem) {
+                        updateLine(creatingNewForItem.id, {
+                          action: 'CREATE_NEW',
+                          isNewItem: true,
+                          matchedItemId: null,
+                          matchedItem: null,
+                          // staged locally so the card reads as configured immediately —
+                          // isUnlinked/isCreateNew key off newItemData being present
+                          newItemData: newItemDataJson,
+                        })
+                      }
+                      setCreatingNewForItem(null)
+                      setSimilarForNewItem(null)
+                      if (session) refreshSession(session.id)
+                    }}
+                    onShowOnInvoice={() => showLineOnImage(creatingNewForItem.id)}
+                    onClose={() => { setCreatingNewForItem(null); setSimilarForNewItem(null) }}
+                  />
+                )}
               </div>
             </div>
           </DrawerContext.Provider>
@@ -1464,50 +1513,6 @@ export function InvoiceReviewDrawer({
         />
       )}
 
-      {/* Create new item mini-modal */}
-      {creatingNewForItem && (
-        <AddNewItemModal
-          item={creatingNewForItem}
-          sessionId={session?.id ?? ''}
-          sessionSupplierId={session?.supplierId ?? null}
-          sessionSupplierName={session?.supplierName ?? null}
-          similar={similarForNewItem ? {
-            id:          similarForNewItem.id,
-            itemName:    similarForNewItem.itemName,
-            recipeCount: similarForNewItem.recipeCount,
-          } : null}
-          onUseExisting={(itemId) => {
-            if (creatingNewForItem && similarForNewItem && similarForNewItem.id === itemId) {
-              // Same-good, different supplier — link the line to the existing item as
-              // a NEW supplier offer rather than spawning a duplicate item. Waits for
-              // the PATCH, then drops the staged partial matchedItem and refreshes —
-              // see linkExistingItem.
-              void linkExistingItem(creatingNewForItem.id, similarForNewItem, 'ADD_SUPPLIER')
-            } else if (session) {
-              refreshSession(session.id)
-            }
-            setCreatingNewForItem(null)
-            setSimilarForNewItem(null)
-          }}
-          onSaved={(newItemDataJson) => {
-            if (creatingNewForItem) {
-              updateLine(creatingNewForItem.id, {
-                action: 'CREATE_NEW',
-                isNewItem: true,
-                matchedItemId: null,
-                matchedItem: null,
-                // staged locally so the card reads as configured immediately —
-                // isUnlinked/isCreateNew key off newItemData being present
-                newItemData: newItemDataJson,
-              })
-            }
-            setCreatingNewForItem(null)
-            setSimilarForNewItem(null)
-            if (session) refreshSession(session.id)
-          }}
-          onClose={() => { setCreatingNewForItem(null); setSimilarForNewItem(null) }}
-        />
-      )}
     </>
   )
 }
@@ -1558,17 +1563,21 @@ function EachMeasureField({
   )
 }
 
-// ─── AddNewItemModal ───────────────────────────────────────────────────────────
+// ─── CreateNewProductPanel ───────────────────────────────────────────────────────────
 // Full form to configure a new inventory item before approve creates it.
+// Rendered over the review column (not as a centred modal) so the invoice image
+// stays visible and zoomable while the chef checks the scan against the paper.
 
-function AddNewItemModal({
+function CreateNewProductPanel({
   item,
   sessionId,
   sessionSupplierId,
   sessionSupplierName,
+  hasImage,
   similar,
   onUseExisting,
   onSaved,
+  onShowOnInvoice,
   onClose,
 }: {
   item: ScanItem
@@ -1576,6 +1585,8 @@ function AddNewItemModal({
   /** The invoice's supplier — pre-selected so a new product inherits it. */
   sessionSupplierId: string | null
   sessionSupplierName: string | null
+  /** The invoice has a scanned image to point at. */
+  hasImage: boolean
   /** Best existing-item match for this line's description, when it looks like the
    *  same good — powers the "Add as a supplier instead" banner. */
   similar?: { id: string; itemName: string; recipeCount: number } | null
@@ -1583,6 +1594,8 @@ function AddNewItemModal({
   onUseExisting?: (itemId: string) => void
   /** Receives the configured newItemData as the stored JSON string. */
   onSaved: (newItemDataJson: string) => void
+  /** Highlight this line on the invoice image (and flip to it on mobile). */
+  onShowOnInvoice: () => void
   onClose: () => void
 }) {
   const [saving,     setSaving]     = useState(false)
@@ -1615,6 +1628,10 @@ function AddNewItemModal({
   // flipping back to a measured dimension; `seed.packChain` is only the
   // fallback for the very first flip, when nothing has been edited yet.
   const [chainBeforeCount, setChainBeforeCount] = useState<PackLink[] | null>(null)
+  // A by-weight line is bought loose — its one-link chain (`1 lb = 453.592 g`) is
+  // just the unit, not a case, so the pack editor starts folded away. A per-case
+  // line opens it: the case size is the thing most worth checking on the paper.
+  const [packOpen, setPackOpen] = useState(!byWeight)
 
   useEffect(() => {
     fetch('/api/categories').then(r => r.json()).then((data: { name: string }[]) => {
@@ -1660,7 +1677,7 @@ function AddNewItemModal({
       eachMeasureQty:  dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? eachMeasureQty : null,
       eachMeasureUnit: dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? eachMeasureUnit : null,
     }
-    await fetch(`/api/invoices/sessions/${sessionId}`, {
+    const res = await fetch(`/api/invoices/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1670,58 +1687,67 @@ function AddNewItemModal({
         matchedItemId: null,
         newItemData,
       }),
-    })
+    }).catch(() => null)
     setSaving(false)
+    if (!res?.ok) { alert('Could not save the new product — check your connection and try again.'); return }
     onSaved(JSON.stringify(newItemData))
   }
 
   const inputCls = 'w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold'
   const labelCls = 'block text-xs font-medium text-ink-3 mb-1'
 
+  const sectionCls = 'text-[10.5px] font-semibold uppercase tracking-wide text-ink-4'
+
   return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-[60]" onClick={onClose} />
-      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-        <div className="bg-paper rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-bg-2">
-            <div>
-              <h3 className="text-[16px] font-semibold text-ink">Create new product</h3>
-              <p className="text-[12px] text-ink-4 mt-0.5">These fields will be set when the invoice is approved.</p>
-            </div>
-            <button type="button" onClick={onClose} className="p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3 transition-colors">
-              <X size={18} />
+    <div className="absolute inset-0 z-20 bg-paper flex flex-col">
+      {/* Header — back to the line list; the invoice stays open beside it */}
+      <div className="flex items-center gap-2 px-[18px] py-3 border-b border-line shrink-0">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Back to the invoice lines"
+          className="p-1.5 -ml-1.5 rounded-md text-ink-3 hover:text-ink hover:bg-bg transition-colors"
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-semibold text-ink leading-tight">New product</h3>
+          <p className="text-[11.5px] text-ink-4">Created when the invoice is approved.</p>
+        </div>
+      </div>
+
+      {/* Form */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] py-4 space-y-5">
+        <InvoiceLineFacts item={item} hasImage={hasImage} onShowOnInvoice={onShowOnInvoice} />
+
+        {similar && onUseExisting && (
+          <div className="flex items-start gap-2.5 bg-gold-soft border border-gold-soft rounded-lg px-3 py-2.5">
+            <span className="text-[12.5px] text-ink-2 leading-[1.45] flex-1">
+              Looks like <b className="font-semibold text-ink">{similar.itemName}</b>
+              {similar.recipeCount > 0 ? <> (used in {similar.recipeCount} recipe{similar.recipeCount === 1 ? '' : 's'})</> : null}.
+              A second item splits its stock away from your recipes.
+            </span>
+            <button type="button" onClick={() => onUseExisting(similar.id)}
+              className="shrink-0 text-[12px] font-semibold text-ink underline underline-offset-2">
+              Add as a supplier instead
             </button>
           </div>
+        )}
 
-          {/* Form */}
-          <div className="overflow-y-auto px-6 py-5 space-y-4">
-            {similar && onUseExisting && (
-              <div className="mb-3 flex items-start gap-2.5 bg-gold-soft border border-gold-soft rounded-lg px-3 py-2.5">
-                <span className="text-[12.5px] text-ink-2 leading-[1.45] flex-1">
-                  Looks like <b className="font-semibold text-ink">{similar.itemName}</b>
-                  {similar.recipeCount > 0 ? <> (used in {similar.recipeCount} recipe{similar.recipeCount === 1 ? '' : 's'})</> : null}.
-                  A second item splits its stock away from your recipes.
-                </span>
-                <button type="button" onClick={() => onUseExisting(similar.id)}
-                  className="shrink-0 text-[12px] font-semibold text-ink underline underline-offset-2">
-                  Add as a supplier instead
-                </button>
-              </div>
-            )}
-            {/* Item name */}
-            <div>
-              <label className={labelCls}>Item name</label>
-              <input
-                type="text"
-                value={itemName}
-                onChange={e => setItemName(e.target.value)}
-                className={inputCls}
-                placeholder={item.rawDescription ?? ''}
-              />
-            </div>
-
-            {/* Category */}
+        {/* ── What it is ─────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <div className={sectionCls}>What it is</div>
+          <div>
+            <label className={labelCls}>Item name</label>
+            <input
+              type="text"
+              value={itemName}
+              onChange={e => setItemName(e.target.value)}
+              className={inputCls}
+              placeholder={item.rawDescription ?? ''}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className={labelCls}>Category</label>
               <select value={category} onChange={e => setCategory(e.target.value)} className={`${inputCls} bg-white`}>
@@ -1730,7 +1756,6 @@ function AddNewItemModal({
                 ))}
               </select>
             </div>
-
             {/* Supplier — pre-selected from the invoice */}
             <div>
               <label className={labelCls}>Supplier</label>
@@ -1742,7 +1767,6 @@ function AddNewItemModal({
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
-
             {/* Location — a storage area already established in the app */}
             <div>
               <label className={labelCls}>Location</label>
@@ -1751,70 +1775,78 @@ function AddNewItemModal({
                 {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
+          </div>
+        </section>
 
-            {/* Pricing mode first — the top-level structural choice — then how the
-                item is measured, then its pack chain. */}
-            <PricingEditor dimension={dimension} pricing={pricing} onChange={setPricing} />
+        {/* ── How you buy it ─────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <div className={sectionCls}>How you buy it</div>
 
-            <DimensionToggle
-              dimension={dimension}
-              onChange={d => {
-                setDimension(d)
-                // A by-weight line's real price is $/measure (e.g. $/lb) — that
-                // never changes shape just because the item is now COUNTED in
-                // units. Flipping to COUNT keeps the stored rate bridged on the
-                // measure unit (ratePerBase resolves $/each via eachMeasure at
-                // read time); flipping back to a measured dimension restores it
-                // the same way. This only applies to a COUNT ↔ measured-dimension
-                // transition — a measured → measured flip (MASS ↔ VOLUME) goes
-                // through the pre-existing handler below exactly as before.
-                const keepMeasure = byWeight && !!measure && (dimension === 'COUNT' || d === 'COUNT')
-                setPricing(p => p.mode === 'RATE'
-                  ? {
-                      mode: 'RATE',
-                      rate: p.rate,
-                      rateUnit: keepMeasure
-                        ? measure
-                        : measure && DIM_UNITS[d].includes(measure) ? measure : DIM_UNITS[d][0],
+                <DimensionToggle
+                  dimension={dimension}
+                  onChange={d => {
+                    setDimension(d)
+                    // A by-weight line's real price is $/measure (e.g. $/lb) — that
+                    // never changes shape just because the item is now COUNTED in
+                    // units. Flipping to COUNT keeps the stored rate bridged on the
+                    // measure unit (ratePerBase resolves $/each via eachMeasure at
+                    // read time); flipping back to a measured dimension restores it
+                    // the same way. This only applies to a COUNT ↔ measured-dimension
+                    // transition — a measured → measured flip (MASS ↔ VOLUME) goes
+                    // through the pre-existing handler below exactly as before.
+                    const keepMeasure = byWeight && !!measure && (dimension === 'COUNT' || d === 'COUNT')
+                    setPricing(p => p.mode === 'RATE'
+                      ? {
+                          mode: 'RATE',
+                          rate: p.rate,
+                          rateUnit: keepMeasure
+                            ? measure
+                            : measure && DIM_UNITS[d].includes(measure) ? measure : DIM_UNITS[d][0],
+                        }
+                      : p)
+                    // Same for the pack chain: a by-weight item flipped to COUNT
+                    // needs the ordinary single count-level link (the chain isn't
+                    // what prices it — the bridged rate above is); flipping back to
+                    // a measured dimension restores whatever chain the chef was
+                    // editing right before the COUNT round-trip (`chainBeforeCount`),
+                    // never the original `seed.packChain` once it's been edited —
+                    // `seed.packChain` is only the fallback for the very first flip.
+                    let nextChain: PackLink[]
+                    if (keepMeasure && d === 'COUNT') {
+                      setChainBeforeCount(chain)
+                      nextChain = [{ unit: 'each', per: 1 }]
+                    } else if (keepMeasure) {
+                      nextChain = chainBeforeCount ?? seed.packChain
+                      setChainBeforeCount(null)
+                    } else {
+                      nextChain = chain
                     }
-                  : p)
-                // Same for the pack chain: a by-weight item flipped to COUNT
-                // needs the ordinary single count-level link (the chain isn't
-                // what prices it — the bridged rate above is); flipping back to
-                // a measured dimension restores whatever chain the chef was
-                // editing right before the COUNT round-trip (`chainBeforeCount`),
-                // never the original `seed.packChain` once it's been edited —
-                // `seed.packChain` is only the fallback for the very first flip.
-                let nextChain: PackLink[]
-                if (keepMeasure && d === 'COUNT') {
-                  setChainBeforeCount(chain)
-                  nextChain = [{ unit: 'each', per: 1 }]
-                } else if (keepMeasure) {
-                  nextChain = chainBeforeCount ?? seed.packChain
-                  setChainBeforeCount(null)
-                } else {
-                  nextChain = chain
-                }
-                setChain(nextChain)
-                const opts = countUnitOptions(d, nextChain)
-                setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
-              }}
+                    setChain(nextChain)
+                    const opts = countUnitOptions(d, nextChain)
+                    setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
+                  }}
+                />
+
+          {byWeight && measure && seedRate !== null && (
+            <p className="text-[11.5px] text-ink-3 -mt-1">
+              The invoice bills this by weight — <b className="font-semibold text-ink">{formatCurrency(seedRate)}/{measure}</b>.
+            </p>
+          )}
+
+          {byWeight && dimension === 'COUNT' && (
+            <EachMeasureField
+              qty={eachMeasureQty}
+              unit={eachMeasureUnit}
+              onQtyChange={setEachMeasureQty}
+              onUnitChange={setEachMeasureUnit}
+              caption="Bought by weight but counted as units — how much does one weigh?"
             />
+          )}
 
-            {byWeight && measure && seedRate !== null && (
-              <p className="text-[11px] text-ink-4 mt-1">Billed by weight ({formatCurrency(seedRate)}/{measure})</p>
-            )}
+          <PricingEditor dimension={dimension} pricing={pricing} onChange={setPricing} />
 
-            {byWeight && dimension === 'COUNT' && (
-              <EachMeasureField
-                qty={eachMeasureQty}
-                unit={eachMeasureUnit}
-                onQtyChange={setEachMeasureQty}
-                onUnitChange={setEachMeasureUnit}
-                caption="Bought by weight but counted as units — how much does one weigh?"
-              />
-            )}
-
+          {/* Packaging — folded for a loose by-weight buy (there is no case) */}
+          {packOpen ? (
             <PackChainEditor
               chain={chain}
               baseUnit={baseUnit}
@@ -1825,54 +1857,119 @@ function AddNewItemModal({
                 setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
               }}
             />
-
-            {/* Count unit */}
-            <div>
-              <label className={labelCls}>Count unit</label>
-              <select value={countUnit} onChange={e => setCountUnit(e.target.value)} className={`${inputCls} bg-white`}>
-                {countUnitOptions(dimension, chain).map(u => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </div>
-
-            {/* Live preview */}
-            <div className="bg-gold-soft rounded-lg p-3 space-y-1.5">
-              <div className="text-xs font-semibold uppercase tracking-wide text-gold-2">Live preview</div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-xs text-gold-2">Price:</span>
-                <span className="text-lg font-bold text-gold-2">{formatPricePerBase(ppb, baseUnit)}</span>
-              </div>
-              <div className="text-xs text-gold-2">
-                1 {countUnit} = {perCount.toLocaleString()} {baseUnit}
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="px-6 py-4 border-t border-bg-2">
-            <div className="flex justify-end gap-2">
+          ) : (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
+              <span className="text-[12.5px] text-ink-3">
+                Bought loose{measure ? <> by the <b className="font-semibold text-ink-2">{measure}</b></> : null} — no case size.
+              </span>
               <button
                 type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-[13px] text-ink-3 border border-line rounded-lg hover:bg-bg transition-colors"
+                onClick={() => setPackOpen(true)}
+                className="shrink-0 text-[12px] font-medium text-gold-2 hover:text-gold transition-colors"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || !gate.ok}
-                className="px-4 py-2 text-[13px] font-medium bg-ink text-paper rounded-lg hover:bg-ink-2 disabled:opacity-50 transition-colors"
-              >
-                {saving ? 'Saving…' : 'Save & flag for approval'}
+                It comes in a case
               </button>
             </div>
-            {!gate.ok && (
-              <p className="text-[11px] text-red-text mt-2 text-right">{gate.error}</p>
-            )}
+          )}
+
+          {/* Count unit */}
+          <div>
+            <label className={labelCls}>Count it in</label>
+            <select value={countUnit} onChange={e => setCountUnit(e.target.value)} className={`${inputCls} bg-white`}>
+              {countUnitOptions(dimension, chain).map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
           </div>
-        </div>
+        </section>
       </div>
-    </>
+
+      {/* Footer — the resulting cost stays in view while fields change */}
+      <div
+        className="border-t border-line px-[18px] py-3 shrink-0 bg-paper"
+        style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-4">Will cost</div>
+            <div className="text-[15px] font-semibold text-ink tabular-nums truncate">
+              {formatPricePerBase(ppb, baseUnit)}
+              <span className="text-[11.5px] font-normal text-ink-4"> · 1 {countUnit} = {perCount.toLocaleString()} {baseUnit}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-2 text-[13px] text-ink-3 border border-line rounded-lg hover:bg-bg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !gate.ok}
+            className="px-4 py-2 text-[13px] font-medium bg-ink text-paper rounded-lg hover:bg-ink-2 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save product'}
+          </button>
+        </div>
+        {!gate.ok && (
+          <p className="text-[11px] text-red-text mt-2 text-right">{gate.error}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── InvoiceLineFacts ────────────────────────────────────────────────────────
+// What the scan read off the paper for this line — the thing the chef checks
+// the new product against. "Show on invoice" re-highlights it on the image.
+
+function InvoiceLineFacts({ item, hasImage, onShowOnInvoice }: {
+  item: ScanItem
+  hasImage: boolean
+  onShowOnInvoice: () => void
+}) {
+  const n = (v: unknown) => { const x = Number(v); return v != null && v !== '' && Number.isFinite(x) ? x : null }
+  const qty   = n(item.rawQty)
+  const price = n(item.rate) ?? n(item.rawUnitPrice)
+  const per   = n(item.rate) != null ? item.rateUOM : item.rawUnit
+  const total = n(item.rawLineTotal)
+  const weight = n(item.totalQty)
+  const facts: Array<[string, string]> = []
+  if (qty != null) facts.push(['Qty', `${qty}${item.rawUnit ? ` ${item.rawUnit}` : ''}`])
+  if (weight != null && item.totalQtyUOM && item.totalQtyUOM !== item.rawUnit) facts.push(['Weight', `${weight} ${item.totalQtyUOM}`])
+  if (price != null) facts.push(['Price', `${formatCurrency(price)}${per ? `/${per}` : ''}`])
+  if (total != null) facts.push(['Line total', formatCurrency(total)])
+
+  return (
+    <div className="rounded-lg border border-line bg-bg px-3 py-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-4">On the invoice</div>
+          <div className="text-[13px] font-medium text-ink mt-0.5 break-words">{item.rawDescription}</div>
+        </div>
+        {/* With a scanned box the line is highlighted on the image; without one the
+            button only matters on a phone, where it flips to the invoice tab. */}
+        {hasImage && (
+          <button
+            type="button"
+            onClick={onShowOnInvoice}
+            className={`shrink-0 inline-flex items-center gap-1 text-[12px] font-medium text-gold-2 hover:text-gold transition-colors ${item.bbox ? '' : 'md:hidden'}`}
+          >
+            <Eye size={13} /> {item.bbox ? 'Show on invoice' : 'See invoice'}
+          </button>
+        )}
+      </div>
+      {facts.length > 0 && (
+        <dl className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1.5">
+          {facts.map(([k, v]) => (
+            <div key={k} className="min-w-0">
+              <dt className="text-[10.5px] text-ink-4">{k}</dt>
+              <dd className="text-[12.5px] text-ink tabular-nums truncate">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
   )
 }
 
