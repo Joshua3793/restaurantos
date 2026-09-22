@@ -8,6 +8,7 @@ import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isK
 import { getUnitConv } from './utils'
 import { portionsPerBatch } from './recipe-portions'
 import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import { windowedAvgCost } from '@/lib/cost-basis'
 import type { CostBasis, ItemCostBasis } from '@/lib/cost-basis'
 
 export interface IngredientWithCost {
@@ -80,6 +81,8 @@ export interface RecipeWithCost {
   allergens: string[]
   baseIngredientId: string | null
   prep: RecipePrep | null
+  /** Which basis this recipe's lines were costed on, and how the lines split. */
+  basisSummary: { basis: CostBasis; avgLines: number; lastLines: number }
 }
 
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
@@ -255,8 +258,90 @@ export function linkedRecipeUnitCost(linked: {
   }
 }
 
-/** Fetch a full recipe with computed costs, resolving linked recipe costs. */
-export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | null> {
+/**
+ * Per-request costing context. Built once at the top of a recipe/menu read and
+ * threaded down through every nested PREP so the whole page shares ONE
+ * windowedAvgCost read, ONE fetch per prep, and ONE cycle guard.
+ */
+export interface CostContext {
+  basis: CostBasis
+  prices: Map<string, ItemCostBasis>
+  /** One fetch per prep per request. */
+  memo: Map<string, RecipeWithCost | null>
+  /** Recipes on the current recursion path — a repeat is a cycle. */
+  visiting: Set<string>
+  /** As-of date for the window; nested merges reuse it so the whole page agrees. */
+  asOf?: Date
+}
+
+/** Build the per-request context: ONE windowedAvgCost for every raw item id given. */
+export async function costContext(basis: CostBasis, itemIds: string[], asOf?: Date): Promise<CostContext> {
+  const prices = basis === 'AVG_30D'
+    ? await windowedAvgCost(itemIds, asOf)
+    : new Map<string, ItemCostBasis>()
+  return { basis, prices, memo: new Map(), visiting: new Set(), asOf }
+}
+
+/**
+ * Cost each linked-prep ingredient. LAST (ctx null, or ctx on the LAST basis):
+ * the linked item's spine, exactly as always. AVG_30D: recurse into the prep on
+ * the same basis — its cost per yield unit is its averaged batch cost ÷ its
+ * yield — memoised per request; a cycle falls back to the spine, tagged LAST.
+ *
+ * Exported so the recipe LIST route costs nested preps through this one path
+ * instead of re-implementing the recursion.
+ */
+export async function resolveLinkedRecipes<T extends {
+  linkedRecipeId: string | null
+  unit: string
+  linkedRecipe: Parameters<typeof linkedRecipeUnitCost>[0] | null
+}>(
+  ingredients: T[],
+  ctx: CostContext | null,
+): Promise<Array<T & { _linkedRecipeCostPerUnit: number; _linkedRecipeYieldUnit: string; _linkedRecipeCostBasis: CostBasis }>> {
+  const out: Array<T & { _linkedRecipeCostPerUnit: number; _linkedRecipeYieldUnit: string; _linkedRecipeCostBasis: CostBasis }> = []
+  for (const ing of ingredients) {
+    let costPerUnit = 0
+    let yieldUnit: string = ing.unit
+    let costBasis: CostBasis = 'LAST'
+    if (ing.linkedRecipe) {
+      const spine = linkedRecipeUnitCost(ing.linkedRecipe)
+      costPerUnit = spine.costPerUnit
+      yieldUnit   = spine.yieldUnit
+      if (ctx && ctx.basis === 'AVG_30D' && ing.linkedRecipeId && !ctx.visiting.has(ing.linkedRecipeId)) {
+        const nested = await fetchRecipeWithCost(ing.linkedRecipeId, { ctx })
+        if (nested && nested.baseYieldQty > 0) {
+          // The spine prices per the synced item's canonical base unit (g/ml);
+          // convert the recipe's yield into that unit so the two agree.
+          const yieldInBase = convertQty(nested.baseYieldQty, nested.yieldUnit, yieldUnit)
+          if (Number.isFinite(yieldInBase) && yieldInBase > 0) {
+            const perBase = nested.totalCost / yieldInBase
+            if (Number.isFinite(perBase) && perBase >= 0) {
+              costPerUnit = perBase
+              costBasis   = nested.basisSummary.basis
+            }
+          }
+        }
+      }
+    }
+    out.push({ ...ing, _linkedRecipeCostPerUnit: costPerUnit, _linkedRecipeYieldUnit: yieldUnit, _linkedRecipeCostBasis: costBasis })
+  }
+  return out
+}
+
+/**
+ * Fetch a full recipe with computed costs, resolving linked recipe costs.
+ *
+ * With no options (every caller outside the recipe/menu surfaces) this is the
+ * behaviour it has always had: raw lines read the item's spine and a nested PREP
+ * reads its synced item's spine — no extra query runs.
+ */
+export async function fetchRecipeWithCost(
+  id: string,
+  opts: { basis?: CostBasis; ctx?: CostContext } = {},
+): Promise<RecipeWithCost | null> {
+  if (opts.ctx?.memo.has(id)) return opts.ctx.memo.get(id)!
+
   const recipe = await prisma.recipe.findUnique({
     where: { id },
     include: {
@@ -279,22 +364,31 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
   })
   if (!recipe) return null
 
-  // Resolve linked recipe cost-per-unit (with conversion inside the linked recipe too)
-  const ingredientsWithLinked = recipe.ingredients.map(ing => {
-    let linkedCostPerUnit = 0
-    let linkedYieldUnit   = ing.unit
-    if (ing.linkedRecipe) {
-      const resolved    = linkedRecipeUnitCost(ing.linkedRecipe)
-      linkedCostPerUnit = resolved.costPerUnit
-      linkedYieldUnit   = resolved.yieldUnit
+  const rawIds = recipe.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : []))
+  let ctx: CostContext | null = opts.ctx ?? null
+  if (!ctx && opts.basis === 'AVG_30D') {
+    ctx = await costContext('AVG_30D', rawIds)
+  } else if (ctx && ctx.basis === 'AVG_30D') {
+    // A nested prep brings raw item ids the caller's context never knew about.
+    const missing = rawIds.filter(itemId => !ctx!.prices.has(itemId))
+    if (missing.length > 0) {
+      const extra = await windowedAvgCost(missing, ctx.asOf)
+      for (const [itemId, basis] of extra) ctx.prices.set(itemId, basis)
     }
-    return { ...ing, _linkedRecipeCostPerUnit: linkedCostPerUnit, _linkedRecipeYieldUnit: linkedYieldUnit }
-  })
+  }
 
-  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients } = computeRecipeCost({
+  // Resolve linked recipe cost-per-unit (with conversion inside the linked recipe
+  // too). On the average basis this recurses into the nested prep; `visiting`
+  // brackets the recursion so a cycle falls back to the spine while a diamond
+  // (two paths to the same prep) still resolves on both, memoised.
+  ctx?.visiting.add(id)
+  const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
+  ctx?.visiting.delete(id)
+
+  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary } = computeRecipeCost({
     ...recipe,
     ingredients: ingredientsWithLinked,
-  })
+  }, { prices: ctx?.prices })
 
   const allergens = Array.from(new Set(recipe.ingredients.flatMap(ing => [
     ...(ing.inventoryItem?.allergens ?? []),
@@ -303,7 +397,7 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
     ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
   ])))
 
-  return {
+  const result: RecipeWithCost = {
     id: recipe.id,
     name: recipe.name,
     type: recipe.type,
@@ -344,7 +438,11 @@ export async function fetchRecipeWithCost(id: string): Promise<RecipeWithCost | 
           stations: recipe.prepItems[0].stations,
         }
       : null,
+    basisSummary,
   }
+
+  ctx?.memo.set(id, result)
+  return result
 }
 
 /**
