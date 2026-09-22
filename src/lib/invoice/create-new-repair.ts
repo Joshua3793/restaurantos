@@ -16,7 +16,7 @@
  * born right. Pure + client-safe — no Prisma, no I/O.
  */
 
-import { canonicalUom, UNIT_FACTORS } from '@/lib/uom'
+import { canonicalUom, unitKind, UNIT_FACTORS } from '@/lib/uom'
 import {
   asChainItem, dimensionOf,
   type ChainItem, type Dimension, type PackLink, type Pricing,
@@ -24,6 +24,7 @@ import {
 import { lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { cloneShare } from '@/lib/invoice/refreeze'
 import { lineCountedBase, countUomFactor, type ItemDims } from '@/lib/count-uom'
+import { isObservedSource } from '@/lib/count-snapshot-source'
 
 /** An InventoryItem row as `asChainItem` accepts it. */
 export type ChainItemRow = Parameters<typeof asChainItem>[0]
@@ -73,9 +74,18 @@ export function isSelfContradictory(item: {
 
   // $/each on an item whose pack is measured: the price is really $/lb, and every
   // cost read off it is out by the weight of one unit.
+  //
+  // A rate unit the canonical table does not know (blank, whitespace, "widget")
+  // is a DIFFERENT fault and is named as one: `dimensionOf` answers COUNT for
+  // anything it cannot place, so calling it "RATE per each" would put a word in
+  // the data's mouth that the data never said.
   const pricing = item.pricing && typeof item.pricing === 'object' ? (item.pricing as Pricing) : null
-  if (pricing?.mode === 'RATE' && dimensionOf(canonicalUom(pricing.rateUnit ?? '')) === 'COUNT' && measureLinks.length > 0) {
-    reasons.push('RATE per each')
+  if (pricing?.mode === 'RATE' && measureLinks.length > 0) {
+    const rateUnit = canonicalUom(pricing.rateUnit ?? '')
+    // `unknown` is the backbone's own verdict: neither a measurement nor a
+    // container. A blank rateUnit lands here, which is the point.
+    if (unitKind(rateUnit) === 'unknown') reasons.push('RATE with no unit')
+    else if (dimensionOf(rateUnit) === 'COUNT') reasons.push('RATE per each')
   }
 
   // `1 lb = 1 base unit` — the signature of a chain built by a form that never
@@ -98,6 +108,12 @@ export interface ItemRewrite {
   packChain: PackLink[]
   pricing: Pricing
   countUnit: string
+  /** The legacy `InventoryItem.purchasePrice` column. Not part of the spine —
+   *  but `syncPrimaryOfferToItem` keeps it in step with `pricing` on every
+   *  invoice (`purchasePriceFromPricing`, src/lib/primary-offer.ts), so leaving
+   *  it holding the old number just means the next sync corrects it and the
+   *  repair looks like it moved a price it did not. */
+  purchasePrice: number
 }
 
 /**
@@ -124,6 +140,85 @@ export function planItemRewrite(a: { item: ChainItemRow; measure: string }): Ite
     packChain: [{ unit: measure, per: f.toBase }],
     pricing: { mode: 'RATE', rate, rateUnit: measure },
     countUnit: measure,
+    purchasePrice: rate,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. The item's supplier offers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** An `InventorySupplierPrice` row, as much of it as the rewrite reads. */
+export interface OfferRow {
+  id: string
+  supplierName?: string | null
+  isPrimary?: boolean
+  // `unknown` on the numerics: a Prisma `Decimal` is neither a number nor a
+  // string, and every read here goes through `num()` anyway.
+  lastPrice?: unknown
+  packChain?: unknown
+  pricing?: unknown
+  packQty?: unknown
+  packSize?: unknown
+  packUOM?: string | null
+}
+
+export interface OfferRewriteRow {
+  id: string
+  before: { packChain: unknown; pricing: unknown; packQty: number | null; packSize: number | null; packUOM: string | null }
+  packChain: PackLink[]
+  pricing: Pricing
+  /** The human purchase format the chain collapses: "1 × 1 lb" — i.e. per lb.
+   *  Retained format fields (CLAUDE.md), so they must describe the same pack. */
+  packQty: number
+  packSize: number
+  packUOM: string
+  rate: number
+  rateFrom: 'offer rate' | 'lastPrice'
+}
+
+/**
+ * An offer rebuilt around the corrected measure.
+ *
+ * WHY every offer and not just the item: `syncPrimaryOfferToItem`
+ * (src/lib/primary-offer.ts) writes the PRIMARY offer's `packChain`/`pricing`
+ * straight back onto the item (re-validating `countUnit` against that chain) on
+ * the next invoice from that supplier. The offer is the item's shape in waiting:
+ * repair the item, leave the offer holding the birth chain, and the very next
+ * delivery restores `1 lb = 1 g`. Note the offer's own $/base can look perfectly
+ * healthy while this is true — a same-dimension RATE offer prices off its
+ * `rateUnit`, not its chain — so ppb is no guard at all here. Non-primary offers
+ * are rewritten too: any of them is one click from primary (`setPrimaryOffer`),
+ * and one priced $/each against a now-MASS item reads $0 (`offerPricePerBase`,
+ * cross-dimension RATE with no bridge).
+ *
+ * The RATE NUMBER comes from the offer itself — its own `pricing.rate`, or its
+ * `lastPrice` when it was PACK-priced or carries no usable rate. `lastPrice` is
+ * never written: it is this supplier's last invoiced price, a fact about an
+ * invoice, not a shape.
+ */
+export function planOfferRewrite(offer: OfferRow, rewrite: ItemRewrite): OfferRewriteRow {
+  const measure = rewrite.countUnit
+  const pricing = offer.pricing && typeof offer.pricing === 'object' ? (offer.pricing as Pricing) : null
+  const own = pricing?.mode === 'RATE' ? num(pricing.rate) : 0
+  const rate = own !== 0 ? own : num(offer.lastPrice)
+
+  return {
+    id: offer.id,
+    before: {
+      packChain: offer.packChain ?? null,
+      pricing: offer.pricing ?? null,
+      packQty: offer.packQty != null ? num(offer.packQty) : null,
+      packSize: offer.packSize != null ? num(offer.packSize) : null,
+      packUOM: offer.packUOM ?? null,
+    },
+    packChain: rewrite.packChain,
+    pricing: { mode: 'RATE', rate, rateUnit: measure },
+    packQty: 1,
+    packSize: 1,
+    packUOM: measure,
+    rate,
+    rateFrom: own !== 0 ? 'offer rate' : 'lastPrice',
   }
 }
 
@@ -198,7 +293,7 @@ export interface CountLineRow {
   /** The finalize-time snapshot frozen from this line, when the session was
    *  finalized. `qtyOnHand` is carried so the planner can PROVE the snapshot
    *  came from this line before rewriting it. */
-  snapshot?: { id: string; qtyOnHand: number | string } | null
+  snapshot?: { id: string; qtyOnHand: number | string; unit?: string | null } | null
   /** A human's decision for a line the corrected item cannot resolve
    *  (`--count-unit-override <lineId>=<unit>`). */
   unitOverride?: string | null
@@ -218,6 +313,15 @@ export interface CountRefreezeRow {
    *  base — so it wasn't written from this line (or has been repaired already)
    *  and is left untouched. */
   snapshotMismatch?: boolean
+  /** A SKIPPED / THEORETICAL line's snapshot: its quantity is an expected qty,
+   *  not an observation, so it is NOT re-derived — but its `unit` is a label of
+   *  the item's base unit and leaving `each` on a MASS item's snapshot is a lie
+   *  that outlives the repair. Only the label is corrected. */
+  snapshotUnitOnly?: { id: string; unit: string; from: string }
+  /** `count-finalize.ts` locks `priceAtCount` to the live ppb at finalize; the
+   *  corrected item's ppb is what it should have locked. Set only on lines this
+   *  repair re-freezes. */
+  priceAtCount?: number
 }
 
 /** `ItemDims` for the count converters, built from the corrected ChainItem so a
@@ -256,9 +360,15 @@ export function planCountRefreeze(lines: CountLineRow[], corrected: ChainItem, p
     const override = line.unitOverride ? canonicalUom(line.unitOverride) : null
 
     // Skipped / never-counted lines carry no observation to re-freeze. Their
-    // snapshots (SKIPPED / THEORETICAL) are not this repair's business.
+    // snapshots (SKIPPED / THEORETICAL) hold an EXPECTED quantity, so the number
+    // is not this repair's business — but the unit label is.
     if (line.skipped || line.countedQty == null) {
-      return { id: line.id, old, next: old ?? 0, via: 'not counted', needsDecision: false }
+      const row: CountRefreezeRow = { id: line.id, old, next: old ?? 0, via: 'not counted', needsDecision: false }
+      const storedUnit = line.snapshot?.unit ?? null
+      if (line.snapshot && storedUnit && storedUnit !== corrected.baseUnit) {
+        row.snapshotUnitOnly = { id: line.snapshot.id, unit: corrected.baseUnit, from: storedUnit }
+      }
+      return row
     }
 
     let next: number
@@ -288,7 +398,7 @@ export function planCountRefreeze(lines: CountLineRow[], corrected: ChainItem, p
       needsDecision = parts.some((p) => p.qty !== 0 && countUomFactor(p.unit, dims) === null)
     }
 
-    const row: CountRefreezeRow = { id: line.id, old, next, via, needsDecision }
+    const row: CountRefreezeRow = { id: line.id, old, next, via, needsDecision, priceAtCount: ppb }
 
     if (line.snapshot) {
       const stored = num(line.snapshot.qtyOnHand)
@@ -308,6 +418,144 @@ export function planCountRefreeze(lines: CountLineRow[], corrected: ChainItem, p
 
     return row
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. Stock baselines — stockOnHand, StockAllocation.quantity, purchasePrice
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A planned count row with the session facts that decide WHERE finalize put it. */
+export interface StockCountRow {
+  id: string
+  /** The corrected base quantity (`planCountRefreeze(...).next`). */
+  next: number
+  skipped?: boolean
+  countedQty: number | string | null
+  sessionDate: Date | string | number
+  revenueCenterId?: string | null
+  /** The session's RC is the DEFAULT one. `count-finalize.ts`: a default-RC
+   *  count writes global `stockOnHand` and NO allocation (or the "All RCs" view
+   *  double-counts it); only a non-default RC gets a `StockAllocation`. */
+  rcIsDefault?: boolean
+}
+
+export interface StockTarget {
+  old: number
+  /** `null` ⇒ leave it exactly as it is. */
+  next: number | null
+  via: string
+  fromLineId?: string
+}
+
+export interface StockRewrite {
+  stockOnHand: StockTarget
+  allocations: (StockTarget & { revenueCenterId: string })[]
+  purchasePrice: { old: number; next: number }
+}
+
+const LEFT_RC = 'left (no observed count for this RC)'
+const LEFT_GLOBAL = 'left (no observed unscoped count)'
+
+/** Observed = what `count-finalize.ts` pushes to stock: entered or carried, never
+ *  skipped and never blank. */
+const isObservedLine = (r: StockCountRow) => !r.skipped && r.countedQty != null
+
+const at = (d: Date | string | number): number => {
+  const t = new Date(d).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+/** The latest observed row, ties broken by input order (last wins). */
+function latestObserved(rows: StockCountRow[]): StockCountRow | null {
+  let best: StockCountRow | null = null
+  for (const r of rows) {
+    if (!isObservedLine(r)) continue
+    if (!best || at(r.sessionDate) >= at(best.sessionDate)) best = r
+  }
+  return best
+}
+
+/**
+ * `InventoryItem.stockOnHand` and `StockAllocation.quantity` are BASELINES, not
+ * derived values — `src/lib/count-expected.ts` and `src/lib/inventory-list.ts`
+ * read them straight off the row and layer movements on top. Both were written
+ * by finalize in the OLD base unit (Salami's 3.135 was 3.135 POUNDS wearing an
+ * `each` label), so a repair that stops at the count lines leaves the number the
+ * whole app actually shows untouched.
+ *
+ * The corrected baseline is the corrected `next` of the count that WROTE it, so
+ * the routing has to match `count-finalize.ts` exactly:
+ *   • unscoped session, or default-RC session → global `stockOnHand`
+ *   • non-default RC session                  → that RC's `StockAllocation`
+ *
+ * No observed count for a target means nothing in this repair knows what its
+ * baseline should be, so it is left alone and SAID so — inventing one from a
+ * receipt would be a different number with a different meaning.
+ */
+export function planStockRewrite(a: {
+  item: { stockOnHand?: unknown; purchasePrice?: unknown }
+  allocations: { revenueCenterId: string; quantity: unknown }[]
+  countLines: StockCountRow[]
+  rewrite: ItemRewrite
+}): StockRewrite {
+  const globalRows = a.countLines.filter((r) => !r.revenueCenterId || r.rcIsDefault === true)
+  const globalBest = latestObserved(globalRows)
+
+  return {
+    stockOnHand: globalBest
+      ? { old: num(a.item.stockOnHand), next: globalBest.next, via: `count line ${globalBest.id}`, fromLineId: globalBest.id }
+      : { old: num(a.item.stockOnHand), next: null, via: LEFT_GLOBAL },
+    allocations: a.allocations.map((al) => {
+      const best = latestObserved(
+        a.countLines.filter((r) => r.revenueCenterId === al.revenueCenterId && r.rcIsDefault !== true),
+      )
+      return best
+        ? { revenueCenterId: al.revenueCenterId, old: num(al.quantity), next: best.next, via: `count line ${best.id}`, fromLineId: best.id }
+        : { revenueCenterId: al.revenueCenterId, old: num(al.quantity), next: null, via: LEFT_RC }
+    }),
+    purchasePrice: { old: num(a.item.purchasePrice), next: a.rewrite.purchasePrice },
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CountSession.totalCountedValue
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SessionSnapshotRow {
+  id: string
+  source: string
+  totalValue: number | string | null
+}
+
+export interface SessionTotalRow {
+  sessionId: string
+  old: number
+  next: number
+}
+
+/**
+ * A session's headline value re-summed over the rewritten snapshots.
+ *
+ * `CountSession.totalCountedValue` is a STORED sum of its snapshots' `totalValue`
+ * — rewrite a snapshot and the session's total is stale until somebody re-runs
+ * finalize (Kohlrabi's line alone moves $0.09 → $39.90). The rule is finalize's,
+ * not a new one: OBSERVED snapshots only (`COUNTED`/`CARRIED` —
+ * src/lib/count-snapshot-source.ts), skipped and theoretical rows excluded.
+ *
+ * `sessions` must carry EVERY snapshot of the session, not just the repaired
+ * item's, or the total is rebuilt from a fragment.
+ */
+export function planSessionTotals(
+  sessions: { id: string; snapshots: SessionSnapshotRow[]; totalCountedValue: number | string | null }[],
+  rewritten: Map<string, number>,
+): SessionTotalRow[] {
+  return sessions.map((s) => ({
+    sessionId: s.id,
+    old: num(s.totalCountedValue),
+    next: s.snapshots
+      .filter((sn) => isObservedSource(sn.source))
+      .reduce((acc, sn) => acc + (rewritten.has(sn.id) ? rewritten.get(sn.id)! : num(sn.totalValue)), 0),
+  }))
 }
 
 /** Convenience for callers that only want the rows that actually move. */

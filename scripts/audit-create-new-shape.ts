@@ -15,13 +15,17 @@
  *      a lb chain link, a $/each rate over a measured pack, a measure link that
  *      says 1 lb = 1 base unit. Kennebec, Salami and Kohlrabi are here.
  *
- *   B. EVIDENCE — an item born from a `CREATE_NEW` line that was billed by weight
- *      (`isByWeightLine`, src/lib/invoice/create-new-seed.ts) and is TODAY a COUNT
- *      item with no each-measure bridge. Its four fields are perfectly ordinary —
- *      Fennel O/S is `COUNT / [{each:1}] / RATE $/each`, which is what half the
- *      catalogue looks like — so only its birth certificate gives it away. Scoped
- *      to CREATE_NEW lines on purpose: every catch-weight item ever bought by the
- *      kilo would otherwise land in this list.
+ *   B. EVIDENCE — a CANDIDATE list, not a verdict. An item born from a
+ *      `CREATE_NEW` line that was billed by weight (`isByWeightLine`,
+ *      src/lib/invoice/create-new-seed.ts) and is TODAY a COUNT item with no
+ *      each-measure bridge. Its four fields are perfectly ordinary — Fennel O/S
+ *      is `COUNT / [{each:1}] / RATE $/each`, which is what half the catalogue
+ *      looks like — so only its birth certificate gives it away. But
+ *      `isByWeightLine` also matches a per-CASE line that merely carries a
+ *      billed-weight column, which is a legitimate catch-weight purchase of a
+ *      genuinely countable item. Section B therefore prints the line's
+ *      `pricingMode`, `rawUnit`, `rateUOM` and `totalQtyUOM` so a human can tell
+ *      the two apart, and nothing here is repaired without `--item`.
  *
  * Per finding it also counts what has already been frozen through the shape —
  * recipe ingredients, count lines and approved receipts — which is the size of
@@ -92,7 +96,13 @@ interface Finding {
   reasons: string[]
   suggestedMeasure: string | null
   frozen: { recipeIngredients: number; countLines: number; receipts: number }
-  birthLine: { id: string; description: string; invoice: string | null; supplier: string | null; qty: string; measure: string | null } | null
+  birthLine: {
+    id: string; description: string; invoice: string | null; supplier: string | null; qty: string; measure: string | null
+    // The four fields `isByWeightLine` actually reads. Printed in section B so a
+    // human can tell a genuine per-lb line from a per-case line that merely
+    // carries a billed-weight column.
+    pricingMode: string | null; rawUnit: string | null; rateUOM: string | null; totalQtyUOM: string | null
+  } | null
 }
 
 const eachMeasureLabel = (i: ItemRow): string | null =>
@@ -125,6 +135,10 @@ function findingOf(item: ItemRow, kind: Finding['finding'], reasons: string[], l
           supplier: line.session.supplierName,
           qty: `${line.rawQty?.toString() ?? '?'} ${line.rawUnit ?? ''}`.trim(),
           measure: lineMeasureUnit(seedLineOf(line)),
+          pricingMode: line.pricingMode,
+          rawUnit: line.rawUnit,
+          rateUOM: line.rateUOM,
+          totalQtyUOM: line.totalQtyUOM,
         }
       : null,
   }
@@ -182,9 +196,33 @@ async function main() {
   if (shape.length === 0) console.log('  (none)')
   else table(shape)
 
-  console.log('\n=== B. BORN FROM A BY-WEIGHT LINE, STILL COUNTED AS UNITS (no each-measure) ===')
+  // The birth-line columns `isByWeightLine` reads, so section B can be judged
+  // rather than trusted.
+  const evidenceTable = (rows: Finding[]) =>
+    console.table(rows.map((f) => ({
+      item: f.itemName,
+      dim: `${f.dimension}/${f.baseUnit}`,
+      chain: JSON.stringify(f.packChain),
+      pricing: JSON.stringify(f.pricing),
+      count: f.countUnit,
+      'birth line': f.birthLine?.description ?? '(none)',
+      'birth qty': f.birthLine?.qty ?? '?',
+      pricingMode: f.birthLine?.pricingMode ?? '(null)',
+      rawUnit: f.birthLine?.rawUnit ?? '(null)',
+      rateUOM: f.birthLine?.rateUOM ?? '(null)',
+      totalQtyUOM: f.birthLine?.totalQtyUOM ?? '(null)',
+      measure: f.suggestedMeasure ?? '(none)',
+      'recipes/counts/receipts': `${f.frozen.recipeIngredients}/${f.frozen.countLines}/${f.frozen.receipts}`,
+      id: f.itemId,
+    })))
+
+  console.log('\n=== B. CANDIDATES: BORN FROM A BY-WEIGHT LINE, STILL COUNTED AS UNITS (no each-measure) ===')
+  console.log('    CANDIDATES, not findings. `isByWeightLine` also matches a per-CASE line that merely carries a')
+  console.log('    billed-weight column — a legitimate catch-weight purchase of a countable item. Judge each row')
+  console.log('    from its birth line below (a true finding is priced per lb/kg: pricingMode per_weight, or a')
+  console.log('    rateUOM/rawUnit that IS the weight unit). Nothing here is repaired without an explicit --item.')
   if (evidence.length === 0) console.log('  (none)')
-  else table(evidence)
+  else evidenceTable(evidence)
 
   if (SHOW_ALL) {
     console.log('\n=== C. BORN FROM A BY-WEIGHT LINE, SHAPE OK (informational) ===')

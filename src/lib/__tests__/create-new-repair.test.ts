@@ -4,11 +4,17 @@ import {
   planItemRewrite,
   planReceiptRefreeze,
   planCountRefreeze,
+  planOfferRewrite,
+  planStockRewrite,
+  planSessionTotals,
   type ChainItemRow,
   type ReceiptLine,
   type CountLineRow,
+  type OfferRow,
+  type StockCountRow,
 } from '@/lib/invoice/create-new-repair'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { offerPricePerBase } from '@/lib/offer-price'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The four real shapes (read-only dump, 2026-09-22). Every product below was
@@ -85,6 +91,22 @@ describe('isSelfContradictory', () => {
       pricing: { mode: 'PACK', purchasePrice: 48 },
     })).toEqual([])
   })
+
+  it('says "RATE with no unit" — not "RATE per each" — when rateUnit is blank or unknown', () => {
+    for (const rateUnit of ['', '   ', null, undefined, 'widget']) {
+      const reasons = isSelfContradictory({
+        dimension: 'COUNT', baseUnit: 'each',
+        packChain: [{ unit: 'lb', per: 1 }],
+        pricing: { mode: 'RATE', rate: 1.99, rateUnit },
+      })
+      expect(reasons).toContain('RATE with no unit')
+      expect(reasons).not.toContain('RATE per each')
+    }
+  })
+
+  it('still says "RATE per each" for a real count rate unit over a measured pack', () => {
+    expect(isSelfContradictory(KENNEBEC)).toContain('RATE per each')
+  })
 })
 
 describe('planItemRewrite', () => {
@@ -95,6 +117,14 @@ describe('planItemRewrite', () => {
     expect(next.packChain).toEqual([{ unit: 'lb', per: 453.592 }])
     expect(next.pricing).toEqual({ mode: 'RATE', rate: 1.99, rateUnit: 'lb' })
     expect(next.countUnit).toBe('lb')
+  })
+
+  it('carries the rate number onto the legacy purchasePrice column', () => {
+    // `syncPrimaryOfferToItem` maintains `purchasePrice` from the pricing mode
+    // (purchasePriceFromPricing) — the repair writes the same number so the two
+    // paths agree.
+    expect(planItemRewrite({ item: KENNEBEC, measure: 'lb' }).purchasePrice).toBe(1.99)
+    expect(planItemRewrite({ item: KOHLRABI, measure: 'lb' }).purchasePrice).toBe(3.99)
   })
 
   it('keeps the rate number unchanged and canonicalises the measure token', () => {
@@ -312,6 +342,39 @@ describe('planCountRefreeze', () => {
     expect(rows.every(r => r.snapshot === undefined)).toBe(true)
   })
 
+  it('fixes the UNIT on a skipped / blank line\'s snapshot so no `each` row survives on a MASS item', () => {
+    const rows = planCountRefreeze(
+      [line({ id: 'cl-7b', countedQty: 5, selectedUom: 'lb', countedQtyBase: 5, skipped: true, snapshot: { id: 'sn-7b', qtyOnHand: 0, unit: 'each' } }),
+       line({ id: 'cl-8b', countedQty: null, selectedUom: 'lb', countedQtyBase: null, snapshot: { id: 'sn-8b', qtyOnHand: 0, unit: 'each' } })],
+      salami, salamiPpb,
+    )
+    // The quantity is a theoretical/expected qty, not an observation: only the
+    // unit LABEL is corrected, and the full-rewrite `snapshot` stays undefined.
+    expect(rows.map(r => r.snapshotUnitOnly)).toEqual([
+      { id: 'sn-7b', unit: 'g', from: 'each' },
+      { id: 'sn-8b', unit: 'g', from: 'each' },
+    ])
+    expect(rows.every(r => r.snapshot === undefined)).toBe(true)
+  })
+
+  it('leaves a not-counted snapshot whose unit is already the corrected base alone', () => {
+    const [row] = planCountRefreeze(
+      [line({ id: 'cl-7c', countedQty: null, selectedUom: 'g', countedQtyBase: null, snapshot: { id: 'sn-7c', qtyOnHand: 0, unit: 'g' } })],
+      salami, salamiPpb,
+    )
+    expect(row.snapshotUnitOnly).toBeUndefined()
+  })
+
+  it('refreshes priceAtCount on a rewritten line, and never on a not-counted one', () => {
+    const rows = planCountRefreeze(
+      [line({ id: 'cl-10', countedQty: 3.135, selectedUom: 'lb', countedQtyBase: 3.135 }),
+       line({ id: 'cl-11', countedQty: null, selectedUom: 'lb', countedQtyBase: null })],
+      salami, salamiPpb,
+    )
+    expect(rows[0].priceAtCount).toBe(salamiPpb)
+    expect(rows[1].priceAtCount).toBeUndefined()
+  })
+
   it('never rewrites a snapshot that was not frozen from this line', () => {
     const [row] = planCountRefreeze(
       [line({ id: 'cl-9', countedQty: 10, selectedUom: 'lb', countedQtyBase: 10, snapshot: { id: 'sn-9', qtyOnHand: 4535.92 } })],
@@ -319,5 +382,237 @@ describe('planCountRefreeze', () => {
     )
     expect(row.snapshot).toBeUndefined()
     expect(row.snapshotMismatch).toBe(true)
+  })
+})
+
+// ── Supplier offers ─────────────────────────────────────────────────────────
+
+describe('planOfferRewrite', () => {
+  const rewrite = planItemRewrite({ item: KOHLRABI, measure: 'lb' })
+  const corrected = asChainItem({ ...KOHLRABI, ...rewrite })
+
+  /** Kohlrabi Green's live PRIMARY offer (read-only dump, 2026-09-22): the birth
+   *  chain, a $/lb rate, and no human pack format at all. */
+  const KOHLRABI_OFFER: OfferRow = {
+    id: 'off-kohlrabi', supplierName: 'North Arm Farms', isPrimary: true,
+    lastPrice: 3.99,
+    packChain: [{ per: 1, unit: 'lb' }],
+    pricing: { mode: 'RATE', rate: 3.99, rateUnit: 'lb' },
+    packQty: null, packSize: null, packUOM: null,
+  }
+
+  it('rewrites the offer to the corrected chain, a $/measure rate and a "per lb" format', () => {
+    const next = planOfferRewrite(KOHLRABI_OFFER, rewrite)
+    expect(next.id).toBe('off-kohlrabi')
+    expect(next.packChain).toEqual([{ unit: 'lb', per: 453.592 }])
+    expect(next.pricing).toEqual({ mode: 'RATE', rate: 3.99, rateUnit: 'lb' })
+    expect(next.packQty).toBe(1)
+    expect(next.packSize).toBe(1)
+    expect(next.packUOM).toBe('lb')
+    expect(next.rateFrom).toBe('offer rate')
+  })
+
+  it('captures the before-values so the dry run can print before → after', () => {
+    expect(planOfferRewrite(KOHLRABI_OFFER, rewrite).before).toEqual({
+      packChain: [{ per: 1, unit: 'lb' }],
+      pricing: { mode: 'RATE', rate: 3.99, rateUnit: 'lb' },
+      packQty: null, packSize: null, packUOM: null,
+    })
+  })
+
+  it('leaves lastPrice out of the write entirely', () => {
+    expect(planOfferRewrite(KOHLRABI_OFFER, rewrite)).not.toHaveProperty('lastPrice')
+  })
+
+  // THE POINT of this function. `syncPrimaryOfferToItem` copies the primary
+  // offer's packChain + pricing STRAIGHT onto the item on the next invoice from
+  // that supplier, so the offer is the item's shape in waiting.
+  it('leaves nothing for syncPrimaryOfferToItem to copy back — offer chain+pricing ARE the item\'s', () => {
+    const next = planOfferRewrite(KOHLRABI_OFFER, rewrite)
+    expect(next.packChain).toEqual(rewrite.packChain)
+    expect(next.pricing).toEqual(rewrite.pricing)
+    // Untouched, the very same copy would restore the birth chain (1 lb = 1 g)
+    // onto the repaired item on the next North Arm Farms delivery.
+    expect(KOHLRABI_OFFER.packChain).not.toEqual(rewrite.packChain)
+  })
+
+  it('prices the rewritten offer at exactly the repaired item\'s $/base', () => {
+    const next = planOfferRewrite(KOHLRABI_OFFER, rewrite)
+    const itemFacts = {
+      dimension: corrected.dimension, baseUnit: corrected.baseUnit,
+      eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null,
+    }
+    expect(offerPricePerBase({ packChain: next.packChain, pricing: next.pricing }, itemFacts))
+      .toBeCloseTo(pricePerBaseUnit(corrected), 12)
+  })
+
+  it('rescues a $/each offer on a now-MASS item, which priced at $0', () => {
+    // A cross-dimension RATE offer with no bridge is "unpriced" ($0) — Salami's
+    // and Kennebec's offers would read $0 against their repaired MASS items.
+    const salamiRewrite = planItemRewrite({ item: SALAMI, measure: 'lb' })
+    const salamiItem = asChainItem({ ...SALAMI, ...salamiRewrite })
+    const itemFacts = {
+      dimension: salamiItem.dimension, baseUnit: salamiItem.baseUnit,
+      eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null,
+    }
+    const eachOffer: OfferRow = {
+      id: 'off-each', lastPrice: 22.08,
+      packChain: [{ per: 1, unit: 'each' }],
+      pricing: { mode: 'RATE', rate: 22.08, rateUnit: 'each' },
+      packQty: null, packSize: null, packUOM: null,
+    }
+    expect(offerPricePerBase(eachOffer, itemFacts)).toBe(0)
+    const next = planOfferRewrite(eachOffer, salamiRewrite)
+    expect(offerPricePerBase({ packChain: next.packChain, pricing: next.pricing }, itemFacts))
+      .toBeCloseTo(pricePerBaseUnit(salamiItem), 12)
+  })
+
+  it('falls back to lastPrice when the offer is PACK-priced or has no pricing', () => {
+    for (const pricing of [{ mode: 'PACK', purchasePrice: 12 }, null, undefined]) {
+      const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing, lastPrice: 4.25 }, rewrite)
+      expect(next.pricing).toEqual({ mode: 'RATE', rate: 4.25, rateUnit: 'lb' })
+      expect(next.rateFrom).toBe('lastPrice')
+    }
+  })
+
+  it('falls back to lastPrice when a RATE offer carries no usable rate', () => {
+    const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing: { mode: 'RATE', rateUnit: 'each' }, lastPrice: 9 }, rewrite)
+    expect(next.pricing).toEqual({ mode: 'RATE', rate: 9, rateUnit: 'lb' })
+    expect(next.rateFrom).toBe('lastPrice')
+  })
+
+  it('uses the corrected measure even when the offer was priced per each', () => {
+    const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing: { mode: 'RATE', rate: 22.08, rateUnit: 'each' } }, rewrite)
+    expect(next.pricing).toEqual({ mode: 'RATE', rate: 22.08, rateUnit: 'lb' })
+    expect(next.packUOM).toBe('lb')
+  })
+})
+
+// ── stockOnHand / StockAllocation / purchasePrice ───────────────────────────
+
+describe('planStockRewrite', () => {
+  const rewrite = planItemRewrite({ item: SALAMI, measure: 'lb' })
+  const RC = 'rc-cafe'
+  const countRow = (over: Partial<StockCountRow> & Pick<StockCountRow, 'id' | 'next'>): StockCountRow => ({
+    countedQty: 1, sessionDate: '2026-09-01', revenueCenterId: null, ...over,
+  })
+
+  it('takes each allocation from the latest observed count of THAT revenue centre', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 3.135, purchasePrice: 22.08 },
+      allocations: [{ revenueCenterId: RC, quantity: 3.135 }],
+      countLines: [
+        countRow({ id: 'a', next: 907.184, sessionDate: '2026-08-01', revenueCenterId: RC }),
+        countRow({ id: 'b', next: 1422.011, sessionDate: '2026-09-01', revenueCenterId: RC }),
+      ],
+      rewrite,
+    })
+    expect(out.allocations).toEqual([
+      { revenueCenterId: RC, old: 3.135, next: 1422.011, via: 'count line b', fromLineId: 'b' },
+    ])
+  })
+
+  it('leaves an allocation alone when that RC has no observed count', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 3.99 },
+      allocations: [{ revenueCenterId: RC, quantity: 10 }],
+      countLines: [
+        countRow({ id: 'skip', next: 4535.92, revenueCenterId: RC, skipped: true }),
+        countRow({ id: 'blank', next: 0, revenueCenterId: RC, countedQty: null }),
+        countRow({ id: 'other', next: 99, revenueCenterId: 'rc-other' }),
+      ],
+      rewrite,
+    })
+    expect(out.allocations).toEqual([
+      { revenueCenterId: RC, old: 10, next: null, via: 'left (no observed count for this RC)' },
+    ])
+  })
+
+  it('takes stockOnHand from the latest observed UNSCOPED or default-RC count', () => {
+    // count-finalize writes global stockOnHand only when the session has no RC,
+    // or its RC is the default one.
+    const out = planStockRewrite({
+      item: { stockOnHand: 3.135, purchasePrice: 22.08 },
+      allocations: [],
+      countLines: [
+        countRow({ id: 'u1', next: 453.592, sessionDate: '2026-07-01' }),
+        countRow({ id: 'd1', next: 1422.011, sessionDate: '2026-08-01', revenueCenterId: 'rc-main', rcIsDefault: true }),
+        countRow({ id: 'scoped', next: 99999, sessionDate: '2026-09-01', revenueCenterId: RC }),
+      ],
+      rewrite,
+    })
+    expect(out.stockOnHand).toEqual({ old: 3.135, next: 1422.011, via: 'count line d1', fromLineId: 'd1' })
+  })
+
+  it('leaves stockOnHand alone when nothing unscoped was ever observed', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 10, purchasePrice: 3.99 },
+      allocations: [],
+      countLines: [countRow({ id: 'x', next: 4535.92, revenueCenterId: RC })],
+      rewrite,
+    })
+    expect(out.stockOnHand).toEqual({ old: 10, next: null, via: 'left (no observed unscoped count)' })
+  })
+
+  it('carries a zero count through as a zero (Kennebec: 0 → 0)', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 1.99 },
+      allocations: [{ revenueCenterId: RC, quantity: 0 }],
+      countLines: [countRow({ id: 'z', next: 0, countedQty: 0, revenueCenterId: RC })],
+      rewrite: planItemRewrite({ item: KENNEBEC, measure: 'lb' }),
+    })
+    expect(out.allocations[0].next).toBe(0)
+  })
+
+  it('rewrites the legacy purchasePrice to the corrected rate number', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 0 }, allocations: [], countLines: [], rewrite,
+    })
+    expect(out.purchasePrice).toEqual({ old: 0, next: 22.08 })
+  })
+})
+
+// ── CountSession.totalCountedValue ──────────────────────────────────────────
+
+describe('planSessionTotals', () => {
+  it('re-sums the OBSERVED snapshots only, using the rewritten values', () => {
+    // Kohlrabi's session: its one snapshot goes $0.09 → $39.90.
+    const rows = planSessionTotals(
+      [{
+        id: 'cs-1', totalCountedValue: 100.09,
+        snapshots: [
+          { id: 'sn-kohlrabi', source: 'COUNTED', totalValue: 0.09 },
+          { id: 'sn-other', source: 'CARRIED', totalValue: 100 },
+          { id: 'sn-skipped', source: 'SKIPPED', totalValue: 500 },
+          { id: 'sn-theory', source: 'THEORETICAL', totalValue: 900 },
+        ],
+      }],
+      new Map([['sn-kohlrabi', 39.9]]),
+    )
+    expect(rows).toEqual([{ sessionId: 'cs-1', old: 100.09, next: 139.9 }])
+  })
+
+  it('reports an unchanged session too, so the caller decides what is material', () => {
+    const rows = planSessionTotals(
+      [{ id: 'cs-2', totalCountedValue: 12, snapshots: [{ id: 's', source: 'COUNTED', totalValue: 12 }] }],
+      new Map(),
+    )
+    expect(rows).toEqual([{ sessionId: 'cs-2', old: 12, next: 12 }])
+  })
+
+  it('handles Prisma Decimal strings on both the total and the snapshots', () => {
+    const rows = planSessionTotals(
+      [{ id: 'cs-3', totalCountedValue: '0.09', snapshots: [{ id: 'a', source: 'COUNTED', totalValue: '0.09' }] }],
+      new Map([['a', 39.9]]),
+    )
+    expect(rows).toEqual([{ sessionId: 'cs-3', old: 0.09, next: 39.9 }])
+  })
+
+  it('a session with no observed snapshot left totals zero', () => {
+    const rows = planSessionTotals(
+      [{ id: 'cs-4', totalCountedValue: 5, snapshots: [{ id: 'a', source: 'THEORETICAL', totalValue: 5 }] }],
+      new Map(),
+    )
+    expect(rows).toEqual([{ sessionId: 'cs-4', old: 5, next: 0 }])
   })
 })
