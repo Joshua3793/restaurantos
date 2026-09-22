@@ -35,10 +35,10 @@ import {
   type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { formToChain } from '@/lib/item-model-form'
-import { canonicalUom } from '@/lib/uom'
 import {
   DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
 } from '@/components/inventory/ItemChainEditor'
+import { seedFromScanLine, isByWeightLine, lineMeasureUnit, validateCreateNew } from '@/lib/invoice/create-new-seed'
 
 // ─── InvoiceHeader ─────────────────────────────────────────────────────────────
 
@@ -1512,6 +1512,52 @@ export function InvoiceReviewDrawer({
   )
 }
 
+// ─── EachMeasureField ────────────────────────────────────────────────────────
+// Number + unit pair for "how much does one weigh?" — mirrors the count↔weight
+// bridge in InventoryItemDrawer (g/ml, plus the stored unit when it's outside
+// that pair so a click never silently swaps it away).
+
+function EachMeasureField({
+  qty,
+  unit,
+  onQtyChange,
+  onUnitChange,
+  caption,
+}: {
+  qty: number | null
+  unit: string
+  onQtyChange: (v: number | null) => void
+  onUnitChange: (v: string) => void
+  caption: string
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="any"
+          value={qty ?? ''}
+          onChange={e => onQtyChange(e.target.value === '' ? null : Number(e.target.value))}
+          placeholder="e.g. 200"
+          className="flex-1 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
+        />
+        <select
+          value={unit}
+          onChange={e => onUnitChange(e.target.value)}
+          className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
+        >
+          {unit && !['g', 'ml'].includes(unit) && <option value={unit}>{unit}</option>}
+          <option value="g">g</option>
+          <option value="ml">ml</option>
+        </select>
+      </div>
+      <p className="text-[10.5px] text-ink-4 mt-1">{caption}</p>
+    </div>
+  )
+}
+
 // ─── AddNewItemModal ───────────────────────────────────────────────────────────
 // Full form to configure a new inventory item before approve creates it.
 
@@ -1548,27 +1594,21 @@ function AddNewItemModal({
   const [supplierId,   setSupplierId]   = useState<string>(sessionSupplierId ?? '')
   const [storageAreaId, setStorageAreaId] = useState<string>('')
 
-  // Seed the chain from the invoice's OCR'd pack fields via the same formToChain
-  // helper the approve route uses — so the form opens pre-filled to what the
-  // scan saw, and the manager only confirms or tweaks.
-  const seed = useMemo(() => formToChain({
-    // canonicalize the OCR'd unit (e.g. 'CS' → 'case') so the seeded chain lands
-    // on a clean, selectable level unit rather than a raw invoice token.
-    purchaseUnit:       canonicalUom(item.rawUnit) || 'case',
-    purchasePrice:      Number(item.rate ?? item.rawUnitPrice ?? item.newPrice ?? 0),
-    qtyPerPurchaseUnit: Number(item.invoicePackQty) || 1,
-    qtyUOM:             'each',
-    innerQty:           null,
-    packSize:           Number(item.invoicePackSize) || 1,
-    packUOM:            item.invoicePackUOM ?? 'each',
-    priceType:          item.pricingMode === 'per_weight' ? 'UOM' : 'CASE',
-    countUOM:           'each',
-  }), [item])
+  // Seed the chain from the invoice's OCR'd line via the same formToChain helper
+  // the approve route uses — so the form opens pre-filled to what the scan saw,
+  // and the manager only confirms or tweaks. A by-weight line (per_weight, or
+  // any resolvable weight/volume unit) seeds on its MEASURE unit so it opens as
+  // a weight item rather than defaulting to a bogus `[{lb:1}] / $/each` shape.
+  const seed = useMemo(() => formToChain(seedFromScanLine(item)), [item])
+  const byWeight = isByWeightLine(item)
+  const measure  = lineMeasureUnit(item)
 
   const [dimension, setDimension] = useState<Dimension>(seed.dimension)
   const [chain,     setChain]     = useState<PackLink[]>(seed.packChain)
   const [pricing,   setPricing]   = useState<Pricing>(seed.pricing)
   const [countUnit, setCountUnit] = useState<string>(seed.countUnit)
+  const [eachMeasureQty,  setEachMeasureQty]  = useState<number | null>(null)
+  const [eachMeasureUnit, setEachMeasureUnit] = useState<string>('g')
 
   useEffect(() => {
     fetch('/api/categories').then(r => r.json()).then((data: { name: string }[]) => {
@@ -1588,10 +1628,13 @@ function AddNewItemModal({
   const chainItem = { dimension, baseUnit, packChain: chain, pricing, countUnit }
   const ppb = pricePerBaseUnit(chainItem)
   const perCount = basePerUnit(chainItem, countUnit)
+  const seedRate = seed.pricing.mode === 'RATE' ? seed.pricing.rate : null
+  const gate = validateCreateNew({ line: item, dimension, eachMeasureQty })
 
   const handleSave = async () => {
     const errors = validateChainItem(chainItem)
     if (errors.length) { alert(errors.join('; ')); return }
+    if (!gate.ok) { alert(gate.error); return }
     setSaving(true)
     // Chain-shaped newItemData — the approve route stores dimension/packChain/
     // pricing/countUnit directly (with a legacy-field fallback for any session
@@ -1605,6 +1648,8 @@ function AddNewItemModal({
       packChain: chain,
       pricing,
       countUnit,
+      eachMeasureQty:  dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? eachMeasureQty : null,
+      eachMeasureUnit: dimension === 'COUNT' && Number(eachMeasureQty) > 0 ? eachMeasureUnit : null,
     }
     await fetch(`/api/invoices/sessions/${sessionId}`, {
       method: 'PATCH',
@@ -1706,11 +1751,27 @@ function AddNewItemModal({
               dimension={dimension}
               onChange={d => {
                 setDimension(d)
-                setPricing(p => p.mode === 'RATE' ? { mode: 'RATE', rate: p.rate, rateUnit: DIM_UNITS[d][0] } : p)
+                setPricing(p => p.mode === 'RATE'
+                  ? { mode: 'RATE', rate: p.rate, rateUnit: measure && DIM_UNITS[d].includes(measure) ? measure : DIM_UNITS[d][0] }
+                  : p)
                 const opts = countUnitOptions(d, chain)
                 setCountUnit(cu => opts.includes(cu) ? cu : opts[0])
               }}
             />
+
+            {byWeight && measure && seedRate !== null && (
+              <p className="text-[11px] text-ink-4 mt-1">Billed by weight ({formatCurrency(seedRate)}/{measure})</p>
+            )}
+
+            {byWeight && dimension === 'COUNT' && (
+              <EachMeasureField
+                qty={eachMeasureQty}
+                unit={eachMeasureUnit}
+                onQtyChange={setEachMeasureQty}
+                onUnitChange={setEachMeasureUnit}
+                caption="Bought by weight but counted as units — how much does one weigh?"
+              />
+            )}
 
             <PackChainEditor
               chain={chain}
@@ -1745,22 +1806,27 @@ function AddNewItemModal({
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end gap-2 px-6 py-4 border-t border-bg-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-[13px] text-ink-3 border border-line rounded-lg hover:bg-bg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 text-[13px] font-medium bg-ink text-paper rounded-lg hover:bg-ink-2 disabled:opacity-50 transition-colors"
-            >
-              {saving ? 'Saving…' : 'Save & flag for approval'}
-            </button>
+          <div className="px-6 py-4 border-t border-bg-2">
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-[13px] text-ink-3 border border-line rounded-lg hover:bg-bg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving || !gate.ok}
+                className="px-4 py-2 text-[13px] font-medium bg-ink text-paper rounded-lg hover:bg-ink-2 disabled:opacity-50 transition-colors"
+              >
+                {saving ? 'Saving…' : 'Save & flag for approval'}
+              </button>
+            </div>
+            {!gate.ok && (
+              <p className="text-[11px] text-red-text mt-2 text-right">{gate.error}</p>
+            )}
           </div>
         </div>
       </div>
