@@ -11,7 +11,8 @@
 // approval stays put, and says so.
 //
 // Legacy sessions (approved before these records existed) fall back to today's
-// `revertedPricing` rule, extended to ADD_SUPPLIER lines, flagged 'best-effort':
+// `revertedPricing` rule, exactly as it stands today — UPDATE_PRICE lines
+// only, never ADD_SUPPLIER (see `legacyRows` for why) — flagged 'best-effort':
 // offers, learned match rules and created items cannot be restored at all,
 // because nothing recorded what they looked like.
 //
@@ -362,25 +363,37 @@ function guardCascades(recs: UndoRecord[], rows: PlanRow[], input: PlanInput): v
 }
 
 /**
- * Today's rule (`src/app/api/invoices/sessions/[id]/route.ts` DELETE), extended
- * to ADD_SUPPLIER lines: one row per qualifying line, in line order. A session
- * that re-priced the same item on two lines emits two rows and the later one
- * wins — exactly what the loop does today, kept deliberately rather than
- * deduplicated, because `previousPrice` is per line and nothing says which line
- * carries the pre-session price.
+ * Today's exact rule (`src/app/api/invoices/sessions/[id]/route.ts` DELETE):
+ * `UPDATE_PRICE` lines only, one row per qualifying line, in line order. A
+ * session that re-priced the same item on two lines emits two rows and the
+ * later one wins — exactly what the loop does today, kept deliberately rather
+ * than deduplicated, because `previousPrice` is per line and nothing says
+ * which line carries the pre-session price.
+ *
+ * NEVER `ADD_SUPPLIER`. `invoice-matcher.ts`'s `buildMatchResult` assigns
+ * `ADD_SUPPLIER` exactly when the line did NOT move the item's price
+ * (`|priceDiffPct| ≤ 0.1%` or `priceDiffPct === null`) — approve's
+ * `shouldReprice` is false for those lines whenever the line's supplier isn't
+ * the item's primary offer, so the item's spine was never touched by them in
+ * the first place. Its `previousPrice` is `offerLastPrice ?? Number(item.
+ * purchasePrice)` — THAT supplier's own last price, not necessarily what the
+ * item's spine held — so reverting an `ADD_SUPPLIER` line can overwrite the
+ * item with a different supplier's number for a write that never happened.
+ * `Number(null)` is `0`, so a line with no prior price at all would revert the
+ * item to a zero price; the `previousPrice > 0` guard below closes that too.
  */
 function legacyRows(legacy: LegacyInput): PlanRow[] {
   const priorPpbByItem = priorPpbFromAlerts(legacy.priceAlerts)
   const rows: PlanRow[] = []
   for (const line of legacy.lines) {
     if (line.approved !== true) continue
-    if (line.action !== 'UPDATE_PRICE' && line.action !== 'ADD_SUPPLIER') continue
+    if (line.action !== 'UPDATE_PRICE') continue
     if (!line.matchedItemId || !line.matchedItem) continue
     // Prisma Decimal | number | string. `Number(null)` is 0 and `Number('')` is
     // 0 — both would revert a live price to zero — so the empties go first.
     if (line.previousPrice === null || line.previousPrice === undefined || line.previousPrice === '') continue
     const previousPrice = Number(line.previousPrice)
-    if (!Number.isFinite(previousPrice)) continue
+    if (!Number.isFinite(previousPrice) || previousPrice <= 0) continue
     const revert = revertedPricing({
       previousPrice,
       item: line.matchedItem,

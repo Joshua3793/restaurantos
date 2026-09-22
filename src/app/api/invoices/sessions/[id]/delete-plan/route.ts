@@ -38,10 +38,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   const plan = planRollback(loaded.input)
 
+  // `requireSession()` here has no role floor — any signed-in user (including
+  // STAFF) can preview a delete. `row.write.data` carries the item/offer's
+  // actual cost fields (lastPrice, pricing, purchasePrice, packChain), which
+  // is spine data the preview has no business shipping to a role that can't
+  // see cost elsewhere in the app. The preview only ever needs the OUTCOME
+  // (restored/deleted/skipped/best-effort) and its label, never the payload
+  // that would be written — so `write` is stripped from every row.
+  const rows = plan.rows.map(({ write: _write, ...row }) => row)
+
   return NextResponse.json(
     {
       legacy: plan.legacy,
-      rows: plan.rows,
+      rows,
       summary: plan.summary,
       isClone: false,
     },

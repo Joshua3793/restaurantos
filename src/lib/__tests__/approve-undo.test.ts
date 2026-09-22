@@ -412,4 +412,61 @@ describe('capture hooks', () => {
     expect(prevs[0]).toMatchObject({ inventoryItemId: 'old-item', invoicePackQty: 1 })
     expect(createdIds).toEqual([])
   })
+
+  // I3: the two pre-write reads saveMatchRule added for undo capture must
+  // never abort the rule write itself — approve wraps the whole call in
+  // `.catch(() => {})`, so an uncaught read failure here would silently lose a
+  // learned match approve would otherwise have written.
+  it('saveMatchRule: a failed siblings read does not abort the code-strip write, and records nothing for the siblings it could not see', async () => {
+    const { touched, createdIds, order, undo } = recorder()
+    prismaMock.invoiceMatchRule = {
+      findMany: async () => {
+        throw new Error('transient read failure')
+      },
+      updateMany: async () => {
+        order.push('updateMany')
+        return { count: 1 }
+      },
+      findUnique: async () => null,
+      upsert: async () => {
+        order.push('upsert')
+        return { id: 'r-new' }
+      },
+    }
+    const { saveMatchRule } = await import('@/lib/invoice-matcher')
+    await saveMatchRule('NEW DESC', 'item1', 'Sysco', null, 'CODE1', undo)
+    // the read failed, so nothing is guessed about the siblings it would have
+    // captured — not "no siblings", just nothing at all
+    expect(touched).toEqual([])
+    // but the write that strips the stale code from them is NOT gated on the
+    // read, and the upsert (and its created() for a genuinely new rule) still
+    // runs normally
+    expect(order).toEqual(['updateMany', 'upsert', 'created:MATCH_RULE:r-new'])
+    expect(createdIds).toEqual(['MATCH_RULE:r-new'])
+  })
+
+  it("saveMatchRule: a failed existing-row read does not abort the upsert, and must NOT created() a rule that may have existed", async () => {
+    const { touched, createdIds, order, undo } = recorder()
+    prismaMock.invoiceMatchRule = {
+      findMany: async () => [],
+      updateMany: async () => ({ count: 0 }),
+      findUnique: async () => {
+        throw new Error('transient read failure')
+      },
+      upsert: async () => {
+        order.push('upsert')
+        return { id: 'r1' }
+      },
+    }
+    const { saveMatchRule } = await import('@/lib/invoice-matcher')
+    await saveMatchRule('NEW DESC', 'item1', 'Sysco', undefined, null, undo)
+    // the upsert still ran — the write is never gated on this read
+    expect(order).toEqual(['upsert'])
+    // neither `before` (we don't know the row existed) nor `created` (we don't
+    // know it didn't) was recorded: the exact hazard this guards against is a
+    // later rollback DELETING a rule that predates this invoice because a
+    // transient read failure got treated as "this is new".
+    expect(touched).toEqual([])
+    expect(createdIds).toEqual([])
+  })
 })

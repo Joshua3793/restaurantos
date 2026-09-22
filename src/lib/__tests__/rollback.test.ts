@@ -513,7 +513,7 @@ describe('planRollback — the legacy path', () => {
     densityGPerMl: null,
   }
 
-  it('best-efforts UPDATE_PRICE and ADD_SUPPLIER lines with a previousPrice, and nothing else', () => {
+  it('best-efforts UPDATE_PRICE lines with a positive previousPrice, and nothing else', () => {
     const plan = planRollback(
       input({
         legacy: {
@@ -530,7 +530,7 @@ describe('planRollback — the legacy path', () => {
       })
     )
     expect(plan.legacy).toBe(true)
-    expect(plan.rows.map(r => r.targetId)).toEqual(['i1', 'i2'])
+    expect(plan.rows.map(r => r.targetId)).toEqual(['i1'])
     expect(plan.rows[0]).toMatchObject({
       kind: 'ITEM',
       name: 'Flour',
@@ -542,9 +542,50 @@ describe('planRollback — the legacy path', () => {
       op: 'update',
       data: { purchasePrice: 15, pricing: { mode: 'PACK', purchasePrice: 15 } },
     })
-    expect(plan.rows[1].name).toBe('i2') // no itemName supplied → the id
-    expect(plan.restoredItemIds).toEqual(['i1', 'i2'])
-    expect(plan.summary).toEqual({ restored: 0, deleted: 0, skipped: 0, bestEffort: 2 })
+    expect(plan.restoredItemIds).toEqual(['i1'])
+    expect(plan.summary).toEqual({ restored: 0, deleted: 0, skipped: 0, bestEffort: 1 })
+  })
+
+  // C1: the legacy path must never write a price the approval never wrote.
+  // ADD_SUPPLIER lines are assigned by invoice-matcher.ts exactly when the
+  // line did NOT move the item's price (a non-primary supplier's line never
+  // re-priced the spine), and their `previousPrice` is THAT supplier's own
+  // last price — reverting one overwrites the item with the wrong number.
+  it('never reverts an ADD_SUPPLIER line, even with a clean positive previousPrice', () => {
+    const plan = planRollback(
+      input({
+        legacy: {
+          status: 'APPROVED',
+          priceAlerts: [],
+          lines: [
+            { approved: true, action: 'ADD_SUPPLIER', matchedItemId: 'i1', previousPrice: 15, matchedItem, itemName: 'Flour' },
+          ],
+        },
+      })
+    )
+    expect(plan.legacy).toBe(true)
+    expect(plan.rows).toEqual([])
+    expect(plan.restoredItemIds).toEqual([])
+  })
+
+  // `Number(null)` is 0, and `Number('')` is 0 too — the empties are already
+  // filtered above, but a genuine `previousPrice: 0` must be rejected the same
+  // way: it is never a real pre-session price and would zero the item.
+  it('ignores a line whose previousPrice is exactly 0', () => {
+    const plan = planRollback(
+      input({
+        legacy: {
+          status: 'APPROVED',
+          priceAlerts: [],
+          lines: [
+            { approved: true, action: 'UPDATE_PRICE', matchedItemId: 'i1', previousPrice: 0, matchedItem, itemName: 'Flour' },
+            { approved: true, action: 'UPDATE_PRICE', matchedItemId: 'i2', previousPrice: -5, matchedItem },
+            { approved: true, action: 'UPDATE_PRICE', matchedItemId: 'i3', previousPrice: 15, matchedItem },
+          ],
+        },
+      })
+    )
+    expect(plan.rows.map(r => r.targetId)).toEqual(['i3'])
   })
 
   it('emits one row per line — a second line for the same item overwrites, as today', () => {

@@ -257,10 +257,12 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
         select: { inventoryItemId: true, previousPrice: true },
         orderBy: { createdAt: 'asc' },
       },
-      // The legacy path's lines. Ordered by sortOrder because it does NOT
-      // deduplicate: two lines on one item write twice and the last one wins.
+      // The legacy path's lines — UPDATE_PRICE only (see `legacyRows` in
+      // rollback.ts for why ADD_SUPPLIER must never be reverted).  Ordered by
+      // sortOrder because it does NOT deduplicate: two lines on one item write
+      // twice and the last one wins.
       scanItems: {
-        where: { approved: true, action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER'] } },
+        where: { approved: true, action: 'UPDATE_PRICE' },
         orderBy: { sortOrder: 'asc' },
         select: {
           approved: true,

@@ -4,6 +4,11 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { deleteSession, RollbackRefused, type DeleteSessionResult } from '@/lib/invoice/rollback-load'
 
+// The bulk DELETE below runs `deleteSession` (and its 30s-headroom rollback
+// transaction, `TX_OPTIONS` in rollback-load.ts) once per id in the list — past
+// the Vercel function default well before a handful of sessions are through.
+export const maxDuration = 300
+
 // GET /api/invoices/sessions — list all sessions
 export async function GET(req: NextRequest) {
   let user

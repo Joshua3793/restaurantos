@@ -779,10 +779,17 @@ export async function saveMatchRule(
       inventoryItemId: { not: inventoryItemId },
     }
     if (undo) {
-      const siblings = await prisma.invoiceMatchRule.findMany({
-        where: siblingWhere,
-        select: { id: true, ...RULE_SELECT },
-      })
+      // Approve wraps the whole `saveMatchRule` call in `.catch(() => {})`, so
+      // a transient failure of THIS read must never propagate and lose a
+      // learned match the upsert below would otherwise still write. But a
+      // caught failure is not "no siblings" either — it is "unknown" — and the
+      // only safe response to "unknown" is to capture nothing for it: the
+      // `.catch` here returns `[]`, so `forEach` records no `before()` for any
+      // sibling this run couldn't actually read. The `updateMany` write itself
+      // is not gated on this read and always runs.
+      const siblings = await prisma.invoiceMatchRule
+        .findMany({ where: siblingWhere, select: { id: true, ...RULE_SELECT } })
+        .catch(() => [])
       siblings.forEach((r) => undo.before('MATCH_RULE', r.id, ruleState(r)))
     }
     await prisma.invoiceMatchRule.updateMany({
@@ -792,12 +799,24 @@ export async function saveMatchRule(
   }
 
   // The upsert's target, read before it is written: an existing row is captured
-  // as `prev`, a fresh one is recorded as created (so undo deletes it).
+  // as `prev`, a fresh one is recorded as created (so undo deletes it). Same
+  // caught-failure hazard as above, but the consequence of guessing wrong is
+  // worse here: treating a failed read as "row not found" would make the
+  // `!existing` check below call `created()` for a rule that may have existed
+  // all along, and a later rollback would DELETE it instead of leaving it
+  // alone. `existingReadFailed` keeps "read failed" distinguishable from "read
+  // succeeded, found nothing" so `created()` only fires on the latter.
+  let existingReadFailed = false
   const existing = undo
-    ? await prisma.invoiceMatchRule.findUnique({
-        where: { rawDescription_supplierName: { rawDescription, supplierName: supplierName || '' } },
-        select: { id: true, ...RULE_SELECT },
-      })
+    ? await prisma.invoiceMatchRule
+        .findUnique({
+          where: { rawDescription_supplierName: { rawDescription, supplierName: supplierName || '' } },
+          select: { id: true, ...RULE_SELECT },
+        })
+        .catch(() => {
+          existingReadFailed = true
+          return null
+        })
     : null
   if (existing) undo?.before('MATCH_RULE', existing.id, ruleState(existing))
 
@@ -826,5 +845,5 @@ export async function saveMatchRule(
     },
     select: { id: true },
   })
-  if (undo && !existing) undo.created('MATCH_RULE', row.id)
+  if (undo && !existing && !existingReadFailed) undo.created('MATCH_RULE', row.id)
 }

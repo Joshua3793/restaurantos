@@ -7,6 +7,12 @@ import { offerPricePerBase } from '@/lib/supplier-offers'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
 import { deleteSession, RollbackRefused } from '@/lib/invoice/rollback-load'
 
+// `deleteSession`'s rollback transaction is given 30s of headroom
+// (`TX_OPTIONS` in rollback-load.ts) for a large invoice's serial restores —
+// past the Vercel function default, which would kill the request (and the
+// transaction with it) before Prisma's own timeout ever fires.
+export const maxDuration = 300
+
 // GET /api/invoices/sessions/[id] — get session with full details
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession() }
