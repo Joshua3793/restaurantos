@@ -570,6 +570,72 @@ describe('planStockRewrite', () => {
     })
     expect(out.purchasePrice).toEqual({ old: 0, next: 22.08 })
   })
+
+  // ── lastCountQty — a fourth baseline, written from EVERY observed count ────
+  // (count-finalize.ts writes it on both the scoped and unscoped branch, unlike
+  // stockOnHand which only the unscoped/default-RC branch writes.)
+
+  it('takes lastCountQty from the latest observed count across ALL RCs — scoped counts included', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 22.08, lastCountQty: 3.135 },
+      allocations: [],
+      countLines: [
+        countRow({ id: 'u1', next: 907.184, sessionDate: '2026-07-01' }),
+        // A scoped (non-default) RC count feeds NO stockOnHand — but it DOES
+        // feed lastCountQty, because finalize writes lastCountQty on every
+        // observed line regardless of scope.
+        countRow({ id: 'scoped', next: 1422.011, sessionDate: '2026-09-01', revenueCenterId: RC }),
+      ],
+      rewrite,
+    })
+    expect(out.lastCountQty).toEqual({ old: 3.135, next: 1422.011, via: 'count line scoped', fromLineId: 'scoped' })
+  })
+
+  it('takes lastCountQty for Kohlrabi from its latest observed (scoped) count', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 10, purchasePrice: 3.99, lastCountQty: 10 },
+      allocations: [{ revenueCenterId: RC, quantity: 10 }],
+      countLines: [countRow({ id: 'k1', next: 4535.92, revenueCenterId: RC })],
+      rewrite: planItemRewrite({ item: KOHLRABI, measure: 'lb' }),
+    })
+    expect(out.lastCountQty).toEqual({ old: 10, next: 4535.92, via: 'count line k1', fromLineId: 'k1' })
+  })
+
+  it('leaves lastCountQty alone when the item has never had an observed count', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 3.99, lastCountQty: 0 },
+      allocations: [],
+      countLines: [countRow({ id: 'skip', next: 4535.92, skipped: true })],
+      rewrite,
+    })
+    expect(out.lastCountQty).toEqual({ old: 0, next: null, via: 'left (no observed count)' })
+  })
+
+  it('carries a zero count through to lastCountQty as zero (Kennebec: 0 → 0)', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 1.99, lastCountQty: 0 },
+      allocations: [{ revenueCenterId: RC, quantity: 0 }],
+      countLines: [countRow({ id: 'z', next: 0, countedQty: 0, revenueCenterId: RC })],
+      rewrite: planItemRewrite({ item: KENNEBEC, measure: 'lb' }),
+    })
+    expect(out.lastCountQty).toEqual({ old: 0, next: 0, via: 'count line z', fromLineId: 'z' })
+  })
+
+  // ── tie-break: same sessionDate, later row in INPUT ORDER wins ─────────────
+
+  it('breaks a same-date tie by input order — the later row wins, not the earlier', () => {
+    const out = planStockRewrite({
+      item: { stockOnHand: 0, purchasePrice: 22.08, lastCountQty: 0 },
+      allocations: [],
+      countLines: [
+        countRow({ id: 'first', next: 100, sessionDate: '2026-09-01' }),
+        countRow({ id: 'second', next: 200, sessionDate: '2026-09-01' }),
+      ],
+      rewrite,
+    })
+    expect(out.stockOnHand).toEqual({ old: 0, next: 200, via: 'count line second', fromLineId: 'second' })
+    expect(out.lastCountQty).toEqual({ old: 0, next: 200, via: 'count line second', fromLineId: 'second' })
+  })
 })
 
 // ── CountSession.totalCountedValue ──────────────────────────────────────────

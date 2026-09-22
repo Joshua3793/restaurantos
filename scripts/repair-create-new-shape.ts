@@ -49,14 +49,18 @@
  *                 line's snapshot keeps its (expected) quantity but has its
  *                 `unit` label corrected, so no `each` snapshot survives on a
  *                 MASS item.
- *   5. STOCK    → `InventoryItem.stockOnHand` and `StockAllocation.quantity` are
- *                 BASELINES read straight off the row (`count-expected.ts`,
- *                 `inventory-list.ts`), written by finalize in the OLD base unit.
- *                 Each is re-set from the corrected quantity of the latest
- *                 OBSERVED count that wrote it, routed exactly as
- *                 `count-finalize.ts` routes it (unscoped/default RC → global
- *                 stockOnHand; non-default RC → that RC's allocation). No
- *                 observed count for a target ⇒ left alone and said so.
+ *   5. STOCK    → `InventoryItem.stockOnHand`, `InventoryItem.lastCountQty`, and
+ *                 `StockAllocation.quantity` are BASELINES read straight off the
+ *                 row (`count-expected.ts`, `inventory-list.ts`; the count page
+ *                 shows `lastCountQty` as "Last count: …"), written by finalize
+ *                 in the OLD base unit. Each is re-set from the corrected
+ *                 quantity of the latest OBSERVED count that wrote it, routed
+ *                 exactly as `count-finalize.ts` routes it (unscoped/default RC
+ *                 → global stockOnHand; non-default RC → that RC's allocation).
+ *                 `lastCountQty` is written by BOTH branches of finalize, so it
+ *                 takes the latest observed count across ALL of the item's
+ *                 sessions, scoped or not — the one baseline with no RC filter.
+ *                 No observed count for a target ⇒ left alone and said so.
  *   6. SESSIONS → `CountSession.totalCountedValue` is a STORED sum of its
  *                 snapshots and goes stale the moment one is rewritten. Each
  *                 touched session is re-summed over its OBSERVED snapshots only
@@ -160,7 +164,7 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 async function fetchItems(ids: string[]) {
   return prisma.inventoryItem.findMany({
     where: { id: { in: ids } },
-    select: { id: true, itemName: true, stockOnHand: true, purchasePrice: true, ...PRICING_SELECT },
+    select: { id: true, itemName: true, stockOnHand: true, purchasePrice: true, lastCountQty: true, ...PRICING_SELECT },
   })
 }
 type ItemRow = Awaited<ReturnType<typeof fetchItems>>[number]
@@ -207,6 +211,12 @@ async function fetchCountLines(ids: string[]) {
         },
       },
     },
+    // CountLine has no createdAt — `latestObserved`'s tie-break is INPUT ORDER
+    // (last row wins on a shared sessionDate), so the input must be
+    // deterministic rather than left to Postgres row order. `id` (uuid, not
+    // chronological) is only a stable secondary key, not a claim about which
+    // line was entered later within the same day.
+    orderBy: [{ session: { sessionDate: 'asc' } }, { id: 'asc' }],
   })
 }
 type CountRow = Awaited<ReturnType<typeof fetchCountLines>>[number]
@@ -453,6 +463,7 @@ function printPlan(p: ItemPlan) {
   const leaveNote = (t: { next: number | null; old: number; via: string }) =>
     t.next == null ? `LEFT at ${fmt(t.old)} — ${t.via}` : `${fmt(t.old)} → ${fmt(t.next)}  [${t.via}]`
   console.log(`    stockOnHand: ${leaveNote(p.stock.stockOnHand)}`)
+  console.log(`    lastCountQty: ${leaveNote(p.stock.lastCountQty)}`)
   if (p.stock.allocations.length === 0) console.log('    allocations: (none)')
   else for (const a of p.stock.allocations) {
     console.log(`    allocation ${a.revenueCenterId}: ${leaveNote(a)}`)
@@ -481,13 +492,14 @@ const closeEnough = (a: number | null, b: number | null) => {
 async function applyItem(p: ItemPlan): Promise<{ applied: boolean; reason?: string }> {
   const fresh = await prisma.inventoryItem.findUnique({
     where: { id: p.item.id },
-    select: { dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true, stockOnHand: true, purchasePrice: true },
+    select: { dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true, stockOnHand: true, purchasePrice: true, lastCountQty: true },
   })
   if (
     !fresh || fresh.dimension !== p.item.dimension || fresh.baseUnit !== p.item.baseUnit ||
     fresh.countUnit !== p.item.countUnit || !same(fresh.packChain, p.item.packChain) || !same(fresh.pricing, p.item.pricing) ||
     !closeEnough(Number(fresh.stockOnHand), p.stock.stockOnHand.old) ||
-    !closeEnough(Number(fresh.purchasePrice), p.stock.purchasePrice.old)
+    !closeEnough(Number(fresh.purchasePrice), p.stock.purchasePrice.old) ||
+    !closeEnough(Number(fresh.lastCountQty), p.stock.lastCountQty.old)
   ) {
     return { applied: false, reason: 'item shape changed since planning' }
   }
@@ -551,6 +563,9 @@ async function applyItem(p: ItemPlan): Promise<{ applied: boolean; reason?: stri
   const stockOnHandWrite = p.stock.stockOnHand.next != null && isMaterial(p.stock.stockOnHand.old, p.stock.stockOnHand.next)
     ? p.stock.stockOnHand.next
     : null
+  const lastCountQtyWrite = p.stock.lastCountQty.next != null && isMaterial(p.stock.lastCountQty.old, p.stock.lastCountQty.next)
+    ? p.stock.lastCountQty.next
+    : null
 
   await prisma.$transaction([
     ...offerWrites.map((o) => prisma.inventorySupplierPrice.update({
@@ -594,6 +609,7 @@ async function applyItem(p: ItemPlan): Promise<{ applied: boolean; reason?: stri
         countUnit: p.rewrite.countUnit,
         purchasePrice: p.rewrite.purchasePrice,
         ...(stockOnHandWrite != null ? { stockOnHand: stockOnHandWrite } : {}),
+        ...(lastCountQtyWrite != null ? { lastCountQty: lastCountQtyWrite } : {}),
       },
     }),
   ])
@@ -620,6 +636,22 @@ async function main() {
     }),
     fetchOffers(itemIds),
   ])
+
+  // A --count-unit-override for a line id that isn't among the named items'
+  // count lines silently did nothing before (the line was never planned, so it
+  // could never be resolved — the item just stayed BLOCKED as if the override
+  // were never given). Same failure mode as a stray --measure: refuse loudly,
+  // the likeliest cause is a typo in the id.
+  const knownCountLineIds = new Set(countRows.map((c) => c.id))
+  const strayCountUnits = [...countUnits.keys()].filter((id) => !knownCountLineIds.has(id))
+  if (strayCountUnits.length > 0) {
+    console.error(
+      `--count-unit-override names count line id(s) that don't belong to any of the named items: ${strayCountUnits.join(', ')}. ` +
+        `Check the id — an override for a line that isn't planned can never resolve anything.`,
+    )
+    console.error(USAGE)
+    process.exit(2)
+  }
 
   const plans: ItemPlan[] = []
   const refused: { item: ItemRow; error: string }[] = []
@@ -741,6 +773,7 @@ async function main() {
         dimension: p.item.dimension, baseUnit: p.item.baseUnit, packChain: p.item.packChain,
         pricing: p.item.pricing, countUnit: p.item.countUnit,
         purchasePrice: p.stock.purchasePrice.old, stockOnHand: p.stock.stockOnHand.old,
+        lastCountQty: p.stock.lastCountQty.old,
       },
     })),
     offers: runnable.flatMap((p) => p.offers.filter(offerMoved).map((o) => ({

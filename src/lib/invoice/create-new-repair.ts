@@ -449,12 +449,19 @@ export interface StockTarget {
 
 export interface StockRewrite {
   stockOnHand: StockTarget
+  /** `InventoryItem.lastCountQty` — a FOURTH stock baseline, written by
+   *  `count-finalize.ts` from EVERY observed count line regardless of RC scope
+   *  (`isRcScopedCount ? { lastCountQty } : { stockOnHand, lastCountQty }` —
+   *  both branches write it). So unlike `stockOnHand`, this is the latest
+   *  observed line across ALL of the item's sessions, scoped or unscoped. */
+  lastCountQty: StockTarget
   allocations: (StockTarget & { revenueCenterId: string })[]
   purchasePrice: { old: number; next: number }
 }
 
 const LEFT_RC = 'left (no observed count for this RC)'
 const LEFT_GLOBAL = 'left (no observed unscoped count)'
+const LEFT_LAST_COUNT = 'left (no observed count)'
 
 /** Observed = what `count-finalize.ts` pushes to stock: entered or carried, never
  *  skipped and never blank. */
@@ -465,7 +472,12 @@ const at = (d: Date | string | number): number => {
   return Number.isFinite(t) ? t : 0
 }
 
-/** The latest observed row, ties broken by input order (last wins). */
+/** The latest observed row. Ties broken by INPUT ORDER, deliberately: when two
+ *  rows share a `sessionDate`, the later row in the array wins (`>=`, not `>`).
+ *  Callers are expected to pass rows in a stable, deterministic order (the
+ *  script's `fetchCountLines` orders by `session.sessionDate` then `id`), so
+ *  "later in input order" reads as "later, all else equal" rather than
+ *  Postgres row order. */
 function latestObserved(rows: StockCountRow[]): StockCountRow | null {
   let best: StockCountRow | null = null
   for (const r of rows) {
@@ -493,18 +505,23 @@ function latestObserved(rows: StockCountRow[]): StockCountRow | null {
  * receipt would be a different number with a different meaning.
  */
 export function planStockRewrite(a: {
-  item: { stockOnHand?: unknown; purchasePrice?: unknown }
+  item: { stockOnHand?: unknown; purchasePrice?: unknown; lastCountQty?: unknown }
   allocations: { revenueCenterId: string; quantity: unknown }[]
   countLines: StockCountRow[]
   rewrite: ItemRewrite
 }): StockRewrite {
   const globalRows = a.countLines.filter((r) => !r.revenueCenterId || r.rcIsDefault === true)
   const globalBest = latestObserved(globalRows)
+  // lastCountQty is written from EVERY observed line, scoped or not — no RC filter.
+  const lastCountBest = latestObserved(a.countLines)
 
   return {
     stockOnHand: globalBest
       ? { old: num(a.item.stockOnHand), next: globalBest.next, via: `count line ${globalBest.id}`, fromLineId: globalBest.id }
       : { old: num(a.item.stockOnHand), next: null, via: LEFT_GLOBAL },
+    lastCountQty: lastCountBest
+      ? { old: num(a.item.lastCountQty), next: lastCountBest.next, via: `count line ${lastCountBest.id}`, fromLineId: lastCountBest.id }
+      : { old: num(a.item.lastCountQty), next: null, via: LEFT_LAST_COUNT },
     allocations: a.allocations.map((al) => {
       const best = latestObserved(
         a.countLines.filter((r) => r.revenueCenterId === al.revenueCenterId && r.rcIsDefault !== true),
