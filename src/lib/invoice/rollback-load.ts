@@ -53,6 +53,18 @@ import {
 
 type Db = Prisma.TransactionClient | typeof prisma
 
+/**
+ * Prisma's `$transaction` defaults (maxWait 2s, timeout 5s) assume a handful of
+ * statements. `executeRestores` issues ONE statement per plan row — a 100-line
+ * invoice is 200-300 serial statements over the pgBouncer pooler — so the
+ * default timeout is a guaranteed `P2028` on anything but a tiny invoice. And
+ * once it fires, the session row never left the database, so every retry
+ * re-runs the same doomed transaction: the invoice becomes permanently
+ * undeletable. 30s/10s gives real invoices headroom without leaving a runaway
+ * transaction open indefinitely.
+ */
+export const TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 } as const
+
 /** The 409 an RC copy gets. Verbatim in the UI's clone tooltip. */
 export const CLONE_REFUSAL = 'This is an RC copy — delete the original invoice instead'
 
@@ -530,7 +542,7 @@ export async function deleteSession(sessionId: string, user: { role: Role }): Pr
     await tx.invoiceSession.deleteMany({ where: { parentSessionId: sessionId } })
     await tx.invoiceSession.delete({ where: { id: sessionId } })
     await executeCreatedItemDeletes(tx, plan)
-  })
+  }, TX_OPTIONS)
 
   // After the commit, never inside it: the prep cascade touches many recipes and
   // has no business holding the delete's transaction open. No sessionId is

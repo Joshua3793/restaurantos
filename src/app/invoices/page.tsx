@@ -15,6 +15,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useNotifications } from '@/contexts/NotificationContext'
+import { useToast } from '@/components/Toast'
 import { isNative } from '@/lib/capacitor'
 import { useNativeScan } from '@/hooks/useNativeScan'
 
@@ -43,6 +44,7 @@ export default function InvoicesPage() {
   const { activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
+  const toast = useToast()
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [signals, setSignals] = useState<Signal[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -195,26 +197,75 @@ export default function InvoicesPage() {
     } catch { /* poll will resync */ }
   }, [])
 
+  // Both deletes remove the row optimistically, then MUST check the response —
+  // a 409 (RC clone raced past the confirm dialog's own check) or a 500 (e.g. a
+  // transaction timeout on a large invoice) means nothing actually happened,
+  // and silently leaving the row gone would show a delete that never occurred.
+  // On failure the list is refetched from the server (simpler and more honest
+  // than hand-restoring the removed row(s)) and the error surfaces via the
+  // app's existing toast mechanism instead of being dropped.
   const handleDelete = useCallback(async (id: string, _status: SessionStatus): Promise<void> => {
     setSessions(prev => prev.filter(s => s.id !== id))
-    await fetch(`/api/invoices/sessions/${id}`, { method: 'DELETE' })
+    try {
+      const res = await fetch(`/api/invoices/sessions/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        toast.show({
+          type: 'error',
+          title: 'Could not delete invoice',
+          message: body?.error || `Request failed (${res.status})`,
+        })
+        await fetchSessions()
+        return
+      }
+    } catch {
+      toast.show({ type: 'error', title: 'Could not delete invoice', message: 'Network error — nothing was deleted.' })
+      await fetchSessions()
+      return
+    }
     fetchSessions()
     setKpiRefreshKey(k => k + 1)
     if (selectedSessionId === id) setSelectedSessionId(null)
-  }, [selectedSessionId, fetchSessions])
+  }, [selectedSessionId, fetchSessions, toast])
 
   const handleBulkDelete = useCallback(async (ids: string[]): Promise<void> => {
     const idSet = new Set(ids)
     setSessions(prev => prev.filter(s => !idSet.has(s.id)))
-    await fetch('/api/invoices/sessions', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-    })
+    try {
+      const res = await fetch('/api/invoices/sessions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        toast.show({
+          type: 'error',
+          title: 'Bulk delete failed',
+          message: body?.error || `Request failed (${res.status})`,
+        })
+        await fetchSessions()
+        return
+      }
+      // 200 OK still carries per-id refusals (an RC clone, a transaction
+      // timeout, …) — the bulk route never throws for those, it reports them.
+      const data: { refused?: Array<{ id: string; error: string; status: number }> } = await res.json().catch(() => ({}))
+      if (data.refused && data.refused.length > 0) {
+        toast.show({
+          type: 'warning',
+          title: `${data.refused.length} of ${ids.length} invoice${ids.length === 1 ? '' : 's'} could not be deleted`,
+          message: data.refused.map(r => r.error).join('; '),
+        })
+      }
+    } catch {
+      toast.show({ type: 'error', title: 'Bulk delete failed', message: 'Network error — nothing was deleted.' })
+      await fetchSessions()
+      return
+    }
     fetchSessions()
     setKpiRefreshKey(k => k + 1)
     if (selectedSessionId && ids.includes(selectedSessionId)) setSelectedSessionId(null)
-  }, [selectedSessionId, fetchSessions])
+  }, [selectedSessionId, fetchSessions, toast])
 
   const handleRetry = useCallback(async (id: string) => {
     // Show PROCESSING immediately; this also engages the fast (3s) poll so the

@@ -11,10 +11,24 @@ import {
   plannedRowDeletes,
   emptyRefCounts,
   loadItemRefs,
+  TX_OPTIONS,
   type RefCounts,
 } from '@/lib/invoice/rollback-load'
 
 const counts = (o: Partial<RefCounts> = {}): RefCounts => ({ ...emptyRefCounts(), ...o })
+
+// `deleteSession`'s `$transaction` runs on the real prisma singleton (mocked
+// away above), so the transaction itself isn't exercised here — but the
+// options it's called with are a plain exported constant, and getting them
+// wrong silently turns every non-trivial invoice delete back into a P2028.
+describe('TX_OPTIONS', () => {
+  it('gives the rollback transaction real headroom over Prisma\'s defaults (maxWait 2s, timeout 5s)', () => {
+    expect(TX_OPTIONS.timeout).toBe(30_000)
+    expect(TX_OPTIONS.maxWait).toBe(10_000)
+    expect(TX_OPTIONS.timeout).toBeGreaterThan(5_000)
+    expect(TX_OPTIONS.maxWait).toBeGreaterThan(2_000)
+  })
+})
 
 describe('referencePhrases', () => {
   it('is empty when nothing points at the item', () => {

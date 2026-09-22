@@ -47,8 +47,12 @@ export async function GET(req: NextRequest) {
 //
 // Each id runs the SAME `deleteSession` the single DELETE does — one
 // transaction per session, so one refusal never rolls back the ids that already
-// succeeded. A refused id (an RC copy → 409, a missing session → 404) is
-// collected into `refused` and the loop carries on.
+// succeeded. EVERY error is caught per id, not just `RollbackRefused` — a
+// transaction timeout, a Prisma error, anything — so one bad id can never abort
+// the ids still queued behind it, and can never lose the results already
+// committed for the ids before it. A refused id (an RC copy → 409, a missing
+// session → 404, anything else → 500) is collected into `refused` and the loop
+// carries on; every id ends up under `sessions` or `refused`, never dropped.
 export async function DELETE(req: NextRequest) {
   // Same gate as the single-id DELETE, and stricter: bulk is always MANAGER.
   // This reverts spine prices and deletes history, and it had no auth check at
@@ -71,8 +75,13 @@ export async function DELETE(req: NextRequest) {
     try {
       sessions.push({ id, ...(await deleteSession(id, user)) })
     } catch (e) {
-      if (e instanceof RollbackRefused) { refused.push({ id, error: e.message, status: e.status }); continue }
-      throw e
+      if (e instanceof RollbackRefused) {
+        refused.push({ id, error: e.message, status: e.status })
+      } else {
+        const message = e instanceof Error ? e.message : String(e)
+        console.error(`[invoice bulk-delete] session ${id} failed:`, e)
+        refused.push({ id, error: message, status: 500 })
+      }
     }
   }
 

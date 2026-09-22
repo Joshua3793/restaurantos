@@ -69,7 +69,7 @@ function planSummaryText(plan: DeletePlan): string {
   const { n, m, k, s, learned } = planCounts(plan)
   const segments = [`Restores ${n} supplier ${plural(n, 'price')} and ${m} item ${plural(m, 'price')}`]
   if (k > 0) segments.push(`removes ${k} new ${plural(k, 'product')}`)
-  if (s > 0) segments.push(`${s} ${plural(s, 'price')} stay (changed since)`)
+  if (s > 0) segments.push(`${s} ${plural(s, 'price')} ${s === 1 ? 'stays' : 'stay'} (changed since)`)
   if (learned > 0) segments.push(`${learned} learned ${plural(learned, 'match', 'matches')} removed`)
   return segments.join(' · ')
 }
