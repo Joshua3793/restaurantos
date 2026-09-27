@@ -82,7 +82,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       combinedOnHandProvided: willDisableUndo,
       newId: () => randomUUID(),
     })
-    if (!plan.ok) return NextResponse.json(plan, { status: 422 })
+    if (!plan.ok) {
+      // Asked for a combined on-hand: plan it again, WITH one, from the same
+      // inputs (the planner only looks at whether a figure is given, never its
+      // value) — so the sheet can show what the merge would move the moment the
+      // guard appears, instead of a second 5-10 s ledger read once they type.
+      // A blocker that only shows up past this guard comes back as the answer.
+      if (plan.guard === 'NEEDS_ON_HAND' && !willDisableUndo) {
+        const withOnHand = planMerge(inputs.survivor, inputs.absorbed, inputs.rel, inputs.sRel, {
+          combinedOnHandProvided: true,
+          newId: () => randomUUID(),
+        })
+        if (!withOnHand.ok) return NextResponse.json(withOnHand, { status: 422 })
+        return NextResponse.json({ ...plan, withOnHand: { summary: withOnHand.summary } }, { status: 422 })
+      }
+      return NextResponse.json(plan, { status: 422 })
+    }
     return NextResponse.json({
       ok: true,
       dryRun: true,

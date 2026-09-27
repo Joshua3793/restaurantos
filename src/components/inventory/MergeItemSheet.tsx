@@ -3,18 +3,28 @@
 // The server (src/lib/item-merge.ts + api/inventory/[id]/merge) does every
 // bit of the actual work; this component only calls it and renders what it
 // says. See .superpowers/sdd/item-consolidation/task-10-{brief,addendum}.md.
+//
+// ONE dry run per pick. When the plan needs a combined on-hand, the server
+// plans it a second time with one in the same response (`withOnHand`), so the
+// preview is on screen before anyone types and Merge enables as soon as the
+// figure is valid. The combined on-hand is entered as one or more
+// (qty, unit) rows over the survivor's own countable units — "2 case + 5 each"
+// — and sent in the row's unit when there is one row, else summed to base.
 'use client'
-import { useEffect, useRef, useState } from 'react'
-import { X, Search, GitMerge, Loader2, ArrowLeft, TriangleAlert } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { X, Search, GitMerge, Loader2, ArrowLeft, TriangleAlert, Plus, Trash2, ArrowDown } from 'lucide-react'
 import type { MergeGuard, MergeSummary } from '@/lib/item-merge'
 import { mergeSummaryLines, mergeNotes, UNDO_DISABLED_NOTE } from '@/lib/item-merge-copy'
+import {
+  getCountableUoms, resolveCountUom, countUomFactor, convertBaseToCountUom, type ItemDims,
+} from '@/lib/count-uom'
 
 export interface MergeHit {
   id: string; itemName: string; baseUnit: string
   recipeCount: number; purchaseCount: number; stockOnHand: number
 }
 
-type PlanFailure = { ok: false; guard: MergeGuard; message: string }
+type PlanFailure = { ok: false; guard: MergeGuard; message: string; withOnHand?: { summary: MergeSummary } }
 type DryRunOk = { ok: true; dryRun: true; summary: MergeSummary; willDisableUndo: boolean }
 type DryRunResult = DryRunOk | PlanFailure
 type ConfirmOk = {
@@ -27,16 +37,90 @@ const isDryRunOk = (d: unknown): d is DryRunOk =>
 const isPlanFailure = (d: unknown): d is PlanFailure =>
   !!d && typeof d === 'object' && (d as { ok?: unknown }).ok === false && typeof (d as { guard?: unknown }).guard === 'string'
 
+export interface MergeSurvivor {
+  id: string; itemName: string; baseUnit: string
+  dimension?: string | null; packChain?: unknown; countUnit?: string | null
+  eachMeasureQty?: unknown; eachMeasureUnit?: string | null
+}
+
+interface OnHandRow { key: number; qty: string; unit: string }
+
 interface MergeItemSheetProps {
-  survivor: { id: string; itemName: string; countUnit: string; baseUnit: string }
+  survivor: MergeSurvivor
   rcId: string | null
+  rcName?: string | null
   onClose: () => void
   /** Fired once the merge has actually happened (not on a mere preview). */
   onMerged: () => void
 }
 
-export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemSheetProps) {
-  const [q, setQ] = useState('')
+const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(n >= 10 ? 1 : 2).replace(/\.?0+$/, ''))
+
+function SummaryList({ summary, willDisableUndo }: { summary: MergeSummary; willDisableUndo: boolean }) {
+  const notes = mergeNotes(summary, willDisableUndo)
+  return (
+    <>
+      <dl className="text-[13px] divide-y divide-line border border-line rounded-lg bg-paper">
+        {mergeSummaryLines(summary).map(row => (
+          <div key={row.label} className="flex justify-between px-3 py-2">
+            <dt className="text-ink-3">{row.label}</dt>
+            <dd className="text-ink font-mono">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {notes.length > 0 && (
+        <ul className="mt-2 space-y-1.5">
+          {notes.map((note, i) => (
+            <li key={i} className="text-[12.5px] text-ink-2 bg-blue-soft rounded-lg px-3 py-2">{note}</li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
+/** "Keep X ← fold in Y" — the one picture of what a merge does. */
+function MergePair({ keep, fold }: { keep: string; fold: string }) {
+  return (
+    <div className="rounded-xl border border-line bg-paper overflow-hidden text-[13px]">
+      <div className="px-3 py-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4">Goes away</div>
+        <div className="text-ink font-medium">{fold}</div>
+      </div>
+      <div className="flex items-center gap-2 px-3 py-1 bg-bg-2 text-[11.5px] text-ink-3">
+        <ArrowDown size={12} /> invoices, recipes, counts and its supplier move into
+      </div>
+      <div className="px-3 py-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4">Stays</div>
+        <div className="text-ink font-medium">{keep}</div>
+      </div>
+    </div>
+  )
+}
+
+export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: MergeItemSheetProps) {
+  const dims: ItemDims = useMemo(() => ({
+    dimension: survivor.dimension ?? 'COUNT',
+    baseUnit: survivor.baseUnit,
+    packChain: survivor.packChain ?? [],
+    countUnit: survivor.countUnit ?? null,
+    eachMeasureQty: survivor.eachMeasureQty,
+    eachMeasureUnit: survivor.eachMeasureUnit ?? null,
+  }), [survivor])
+  const uoms = useMemo(() => getCountableUoms(dims), [dims])
+  const unitLabels = useMemo(() => {
+    const labels = uoms.map(u => u.label)
+    return labels.includes(survivor.baseUnit) ? labels : [...labels, survivor.baseUnit]
+  }, [uoms, survivor.baseUnit])
+  const unitDisplay = (lbl: string) => uoms.find(u => u.label === lbl)?.display ?? lbl
+  const defaultUnit = useMemo(() => {
+    const u = resolveCountUom(dims)
+    return unitLabels.includes(u) ? u : survivor.baseUnit
+  }, [dims, unitLabels, survivor.baseUnit])
+
+  // Opens already searching on this item's own name, so the likely duplicates
+  // are listed before anyone types. The text is selected, so typing replaces it.
+  const [q, setQ] = useState(survivor.itemName)
   const [hits, setHits] = useState<MergeHit[]>([])
   const [searching, setSearching] = useState(false)
 
@@ -44,22 +128,18 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
   const [preview, setPreview] = useState<DryRunResult | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
 
-  const [onHand, setOnHand] = useState('')
+  const rowKey = useRef(0)
+  const newRow = (unit: string): OnHandRow => ({ key: ++rowKey.current, qty: '', unit })
+  const [rows, setRows] = useState<OnHandRow[]>(() => [newRow(defaultUnit)])
   const [busy, setBusy] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
   const [result, setResult] = useState<ConfirmOk | null>(null)
 
-  // The second dry run: the same plan, now WITH the combined on-hand, so the
-  // person sees what moves before confirming a merge they cannot undo.
-  const [onHandPreview, setOnHandPreview] = useState<DryRunResult | null>(null)
-  const [onHandPreviewError, setOnHandPreviewError] = useState<string | null>(null)
-  const [checkingOnHand, setCheckingOnHand] = useState(false)
-
-  // A dry run is slow (8-13s measured). Guard against a stale response landing
-  // after the user has gone Back and picked something else — bump the req id and
-  // abort the in-flight fetch on every new pick / Back / unmount. The search box
-  // and the on-hand re-check each get their own pair for the same reason: fast
-  // typing must never paint an older query's results (or an older figure's plan).
+  // A dry run reads the stock ledger (several seconds). Guard against a stale
+  // response landing after the user has gone Back and picked something else —
+  // bump the req id and abort the in-flight fetch on every new pick / Back /
+  // unmount. The search box gets its own pair: fast typing must never paint an
+  // older query's results.
   const reqId = useRef(0)
   const inFlight = useRef<AbortController | null>(null)
   // State is read from the render closure, so two clicks in one tick both pass a
@@ -67,12 +147,9 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
   const submitting = useRef(false)
   const searchReqId = useRef(0)
   const searchInFlight = useRef<AbortController | null>(null)
-  const onHandReqId = useRef(0)
-  const onHandInFlight = useRef<AbortController | null>(null)
   useEffect(() => () => {
     inFlight.current?.abort()
     searchInFlight.current?.abort()
-    onHandInFlight.current?.abort()
   }, [])
 
   useEffect(() => {
@@ -99,6 +176,11 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
     return () => clearTimeout(t)
   }, [q, survivor.id])
 
+  function resetEntry() {
+    setRows([newRow(defaultUnit)])
+    setConfirmError(null)
+  }
+
   async function pick(h: MergeHit) {
     inFlight.current?.abort()
     const myReq = ++reqId.current
@@ -108,10 +190,8 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
     setPicked(h)
     setPreview(null)
     setPreviewError(null)
-    setOnHand('')
-    setConfirmError(null)
     setResult(null)
-    clearOnHandPreview()
+    resetEntry()
 
     try {
       const r = await fetch(`/api/inventory/${survivor.id}/merge`, {
@@ -132,81 +212,36 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
     }
   }
 
-  function clearOnHandPreview() {
-    onHandInFlight.current?.abort()
-    onHandReqId.current++ // invalidate anything still in flight
-    setOnHandPreview(null)
-    setOnHandPreviewError(null)
-    setCheckingOnHand(false)
-  }
-
   function back() {
     inFlight.current?.abort()
     reqId.current++ // invalidate anything still in flight
     setPicked(null)
     setPreview(null)
     setPreviewError(null)
-    setOnHand('')
-    setConfirmError(null)
-    clearOnHandPreview()
+    resetEntry()
   }
 
   const needsOnHand = !!preview && !preview.ok && preview.guard === 'NEEDS_ON_HAND'
   const blocked = !!preview && !preview.ok && preview.guard !== 'NEEDS_ON_HAND'
-  const onHandNum = onHand.trim() === '' ? null : Number(onHand)
-  const onHandValid = onHandNum != null && Number.isFinite(onHandNum) && onHandNum >= 0
-  const willUseOnHand = needsOnHand && onHandValid && !!rcId
+  const onHandSummary = needsOnHand && preview && !preview.ok ? preview.withOnHand?.summary ?? null : null
 
-  // The NEEDS_ON_HAND path used to confirm an UN-UNDOABLE merge on the strength
-  // of a guard message alone: the first dry run is refused by that guard, so it
-  // returns no summary at all. Re-run it WITH the figure — the same request the
-  // Merge button will send, minus the write — and don't enable Merge until that
-  // second plan comes back ok. Debounced so typing "12" doesn't fire two 10-second
-  // plans, and stale-guarded like every other request here.
-  const pickedId = picked?.id ?? null
-  useEffect(() => {
-    if (!pickedId || !willUseOnHand || onHandNum == null || !rcId) { clearOnHandPreview(); return }
-    onHandInFlight.current?.abort()
-    onHandReqId.current++
-    setOnHandPreview(null)
-    setOnHandPreviewError(null)
-    setCheckingOnHand(true)
+  // Every row must be a real, non-negative number in a unit this item can be
+  // counted in (the same strict resolver the count write path uses). Blank rows
+  // are ignored unless every row is blank.
+  const filled = rows.filter(r => r.qty.trim() !== '')
+  const parsed = filled.map(r => ({ ...r, n: Number(r.qty), factor: countUomFactor(r.unit, dims) }))
+  const entryValid = parsed.length > 0 && parsed.every(r => Number.isFinite(r.n) && r.n >= 0 && r.factor != null)
+  const totalBase = entryValid ? parsed.reduce((s, r) => s + r.n * (r.factor as number), 0) : null
+  // One row → send it in its own unit (the count reads "3 case"). Several →
+  // send the base total, which every item can always be counted in.
+  const combinedOnHand = entryValid && rcId
+    ? (parsed.length === 1
+        ? { countedQty: parsed[0].n, selectedUom: parsed[0].unit, rcId }
+        : { countedQty: totalBase as number, selectedUom: survivor.baseUnit, rcId })
+    : null
 
-    const t = setTimeout(async () => {
-      const myReq = ++onHandReqId.current
-      const controller = new AbortController()
-      onHandInFlight.current = controller
-      try {
-        const r = await fetch(`/api/inventory/${survivor.id}/merge`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            absorbedId: pickedId,
-            dryRun: true,
-            combinedOnHand: { countedQty: onHandNum, selectedUom: survivor.countUnit, rcId },
-          }),
-          signal: controller.signal,
-        })
-        if (onHandReqId.current !== myReq) return // superseded — ignore
-        const d = await r.json().catch(() => null)
-        if (onHandReqId.current !== myReq) return
-        setCheckingOnHand(false)
-        if (isDryRunOk(d) || isPlanFailure(d)) { setOnHandPreview(d); return }
-        setOnHandPreviewError((d && typeof d === 'object' && 'error' in d ? String((d as { error: unknown }).error) : null) ?? 'Could not check this merge.')
-      } catch (e) {
-        if (onHandReqId.current !== myReq) return
-        if ((e as { name?: string } | null)?.name === 'AbortError') return
-        setCheckingOnHand(false)
-        setOnHandPreviewError('Could not check this merge.')
-      }
-    }, 400)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickedId, willUseOnHand, onHandNum, rcId, survivor.id, survivor.countUnit])
-
-  const onHandPlanOk = !!onHandPreview && onHandPreview.ok
   const canConfirm = !!picked && !busy && !!preview
-    && (preview.ok || (willUseOnHand && onHandPlanOk))
+    && (preview.ok || (needsOnHand && !!onHandSummary && !!combinedOnHand))
 
   async function confirm() {
     if (!picked || busy || !canConfirm || submitting.current) return
@@ -215,7 +250,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
     setConfirmError(null)
     try {
       const body: Record<string, unknown> = { absorbedId: picked.id }
-      if (willUseOnHand) body.combinedOnHand = { countedQty: onHandNum, selectedUom: survivor.countUnit, rcId }
+      if (needsOnHand && combinedOnHand) body.combinedOnHand = combinedOnHand
       const r = await fetch(`/api/inventory/${survivor.id}/merge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -245,39 +280,59 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
     onClose()
   }
 
+  const setRow = (key: number, patch: Partial<OnHandRow>) =>
+    setRows(rs => rs.map(r => (r.key === key ? { ...r, ...patch } : r)))
+
+  // What the app currently thinks both items hold (all revenue centers), shown
+  // in the first row's unit as a reference — never pre-filled, because the
+  // figure being entered is a count for ONE revenue center.
+  const hintUnit = rows[0]?.unit ?? defaultUnit
+  const inUnit = (base: number) => fmt(convertBaseToCountUom(base, hintUnit, dims))
+
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       <div className="fixed inset-0 z-40 bg-black/40" onClick={result ? finish : onClose} />
-      <div className="relative z-50 bg-paper w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-4 max-h-[85vh] overflow-y-auto">
+      <div className="relative z-50 bg-bg w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-4 max-h-[88vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[15px] font-semibold text-ink flex items-center gap-2">
-            <GitMerge size={16} /> Merge into {survivor.itemName}
+          <h3 className="text-[15px] font-semibold text-ink flex items-center gap-2 min-w-0">
+            <GitMerge size={16} className="shrink-0" />
+            <span className="truncate">{picked ? 'Merge items' : `Find a duplicate of ${survivor.itemName}`}</span>
           </h3>
-          <button type="button" onClick={result ? finish : onClose} aria-label="Close"><X size={18} className="text-ink-3" /></button>
+          <button type="button" onClick={result ? finish : onClose} aria-label="Close" className="shrink-0"><X size={18} className="text-ink-3" /></button>
         </div>
 
         {!picked && (
           <>
-            <label className="flex items-center gap-2 border border-line rounded-lg px-3 py-2">
+            <label className="flex items-center gap-2 border border-line rounded-lg px-3 py-2.5 bg-paper">
               <Search size={14} className="text-ink-3" />
               <input
                 autoFocus value={q} onChange={e => setQ(e.target.value)}
-                placeholder="Find the duplicate item…"
+                onFocus={e => e.currentTarget.select()}
+                placeholder="Search for the duplicate item…"
                 className="flex-1 outline-none text-[14px] bg-transparent text-ink"
               />
               {searching && <Loader2 size={14} className="text-ink-3 animate-spin" />}
+              {q && !searching && (
+                <button type="button" onClick={() => setQ('')} aria-label="Clear search"><X size={14} className="text-ink-3" /></button>
+              )}
             </label>
+            <p className="mt-2 text-[12px] text-ink-3">
+              Tap the item that is the same product. It folds into <b className="text-ink-2">{survivor.itemName}</b>.
+            </p>
             {q.trim().length >= 2 && !searching && hits.length === 0 && (
-              <p className="mt-3 text-[13px] text-ink-3">No matching items.</p>
+              <p className="mt-3 text-[13px] text-ink-3">No matching items. Try a shorter word.</p>
             )}
-            <ul className="mt-2 divide-y divide-line">
+            <ul className="mt-2 space-y-1.5">
               {hits.map(h => {
                 const mismatch = h.baseUnit !== survivor.baseUnit
                 return (
                   <li key={h.id}>
-                    <button type="button" onClick={() => pick(h)} className="w-full text-left py-2.5">
+                    <button
+                      type="button" onClick={() => pick(h)}
+                      className="w-full text-left px-3 py-2.5 rounded-lg border border-line bg-paper hover:border-ink-3 active:bg-bg-2 transition-colors"
+                    >
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[14px] text-ink">{h.itemName}</span>
+                        <span className="text-[14px] text-ink font-medium">{h.itemName}</span>
                         {mismatch && (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-red-text" title={`Tracked in ${h.baseUnit}, not ${survivor.baseUnit}`}>
                             <TriangleAlert size={11} /> {h.baseUnit}
@@ -285,7 +340,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
                         )}
                       </div>
                       <div className="text-[12px] text-ink-3 font-mono">
-                        {h.recipeCount} recipe{h.recipeCount === 1 ? '' : 's'} · {h.purchaseCount} purchase{h.purchaseCount === 1 ? '' : 's'} · {h.stockOnHand} {h.baseUnit} on hand
+                        {h.recipeCount} recipe{h.recipeCount === 1 ? '' : 's'} · {h.purchaseCount} purchase{h.purchaseCount === 1 ? '' : 's'}
                       </div>
                     </button>
                   </li>
@@ -298,112 +353,118 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
         {picked && !result && (
           <>
             <button type="button" onClick={back} className="flex items-center gap-1 text-[12.5px] text-ink-3 mb-2">
-              <ArrowLeft size={13} /> Back
+              <ArrowLeft size={13} /> Pick a different item
             </button>
-            <p className="text-[13px] text-ink-2 mb-3">
-              <b className="text-ink">{picked.itemName}</b> will be folded into <b className="text-ink">{survivor.itemName}</b> and hidden.
-              Its supplier, SKU and pack stay, as a supplier of this item.
-            </p>
+            <MergePair keep={survivor.itemName} fold={picked.itemName} />
 
             {!preview && !previewError && (
-              <div className="flex items-center gap-2 px-3 py-3 rounded-lg bg-bg-2 text-[13px] text-ink-2">
+              <div className="mt-3 flex items-center gap-2 px-3 py-3 rounded-lg bg-bg-2 text-[13px] text-ink-2">
                 <Loader2 size={15} className="animate-spin text-ink-3" />
-                Checking what this merge would move — this can take up to 15 seconds…
+                Checking stock and history for both items…
               </div>
             )}
 
             {previewError && (
-              <div className="rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{previewError}</div>
+              <div className="mt-3 rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{previewError}</div>
             )}
 
             {preview?.ok && (
-              <>
-                <dl className="text-[13px] divide-y divide-line border border-line rounded-lg">
-                  {mergeSummaryLines(preview.summary).map(row => (
-                    <div key={row.label} className="flex justify-between px-3 py-2">
-                      <dt className="text-ink-3">{row.label}</dt>
-                      <dd className="text-ink font-mono">{row.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-                {mergeNotes(preview.summary, preview.willDisableUndo).length > 0 && (
-                  <ul className="mt-3 space-y-1.5">
-                    {mergeNotes(preview.summary, preview.willDisableUndo).map((note, i) => (
-                      <li key={i} className="text-[12.5px] text-ink-2 bg-blue-soft rounded-lg px-3 py-2">{note}</li>
-                    ))}
-                  </ul>
-                )}
-              </>
+              <div className="mt-3"><SummaryList summary={preview.summary} willDisableUndo={preview.willDisableUndo} /></div>
             )}
 
             {blocked && preview && !preview.ok && (
-              <div className="rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{preview.message}</div>
+              <div className="mt-3 rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{preview.message}</div>
             )}
 
             {needsOnHand && preview && !preview.ok && (
               <>
-                <div className="rounded-lg px-3 py-2.5 text-[13px] bg-blue-soft text-ink-2">{preview.message}</div>
-                <label className="block mt-3 text-[13px] text-ink-2">
-                  Combined on hand in this revenue center ({survivor.countUnit})
-                  {!rcId && <span className="text-red-text"> — pick a revenue center first</span>}
-                  <input
-                    type="number" min="0" step="any" inputMode="decimal"
-                    value={onHand} onChange={e => setOnHand(e.target.value)}
-                    className="mt-1 w-full border border-line rounded-lg px-3 py-2 text-[14px] text-ink bg-paper"
-                  />
-                </label>
-                <p className="mt-2 text-[12.5px] text-ink-2 bg-blue-soft rounded-lg px-3 py-2">{UNDO_DISABLED_NOTE}</p>
+                <div className="mt-3 rounded-xl border border-line bg-paper p-3">
+                  <div className="text-[13.5px] font-semibold text-ink">How much is on hand, both together?</div>
+                  <p className="text-[12.5px] text-ink-3 mt-0.5">
+                    {preview.message}
+                    {rcName ? <> Counted for <b className="text-ink-2">{rcName}</b>.</> : null}
+                  </p>
+                  {!rcId && <p className="mt-2 text-[12.5px] text-red-text">Pick a revenue center at the top of the app first.</p>}
 
-                {checkingOnHand && (
-                  <div className="mt-3 flex items-center gap-2 px-3 py-3 rounded-lg bg-bg-2 text-[13px] text-ink-2">
-                    <Loader2 size={15} className="animate-spin text-ink-3" />
-                    Checking what this merge would move — this can take up to 15 seconds…
-                  </div>
-                )}
-
-                {onHandPreviewError && (
-                  <div className="mt-3 rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{onHandPreviewError}</div>
-                )}
-
-                {/* A guard on the SECOND dry run (a race, a bad unit, a revenue
-                    center that vanished): show it and keep Merge disabled. */}
-                {onHandPreview && !onHandPreview.ok && (
-                  <div className="mt-3 rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{onHandPreview.message}</div>
-                )}
-
-                {onHandPreview?.ok && (
-                  <>
-                    <dl className="mt-3 text-[13px] divide-y divide-line border border-line rounded-lg">
-                      {mergeSummaryLines(onHandPreview.summary).map(row => (
-                        <div key={row.label} className="flex justify-between px-3 py-2">
-                          <dt className="text-ink-3">{row.label}</dt>
-                          <dd className="text-ink font-mono">{row.value}</dd>
+                  <div className="mt-3 space-y-2">
+                    {rows.map((row, i) => (
+                      <div key={row.key}>
+                        <div className="flex items-center gap-2">
+                          {i > 0 && <span className="text-[13px] text-ink-3 w-3 text-center">+</span>}
+                          <input
+                            type="number" min="0" step="any" inputMode="decimal"
+                            autoFocus={i === rows.length - 1 && i > 0}
+                            value={row.qty} onChange={e => setRow(row.key, { qty: e.target.value })}
+                            placeholder="0"
+                            aria-label={`Quantity in ${row.unit}`}
+                            className="w-24 border border-line rounded-lg px-3 py-2 text-[15px] font-mono text-ink bg-paper"
+                          />
+                          <span className="flex-1 text-[13px] text-ink-2 truncate">{unitDisplay(row.unit)}</span>
+                          {rows.length > 1 && (
+                            <button type="button" onClick={() => setRows(rs => rs.filter(r => r.key !== row.key))} aria-label="Remove this line" className="p-1.5 text-ink-3">
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
-                      ))}
-                    </dl>
-                    {/* willDisableUndo is passed as false on purpose: that note is
-                        already shown above, right under the on-hand input. */}
-                    {mergeNotes(onHandPreview.summary, false).length > 0 && (
-                      <ul className="mt-3 space-y-1.5">
-                        {mergeNotes(onHandPreview.summary, false).map((note, i) => (
-                          <li key={i} className="text-[12.5px] text-ink-2 bg-blue-soft rounded-lg px-3 py-2">{note}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
+                        {unitLabels.length > 1 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {unitLabels.map(label => (
+                              <button
+                                key={label} type="button" onClick={() => setRow(row.key, { unit: label })}
+                                className={`px-2.5 py-1 rounded-full text-[12px] border transition-colors ${row.unit === label ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}
+                              >
+                                {unitDisplay(label)}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {unitLabels.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setRows(rs => [...rs, newRow(unitLabels.find(u => !rs.some(r => r.unit === u)) ?? survivor.baseUnit)])}
+                      className="mt-2 inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-2"
+                    >
+                      <Plus size={13} /> Add another unit (e.g. cases + singles)
+                    </button>
+                  )}
+
+                  {parsed.length > 1 && totalBase != null && (
+                    <p className="mt-2 text-[12.5px] text-ink-2">Total: <b className="font-mono">{fmt(totalBase)} {survivor.baseUnit}</b></p>
+                  )}
+                  {filled.length > 0 && !entryValid && (
+                    <p className="mt-2 text-[12.5px] text-red-text">Enter a number of 0 or more.</p>
+                  )}
+
+                  {onHandSummary && (
+                    <p className="mt-3 text-[12px] text-ink-3">
+                      The app currently thinks: {inUnit(onHandSummary.survivorOnHand)} + {inUnit(onHandSummary.absorbedOnHand)} {hintUnit}
+                      {' '}(all revenue centers). Enter what is really there.
+                    </p>
+                  )}
+                </div>
+
+                <p className="mt-2 text-[12px] text-ink-3">{UNDO_DISABLED_NOTE}</p>
+
+                {onHandSummary && (
+                  <div className="mt-3"><SummaryList summary={onHandSummary} willDisableUndo={false} /></div>
                 )}
               </>
             )}
 
             {confirmError && <p className="mt-3 text-[13px] text-red-text">{confirmError}</p>}
 
-            <div className="mt-4 flex gap-2 justify-end">
+            <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 px-4 py-3 bg-bg border-t border-line flex gap-2 justify-end">
               <button type="button" onClick={back} disabled={busy} className="px-3 py-2 text-[13px] text-ink-2 disabled:opacity-40">Back</button>
               {!blocked && (
                 <button
                   type="button" disabled={!canConfirm} onClick={confirm}
-                  className="px-3 py-2 rounded-lg bg-ink text-paper text-[13px] font-semibold disabled:opacity-40"
+                  className="px-4 py-2 rounded-lg bg-ink text-paper text-[13px] font-semibold disabled:opacity-40 inline-flex items-center gap-1.5"
                 >
+                  {busy && <Loader2 size={13} className="animate-spin" />}
                   {busy ? 'Merging…' : 'Merge items'}
                 </button>
               )}
@@ -419,21 +480,7 @@ export function MergeItemSheet({ survivor, rcId, onClose, onMerged }: MergeItemS
             {result.warning && (
               <div className="rounded-lg px-3 py-2.5 text-[13px] bg-gold-soft text-gold-2 mb-3">{result.warning}</div>
             )}
-            <dl className="text-[13px] divide-y divide-line border border-line rounded-lg">
-              {mergeSummaryLines(result.summary).map(row => (
-                <div key={row.label} className="flex justify-between px-3 py-2">
-                  <dt className="text-ink-3">{row.label}</dt>
-                  <dd className="text-ink font-mono">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-            {mergeNotes(result.summary, result.willDisableUndo).length > 0 && (
-              <ul className="mt-3 space-y-1.5">
-                {mergeNotes(result.summary, result.willDisableUndo).map((note, i) => (
-                  <li key={i} className="text-[12.5px] text-ink-2 bg-blue-soft rounded-lg px-3 py-2">{note}</li>
-                ))}
-              </ul>
-            )}
+            <SummaryList summary={result.summary} willDisableUndo={result.willDisableUndo} />
             <div className="mt-4 flex justify-end">
               <button type="button" onClick={finish} className="px-3 py-2 rounded-lg bg-ink text-paper text-[13px] font-semibold">Done</button>
             </div>

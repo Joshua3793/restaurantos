@@ -2,7 +2,7 @@ import 'server-only'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
-import { computeExpectedForItem } from '@/lib/count-expected'
+import { getTheoreticalBalanceMap } from '@/lib/count-expected'
 import {
   planMerge, planUndo, type MergeItemRow, type MergeManifest, type MergeOp, type MergePlan,
   type MergeRelations, type MergeSummary, type SurvivorRelations, type UpdateTable,
@@ -93,7 +93,7 @@ function asConflict(e: unknown, what: string): unknown {
  * Theoretical on-hand for both items, from the ledger.
  *
  * Computed BEFORE the merge transaction opens and passed in, never from inside
- * one: `computeExpectedForItem` reaches for the global prisma singleton
+ * one: the ledger (`getTheoreticalBalanceMap`) reaches for the global prisma singleton
  * internally, so calling it mid-transaction would occupy a SECOND pooled
  * connection while the first is held — the classic way to starve a small pool.
  *
@@ -105,11 +105,13 @@ function asConflict(e: unknown, what: string): unknown {
  */
 export async function loadTheoreticalOnHand(survivorId: string, absorbedId: string): Promise<MergeOnHand> {
   // rcId null ⇒ summed across every RC, the same total the item drawer shows.
-  const [s, a] = await Promise.all([
-    computeExpectedForItem(survivorId, null),
-    computeExpectedForItem(absorbedId, null),
-  ])
-  return { survivor: n(s?.expectedBase), absorbed: n(a?.expectedBase) }
+  // ONE batched ledger read for both items, not two: the ledger's cost is the
+  // movement scan, not the item count, so this is the same figures as two
+  // `computeExpectedForItem(id, null)` calls (each is exactly this map for one
+  // id — the per-item count cutoff keeps a batch equal to its singles) at half
+  // the queries. A missing / inactive item reads 0, as before.
+  const m = await getTheoreticalBalanceMap(null, [survivorId, absorbedId])
+  return { survivor: n(m.get(survivorId)?.expected), absorbed: n(m.get(absorbedId)?.expected) }
 }
 
 export interface MergeOnHand { survivor: number; absorbed: number }

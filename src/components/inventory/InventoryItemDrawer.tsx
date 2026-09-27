@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { X, Pencil, Loader2, ClipboardCheck } from 'lucide-react'
+import { X, Pencil, Loader2, ClipboardCheck, GitMerge } from 'lucide-react'
 import {
   formatCurrency, formatPricePerBase,
 } from '@/lib/utils'
@@ -442,17 +442,33 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <>
                     <button
                       onClick={() => setShowQuick(true)}
+                      aria-label="Count"
                       disabled={!activeRc}
                       title={activeRc ? `Quick count (${activeRc.name})` : 'Pick a revenue center to quick-count'}
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <ClipboardCheck size={12} /> Count
+                      <ClipboardCheck size={12} /><span className="hidden sm:inline">Count</span>
                     </button>
+                    {/* Merge a duplicate into this one (MANAGER+, non-PREP only).
+                        canMerge default-denies while role is loading and for
+                        STAFF/LEAD; the merge routes still enforce
+                        requireSession('MANAGER') server-side regardless. */}
+                    {canMerge && !item.recipe && (
+                      <button
+                        onClick={() => setMergeOpen(true)}
+                        title="Merge a duplicate item into this one"
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
+                      >
+                        <GitMerge size={12} /> Merge
+                      </button>
+                    )}
                     <button
                       onClick={openEdit}
+                      aria-label="Edit"
+                      title="Edit"
                       className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
                     >
-                      <Pencil size={12} /> Edit
+                      <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
                     </button>
                   </>
                 )}
@@ -970,20 +986,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   onRepriced={refreshItem}
                 />
 
-                {/* Merge a duplicate item into this one (MANAGER+, non-PREP only — see
-                    item-consolidation Task 10). canMerge default-denies while role is
-                    loading and for STAFF/LEAD; the merge routes still enforce
-                    requireSession('MANAGER') server-side regardless. */}
+                {/* Merges into this item, each with its Undo (the Merge button is in the header). */}
                 {canMerge && !item.recipe && (
-                  <div>
-                    <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={refreshItem} />
-                    <button
-                      type="button" onClick={() => setMergeOpen(true)}
-                      className="mt-2 text-[12.5px] font-semibold text-ink-2 underline underline-offset-2"
-                    >
-                      Merge another item into this one…
-                    </button>
-                  </div>
+                  <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={refreshItem} />
                 )}
 
                 {/* Price History */}
@@ -1024,8 +1029,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
             {mergeOpen && (
               <MergeItemSheet
-                survivor={{ id: item.id, itemName: item.itemName, countUnit: item.countUnit ?? item.baseUnit ?? 'each', baseUnit: item.baseUnit ?? 'each' }}
+                survivor={{
+                  id: item.id, itemName: item.itemName, baseUnit: item.baseUnit ?? 'each',
+                  dimension: item.dimension ?? null, packChain: item.packChain ?? [], countUnit: item.countUnit ?? null,
+                  eachMeasureQty: item.eachMeasureQty ?? null, eachMeasureUnit: item.eachMeasureUnit ?? null,
+                }}
                 rcId={activeRc?.id ?? null}
+                rcName={activeRc?.name ?? null}
                 onClose={() => setMergeOpen(false)}
                 onMerged={() => { setMergeTick(t => t + 1); refreshItem() }}
               />
