@@ -12,7 +12,7 @@ import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
 import { dimensionOf, pricePerBaseUnit, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
-import { resolveLineFormat, pickOffer, type OfferFormat } from '@/lib/invoice/line-format'
+import { resolveLineFormat, pickOffer, supplierOffers, type OfferFormat } from '@/lib/invoice/line-format'
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
 import { seedFromScanLine, validateCreateNew } from '@/lib/invoice/create-new-seed'
@@ -112,7 +112,7 @@ async function doApprove(
     const offerRows = matchedItemIds.length > 0
       ? await prisma.inventorySupplierPrice.findMany({
           where:  { inventoryItemId: { in: matchedItemIds } },
-          select: { inventoryItemId: true, supplierId: true, supplierName: true, packChain: true, pricing: true },
+          select: { id: true, inventoryItemId: true, supplierId: true, supplierName: true, supplierItemCode: true, isPrimary: true, packChain: true, pricing: true },
         })
       : []
     const offersByItem = new Map<string, typeof offerRows>()
@@ -126,12 +126,14 @@ async function doApprove(
     // ones approve validates against can never disagree. Gated on a resolvable
     // supplier name: with none there is no offer row to write either, and the
     // legacy direct-spine path below must keep pricing over the item's own chain.
-    const offerForLine = (matchedItemId: string | null): OfferFormat | null =>
+    // The line's SKU picks among one supplier's several products on a merged item.
+    const offerForLine = (matchedItemId: string | null, itemCode: string | null): OfferFormat | null =>
       offerSupplierName && matchedItemId
         ? pickOffer(offersByItem.get(matchedItemId) ?? [], {
             supplierId:    session.supplierId,
             supplierName:  session.supplierName,
             canonicalName: offerSupplierName,
+            itemCode,
           })
         : null
 
@@ -180,7 +182,7 @@ async function doApprove(
       // computed over the primary's pack, the two disagreed, and the user's split
       // was silently dropped (the line fell back to one revenue center).
       const { qty: total } = lineReceivedCountQty(
-        lineQtyOf(scanItem), scanItem.matchedItem, offerForLine(scanItem.matchedItemId),
+        lineQtyOf(scanItem), scanItem.matchedItem, offerForLine(scanItem.matchedItemId, scanItem.supplierItemCode),
       )
       if (!(total > 0)) return null
       const sum = entries.reduce((s, e) => s + e.qty, 0)
@@ -215,7 +217,7 @@ async function doApprove(
         // supplier has no offer yet, so an item with a single supplier (or none)
         // behaves exactly as it always has.
         const itemOffers = offersByItem.get(scanItem.matchedItemId) ?? []
-        const lineOffer  = offerForLine(scanItem.matchedItemId)
+        const lineOffer  = offerForLine(scanItem.matchedItemId, scanItem.supplierItemCode)
         const itemAsChain = asChainItem({
           dimension:       item.dimension,
           baseUnit:        item.baseUnit ?? 'each',
@@ -564,6 +566,7 @@ async function doApprove(
         // the other next invoice. UOM mode: the rate ($/uom). CASE mode: the
         // case price as printed (rawUnitPrice), NOT newPrice (which may have
         // been normalized into the ITEM's purchase format).
+        let writtenOfferId: string | null = null
         if (offerSupplierName) {
           const hasLinePack = scanItem.invoicePackQty !== null && scanItem.invoicePackSize !== null
           const offerLastPrice = isUomMode
@@ -684,25 +687,20 @@ async function doApprove(
           // a later rollback DELETE an offer this invoice never created.
           // `offerReadOk` tracks the read outcome separately so a failure
           // records nothing at all for this offer this run.
+          //
+          // Which row: this supplier's offer for THIS product. Offers are unique
+          // per (item, supplier, SKU) — a merged item keeps one per SKU — and
+          // pickOffer is the same rule the guard and the receipt read through.
+          // Read live, not from the snapshot, so a second line of a new SKU on
+          // this same invoice updates the row the first one created.
           let offerReadOk = true
-          const existingOffer = await prisma.inventorySupplierPrice.findUnique({
-            where: {
-              inventoryItemId_supplierName: {
-                inventoryItemId: scanItem.matchedItemId,
-                supplierName:    offerSupplierName,
-              },
-            },
-            select: { id: true, ...OFFER_SELECT },
-          }).catch(() => { offerReadOk = false; return null })
+          const existingOffer = await prisma.inventorySupplierPrice.findMany({
+            where:  { inventoryItemId: scanItem.matchedItemId, supplierName: offerSupplierName },
+            select: { id: true, supplierName: true, ...OFFER_SELECT },
+          }).then(rows => pickOffer(rows, { canonicalName: offerSupplierName, itemCode: scanItem.supplierItemCode }))
+            .catch(() => { offerReadOk = false; return null })
 
-          const upsertedOffer = await prisma.inventorySupplierPrice.upsert({
-            where: {
-              inventoryItemId_supplierName: {
-                inventoryItemId: scanItem.matchedItemId,
-                supplierName:    offerSupplierName,
-              },
-            },
-            create: {
+          const offerData = {
               inventoryItemId:      scanItem.matchedItemId,
               supplierName:         offerSupplierName,
               supplierId:           session.supplierId || null,
@@ -716,8 +714,13 @@ async function doApprove(
               packChain:            offerChain.packChain as any,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               pricing:              offerChain.pricing as any,
-            },
-            update: {
+            }
+          const upsertedOffer = await (!offerReadOk
+            ? Promise.resolve(null)
+            : existingOffer
+            ? prisma.inventorySupplierPrice.update({
+            where: { id: existingOffer.id },
+            data: {
               lastPrice:            offerLastPrice,
               lastUpdated:          new Date(),
               lastInvoiceSessionId: sessionId,
@@ -729,10 +732,12 @@ async function doApprove(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               pricing:              offerChain.pricing as any,
             },
-            // Return only the id (previously the row was returned and discarded)
-            // so a freshly created offer can be recorded for undo.
             select: { id: true },
-          }).catch((e) => { console.error('[approve] offer upsert failed:', e); return null })
+          })
+            // Return only the id so a freshly created offer can be recorded for undo.
+            : prisma.inventorySupplierPrice.create({ data: offerData, select: { id: true } })
+          ).catch((e) => { console.error('[approve] offer upsert failed:', e); return null })
+          writtenOfferId = upsertedOffer?.id ?? null
           const offerCapture = offerCaptureFor(offerReadOk, existingOffer, upsertedOffer)
           if (offerCapture.kind === 'before') undo.before('OFFER', offerCapture.id, offerCapture.prev)
           else if (offerCapture.kind === 'created') undo.created('OFFER', offerCapture.id)
@@ -742,17 +747,26 @@ async function doApprove(
         // Bootstrap: the item's FIRST offer becomes primary. The item's $ spine is
         // the PRIMARY offer's value and the primary is a sticky MANUAL choice — a
         // non-primary supplier's invoice records its offer (above) but never
-        // re-prices the item. Re-price only when this line's supplier IS the
-        // primary, OR when the invoice had no resolvable supplier (no offer to
+        // re-prices the item. Re-price only when this line's offer IS the
+        // primary — the offer, not merely its supplier: a merged item's other
+        // SKUs from the primary supplier are other boxes and must not write
+        // their case price over the primary's pack — OR when the invoice had no resolvable supplier (no offer to
         // derive from → legacy direct write so the spine still updates).
         let shouldReprice = true
         if (offerSupplierName) {
           await ensurePrimary(scanItem.matchedItemId, prisma, undo)
           const primary = await prisma.inventorySupplierPrice.findFirst({
             where: { inventoryItemId: scanItem.matchedItemId, isPrimary: true },
-            select: { supplierName: true },
+            select: { id: true, supplierName: true },
           })
-          shouldReprice = primary?.supplierName === offerSupplierName
+          // A failed offer write leaves only the supplier to go on — trusted
+          // only while that supplier sells this item as a single product.
+          const supplierRowCount = supplierOffers(offersByItem.get(scanItem.matchedItemId) ?? [], {
+            supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: offerSupplierName,
+          }).length
+          shouldReprice = writtenOfferId
+            ? primary?.id === writtenOfferId
+            : supplierRowCount <= 1 && primary?.supplierName === offerSupplierName
         }
 
         // ── Freeze the receipt ──────────────────────────────────────────────

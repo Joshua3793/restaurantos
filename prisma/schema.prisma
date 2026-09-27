@@ -556,7 +556,11 @@ model InventorySupplierPrice {
   inventoryItem        InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
   supplier             Supplier?     @relation(fields: [supplierId], references: [id])
 
-  @@unique([inventoryItemId, supplierName])
+  // One offer per supplier PRODUCT: unique (inventoryItemId, supplierName,
+  // COALESCE(supplierItemCode, '')) — an expression index Prisma cannot model,
+  // created by migration 20260926000000_offer_per_supplier_product. A merged item
+  // (e.g. "Mushrooms Mix") keeps one Sysco offer per SKU, each with its own box.
+  @@index([inventoryItemId, supplierName])
 }
 
 model ItemMerge {

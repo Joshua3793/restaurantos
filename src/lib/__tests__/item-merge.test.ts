@@ -691,3 +691,23 @@ describe('planUndo', () => {
     expect(undo.some(o => o.t === 'create' && o.table === 'InventorySupplierPrice')).toBe(true)
   })
 })
+
+describe('offers — one per supplier PRODUCT (SKU)', () => {
+  const offer = (id: string, code: string | null, isPrimary: boolean, lastUpdated = '2026-09-01T00:00:00.000Z') =>
+    ({ id, supplierName: 'Sysco', supplierId: 'sysco', supplierItemCode: code, isPrimary, lastUpdated })
+  it('a different Sysco SKU moves in beside the survivor\'s — each keeps its own box', () => {
+    const p = plan(S, A, { ...noRel, offers: [offer('button', '1182229', true)] },
+      { ...noSRel, offers: [offer('oyster', '0946558', true)] })
+    if (!p.ok) throw new Error(p.message)
+    expect(p.summary.offersMoved).toBe(1)
+    expect(p.summary.absorbedOffersDroppedStale + p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(0)
+    expect(p.summary.survivorOffersReplaced).toBe(0)
+  })
+  it('the same SKU still collides — one row survives', () => {
+    const p = plan(S, A, { ...noRel, offers: [offer('a-oyster', '0946558', true)] },
+      { ...noSRel, offers: [offer('oyster', '0946558', true)] })
+    if (!p.ok) throw new Error(p.message)
+    expect(p.summary.offersMoved).toBe(0)
+    expect(p.summary.absorbedOffersDroppedStale + p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(1)
+  })
+})

@@ -332,6 +332,7 @@ export async function buildPurchaseMap(
       rawUnitPrice: true,
       rate: true,
       rawLineTotal: true,
+      supplierItemCode: true,
       // `supplier.name` is the CANONICAL supplier name — offers are keyed by it
       // (canonicalSupplierName), while the session may carry an OCR variant. Without
       // it a legacy offer stored under the canonical name with supplierId null is
@@ -341,7 +342,7 @@ export async function buildPurchaseMap(
         select: {
           id: true,
           ...PRICING_SELECT,
-          supplierPrices: { select: { supplierId: true, supplierName: true, packChain: true, pricing: true } },
+          supplierPrices: { select: { supplierId: true, supplierName: true, supplierItemCode: true, isPrimary: true, packChain: true, pricing: true } },
         },
       },
     },
@@ -395,6 +396,7 @@ export async function buildPurchaseMap(
         supplierId:    si.session.supplierId,
         supplierName:  si.session.supplierName,
         canonicalName: si.session.supplier?.name ?? null,
+        itemCode:      si.supplierItemCode,
       }),
     ))
     if (baseUnits <= 0) continue

@@ -12,6 +12,7 @@ import type { Dimension, PackLink, Pricing, EachMeasure } from '@/lib/item-model
 import { dimensionOf } from '@/lib/item-model'
 import { canonicalUom, convertQty } from '@/lib/uom'
 import { countUomFactor, lineCountedBase, type ItemDims } from '@/lib/count-uom'
+import { normItemCode } from '@/lib/invoice/line-format'
 
 export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT' | 'DIFFERENT_BASE_UNIT' | 'BRIDGE_MISMATCH' | 'NEEDS_ON_HAND'
 export type RepointTable =
@@ -346,7 +347,10 @@ export function planMerge(
   }
   repoint('InventorySnapshot', moveSnaps)
 
-  // ── offers: unique (item, supplierName) ───────────────────────────────────────
+  // ── offers: unique (item, supplierName, SKU) ──────────────────────────────────
+  // Two offers collide only when they are the same supplier's same product (same
+  // SKU, blank = blank). Different SKUs are different boxes and both survive —
+  // that is what lets "Mushrooms Mix" keep every Sysco mushroom's own case.
   // INVARIANT 1: a merge never deletes or reprimaries the survivor's own PRIMARY
   // offer. M-iv: the date check runs FIRST, so a drop that would have happened
   // anyway on staleness grounds is labelled `…DroppedStale` even when the
@@ -365,14 +369,16 @@ export function planMerge(
   // write belongs to primary-offer.ts, not a merge. The executor runs no
   // primary-election pass of its own; this manifest is the complete record of
   // every write.
-  const sOffer = new Map(sRel.offers.map(o => [o.supplierName, o]))
+  const offerKey = (supplierName: string, code: unknown) =>
+    `${supplierName}\u0000${normItemCode(typeof code === 'string' ? code : null)}`
+  const sOffer = new Map(sRel.offers.map(o => [offerKey(o.supplierName, o.supplierItemCode), o]))
   const moveOffers: string[] = []
   const movedOffers: MergeRelations['offers'] = []
   let absorbedOffersDroppedStale = 0
   let absorbedOffersDroppedForSurvivorPrimary = 0
   let survivorOffersReplaced = 0
   for (const o of rel.offers) {
-    const hit = sOffer.get(o.supplierName)
+    const hit = sOffer.get(offerKey(o.supplierName, o.supplierItemCode))
     if (hit) {
       const isStale = ts(hit.lastUpdated) >= ts(o.lastUpdated)
       if (isStale || hit.isPrimary) {
@@ -390,7 +396,7 @@ export function planMerge(
 
   const derivedPrice = toNum(absorbed.pricing.mode === 'RATE' ? absorbed.pricing.rate : absorbed.pricing.purchasePrice)
   const canSynth = rel.offers.length === 0 && rel.scanItemIds.length > 0 && !!rel.latestPurchaseSupplier
-    && !sOffer.has(rel.latestPurchaseSupplier!.supplierName)
+    && !sOffer.has(offerKey(rel.latestPurchaseSupplier!.supplierName, null))
     && Number.isFinite(derivedPrice) && derivedPrice > 0
 
   // I-1: decide the promotion winner BEFORE emitting any isPrimary op, since it

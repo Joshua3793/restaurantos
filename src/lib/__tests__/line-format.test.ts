@@ -143,3 +143,31 @@ describe('pickOffer', () => {
     expect(pickOffer(null, { supplierName: 'Sysco' })).toBeNull()
   })
 })
+
+describe('pickOffer — one supplier, several products (SKUs)', () => {
+  // A merged "Mushrooms Mix": each Sysco SKU keeps its own box.
+  const mix = [
+    { id: 'oyster', supplierId: 'sysco', supplierName: 'Sysco', supplierItemCode: '0946558', isPrimary: true,  packChain: [] },
+    { id: 'button', supplierId: 'sysco', supplierName: 'Sysco', supplierItemCode: '1182229', isPrimary: false, packChain: [] },
+    { id: 'naf',    supplierId: 'naf',   supplierName: 'North Arm Farms', supplierItemCode: null, isPrimary: false, packChain: [] },
+  ]
+  const sysco = { supplierId: 'sysco', supplierName: 'Sysco Canada, Inc.' }
+  it('the SKU picks which of the supplier\'s offers the line speaks', () => {
+    expect(pickOffer(mix, { ...sysco, itemCode: '1182229' })?.id).toBe('button')
+    expect(pickOffer(mix, { ...sysco, itemCode: ' 0946558 ' })?.id).toBe('oyster')
+  })
+  it('a SKU the item has never had from this supplier is a new product — no offer', () => {
+    expect(pickOffer(mix, { ...sysco, itemCode: '5108840' })).toBeNull()
+  })
+  it('a line with no SKU reads the supplier\'s primary', () => {
+    expect(pickOffer(mix, sysco)?.id).toBe('oyster')
+  })
+  it('a single offer is still the same product under a new SKU (re-coded by the supplier)', () => {
+    expect(pickOffer([mix[0]], { ...sysco, itemCode: '9999999' })?.id).toBe('oyster')
+  })
+  it('an offer with no SKU recorded takes any SKU from its supplier', () => {
+    expect(pickOffer(mix, { supplierId: 'naf', itemCode: 'X1' })?.id).toBe('naf')
+    const legacy = [...mix, { id: 'legacy', supplierId: 'sysco', supplierName: 'Sysco', supplierItemCode: null, isPrimary: false, packChain: [] }]
+    expect(pickOffer(legacy, { ...sysco, itemCode: '5108840' })?.id).toBe('legacy')
+  })
+})
