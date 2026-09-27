@@ -133,9 +133,10 @@ export async function GET(req: NextRequest) {
   // Under a Location lens (no single rcId) constrain the ΣRC aggregate to the
   // location's child RCs via allowedRcIds — otherwise on-hand leaks to global.
   const theoreticalRcId: string | null = rcId || null
-  const itemIds = inventory.map(it => it.id)
+  // No id list: `inventory` is exactly the active stocked set the engine covers by
+  // default, and the id-less key is the one the inventory list shares.
   const theoreticalMap = await getTheoreticalStockMapCached(
-    theoreticalRcId, itemIds, locRcIds ? new Set(locRcIds) : null,
+    theoreticalRcId, undefined, locRcIds ? new Set(locRcIds) : null,
   )
 
   // onHand:

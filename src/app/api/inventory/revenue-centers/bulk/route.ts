@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { rcHasStockForItem } from '@/lib/item-rc'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +12,7 @@ interface Blocked { itemId: string; rcId: string; reason: string }
 // Add: idempotent upsert of every (item, rc) pair.
 // Remove: per item, skip pairs that still hold stock or would empty the item's RC set;
 // blocked pairs are reported, never silently dropped.
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const { itemIds, rcIds, action } = await req.json().catch(() => ({}))
   if (!Array.isArray(itemIds) || !Array.isArray(rcIds) || itemIds.length === 0 || rcIds.length === 0) {
     return NextResponse.json({ error: 'itemIds and rcIds are required (non-empty arrays)' }, { status: 400 })
@@ -72,3 +73,6 @@ export async function POST(req: NextRequest) {
   }
   return NextResponse.json({ added: 0, removed, blocked })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

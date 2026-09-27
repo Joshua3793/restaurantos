@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { parseImportFile, validateRows } from '@/lib/inventory-import'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 // Mutating/multipart route — must run live, never statically optimized.
 export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const file = formData.get('file')
@@ -67,3 +68,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

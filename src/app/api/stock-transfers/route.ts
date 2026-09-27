@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 import { getTheoreticalStock } from '@/lib/count-expected'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 // GET /api/stock-transfers?itemId=&rcId= — list transfers
 export async function GET(req: NextRequest) {
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
 // (StockAllocation.quantity is untouched); the transfer feeds the theoretical-stock
 // engine (buildTransferMap) so the source RC's theoretical drops and the destination's
 // rises. `quantity` is in baseUnit. Only a count ever changes real stock in hand.
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const { fromRcId, toRcId, inventoryItemId, quantity, notes } = body
 
@@ -83,3 +84,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

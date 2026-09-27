@@ -9,6 +9,7 @@ import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts
 import { windowedAvgCost } from '@/lib/cost-basis'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const item = await prisma.inventoryItem.findUnique({
@@ -30,7 +31,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ ...withPpb(item), costBasis })
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePUT(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
 
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
@@ -206,7 +207,7 @@ async function postUpdate(
   return NextResponse.json(updated ? withPpb(updated) : updated)
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handleDELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const id = params.id
 
   const item = await prisma.inventoryItem.findUnique({ where: { id }, select: { id: true, mergedIntoId: true } })
@@ -271,3 +272,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json({ error: 'Failed to delete item' }, { status: 500 })
   }
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const PUT = invalidatesTheoretical(handlePUT)
+export const DELETE = invalidatesTheoretical(handleDELETE)

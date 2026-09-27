@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { checkMembershipRemoval } from '@/lib/item-rc'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export const dynamic = 'force-dynamic'
 
 // DELETE /api/inventory/[id]/revenue-centers/[rcId] — remove a membership.
 // Blocked when the RC still holds stock for the item, or it's the item's last RC.
-export async function DELETE(
+async function handleDELETE(
   _req: NextRequest,
   { params }: { params: { id: string; rcId: string } },
 ) {
@@ -18,3 +19,6 @@ export async function DELETE(
   })
   return NextResponse.json({ ok: true })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const DELETE = invalidatesTheoretical(handleDELETE)
