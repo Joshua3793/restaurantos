@@ -25,7 +25,7 @@ import { assertCountableUom, countDimsOf, COUNT_DIMS_SELECT, CountUomError } fro
  *
  * The plan is built INSIDE the merge transaction, with the transaction's own
  * client, so a row attached to the absorbed item between "what shall we do" and
- * "do it" cannot be stranded on the tombstone. See `planAndExecuteMerge`.
+ * "do it" cannot be stranded on the tombstone. See `planAndExecuteMergeBatch`.
  */
 
 const n = (v: unknown) => (v == null ? 0 : Number(v))
@@ -103,15 +103,17 @@ function asConflict(e: unknown, what: string): unknown {
  * says nothing about which rows belong to whom. Every guard that IS about row
  * ownership — TOMBSTONE, OPEN_COUNT — reads rows loaded inside the transaction.
  */
-export async function loadTheoreticalOnHand(survivorId: string, absorbedId: string): Promise<MergeOnHand> {
+export async function loadTheoreticalOnHandMany(
+  survivorId: string, absorbedIds: string[],
+): Promise<Map<string, MergeOnHand>> {
   // rcId null ⇒ summed across every RC, the same total the item drawer shows.
-  // ONE batched ledger read for both items, not two: the ledger's cost is the
-  // movement scan, not the item count, so this is the same figures as two
-  // `computeExpectedForItem(id, null)` calls (each is exactly this map for one
-  // id — the per-item count cutoff keeps a batch equal to its singles) at half
-  // the queries. A missing / inactive item reads 0, as before.
-  const m = await getTheoreticalBalanceMap(null, [survivorId, absorbedId])
-  return { survivor: n(m.get(survivorId)?.expected), absorbed: n(m.get(absorbedId)?.expected) }
+  // ONE batched ledger read for every item: the ledger's cost is the movement
+  // scan, not the item count, and the per-item count cutoff keeps a batch equal
+  // to its singles (`computeExpectedForItem(id, null)` is this map for one id).
+  // A missing / inactive item reads 0.
+  const m = await getTheoreticalBalanceMap(null, [survivorId, ...absorbedIds])
+  const survivor = n(m.get(survivorId)?.expected)
+  return new Map(absorbedIds.map(id => [id, { survivor, absorbed: n(m.get(id)?.expected) }]))
 }
 
 export interface MergeOnHand { survivor: number; absorbed: number }
@@ -168,27 +170,22 @@ async function itemRow(db: MergeDb, id: string, theoreticalOnHand: number): Prom
  * as a field subset, so undo's matching `create` restores columns the planner
  * never knew about.
  *
- * `db` is the transaction client for a real merge (so the plan and the writes
- * see ONE snapshot of the relations) and the plain singleton for a dry run.
- *
- * The overloads make the dangerous call unrepresentable: pass a transaction
- * client and you MUST also pass the `onHand` computed before it opened, because
+ * `db` is always the merge transaction's client (a dry run runs the real
+ * merge and rolls it back), so the plan and the writes see ONE snapshot of the
+ * relations. `onHand` is computed BEFORE the transaction opened and passed in:
  * fetching it here would reach for the global singleton — a second pooled
  * connection held while the transaction owns the first.
  */
-export async function loadMergeInputs(survivorId: string, absorbedId: string): Promise<MergeInputs | null>
-export async function loadMergeInputs(survivorId: string, absorbedId: string, tx: MergeDb, onHand: MergeOnHand): Promise<MergeInputs | null>
 export async function loadMergeInputs(
   survivorId: string,
   absorbedId: string,
-  db: MergeDb = prisma,
-  onHand?: MergeOnHand,
+  db: MergeDb,
+  oh: MergeOnHand,
 ): Promise<MergeInputs | null> {
   // SEQUENTIAL, not Promise.all: `db` is an interactive transaction client on
   // the merge path, which is ONE connection, and no site in this repo has ever
   // issued concurrent queries on one. The extra round trips are noise next to
   // the ledger read that already happened above.
-  const oh = onHand ?? await loadTheoreticalOnHand(survivorId, absorbedId)
   const survivor = await itemRow(db, survivorId, oh.survivor)
   const absorbed = await itemRow(db, absorbedId, oh.absorbed)
   if (!survivor || !absorbed) return null
@@ -396,80 +393,104 @@ async function assertQuickCountable(
   if (!rc) throw new MergeInputError('That revenue center does not exist.')
 }
 
-export type MergeOutcome =
-  | { ok: true; mergeId: string; summary: MergeSummary }
-  | { ok: false; kind: 'not_found' }
-  | { ok: false; kind: 'guard'; plan: Extract<MergePlan, { ok: false }> }
+export const MAX_BATCH_MERGE = 8
+
+/** A guard hit part-way through a batch: which item, and the planner's answer. */
+export type BatchMergeOutcome =
+  | { ok: true; merges: { absorbedId: string; mergeId: string | null; summary: MergeSummary }[] }
+  | { ok: false; kind: 'not_found'; absorbedId: string }
+  | { ok: false; kind: 'guard'; absorbedId: string; plan: Extract<MergePlan, { ok: false }> }
+
+/** Thrown to roll a dry-run batch back after it has run for real. */
+class DryRunRollback extends Error {
+  constructor(public outcome: BatchMergeOutcome) { super('dry run') }
+}
 
 /**
- * Plan and apply a merge in ONE interactive transaction.
+ * Fold SEVERAL items into one survivor, all or nothing, in ONE transaction.
  *
- * The plan is built HERE, with the transaction's own client, not handed in:
- * planning outside and applying inside leaves a window in which a row attached
- * to the absorbed item is missing from the manifest and ends up stranded on the
- * tombstone. Order of business:
+ * Each absorbed item is planned and applied exactly as the single-item merge was
+ * does it — same inputs, same planner, same op order, same leftover check, its
+ * own `ItemMerge` row + manifest (so each stays separately undoable, newest
+ * first) — but item k is planned AFTER items 1..k-1 have been applied inside the
+ * same transaction, so its plan sees the survivor as it really is by then (the
+ * offers and count lines the earlier ones brought in). A guard on any item
+ * throws the WHOLE batch back: a half-merged set would leave the combined count
+ * the person typed describing items that were never folded in.
  *
- *   1. re-read both item rows (a conflict → 409, clearer than a guard),
- *   2. load every relation with `tx`,
- *   3. `planMerge` — a guard here aborts with nothing written (the callback
- *      returns early; the transaction commits, having done nothing),
- *   4. apply: all `delete` ops first (each frees a unique slot a later re-point
- *      needs), then the rest in the planner's own order — deliberately arranged
- *      (offer demote before re-point, promote after) so no step trips the
- *      partial unique index on a primary offer,
- *   5. prove nothing still references the absorbed item,
- *   6. record the manifest.
+ * Per item, in order: re-check both rows are still mergeable (a conflict →
+ * 409), load every relation with `tx`, `planMerge`, apply (all `delete` ops
+ * first, then the planner's own order, so no step trips the primary-offer
+ * partial unique index), prove nothing still references the absorbed item,
+ * record the manifest.
  *
- * `onHand` is the one input from outside the transaction — see
- * {@link loadTheoreticalOnHand} for why that is safe.
+ * `dryRun` runs every write and then rolls the transaction back — so the preview
+ * is the exact plan, not N independent guesses against the pre-merge survivor.
+ *
+ * `mergedAt` is set explicitly, 1 ms apart in batch order: undo's "a later
+ * merge into this item exists" check needs a strict order, and rows written in
+ * one transaction would otherwise tie.
  */
-export async function planAndExecuteMerge(a: {
+export async function planAndExecuteMergeBatch(a: {
   survivorId: string
-  absorbedId: string
-  /** The figure the person typed, already strictly parsed by
-   *  `parseCombinedOnHand`; null when they gave none. */
+  absorbedIds: string[]
   combinedOnHand: CombinedOnHand | null
-  onHand: MergeOnHand
+  /** true on a dry run that should plan AS IF a combined figure were given. */
+  combinedOnHandProvided?: boolean
+  onHand: Map<string, MergeOnHand>
   mergedBy: string
   newId: () => string
-}): Promise<MergeOutcome> {
+  dryRun?: boolean
+}): Promise<BatchMergeOutcome> {
+  const provided = a.combinedOnHandProvided ?? !!a.combinedOnHand
+  const base = Date.now()
   try {
-    return await prisma.$transaction(async (tx): Promise<MergeOutcome> => {
+    return await prisma.$transaction(async (tx): Promise<BatchMergeOutcome> => {
       // FIRST statement in the transaction: nothing else may attach a row to
-      // either item until this commits.
-      await lockItems(tx, [a.survivorId, a.absorbedId])
-      await assertStillMergeable(tx, a.survivorId, a.absorbedId)
-
-      const inputs = await loadMergeInputs(a.survivorId, a.absorbedId, tx, a.onHand)
-      if (!inputs) return { ok: false, kind: 'not_found' }
-
-      const plan = planMerge(inputs.survivor, inputs.absorbed, inputs.rel, inputs.sRel, {
-        combinedOnHandProvided: !!a.combinedOnHand,
-        newId: a.newId,
-      })
-      if (!plan.ok) return { ok: false, kind: 'guard', plan }
-
+      // any of these items until this commits.
+      await lockItems(tx, [a.survivorId, ...a.absorbedIds])
       // Before a single write: prove the Quick Count that follows this
-      // transaction CAN be recorded. A bad unit or a missing revenue center is
-      // then a clean 400 with nothing changed, instead of a merge that lands
-      // and a "Merged, but the on-hand count failed" the person has to chase.
+      // transaction CAN be recorded, so a bad unit or a missing revenue center
+      // is a clean 400 with nothing changed.
       if (a.combinedOnHand) await assertQuickCountable(tx, a.survivorId, a.combinedOnHand)
+      const merges: { absorbedId: string; mergeId: string | null; summary: MergeSummary }[] = []
 
-      await applyOps(tx, mergeOpOrder(plan.manifest.ops), a.survivorId)
-      await assertNothingLeftOnAbsorbed(tx, a.absorbedId)
+      for (const [i, absorbedId] of a.absorbedIds.entries()) {
+        await assertStillMergeable(tx, a.survivorId, absorbedId)
+        const oh = a.onHand.get(absorbedId)
+        if (!oh) throw new MergeInputError('Missing on-hand for an item in this merge.')
+        const inputs = await loadMergeInputs(a.survivorId, absorbedId, tx, oh)
+        if (!inputs) throw new DryRunRollback({ ok: false, kind: 'not_found', absorbedId })
 
-      const merge = await tx.itemMerge.create({
-        data: {
-          survivorId: plan.manifest.survivorId,
-          absorbedId: plan.manifest.absorbedId,
-          mergedBy: a.mergedBy,
-          manifest: plan.manifest as unknown as Prisma.InputJsonValue,
-        },
-        select: { id: true },
-      })
-      return { ok: true, mergeId: merge.id, summary: plan.summary }
-    }, { timeout: 30_000, maxWait: 15_000 })
+        const plan = planMerge(inputs.survivor, inputs.absorbed, inputs.rel, inputs.sRel, {
+          combinedOnHandProvided: provided,
+          newId: a.newId,
+        })
+        if (!plan.ok) throw new DryRunRollback({ ok: false, kind: 'guard', absorbedId, plan })
+
+        await applyOps(tx, mergeOpOrder(plan.manifest.ops), a.survivorId)
+        await assertNothingLeftOnAbsorbed(tx, absorbedId)
+
+        const merge = await tx.itemMerge.create({
+          data: {
+            survivorId: plan.manifest.survivorId,
+            absorbedId: plan.manifest.absorbedId,
+            mergedBy: a.mergedBy,
+            mergedAt: new Date(base + i),
+            manifest: plan.manifest as unknown as Prisma.InputJsonValue,
+          },
+          select: { id: true },
+        })
+        merges.push({ absorbedId, mergeId: a.dryRun ? null : merge.id, summary: plan.summary })
+      }
+
+      const done: BatchMergeOutcome = { ok: true, merges }
+      if (a.dryRun) throw new DryRunRollback(done)
+      return done
+    }, { timeout: 30_000 + 15_000 * Math.max(0, a.absorbedIds.length - 1), maxWait: 15_000 })
   } catch (e) {
+    // A guard or a dry run: the transaction is rolled back, nothing written.
+    if (e instanceof DryRunRollback) return e.outcome
     throw asConflict(e, 'merge')
   }
 }
@@ -521,8 +542,15 @@ export async function undoBlocker(db: MergeDb, merge: UndoableMerge): Promise<st
     select: { isActive: true, mergedIntoId: true },
   })
 
+  // Undo replays `before` values (the survivor's stockOnHand among them), so a
+  // later merge into the same item must be undone first — newest first.
+  const later = await db.itemMerge.count({
+    where: { survivorId: merge.survivorId, undoneAt: null, mergedAt: { gt: merge.mergedAt } },
+  })
+
   // The combined-on-hand Quick Count the merge route records is NOT in the
   // manifest and cannot be inverted — this is the check that catches it.
+  if (later) return 'Another item was merged in after this one — undo that one first.'
   if (cnt) return 'This item has been counted since the merge.'
   if (inv) return 'An invoice has been approved on this item since the merge.'
   if (rec) return 'A recipe using this item has been edited since the merge.'
