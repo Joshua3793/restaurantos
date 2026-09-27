@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeSummaryLines, mergeNotes, UNDO_DISABLED_NOTE } from '@/lib/item-merge-copy'
+import { mergeSummaryLines, mergeNotes, UNDO_DISABLED_NOTE, combineMergeSummaries } from '@/lib/item-merge-copy'
 import type { MergeSummary } from '@/lib/item-merge'
 
 const summary = (over: Partial<MergeSummary> = {}): MergeSummary => ({
@@ -108,5 +108,34 @@ describe('mergeNotes', () => {
       "The duplicate's pack and price were saved as a supplier offer.",
       UNDO_DISABLED_NOTE,
     ])
+  })
+})
+
+describe('combineMergeSummaries', () => {
+  const s = (o: Partial<MergeSummary>): MergeSummary => ({
+    invoiceLines: 0, recipeLines: 0, countLines: 0, snapshots: 0, offersMoved: 0,
+    absorbedOffersDroppedStale: 0, absorbedOffersDroppedForSurvivorPrimary: 0, survivorOffersReplaced: 0,
+    offerSynthesized: false, primaryPromoted: null, countLinesUnfrozen: 0,
+    absorbedOnHand: 0, survivorOnHand: 0, ...o,
+  })
+
+  it('adds counts, ORs flags, keeps the first promotion and the survivor’s own on-hand', () => {
+    const c = combineMergeSummaries([
+      s({ invoiceLines: 7, offersMoved: 1, absorbedOnHand: 12, survivorOnHand: 10 }),
+      s({ invoiceLines: 3, recipeLines: 2, offerSynthesized: true, primaryPromoted: { supplierName: 'Sysco' }, absorbedOnHand: 5, survivorOnHand: 22 }),
+      s({ primaryPromoted: { supplierName: 'GFS' } }),
+    ])
+    expect(c.invoiceLines).toBe(10)
+    expect(c.recipeLines).toBe(2)
+    expect(c.offersMoved).toBe(1)
+    expect(c.offerSynthesized).toBe(true)
+    expect(c.primaryPromoted).toEqual({ supplierName: 'Sysco' })
+    expect(c.absorbedOnHand).toBe(17)
+    expect(c.survivorOnHand).toBe(10)
+  })
+
+  it('one summary comes back unchanged', () => {
+    const one = s({ invoiceLines: 4, countLines: 2, snapshots: 1 })
+    expect(combineMergeSummaries([one])).toEqual(one)
   })
 })

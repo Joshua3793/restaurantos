@@ -4,7 +4,10 @@
 // bit of the actual work; this component only calls it and renders what it
 // says. See .superpowers/sdd/item-consolidation/task-10-{brief,addendum}.md.
 //
-// ONE dry run per pick. When the plan needs a combined on-hand, the server
+// Several duplicates can be ticked and folded in at once (all or nothing,
+// server-side); one combined on-hand then covers all of them.
+//
+// ONE dry run per set. When the plan needs a combined on-hand, the server
 // plans it a second time with one in the same response (`withOnHand`), so the
 // preview is on screen before anyone types and Merge enables as soon as the
 // figure is valid. The combined on-hand is entered as one or more
@@ -12,7 +15,7 @@
 // — and sent in the row's unit when there is one row, else summed to base.
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, Search, GitMerge, Loader2, ArrowLeft, TriangleAlert, Plus, Trash2, ArrowDown } from 'lucide-react'
+import { X, Search, GitMerge, Loader2, ArrowLeft, TriangleAlert, Plus, Trash2, ArrowDown, Check } from 'lucide-react'
 import type { MergeGuard, MergeSummary } from '@/lib/item-merge'
 import { mergeSummaryLines, mergeNotes, UNDO_DISABLED_NOTE } from '@/lib/item-merge-copy'
 import {
@@ -24,11 +27,17 @@ export interface MergeHit {
   recipeCount: number; purchaseCount: number; stockOnHand: number
 }
 
-type PlanFailure = { ok: false; guard: MergeGuard; message: string; withOnHand?: { summary: MergeSummary } }
-type DryRunOk = { ok: true; dryRun: true; summary: MergeSummary; willDisableUndo: boolean }
+type MergedPart = { absorbedId: string; itemName: string | null; mergeId: string | null; summary: MergeSummary }
+type PlanFailure = {
+  ok: false; guard: MergeGuard; message: string
+  /** the item in the set that hit the guard */
+  itemId?: string; itemName?: string | null
+  withOnHand?: { summary: MergeSummary; items: MergedPart[] }
+}
+type DryRunOk = { ok: true; dryRun: true; summary: MergeSummary; items: MergedPart[]; willDisableUndo: boolean }
 type DryRunResult = DryRunOk | PlanFailure
 type ConfirmOk = {
-  ok: true; dryRun: false; mergeId: string; summary: MergeSummary
+  ok: true; dryRun: false; summary: MergeSummary; items: MergedPart[]
   willDisableUndo: boolean; warning?: string
 }
 
@@ -53,6 +62,9 @@ interface MergeItemSheetProps {
   /** Fired once the merge has actually happened (not on a mere preview). */
   onMerged: () => void
 }
+
+/** Same cap as the server's MAX_BATCH_MERGE. */
+const MAX_PICK = 8
 
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(n >= 10 ? 1 : 2).replace(/\.?0+$/, ''))
 
@@ -79,13 +91,19 @@ function SummaryList({ summary, willDisableUndo }: { summary: MergeSummary; will
   )
 }
 
-/** "Keep X ← fold in Y" — the one picture of what a merge does. */
-function MergePair({ keep, fold }: { keep: string; fold: string }) {
+/** "Keep X ← fold in Y, Z" — the one picture of what a merge does. */
+function MergePair({ keep, fold, blockedId }: { keep: string; fold: MergeHit[]; blockedId?: string | null }) {
   return (
     <div className="rounded-xl border border-line bg-paper overflow-hidden text-[13px]">
       <div className="px-3 py-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4">Goes away</div>
-        <div className="text-ink font-medium">{fold}</div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4">
+          {fold.length === 1 ? 'Goes away' : `These ${fold.length} go away`}
+        </div>
+        {fold.map(h => (
+          <div key={h.id} className={`font-medium ${h.id === blockedId ? 'text-red-text' : 'text-ink'}`}>
+            {h.id === blockedId && <TriangleAlert size={12} className="inline mr-1 -mt-0.5" />}{h.itemName}
+          </div>
+        ))}
       </div>
       <div className="flex items-center gap-2 px-3 py-1 bg-bg-2 text-[11.5px] text-ink-3">
         <ArrowDown size={12} /> invoices, recipes, counts and its supplier move into
@@ -124,7 +142,10 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
   const [hits, setHits] = useState<MergeHit[]>([])
   const [searching, setSearching] = useState(false)
 
-  const [picked, setPicked] = useState<MergeHit | null>(null)
+  // Ticked in the picker; kept across searches. `picked` is the set being
+  // checked/merged — null while still picking.
+  const [selected, setSelected] = useState<MergeHit[]>([])
+  const [picked, setPicked] = useState<MergeHit[] | null>(null)
   const [preview, setPreview] = useState<DryRunResult | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
 
@@ -181,13 +202,17 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
     setConfirmError(null)
   }
 
-  async function pick(h: MergeHit) {
+  const toggle = (h: MergeHit) =>
+    setSelected(sel => (sel.some(x => x.id === h.id) ? sel.filter(x => x.id !== h.id) : sel.length >= MAX_PICK ? sel : [...sel, h]))
+
+  async function check(set: MergeHit[]) {
+    if (set.length === 0) return
     inFlight.current?.abort()
     const myReq = ++reqId.current
     const controller = new AbortController()
     inFlight.current = controller
 
-    setPicked(h)
+    setPicked(set)
     setPreview(null)
     setPreviewError(null)
     setResult(null)
@@ -197,7 +222,7 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
       const r = await fetch(`/api/inventory/${survivor.id}/merge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ absorbedId: h.id, dryRun: true }),
+        body: JSON.stringify({ absorbedIds: set.map(h => h.id), dryRun: true }),
         signal: controller.signal,
       })
       if (reqId.current !== myReq) return // superseded — ignore
@@ -249,7 +274,7 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
     setBusy(true)
     setConfirmError(null)
     try {
-      const body: Record<string, unknown> = { absorbedId: picked.id }
+      const body: Record<string, unknown> = { absorbedIds: picked.map(h => h.id) }
       if (needsOnHand && combinedOnHand) body.combinedOnHand = combinedOnHand
       const r = await fetch(`/api/inventory/${survivor.id}/merge`, {
         method: 'POST',
@@ -317,20 +342,39 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
               )}
             </label>
             <p className="mt-2 text-[12px] text-ink-3">
-              Tap the item that is the same product. It folds into <b className="text-ink-2">{survivor.itemName}</b>.
+              Tick every item that is the same product — you can search again and tick more.
+              They all fold into <b className="text-ink-2">{survivor.itemName}</b>.
             </p>
+            {selected.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selected.map(h => (
+                  <button
+                    key={h.id} type="button" onClick={() => toggle(h)}
+                    className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full bg-ink text-paper text-[12px]"
+                    aria-label={`Untick ${h.itemName}`}
+                  >
+                    {h.itemName} <X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
             {q.trim().length >= 2 && !searching && hits.length === 0 && (
               <p className="mt-3 text-[13px] text-ink-3">No matching items. Try a shorter word.</p>
             )}
             <ul className="mt-2 space-y-1.5">
               {hits.map(h => {
                 const mismatch = h.baseUnit !== survivor.baseUnit
+                const on = selected.some(x => x.id === h.id)
                 return (
                   <li key={h.id}>
                     <button
-                      type="button" onClick={() => pick(h)}
-                      className="w-full text-left px-3 py-2.5 rounded-lg border border-line bg-paper hover:border-ink-3 active:bg-bg-2 transition-colors"
+                      type="button" onClick={() => toggle(h)} aria-pressed={on}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg border bg-paper transition-colors flex items-start gap-2.5 ${on ? 'border-ink' : 'border-line hover:border-ink-3'}`}
                     >
+                      <span className={`mt-0.5 w-[18px] h-[18px] shrink-0 rounded-[5px] border grid place-items-center ${on ? 'bg-ink border-ink' : 'border-line-2 bg-paper'}`}>
+                        {on && <Check size={12} className="text-paper" />}
+                      </span>
+                      <span className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[14px] text-ink font-medium">{h.itemName}</span>
                         {mismatch && (
@@ -342,25 +386,35 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
                       <div className="text-[12px] text-ink-3 font-mono">
                         {h.recipeCount} recipe{h.recipeCount === 1 ? '' : 's'} · {h.purchaseCount} purchase{h.purchaseCount === 1 ? '' : 's'}
                       </div>
+                      </span>
                     </button>
                   </li>
                 )
               })}
             </ul>
+            <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 px-4 py-3 bg-bg border-t border-line flex items-center gap-2 justify-end">
+              {selected.length >= MAX_PICK && <span className="mr-auto text-[12px] text-ink-3">{MAX_PICK} at a time</span>}
+              <button
+                type="button" disabled={selected.length === 0} onClick={() => check(selected)}
+                className="px-4 py-2 rounded-lg bg-ink text-paper text-[13px] font-semibold disabled:opacity-40"
+              >
+                {selected.length <= 1 ? 'Continue' : `Continue with ${selected.length} items`}
+              </button>
+            </div>
           </>
         )}
 
         {picked && !result && (
           <>
             <button type="button" onClick={back} className="flex items-center gap-1 text-[12.5px] text-ink-3 mb-2">
-              <ArrowLeft size={13} /> Pick a different item
+              <ArrowLeft size={13} /> Change which items
             </button>
-            <MergePair keep={survivor.itemName} fold={picked.itemName} />
+            <MergePair keep={survivor.itemName} fold={picked} blockedId={blocked && preview && !preview.ok ? preview.itemId : null} />
 
             {!preview && !previewError && (
               <div className="mt-3 flex items-center gap-2 px-3 py-3 rounded-lg bg-bg-2 text-[13px] text-ink-2">
                 <Loader2 size={15} className="animate-spin text-ink-3" />
-                Checking stock and history for both items…
+                Checking stock and history for {picked.length === 1 ? 'both items' : `all ${picked.length + 1} items`}…
               </div>
             )}
 
@@ -373,15 +427,26 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
             )}
 
             {blocked && preview && !preview.ok && (
-              <div className="mt-3 rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">{preview.message}</div>
+              <div className="mt-3 rounded-lg px-3 py-2.5 text-[13px] bg-red-soft text-red-text">
+                {preview.message}
+                {picked.length > 1 && preview.itemId && (
+                  <button
+                    type="button"
+                    onClick={() => { const rest = picked.filter(h => h.id !== preview.itemId); setSelected(rest); check(rest) }}
+                    className="block mt-2 font-semibold underline underline-offset-2"
+                  >
+                    Leave {preview.itemName ?? 'that item'} out and merge the others
+                  </button>
+                )}
+              </div>
             )}
 
             {needsOnHand && preview && !preview.ok && (
               <>
                 <div className="mt-3 rounded-xl border border-line bg-paper p-3">
-                  <div className="text-[13.5px] font-semibold text-ink">How much is on hand, both together?</div>
+                  <div className="text-[13.5px] font-semibold text-ink">How much is on hand, {picked.length === 1 ? 'both' : `all ${picked.length + 1}`} together?</div>
                   <p className="text-[12.5px] text-ink-3 mt-0.5">
-                    {preview.message}
+                    {picked.length === 1 ? preview.message : 'These items still show stock, or were counted on different days — so enter one count for all of them.'}
                     {rcName ? <> Counted for <b className="text-ink-2">{rcName}</b>.</> : null}
                   </p>
                   {!rcId && <p className="mt-2 text-[12.5px] text-red-text">Pick a revenue center at the top of the app first.</p>}
@@ -441,8 +506,7 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
 
                   {onHandSummary && (
                     <p className="mt-3 text-[12px] text-ink-3">
-                      The app currently thinks: {inUnit(onHandSummary.survivorOnHand)} + {inUnit(onHandSummary.absorbedOnHand)} {hintUnit}
-                      {' '}(all revenue centers). Enter what is really there.
+                      The app currently thinks: {inUnit(onHandSummary.survivorOnHand)} here + {inUnit(onHandSummary.absorbedOnHand)} on the {picked.length === 1 ? 'duplicate' : 'duplicates'} — {hintUnit}, all revenue centers. Enter what is really there.
                     </p>
                   )}
                 </div>
@@ -475,7 +539,7 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
         {result && (
           <>
             <p className="text-[13px] text-ink-2 mb-3">
-              <b className="text-ink">{picked?.itemName}</b> is merged into <b className="text-ink">{survivor.itemName}</b>.
+              <b className="text-ink">{picked?.map(h => h.itemName).join(', ')}</b> {picked && picked.length > 1 ? 'are' : 'is'} merged into <b className="text-ink">{survivor.itemName}</b>.
             </p>
             {result.warning && (
               <div className="rounded-lg px-3 py-2.5 text-[13px] bg-gold-soft text-gold-2 mb-3">{result.warning}</div>

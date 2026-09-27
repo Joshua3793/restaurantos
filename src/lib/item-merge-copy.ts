@@ -69,3 +69,24 @@ export function mergeNotes(summary: MergeSummary, willDisableUndo: boolean): str
 
   return notes
 }
+
+/** One summary for a multi-item merge: counts add up, flags OR, the first
+ *  promotion wins (only the first can happen — a survivor that gained a primary
+ *  never promotes again), survivorOnHand is the survivor's own pre-merge figure
+ *  (the first plan's), absorbedOnHand is every absorbed item's together. */
+export function combineMergeSummaries(summaries: MergeSummary[]): MergeSummary {
+  const sum = (k: keyof MergeSummary) => summaries.reduce((s, x) => s + Number(x[k] ?? 0), 0)
+  return {
+    invoiceLines: sum('invoiceLines'), recipeLines: sum('recipeLines'),
+    countLines: sum('countLines'), snapshots: sum('snapshots'),
+    offersMoved: sum('offersMoved'),
+    absorbedOffersDroppedStale: sum('absorbedOffersDroppedStale'),
+    absorbedOffersDroppedForSurvivorPrimary: sum('absorbedOffersDroppedForSurvivorPrimary'),
+    survivorOffersReplaced: sum('survivorOffersReplaced'),
+    offerSynthesized: summaries.some(x => x.offerSynthesized),
+    primaryPromoted: summaries.find(x => x.primaryPromoted)?.primaryPromoted ?? null,
+    countLinesUnfrozen: sum('countLinesUnfrozen'),
+    absorbedOnHand: sum('absorbedOnHand'),
+    survivorOnHand: summaries[0]?.survivorOnHand ?? 0,
+  }
+}
