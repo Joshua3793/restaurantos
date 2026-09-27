@@ -68,3 +68,18 @@ export async function getTheoreticalStockMapCached(
 export function invalidateTheoreticalCache(): void {
   cache.clear()
 }
+
+/**
+ * Wrap a stock-moving route handler so a successful response drops the cache.
+ * Invalidating AFTER the write (not before) means a read racing the write can't
+ * re-cache the pre-write numbers. `export const POST = invalidatesTheoretical(post)`.
+ */
+export function invalidatesTheoretical<A extends unknown[], R extends Response>(
+  handler: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
+  return async (...args: A) => {
+    const res = await handler(...args)
+    if (res.ok) invalidateTheoreticalCache()
+    return res
+  }
+}

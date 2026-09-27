@@ -48,6 +48,10 @@ interface RcContextValue {
   setActiveLocation: (id: string) => void
   setActiveAll: () => void
   isReadOnly: boolean               // true when activeKind !== 'rc' (Location/all are read-only)
+  /** False until the first /api/locations load has resolved the active node. Until
+   *  then the scope reads as "all" — a list page that fetches before `ready` fires a
+   *  wasted (and the most expensive) unscoped request, then a second scoped one. */
+  ready: boolean
 }
 
 const RcContext = createContext<RcContextValue>({
@@ -63,6 +67,7 @@ const RcContext = createContext<RcContextValue>({
   setActiveLocation: () => {},
   setActiveAll: () => {},
   isReadOnly: true,
+  ready: true,
 })
 
 const NODE_KEY = 'activeNode'
@@ -115,6 +120,7 @@ function resolveActiveNode(locations: Location[]): ActiveNode {
 export function RcProvider({ children }: { children: React.ReactNode }) {
   const [locations, setLocations] = useState<Location[]>([])
   const [active, setActive] = useState<ActiveNode>({ kind: 'all', id: null })
+  const [ready, setReady] = useState(false)
 
   const persist = (node: ActiveNode) => {
     if (typeof window !== 'undefined') {
@@ -123,12 +129,17 @@ export function RcProvider({ children }: { children: React.ReactNode }) {
   }
 
   const load = useCallback(async () => {
-    const data: Location[] = await fetch('/api/locations').then(r => r.json())
-    const locs = Array.isArray(data) ? data : []
-    setLocations(locs)
-    // Re-resolve active selection against the freshly loaded locations
-    // (handles first load, migration, and a stored node that disappeared).
-    setActive(resolveActiveNode(locs))
+    try {
+      const data: Location[] = await fetch('/api/locations').then(r => r.json())
+      const locs = Array.isArray(data) ? data : []
+      setLocations(locs)
+      // Re-resolve active selection against the freshly loaded locations
+      // (handles first load, migration, and a stored node that disappeared).
+      setActive(resolveActiveNode(locs))
+    } finally {
+      // Even on failure: pages must not wait forever — they fall back to "all".
+      setReady(true)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -174,6 +185,7 @@ export function RcProvider({ children }: { children: React.ReactNode }) {
       setActiveLocation,
       setActiveAll,
       isReadOnly,
+      ready,
     }}>
       {children}
     </RcContext.Provider>

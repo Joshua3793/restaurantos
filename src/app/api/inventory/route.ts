@@ -6,6 +6,7 @@ import {
 } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export async function GET(req: NextRequest) {
   let user
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(rows, { headers: { 'Cache-Control': 'no-store' } })
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const body = await req.json()
 
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
@@ -106,3 +107,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json(withPpb(item), { status: 201 })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

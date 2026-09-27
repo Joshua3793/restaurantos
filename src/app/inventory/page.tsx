@@ -19,6 +19,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { setScopeParams } from '@/lib/scope-params'
+import { ListSkeleton } from '@/components/ui/ListSkeleton'
 import { rcHex } from '@/lib/rc-colors'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
@@ -213,7 +214,7 @@ export default function InventoryPage() {
 
 function InventoryPageInner() {
   const searchParams = useSearchParams()
-  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly, ready: scopeReady } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { show: showToast, dismiss: dismissToast } = useToast()
   const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
@@ -296,9 +297,24 @@ function InventoryPageInner() {
     return p
   }, [search, catFilter, supplierFilter, areaFilter, activeRcId, activeRc, activeKind, activeLocationId, showNonStocked, showInactive])
 
+  // False until the first list response lands — the skeleton shows instead of "No items found".
+  const [loaded, setLoaded] = useState(false)
+  // Only the latest request may write: a slower earlier one (e.g. before a filter change) is dropped.
+  const loadSeq = useRef(0)
   const fetchItems = useCallback(() => {
-    fetch(`/api/inventory?${listParams()}`).then(r => r.json()).then((data: InventoryItem[]) => setItems(data.map(normalizeItem)))
-  }, [listParams])
+    // Wait for the scope to resolve: fetching before it would load the unscoped
+    // "All" list (the most expensive one) only to throw it away.
+    if (!scopeReady) return
+    const seq = ++loadSeq.current
+    fetch(`/api/inventory?${listParams()}`)
+      .then(r => r.json())
+      .then((data: InventoryItem[]) => {
+        if (seq !== loadSeq.current) return
+        setItems(Array.isArray(data) ? data.map(normalizeItem) : [])
+        setLoaded(true)
+      })
+      .catch(() => { if (seq === loadSeq.current) setLoaded(true) })
+  }, [listParams, scopeReady])
 
   // Export the current view: the list filters, plus the basis (Stock in Hand vs the
   // priced catalogue) and the active status pill, which the page applies client-side.
@@ -317,6 +333,7 @@ function InventoryPageInner() {
     return () => setDrawerOpen(false)
   }, [selected, setDrawerOpen])
 
+  const deepLinkItemId = useRef<string | null>(null)
   // Deep-link: ?item=id opens that item's drawer; ?orderList=1 opens the order list
   useEffect(() => {
     const itemId    = searchParams.get('item')
@@ -324,14 +341,24 @@ function InventoryPageInner() {
     if (orderList === '1') {
       setShowOrderList(true)
     }
-    if (itemId) {
-      fetch('/api/inventory').then(r => r.json()).then((all: InventoryItem[]) => {
-        const match = all.find(i => i.id === itemId)
-        if (match) setSelected(match)
-      })
-    }
+    if (itemId) deepLinkItemId.current = itemId
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // run once on mount
+
+  // Resolve the ?item deep-link from the list the page is loading anyway. Only an
+  // item outside the current scope/filters falls back to the unscoped list — which
+  // is the most expensive inventory read, so it must not run on every deep-link.
+  useEffect(() => {
+    const itemId = deepLinkItemId.current
+    if (!itemId || !loaded) return
+    deepLinkItemId.current = null
+    const match = items.find(i => i.id === itemId)
+    if (match) { setSelected(match); return }
+    fetch('/api/inventory').then(r => r.json()).then((all: InventoryItem[]) => {
+      const m = Array.isArray(all) ? all.find(i => i.id === itemId) : undefined
+      if (m) setSelected(normalizeItem(m))
+    })
+  }, [loaded, items])
 
   // Fetch price history whenever an item is selected
   useEffect(() => {
@@ -877,7 +904,7 @@ function InventoryPageInner() {
       <div className="flex sm:hidden items-center gap-2">
         <div className="flex-1 min-w-0">
           <h1 className="text-[22px] font-semibold text-ink tracking-[-0.03em] leading-tight">Inventory</h1>
-          <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">{items.length} items</p>
+          <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em]">{loaded ? `${items.length} items` : 'Loading…'}</p>
         </div>
         <button
           onClick={() => { setShowOrderList(true); setOrderQtys({}); setOrderTab('all') }}
@@ -1772,6 +1799,7 @@ function InventoryPageInner() {
         </div>
       )}
 
+      {!loaded ? <ListSkeleton rows={10} label="Loading inventory…" /> : (<>
       {/* Mobile list */}
       <div className="block sm:hidden bg-paper rounded-[12px] border border-line overflow-hidden">
         {categoryGroups ? (
@@ -1874,6 +1902,7 @@ function InventoryPageInner() {
           {sortedItems.length === 0 && <div className="text-center py-12 text-ink-4">No items found</div>}
         </div>
       </div>
+      </>)}
 
       {/* Item drawer — single source of truth across Inventory / Count */}
       {selected && (

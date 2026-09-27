@@ -4,6 +4,7 @@ import { convertQty } from '@/lib/uom'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export async function GET(req: NextRequest) {
   let user
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(logs)
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   let user
   try { user = await requireSession() }
   catch (e) {
@@ -79,3 +80,6 @@ export async function POST(req: NextRequest) {
   })
   return NextResponse.json(log, { status: 201 })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

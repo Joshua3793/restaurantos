@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 // POST /api/inventory/[id]/revenue-centers — add a membership { revenueCenterId }.
 // Idempotent (unique constraint → no-op if already a member).
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(req: NextRequest, { params }: { params: { id: string } }) {
   const { revenueCenterId } = await req.json().catch(() => ({}))
   if (!revenueCenterId) return NextResponse.json({ error: 'revenueCenterId is required' }, { status: 400 })
 
@@ -26,3 +27,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   return NextResponse.json({ ok: true }, { status: 201 })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { computeExpectedForItem } from '@/lib/count-expected'
 import { recordQuickCount } from '@/lib/quick-count'
 import { convertBaseToCountUom, resolveCountUom, countDimsOf } from '@/lib/count-uom'
+import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 // POST /api/inventory/count/:id/quick  body { countedQty, selectedUom, rcId }
 // Records a single-item count as a 1-line, auto-finalized QUICK CountSession so
 // it carries full snapshot + variance + allocation behaviour for free.
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePOST(req: NextRequest, { params }: { params: { id: string } }) {
   let user
   try { user = await requireSession() }
   catch (e) {
@@ -87,3 +88,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     summary:      result.summary,
   })
 }
+
+// Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
+export const POST = invalidatesTheoretical(handlePOST)

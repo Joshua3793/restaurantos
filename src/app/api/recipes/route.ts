@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, costContext, resolveLinkedRecipes, resyncPrepRecipe } from '@/lib/recipeCosts'
+import { computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
@@ -145,21 +145,14 @@ export async function GET(req: NextRequest) {
   // spuriously report a cycle.
   const pageIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
 
-  // Pre-seed the context with the raw ingredient ids of every prep linked from the
-  // page. Without this each nested recursion discovers its own raw ids and fires
-  // its own windowedAvgCost — one extra round trip per distinct prep. One cheap
-  // read here folds them all into the single up-front query. (Preps nested more
-  // than one level deep still merge on discovery, once each — `ctx.asked`.)
-  const linkedIds = [...new Set(recipes.flatMap(r => r.ingredients.flatMap(i => i.linkedRecipeId ? [i.linkedRecipeId] : [])))]
-  const linkedPreps = linkedIds.length > 0
-    ? await prisma.recipe.findMany({
-        where: { id: { in: linkedIds } },
-        select: { ingredients: { select: { inventoryItemId: true } } },
-      })
-    : []
-  const nestedIds = linkedPreps.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
-
-  const ctx = await costContext('AVG_30D', [...new Set([...pageIds, ...nestedIds])])
+  // Batch-load every prep linked from the page (and the preps THEY link) up
+  // front: one query per nesting level, each folding its raw ingredient ids into
+  // one windowedAvgCost. Without this the costing loop below fetched each
+  // distinct nested prep with its own sequential findUnique — the bulk of this
+  // route's time on a real recipe book.
+  const linkedIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.linkedRecipeId ? [i.linkedRecipeId] : []))
+  const ctx = await costContext('AVG_30D', [...new Set(pageIds)])
+  await prefetchRecipes(ctx, linkedIds)
   const result: RecipeRow[] = []
   for (const recipe of recipes) {
     const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)

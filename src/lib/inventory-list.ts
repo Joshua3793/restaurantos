@@ -8,7 +8,7 @@
 import { type User } from '@prisma/client'
 import { prisma } from './prisma'
 import { asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
-import { getTheoreticalStockMap } from './count-expected'
+import { getTheoreticalStockMapCached } from './theoretical-cache'
 import { getCountedStockMap, type CountedStock } from './counted-stock'
 import { resolveScopedRcIds } from './rc-scope'
 
@@ -73,6 +73,17 @@ export function parseInventoryListParams(searchParams: URLSearchParams): Invento
     needsReview:       searchParams.get('needsReview') === 'true',
   }
 }
+
+/**
+ * Theoretical stock comes from the SHARED short-lived cache (theoretical-cache.ts),
+ * asked for every active stocked item — never just this page's ids. The movement
+ * scans behind it read the whole history for the RC regardless of the id list and
+ * each item's balance is independent of the others, so the full map costs the same
+ * as a filtered one and gives the same numbers — but one key means a search, a
+ * filter change, a revisit or the cost-chrome strip all reuse one computation
+ * instead of re-running the most expensive read in the app. Stock-moving writes
+ * invalidate it (`invalidatesTheoretical`); the 30 s TTL covers other instances.
+ */
 
 /** Attach theoreticalStock, countedStock, lastCountDate and the scoped counted figure. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -206,7 +217,7 @@ export async function fetchInventoryList(
     })
     const itemIds = items.map(i => i.id)
     const [theoMap, countedMap] = await Promise.all([
-      getTheoreticalStockMap(rcId, itemIds),
+      getTheoreticalStockMapCached(rcId),
       getCountedStockMap([rcId], itemIds),
     ])
     return { rows: attachTheoreticalFields(items, theoMap, countedMap), outOfScope: false }
@@ -236,7 +247,7 @@ export async function fetchInventoryList(
     })
     const itemIds = result.map(i => i.id)
     const [theoMap, countedMap] = await Promise.all([
-      getTheoreticalStockMap(rcId, itemIds),
+      getTheoreticalStockMapCached(rcId),
       // getCountedStockMap attributes pre-RC (null) count sessions to the default RC,
       // so this path also picks up the counts that predate the revenue-centre model.
       getCountedStockMap([rcId], itemIds),
@@ -305,7 +316,7 @@ export async function fetchInventoryList(
   })
   const itemIds = items.map(i => i.id)
   const [theoMap, countedMap] = await Promise.all([
-    getTheoreticalStockMap(null, itemIds, scope),
+    getTheoreticalStockMapCached(null, undefined, scope),
     // Same scope rule as the theoretical map: "All" is Σ over the RCs in scope — the
     // location lens's RCs, or a scoped user's allowed set, or every RC.
     getCountedStockMap(scope === null ? null : [...scope], itemIds),

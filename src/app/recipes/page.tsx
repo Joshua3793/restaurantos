@@ -8,6 +8,7 @@ import { PREP_YIELD_UNITS } from '@/lib/uom'
 import { useDrawer } from '@/contexts/DrawerContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
+import { ListSkeleton } from '@/components/ui/ListSkeleton'
 
 export default function RecipesPage() {
   return (
@@ -20,8 +21,12 @@ export default function RecipesPage() {
 function RecipesInner() {
   const searchParams = useSearchParams()
   const { setDrawerOpen } = useDrawer()
-  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   const [recipes, setRecipes]               = useState<Recipe[]>([])
+  // False until the first list response lands — the skeleton shows instead of "No recipes yet".
+  const [loaded, setLoaded]                 = useState(false)
+  // Only the latest request may write: a slower earlier one (e.g. before a scope change) is dropped.
+  const loadSeq                             = useRef(0)
   const [categories, setCategories]         = useState<RecipeCategory[]>([])
   const [activeCatId, setActiveCatId]       = useState<string | null>(null)
   const [searchInput, setSearchInput]       = useState('')
@@ -43,20 +48,25 @@ function RecipesInner() {
   const type = 'PREP'
 
   const loadCategories = useCallback(async () => {
+    if (!scopeReady) return
     const p = new URLSearchParams({ type })
     setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/recipes/categories?${p}`).then(r => r.json())
     setCategories(Array.isArray(data) ? data : [])
-  }, [activeRcId, activeKind, activeRc, activeLocationId])
+  }, [scopeReady, activeRcId, activeKind, activeRc, activeLocationId])
 
   const loadRecipes = useCallback(async () => {
+    if (!scopeReady) return
+    const seq = ++loadSeq.current
     const params = new URLSearchParams({ type })
     if (!showInactive) params.set('isActive', 'true')
     if (search) params.set('search', search)
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
-    const data = await fetch(`/api/recipes?${params}`).then(r => r.json())
+    const data = await fetch(`/api/recipes?${params}`).then(r => r.json()).catch(() => [])
+    if (seq !== loadSeq.current) return
     setRecipes(Array.isArray(data) ? data : [])
-  }, [showInactive, search, activeRcId, activeKind, activeLocationId])
+    setLoaded(true)
+  }, [scopeReady, showInactive, search, activeRcId, activeKind, activeLocationId])
 
   const baseRecipes = activeCatId ? recipes.filter(r => r.categoryId === activeCatId) : recipes
   const displayRecipes = [...baseRecipes].sort((a, b) => {
@@ -195,7 +205,7 @@ function RecipesInner() {
           </div>
           <h1 className="text-[28px] sm:text-[32px] font-semibold text-ink tracking-[-0.04em] leading-none">Recipe Book</h1>
           <p className="text-[13px] text-ink-3 mt-2">
-            <span className="font-medium text-ink">{recipes.length} {recipes.length === 1 ? 'recipe' : 'recipes'}</span>
+            <span className="font-medium text-ink">{loaded ? `${recipes.length} ${recipes.length === 1 ? 'recipe' : 'recipes'}` : 'Loading recipes…'}</span>
             {activeRc && <> · <span className="font-mono text-[11px]">{activeRc.name}</span></>}
           </p>
         </div>
@@ -358,7 +368,9 @@ function RecipesInner() {
           </div>
         )}
 
-        {displayRecipes.length === 0 ? (
+        {!loaded ? (
+          <ListSkeleton label="Loading recipes…" />
+        ) : displayRecipes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <BookOpen size={40} className="text-ink-4 mb-3" />
             <p className="text-ink-3 text-[13px]">{search ? `No recipes match "${search}"` : 'No recipes yet'}</p>

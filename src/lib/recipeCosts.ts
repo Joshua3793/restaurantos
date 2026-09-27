@@ -3,6 +3,7 @@
  * All costs are computed at query time from live inventory pricePerBaseUnit.
  * Unit conversions are applied so e.g. 5 kg of an item priced per g costs correctly.
  */
+import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isKnownUnit, unitKind } from './uom'
 import { getUnitConv } from './utils'
@@ -282,6 +283,62 @@ export interface CostContext {
   /** As-of date for the window, fixed when the context is built so every merge in
    *  the request measures the same 30 days. */
   asOf: Date
+  /** Recipe rows batch-loaded by `prefetchRecipes` (null = loaded, not found).
+   *  fetchRecipeWithCost reads these instead of one findUnique per nested prep. */
+  rows?: Map<string, RecipeCostRow | null>
+}
+
+/** The recipe shape fetchRecipeWithCost costs — ONE include for the single read
+ *  and the batched prefetch, so the two can never diverge. */
+const RECIPE_COST_INCLUDE = {
+  category: true,
+  prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+  ingredients: {
+    include: {
+      inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
+      linkedRecipe: {
+        select: {
+          name: true,
+          yieldUnit: true,
+          inventoryItem: { select: { allergens: true, ...PRICING_SELECT } },
+        },
+      },
+    },
+    orderBy: { sortOrder: 'asc' },
+  },
+} satisfies Prisma.RecipeInclude
+
+type RecipeCostRow = Prisma.RecipeGetPayload<{ include: typeof RECIPE_COST_INCLUDE }>
+
+/**
+ * Batch-load every prep reachable from `ids` into the context, one query per
+ * nesting LEVEL instead of one per prep, and fold each level's raw item ids into
+ * ONE windowedAvgCost. A list page with 40 distinct nested preps otherwise pays
+ * 40 sequential round trips inside the costing loop. Pure pre-loading: costing
+ * still happens in fetchRecipeWithCost, which finds its rows here.
+ */
+export async function prefetchRecipes(ctx: CostContext, ids: string[]): Promise<void> {
+  const rows = ctx.rows ?? (ctx.rows = new Map())
+  const pending = (list: string[]) =>
+    Array.from(new Set(list)).filter(id => !rows.has(id) && !ctx.memo.has(id))
+  let frontier = pending(ids)
+  while (frontier.length > 0) {
+    const found = await prisma.recipe.findMany({ where: { id: { in: frontier } }, include: RECIPE_COST_INCLUDE })
+    for (const id of frontier) rows.set(id, null)
+    for (const row of found) rows.set(row.id, row)
+
+    if (ctx.basis === 'AVG_30D') {
+      const missing = Array.from(new Set(found.flatMap(r => r.ingredients.flatMap(i =>
+        i.inventoryItemId && !ctx.prices.has(i.inventoryItemId) && !ctx.asked.has(i.inventoryItemId) ? [i.inventoryItemId] : [],
+      ))))
+      if (missing.length > 0) {
+        for (const itemId of missing) ctx.asked.add(itemId)
+        const extra = await windowedAvgCost(missing, ctx.asOf)
+        for (const [itemId, basis] of extra) ctx.prices.set(itemId, basis)
+      }
+    }
+    frontier = pending(found.flatMap(r => r.ingredients.flatMap(i => i.linkedRecipeId ? [i.linkedRecipeId] : [])))
+  }
 }
 
 /** Build the per-request context: ONE windowedAvgCost for every raw item id given. */
@@ -362,26 +419,11 @@ export async function fetchRecipeWithCost(
 ): Promise<RecipeWithCost | null> {
   if (opts.ctx?.memo.has(id)) return opts.ctx.memo.get(id)!
 
-  const recipe = await prisma.recipe.findUnique({
-    where: { id },
-    include: {
-      category: true,
-      prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, orderBy: { createdAt: 'asc' }, take: 1 },
-      ingredients: {
-        include: {
-          inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
-          linkedRecipe: {
-            select: {
-              name: true,
-              yieldUnit: true,
-              inventoryItem: { select: { allergens: true, ...PRICING_SELECT } },
-            },
-          },
-        },
-        orderBy: { sortOrder: 'asc' },
-      },
-    },
-  })
+  // A row the caller batch-loaded (prefetchRecipes) is used as-is; null there
+  // means "loaded, does not exist".
+  const recipe = opts.ctx?.rows?.has(id)
+    ? opts.ctx.rows.get(id) ?? null
+    : await prisma.recipe.findUnique({ where: { id }, include: RECIPE_COST_INCLUDE })
   if (!recipe) return null
 
   const rawIds = recipe.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : []))
