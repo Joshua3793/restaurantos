@@ -9,6 +9,9 @@ import { type ChainItem, type PackLink, type Pricing, basePerPurchase, rateIsCos
 export interface OfferFormat {
   supplierId?: string | null
   supplierName?: string | null
+  /** this supplier's SKU for the product the offer describes */
+  supplierItemCode?: string | null
+  isPrimary?: boolean | null
   packChain?: unknown
   pricing?: unknown
 }
@@ -18,21 +21,55 @@ export interface SupplierRef {
   supplierName?: string | null
   /** Supplier.name — offers are stored under it; sessions may carry an OCR variant. */
   canonicalName?: string | null
+  /** The line's SKU. One supplier can sell an item as several products (a
+   *  merged "Mushrooms Mix" is six Sysco SKUs, each its own box), so the SKU
+   *  picks WHICH of that supplier's offers the line speaks. */
+  itemCode?: string | null
 }
 
-/** The offer belonging to a line's supplier. supplierId is the reliable join. */
-export function pickOffer<T extends OfferFormat>(offers: T[] | null | undefined, ref: SupplierRef): T | null {
-  if (!offers?.length) return null
+/** SKUs compare trimmed and case-blind; blank is "no SKU". */
+export function normItemCode(code: string | null | undefined): string {
+  return (code ?? '').trim().toUpperCase()
+}
+
+/** Every offer belonging to a line's supplier. supplierId is the reliable join,
+ *  then the canonical name, then the raw (OCR) name — the first key that finds
+ *  any rows wins, so one supplier's rows are never mixed with another's. */
+export function supplierOffers<T extends OfferFormat>(offers: T[] | null | undefined, ref: SupplierRef): T[] {
+  if (!offers?.length) return []
   if (ref.supplierId) {
-    const byId = offers.find(o => o.supplierId === ref.supplierId)
-    if (byId) return byId
+    const byId = offers.filter(o => o.supplierId === ref.supplierId)
+    if (byId.length) return byId
   }
   for (const name of [ref.canonicalName, ref.supplierName]) {
     if (!name) continue
-    const byName = offers.find(o => o.supplierName === name)
-    if (byName) return byName
+    const byName = offers.filter(o => o.supplierName === name)
+    if (byName.length) return byName
   }
-  return null
+  return []
+}
+
+/**
+ * The offer a line speaks. A supplier usually has one offer per item, but a
+ * merged item keeps one per SKU (each with its own box), so:
+ *   1. the offer carrying the line's SKU;
+ *   2. else one of this supplier's offers with no SKU recorded (legacy row);
+ *   3. else, when the supplier has exactly one offer, that one — the same
+ *      product under a new SKU (a supplier re-coding an item is routine);
+ *   4. else null — a SKU this item has never had from this supplier is a new
+ *      product whose pack becomes its own offer.
+ * A line with no SKU reads the supplier's primary offer, else its first.
+ */
+export function pickOffer<T extends OfferFormat>(offers: T[] | null | undefined, ref: SupplierRef): T | null {
+  const mine = supplierOffers(offers, ref)
+  if (mine.length === 0) return null
+  const code = normItemCode(ref.itemCode)
+  if (!code) return mine.find(o => o.isPrimary) ?? mine[0]
+  const exact = mine.find(o => normItemCode(o.supplierItemCode) === code)
+  if (exact) return exact
+  const uncoded = mine.find(o => !normItemCode(o.supplierItemCode))
+  if (uncoded) return uncoded
+  return mine.length === 1 ? mine[0] : null
 }
 
 /** Beyond this factor an offer's $/base vs the item's is data corruption, not a price difference. */

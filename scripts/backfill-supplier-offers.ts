@@ -97,7 +97,7 @@ async function main() {
               : { mode: 'PACK', purchasePrice: lastPrice },
           }
       await prisma.inventorySupplierPrice.upsert({
-        where: { inventoryItemId_supplierName: { inventoryItemId: li.matchedItemId, supplierName: offerSupplierName } },
+        where: { id: (await prisma.inventorySupplierPrice.findFirst({ where: { inventoryItemId: li.matchedItemId, supplierName: offerSupplierName }, select: { id: true } }))?.id ?? '' },
         create: {
           inventoryItemId: li.matchedItemId,
           supplierName: offerSupplierName,

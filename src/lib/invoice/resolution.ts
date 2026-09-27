@@ -79,7 +79,8 @@ export interface ResolveOpts {
 export type { SupplierRef } from '@/lib/invoice/line-format'
 
 export function offerForSupplier(item: ScanItem, ref: SupplierRef) {
-  return pickOffer(item.matchedItem?.supplierPrices ?? null, ref)
+  // The line's SKU picks among one supplier's several products (a merged item).
+  return pickOffer(item.matchedItem?.supplierPrices ?? null, { ...ref, itemCode: item.supplierItemCode ?? null })
 }
 
 // EVERY row belonging to `ref`'s supplier — not just the one pickOffer chose. The

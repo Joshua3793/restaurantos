@@ -38,6 +38,7 @@ export interface InventoryMatch {
     packSize: string | number | null
     packUOM: string | null
     isPrimary: boolean
+    supplierItemCode?: string | null
     packChain?: unknown
     pricing?: unknown
   }>
