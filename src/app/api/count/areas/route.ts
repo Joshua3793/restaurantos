@@ -5,6 +5,7 @@ import { MovementLedger } from '@/lib/ledger-balance'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { seesCountMoney, redactAreaMoney } from '@/lib/count-redact'
 
 export const dynamic = 'force-dynamic'
 
@@ -128,6 +129,8 @@ export async function GET(req: NextRequest) {
       }
     })
     .filter(a => a.itemCount > 0)
+    // Below MANAGER: no on-hand $ value or $ drift per area.
+    .map(a => (seesCountMoney(user.role) ? a : redactAreaMoney(a)))
 
   // Drives the count landing (per-area active-session state). The page mutates
   // sessions and immediately refetches; a cached/SWR response replays the stale

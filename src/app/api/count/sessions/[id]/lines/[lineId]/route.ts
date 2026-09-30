@@ -3,29 +3,55 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase, countEntriesToBase, countDimsOf, assertCountableUom, CountUomError, type CountEntry } from '@/lib/count-uom'
 import { withPpb } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
+
+export const dynamic = 'force-dynamic'
 
 // PATCH /api/count/sessions/:id/lines/:lineId
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; lineId: string } }
 ) {
+  // Authenticate BEFORE touching the body. A 401 here is NOT a rejection to the
+  // offline queue (count-offline.ts keeps it for retry after sign-in).
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+  const money = seesCountMoney(user.role)
+
   const body = await req.json()
   const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt, entries, carriedForward } = body
 
   const line = await prisma.countLine.findUnique({
     where: { id: params.lineId },
-    include: { inventoryItem: true },
+    include: { inventoryItem: true, session: { select: { revenueCenterId: true } } },
   })
-  if (!line) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!line || line.sessionId !== params.id) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: mirrors the write guard on /api/count/sessions/[id] PATCH/DELETE —
+  // a session with no RC (legacy "all items") is left unguarded.
+  if (line.session.revenueCenterId) {
+    try { await assertRcWritable(user, line.session.revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
 
   // Optimistic concurrency check: client sends the line's updatedAt it last saw.
   // If the stored updatedAt differs, another device has edited this line.
   if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== line.updatedAt.getTime()) {
+    const { session: _session, ...currentLine } = line
     return NextResponse.json(
       {
         error: 'Conflict',
         message: 'This line was edited on another device. Refresh to see the latest count.',
-        currentLine: line,
+        currentLine: money ? currentLine : redactLineMoney(currentLine),
       },
       { status: 409 },
     )
@@ -151,5 +177,7 @@ export async function PATCH(
   })
 
   // Re-populate the computed pricePerBaseUnit the count page reads off the line.
-  return NextResponse.json({ ...updated, inventoryItem: withPpb(updated.inventoryItem) })
+  const out = { ...updated, inventoryItem: withPpb(updated.inventoryItem) }
+  // Below MANAGER: no price or $ variance on the line or its item.
+  return NextResponse.json(money ? out : redactLineMoney(out))
 }

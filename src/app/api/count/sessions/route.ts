@@ -6,6 +6,7 @@ import { resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
 
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest) {
     include: { lines: { select: { countedQty: true, skipped: true, carriedForward: true } } },
   })
 
+  const money = seesCountMoney(user.role)
   return NextResponse.json(
     sessions.map(s => {
       const total   = s.lines.length
@@ -43,7 +45,9 @@ export async function GET(req: NextRequest) {
       const carried = s.lines.filter(l => l.countedQty !== null && !l.skipped && l.carriedForward).length
       const skipped = s.lines.filter(l => l.skipped).length
       const { lines, ...rest } = s
-      return { ...rest, counts: { total, counted, carried, skipped, uncounted: total - counted - skipped } }
+      const row = { ...rest, counts: { total, counted, carried, skipped, uncounted: total - counted - skipped } }
+      // Below MANAGER: no totalCountedValue.
+      return money ? row : redactSessionMoney(row)
     }),
     // The count page polls this list every 3s and refetches right after every
     // session mutation (create/finalize/delete/edit). A cached/SWR response replays
@@ -218,8 +222,6 @@ export async function POST(req: NextRequest) {
     inventoryItem: { ...withPpb(l.inventoryItem), parLevel: parMap2.get(l.inventoryItemId) ?? null },
   }))
 
-  return NextResponse.json(
-    { ...session, lines: enrichedLines, counts: { total: session.lines.length, counted: 0, carried: 0, skipped: 0, uncounted: session.lines.length } },
-    { status: 201 },
-  )
+  const created = { ...session, lines: enrichedLines, counts: { total: session.lines.length, counted: 0, carried: 0, skipped: 0, uncounted: session.lines.length } }
+  return NextResponse.json(seesCountMoney(user.role) ? created : redactSessionMoney(created), { status: 201 })
 }

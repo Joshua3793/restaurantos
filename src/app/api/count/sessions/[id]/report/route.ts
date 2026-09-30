@@ -2,9 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { lineCountedBase, countDimsOf } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
+import { requireSession, AuthError } from '@/lib/auth'
+import { isRcInScope } from '@/lib/rc-scope'
+import { seesCountMoney, redactLineMoney, redactSummaryMoney } from '@/lib/count-redact'
+
+export const dynamic = 'force-dynamic'
 
 // GET /api/count/sessions/:id/report
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const session = await prisma.countSession.findUnique({
     where: { id: params.id },
     include: {
@@ -15,6 +27,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // RC scope: same read guard as GET /api/count/sessions/[id] (404, not 403).
+  if (session.revenueCenterId && !(await isRcInScope(user, session.revenueCenterId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   const lines = session.lines
     .filter(l => l.countedQty !== null && !l.skipped)
@@ -35,24 +51,30 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const itemsSkipped   = session.lines.filter(l => l.skipped).length
   const itemsUncounted = session.lines.length - itemsCounted - itemsSkipped
 
+  const money = seesCountMoney(user.role)
+  const summary = { totalValue, totalVarianceCost, itemsWithLargeVariance, itemsCounted, itemsCarried, itemsSkipped, itemsUncounted }
   return NextResponse.json({
     session: {
       id: session.id, label: session.label, sessionDate: session.sessionDate,
       countedBy: session.countedBy, status: session.status, finalizedAt: session.finalizedAt,
     },
-    summary: { totalValue, totalVarianceCost, itemsWithLargeVariance, itemsCounted, itemsCarried, itemsSkipped, itemsUncounted },
-    lines: lines.map(l => ({
-      id: l.id,
-      itemName:    l.inventoryItem.itemName,
-      category:    l.inventoryItem.category,
-      location:    l.inventoryItem.location ?? l.inventoryItem.storageArea?.name ?? null,
-      expectedQty: Number(l.expectedQty),
-      countedQty:  Number(l.countedQty),
-      carriedForward: l.carriedForward,
-      selectedUom: l.selectedUom,
-      variancePct: Number(l.variancePct ?? 0),
-      varianceCost:Number(l.varianceCost ?? 0),
-      priceAtCount:Number(l.priceAtCount),
-    })),
+    // Below MANAGER: counts and quantities only — no $ value, price or $ variance.
+    summary: money ? summary : redactSummaryMoney(summary),
+    lines: lines.map(l => {
+      const row = {
+        id: l.id,
+        itemName:    l.inventoryItem.itemName,
+        category:    l.inventoryItem.category,
+        location:    l.inventoryItem.location ?? l.inventoryItem.storageArea?.name ?? null,
+        expectedQty: Number(l.expectedQty),
+        countedQty:  Number(l.countedQty),
+        carriedForward: l.carriedForward,
+        selectedUom: l.selectedUom,
+        variancePct: Number(l.variancePct ?? 0),
+        varianceCost:Number(l.varianceCost ?? 0),
+        priceAtCount:Number(l.priceAtCount),
+      }
+      return money ? row : redactLineMoney(row)
+    }),
   })
 }

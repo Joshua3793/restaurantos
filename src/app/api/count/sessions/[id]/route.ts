@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope, assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -67,10 +68,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const carried = lines.filter(l => l.countedQty !== null && !l.skipped && l.carriedForward).length
   const skipped = lines.filter(l => l.skipped).length
 
-  return NextResponse.json({
+  const body = {
     ...session, lines,
     counts: { total, counted, carried, skipped, uncounted: total - counted - skipped, pctComplete: total > 0 ? counted / total : 0 },
-  })
+  }
+  // Below MANAGER the count is quantities only — no price, value or $ variance.
+  return NextResponse.json(seesCountMoney(user.role) ? body : redactSessionMoney(body))
 }
 
 // PATCH /api/count/sessions/:id  — update label / reopen finalized session
@@ -105,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (body.sessionDate !== undefined) data.sessionDate = new Date(body.sessionDate)
   if (body.status      !== undefined) data.status      = body.status
   const updated = await prisma.countSession.update({ where: { id: params.id }, data })
-  return NextResponse.json(updated)
+  return NextResponse.json(seesCountMoney(user.role) ? updated : redactSessionMoney(updated))
 }
 
 // DELETE /api/count/sessions/:id

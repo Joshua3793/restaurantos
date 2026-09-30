@@ -153,7 +153,7 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
       })
       if (res.ok) {
         synced++
-      } else if (res.status >= 400 && res.status < 500) {
+      } else if (res.status >= 400 && res.status < 500 && res.status !== 401) {
         // The server REJECTED this mutation (invalid unit, conflict, deleted line…).
         // Retrying can never succeed — a 400 replayed every few seconds just spins
         // silently forever (seen with the stale-unit guard). Drop it from the queue
@@ -161,7 +161,8 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
         const body = await res.json().catch(() => null) as { message?: string; error?: string } | null
         rejected.push({ lineId: m.lineId, message: body?.message || body?.error || `HTTP ${res.status}` })
       } else {
-        // 5xx — the server had a bad moment; keep it queued for retry.
+        // 5xx — the server had a bad moment — or 401, the sign-in lapsed while the
+        // counter was offline: the count is still good, so keep it queued for retry.
         throw new Error(String(res.status))
       }
     } catch {

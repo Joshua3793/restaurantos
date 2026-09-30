@@ -1,13 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
+
+export const dynamic = 'force-dynamic'
 
 // POST /api/count/sessions/:id/lines — add a single item to an existing session
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  // Authenticate BEFORE touching the body.
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { inventoryItemId } = await req.json()
 
   const session = await prisma.countSession.findUnique({ where: { id: params.id } })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: mirrors the write guard on /api/count/sessions/[id] PATCH/DELETE —
+  // a session with no RC (legacy "all items") is left unguarded.
+  if (session.revenueCenterId) {
+    try { await assertRcWritable(user, session.revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
+
   if (session.status === 'FINALIZED') return NextResponse.json({ error: 'Session is finalized' }, { status: 400 })
 
   // Prevent duplicate lines
@@ -40,5 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   // Re-populate the computed pricePerBaseUnit the count page reads off the line.
-  return NextResponse.json({ ...line, inventoryItem: withPpb(line.inventoryItem) }, { status: 201 })
+  const out = { ...line, inventoryItem: withPpb(line.inventoryItem) }
+  // Below MANAGER: no price on the line or its item.
+  return NextResponse.json(seesCountMoney(user.role) ? out : redactLineMoney(out), { status: 201 })
 }
