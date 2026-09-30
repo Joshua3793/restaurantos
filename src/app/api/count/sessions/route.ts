@@ -8,6 +8,10 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
 
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
+
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   let user

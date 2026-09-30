@@ -27,7 +27,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  // RC scope: same read guard as GET /api/count/sessions/[id] (404, not 403).
+
+  // RC scope: same read guard as GET /api/count/sessions/:id — 404 (not 403) so
+  // the response doesn't confirm the row exists; a legacy unscoped session is shared.
   if (session.revenueCenterId && !(await isRcInScope(user, session.revenueCenterId))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }

@@ -4,7 +4,7 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react'
 import {
-  AlertCircle, ArrowLeft, Check, CheckCircle2, CheckSquare, ChevronDown, ChevronUp, ChevronsUpDown,
+  AlertCircle, ArrowLeft, Check, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown,
   Circle, ClipboardList, Copy, Minus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, SkipForward, Square, Trash2, WifiOff, X,
 } from 'lucide-react'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -22,9 +22,10 @@ import {
 import {
   getCountableUoms, convertCountQtyToBase, convertBaseToCountUom, countEntriesToBase,
 } from '@/lib/count-uom'
-import { asChainItem, levelBaseUnits } from '@/lib/item-model'
 import { formToChain } from '@/lib/item-model-form'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
+import { fmtCount, countGap, GAP_CLASS } from '@/lib/count-labels'
+import { atLeast } from '@/lib/roles'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -302,7 +303,6 @@ export default function CountPage() {
   // ── Count-mode state ──────────────────────────────────────────────────────
   const [openId,        setOpenId]        = useState<string | null>(null)
   const [inputQty,      setInputQty]      = useState<number | ''>('')
-  const [caseQty,       setCaseQty]       = useState(0)  // unopened full cases, added to loose count
   // Mixed-unit counting: additional {qty, unit} rows for the open line, beyond the
   // primary inputQty + line.selectedUom row. Empty for a normal single-unit count.
   const [extraEntries,  setExtraEntries]  = useState<{ qty: number; unit: string }[]>([])
@@ -353,7 +353,9 @@ export default function CountPage() {
 
   const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
   const { setDrawerOpen } = useDrawer()
-  const { user } = useUser()
+  const { user, role } = useUser()
+  // Cost and money are manager information (see ROLE_DESCRIPTIONS: staff never see them).
+  const seesMoney = role != null && atLeast(role as Parameters<typeof atLeast>[0], 'MANAGER')
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
   const [selectedRcId, setSelectedRcId] = useState<string>('')
 
@@ -475,16 +477,24 @@ export default function CountPage() {
   // No body-scroll lock needed — new session form is its own view on mobile
   // and a small centered modal on desktop (sm+).
 
-  // Reset qty input when card opens
+  // Seed the qty input ONCE per opening of a card — never again while it stays
+  // open. This effect used to re-run on every change to `active.lines`, so the
+  // unit-change save coming back a second later (syncLineFromResponse), the
+  // offline drain or any other line update wiped what the cook had just typed:
+  // switch cases → each, type 2, and it snapped back to empty. `seededFor`
+  // remembers which card was seeded; the lines are read from the latest render.
+  const seededFor = useRef<string | null>(null)
+  const linesLoaded = !!active?.lines
   useEffect(() => {
-    if (!openId || !active?.lines) return
+    if (!openId) { seededFor.current = null; return }
+    if (!active?.lines || seededFor.current === openId) return
     const line = active.lines.find(l => l.id === openId)
     if (line) {
+      seededFor.current = openId
       // Blind-count: only show prior counted value when re-editing. Don't pre-fill
       // with expected qty — that biases the user toward confirming theoretical stock
       // rather than counting what's actually on the shelf.
       setInputQty(line.countedQty !== null ? Number(line.countedQty) : '')
-      setCaseQty(0)
       // Rehydrate mixed-unit rows: if the line was saved with entries, treat the
       // first entry as the primary (inputQty/selectedUom) and the rest as extras.
       const saved = Array.isArray((line as { entries?: unknown }).entries)
@@ -497,7 +507,8 @@ export default function CountPage() {
         setExtraEntries([])
       }
     }
-  }, [openId, active?.lines])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed on open only (see above)
+  }, [openId, linesLoaded])
 
   // Count mode + review are immersive full-screen task flows with their own bottom
   // action bars — hide the global chat FAB (reusing the drawer-open mechanism) so it
@@ -824,7 +835,7 @@ export default function CountPage() {
 
     // Both renderers clear the entry on a unit change (mobile always did; desktop
     // used to convert it). One behaviour, so a count means the same thing on either.
-    if (openId === line.id) { setInputQty(''); setCaseQty(0) }
+    if (openId === line.id) setInputQty('')
 
     const applyUom = (l: Line): Line => l.id !== line.id ? l : {
       ...l,
@@ -2058,6 +2069,13 @@ export default function CountPage() {
       const liveVar = isOpen && Number(line.expectedQty) > 0
         ? ((inputBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
+      // A row says only what its section doesn't: the category when the list is
+      // a flat search result (otherwise the group heading or the filter says it),
+      // the storage area unless the list is already filtered to one.
+      const showCat = searchQuery.trim() !== ''
+      const showLoc = !locFilter && !!locLabel
+      const reliable = hasReliableVariance(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
+      const expectedInUom = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
 
       if (isSkipped) return (
         <div key={line.id} id={`ln-${line.id}`}
@@ -2067,13 +2085,6 @@ export default function CountPage() {
           <div className="flex items-center gap-3 px-4 py-3">
             <SkipForward size={15} className="text-ink-4 shrink-0" />
             <span className="flex-1 text-[13.5px] text-ink-3 line-through">{line.inventoryItem.itemName}</span>
-            <button
-              onClick={() => setEditingItemId(line.inventoryItemId)}
-              className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-line"
-              title="Edit item"
-            >
-              <Pencil size={13} />
-            </button>
             <button
               onClick={() => unskipLine(line)}
               className="font-mono text-[11px] text-gold font-medium hover:text-gold-2 px-2 py-1 rounded-[6px] hover:bg-gold-soft transition-colors"
@@ -2086,7 +2097,8 @@ export default function CountPage() {
 
       if (isCounted && !isOpen) {
         const vPct = line.variancePct !== null ? Number(line.variancePct) : null
-        const large = vPct !== null && Math.abs(vPct) > LARGE_VARIANCE_PCT
+        const large = reliable && vPct !== null && Math.abs(vPct) > LARGE_VARIANCE_PCT
+        const gap = reliable ? countGap(Number(line.countedQty), expectedInUom, line.selectedUom) : null
         return (
           <div key={line.id} id={`ln-${line.id}`}
             ref={el => { cardRefs.current[`d-${line.id}`] = el }}
@@ -2097,26 +2109,18 @@ export default function CountPage() {
               <CheckCircle2 size={18} className="text-green-text shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-[13.5px] font-medium text-ink">{line.inventoryItem.itemName}</div>
-                <div className="font-mono text-[11px] text-ink-3 mt-0.5 flex items-center gap-1.5">
-                  <span>{Number(line.countedQty).toFixed(2)} {line.selectedUom}</span>
-                  {vPct !== null && (
-                    <span className={varColor(vPct)}>· {vPct >= 0 ? '+' : ''}{vPct.toFixed(1)}%</span>
-                  )}
-                  {lastQty != null && <span className="text-ink-4">· last {lastQty.toFixed(2)}</span>}
+                {/* counted · the gap to expected in units (once) · last count */}
+                <div className="font-mono text-[11px] text-ink-3 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-ink-2 font-medium">{fmtCount(Number(line.countedQty))} {line.selectedUom}</span>
+                  {gap && <span className={GAP_CLASS[gap.tone]}>· {gap.text}</span>}
+                  {lastQty != null && <span className="text-ink-4">· last {fmtCount(lastQty)}</span>}
                   {line.carriedForward && (
-                    <span className="px-1.5 py-0.5 rounded-[5px] bg-gold-soft text-gold-2 text-[9.5px] font-medium tracking-wide">carried</span>
+                    <span className="px-1.5 py-0.5 rounded-[5px] bg-gold-soft text-gold-2 text-[9.5px] font-medium tracking-wide">same as last</span>
                   )}
                 </div>
               </div>
-              <CategoryBadge category={line.inventoryItem.category} />
-              {locLabel && <span className="font-mono text-[11px] text-ink-3 ml-1 hidden sm:block">{locLabel}</span>}
-              <button
-                onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
-                className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-green-soft ml-1"
-                title="Edit item"
-              >
-                <Pencil size={13} />
-              </button>
+              {showCat && <CategoryBadge category={line.inventoryItem.category} />}
+              {showLoc && <span className="font-mono text-[11px] text-ink-3 ml-1 hidden sm:block">{locLabel}</span>}
             </div>
           </div>
         )
@@ -2150,170 +2154,129 @@ export default function CountPage() {
             )}
             <Circle size={16} className="text-line-2 shrink-0" />
             <div className="flex-1 min-w-0">
-              <div className="text-[13.5px] font-medium text-ink truncate">{line.inventoryItem.itemName}</div>
-              {lastQty != null && <div className="font-mono text-[11px] text-ink-4 mt-0.5">last count {lastQty.toFixed(2)} {line.selectedUom}</div>}
+              <div className="text-[13.5px] font-medium text-ink break-words">{line.inventoryItem.itemName}</div>
+              {/* last count + what's expected, stated once — the open card doesn't repeat them */}
+              <div className="font-mono text-[11px] text-ink-4 mt-0.5">
+                {[lastQty != null ? `last ${fmtCount(lastQty)} ${line.selectedUom}` : null, reliable ? `expected ${fmtCount(expectedInUom)}` : null].filter(Boolean).join(' · ')}
+              </div>
             </div>
-            <CategoryBadge category={line.inventoryItem.category} />
-            {locLabel && <span className="font-mono text-[11px] text-ink-3 ml-1">{locLabel}</span>}
-            <button
-              onClick={e => { e.stopPropagation(); setEditingItemId(line.inventoryItemId) }}
-              className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2"
-              title="Edit item"
-            >
-              <Pencil size={13} />
-            </button>
+            {showCat && <CategoryBadge category={line.inventoryItem.category} />}
+            {showLoc && <span className="font-mono text-[11px] text-ink-3 ml-1">{locLabel}</span>}
             <ChevronDown size={15} className={`text-ink-3 ml-1 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
           </div>
 
-          {/* Expanded body */}
+          {/* Expanded body — compact: unit chips, a centred stepper, the live gap
+              to expected in units, and (managers only) the money. */}
           {isOpen && (
-            <div className="px-4 pb-4 pt-1 border-t border-line">
+            <div className="px-4 pb-4 pt-3 border-t border-line">
               {(() => {
                 const uoms = getCountableUoms(line.inventoryItem)
-                const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
-                return (
-                  <>
-                    {uoms.length > 1 && (
-                      <div className="mb-3">
-                        <select
-                          value={line.selectedUom}
-                          onChange={e => changeUom(line, e.target.value)}
-                          className="w-full border border-line rounded-[9px] px-3 py-2 text-[13px] font-medium text-ink-2 bg-paper focus:outline-none focus:border-ink-3 transition-colors"
-                        >
-                          {uoms.map(opt => (
-                            <option key={opt.label} value={opt.label}>{uomBaseContentLabel(opt.label, line.inventoryItem)}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* Expected + live variance */}
-                    <div className="font-mono text-[11px] text-ink-3 mb-1.5 flex items-center gap-1.5">
-                      <span>Expected: {expectedDisplay.toFixed(2)} {line.selectedUom}</span>
-                      {liveVar !== null && (
-                        <span className={`font-medium ${varColor(liveVar)}`}>
-                          · {liveVar > 0 ? '+' : ''}{liveVar.toFixed(1)}%
-                        </span>
-                      )}
-                    </div>
-
-                    {(line.inventoryItem.parLevel != null || line.inventoryItem.lastCountQty != null) && (
-                      <div className="font-mono text-[11px] text-ink-3 mb-3 flex items-center gap-3">
-                        {line.inventoryItem.parLevel != null && (
-                          <span>Par: <span className="font-medium text-ink-2">{Number(line.inventoryItem.parLevel).toFixed(2)} {line.selectedUom}</span></span>
-                        )}
-                        {line.inventoryItem.lastCountQty != null && (
-                          <span>Last count: <span className="font-medium text-ink-2">{convertBaseToCountUom(Number(line.inventoryItem.lastCountQty), line.selectedUom, line.inventoryItem).toFixed(2)} {line.selectedUom}</span></span>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-
-              {/* ± stepper — coarse ±1 flanks the input, fine ±0.1 below */}
-              <div className="mb-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
-                    className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
-                    aria-label="Subtract 1"
-                  >
-                    <Minus size={20} className="text-ink-2" />
-                  </button>
-                  <input
-                    type="number"
-                    value={inputQty}
-                    onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
-                    className="flex-1 min-w-0 h-[66px] text-center text-[28px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-[9px] focus:outline-none text-ink"
-                    min={0} step={0.1}
-                  />
-                  <button
-                    onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
-                    className="w-14 h-[66px] rounded-[9px] bg-bg-2 border border-line flex items-center justify-center hover:bg-line transition-colors shrink-0"
-                    aria-label="Add 1"
-                  >
-                    <Plus size={20} className="text-ink-2" />
-                  </button>
-                </div>
-                {/* fine ±0.1 row, constrained to the input width (button 56px + gap 8px each side) */}
-                <div className="flex gap-2 mt-2 px-[64px]">
-                  <button
-                    onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 0.1) * 100) / 100))}
-                    className="flex-1 h-9 rounded-[9px] bg-bg-2 border border-line flex items-center justify-center gap-1 hover:bg-line transition-colors text-ink-3"
-                    aria-label="Subtract 0.1"
-                  >
-                    <Minus size={13} /><span className="text-[12px] font-medium">0.1</span>
-                  </button>
-                  <button
-                    onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 0.1) * 100) / 100)}
-                    className="flex-1 h-9 rounded-[9px] bg-bg-2 border border-line flex items-center justify-center gap-1 hover:bg-line transition-colors text-ink-3"
-                    aria-label="Add 0.1"
-                  >
-                    <Plus size={13} /><span className="text-[12px] font-medium">0.1</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="text-center font-mono text-[11px] text-ink-3 mb-4">{line.selectedUom}</div>
-
-              {/* Mixed-unit entry — PRIMARY: a row per unit on the shelf. The primary
-                  qty+unit above, then any extra {qty,unit} rows, then a prominent
-                  "+ add unit" affordance. */}
-              {(() => {
-                const opts = getCountableUoms(line.inventoryItem)
-                return (
-                  <div className="mb-3">
-                    {extraEntries.length > 0 && (
-                      <MixedUnitRows
-                        rows={extraEntries}
-                        options={opts}
-                        item={line.inventoryItem}
-                        onChange={setExtraEntries}
-                        onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
-                      />
-                    )}
-                    {extraEntries.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setExtraEntries([{ qty: 0, unit: opts[0]?.label ?? line.inventoryItem.baseUnit }])}
-                        className="w-full h-10 rounded-[9px] border border-dashed border-line-2 grid place-items-center font-mono text-[11px] text-ink-3 hover:text-ink-2 hover:border-ink-4 hover:bg-bg-2 transition-colors"
-                      >
-                        <span className="inline-flex items-center gap-1"><Plus size={13} /> add unit</span>
-                      </button>
-                    )}
-                  </div>
-                )
-              })()}
-
-              {/* Counted / Variance / Value summary — valued at the live spine price. */}
-              {(() => {
+                const typed = inputQty !== '' || dHasExtras
+                const liveGap = typed && reliable
+                  ? countGap(dHasExtras ? convertBaseToCountUom(inputBase, line.selectedUom, line.inventoryItem) : (Number(inputQty) || 0), expectedInUom, line.selectedUom)
+                  : null
+                const otherUnit = uoms.find(u => u.label !== line.selectedUom)?.label ?? uoms[0]?.label ?? line.inventoryItem.baseUnit
                 const livePpb = Number(line.inventoryItem.pricePerBaseUnit ?? line.priceAtCount)
                 const varCost = (inputBase - Number(line.expectedQty)) * livePpb
                 const value   = inputBase * livePpb
                 return (
-                  <div className="grid grid-cols-3 gap-2 mb-4 bg-bg-2 rounded-[9px] p-3">
-                    <div>
-                      <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Counted</div>
-                      <div className="font-mono text-[13px] font-medium text-ink mt-0.5">
-                        {inputBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {line.inventoryItem.baseUnit}
+                  <div className="max-w-[420px] mx-auto">
+                    {uoms.length > 1 && (
+                      <div className="flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5 mb-3">
+                        {uoms.map(opt => (
+                          <button key={opt.label} type="button" onClick={() => { if (opt.label !== line.selectedUom) changeUom(line, opt.label) }}
+                            className={`flex-1 py-1.5 text-[12.5px] font-medium rounded-[7px] whitespace-nowrap ${line.selectedUom === opt.label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3 hover:text-ink-2'}`}>
+                            {uomBaseContentLabel(opt.label, line.inventoryItem)}
+                          </button>
+                        ))}
                       </div>
-                    </div>
-                    <div>
-                      <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Variance</div>
-                      <div className={`font-mono text-[13px] font-medium mt-0.5 ${varCost > 0 ? 'text-green-text' : varCost < 0 ? 'text-red-text' : 'text-ink-3'}`}>
-                        {varCost > 0 ? '+' : ''}{formatCurrency(varCost)}
+                    )}
+
+                    {/* ± stepper — coarse ±1 flanks the input, fine ±0.1 below */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
+                        className="w-12 h-12 rounded-[10px] bg-bg-2 border border-line grid place-items-center hover:bg-line transition-colors shrink-0"
+                        aria-label="Subtract 1"
+                      >
+                        <Minus size={18} className="text-ink-2" />
+                      </button>
+                      <div className="flex-1 min-w-0 relative">
+                        <input
+                          type="number"
+                          value={inputQty}
+                          onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-full h-12 text-center text-[24px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-[10px] focus:outline-none text-ink placeholder:text-ink-4"
+                          min={0} step={0.1}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[11px] text-ink-4 pointer-events-none">{line.selectedUom}</span>
                       </div>
+                      <button
+                        onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
+                        className="w-12 h-12 rounded-[10px] bg-gold-soft border border-gold/40 grid place-items-center hover:bg-gold/25 transition-colors shrink-0"
+                        aria-label="Add 1"
+                      >
+                        <Plus size={18} strokeWidth={2.4} className="text-gold-2" />
+                      </button>
                     </div>
-                    <div>
-                      <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Value</div>
-                      <div className="font-mono text-[13px] font-medium text-ink mt-0.5">{formatCurrency(value)}</div>
+                    <div className="flex gap-2 mt-2 px-14">
+                      <button
+                        onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 0.1) * 100) / 100))}
+                        className="flex-1 h-8 rounded-[8px] bg-bg-2 border border-line flex items-center justify-center gap-1 hover:bg-line transition-colors text-ink-3"
+                        aria-label="Subtract 0.1"
+                      >
+                        <Minus size={12} /><span className="text-[11.5px] font-medium">0.1</span>
+                      </button>
+                      <button
+                        onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 0.1) * 100) / 100)}
+                        className="flex-1 h-8 rounded-[8px] bg-bg-2 border border-line flex items-center justify-center gap-1 hover:bg-line transition-colors text-ink-3"
+                        aria-label="Add 0.1"
+                      >
+                        <Plus size={12} /><span className="text-[11.5px] font-medium">0.1</span>
+                      </button>
                     </div>
+
+                    {/* The ONE way to count a second unit on the shelf (cases + loose, …). */}
+                    <div className="mt-3">
+                      {dHasExtras ? (
+                        <MixedUnitRows
+                          rows={extraEntries}
+                          options={uoms}
+                          item={line.inventoryItem}
+                          onChange={setExtraEntries}
+                          onAdd={unit => setExtraEntries(rows => [...rows, { qty: 0, unit }])}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setExtraEntries([{ qty: 0, unit: otherUnit }])}
+                          className="inline-flex items-center gap-1 font-mono text-[11px] text-ink-3 hover:text-gold-2"
+                        >
+                          <Plus size={12} /> Also have cases or another unit
+                        </button>
+                      )}
+                    </div>
+
+                    {liveGap && (
+                      <div className={`mt-3 font-mono text-[12px] font-semibold ${GAP_CLASS[liveGap.tone]}`}>
+                        {liveGap.tone === 'ok' ? 'On target' : `${liveGap.text} of expected`}
+                        {dHasExtras && <span className="font-normal text-ink-4"> · {fmtCount(inputBase)} {line.inventoryItem.baseUnit} in all</span>}
+                      </div>
+                    )}
+
+                    {seesMoney && (
+                      <div className="flex items-center gap-4 mt-3 font-mono text-[11px] text-ink-3">
+                        <span>Value <b className="text-ink font-medium">{formatCurrency(value)}</b></span>
+                        <span>Variance <b className={`font-medium ${varCost > 0 ? 'text-green-text' : varCost < 0 ? 'text-red-text' : 'text-ink-3'}`}>{varCost > 0 ? '+' : ''}{formatCurrency(varCost)}</b></span>
+                      </div>
+                    )}
                   </div>
                 )
               })()}
 
-              <div className="flex gap-2">
+              <div className="max-w-[420px] mx-auto mt-4">
+                <div className="flex gap-2">
                 {line.noMovement && line.countedQty === null && (
                   <button
                     onClick={() => confirmSameAsLast(line)}
@@ -2343,6 +2306,14 @@ export default function CountPage() {
                   <SkipForward size={13} /> Skip
                 </button>
               </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingItemId(line.inventoryItemId)}
+                  className="mt-2 inline-flex items-center gap-1 font-mono text-[10.5px] text-ink-4 hover:text-ink-2"
+                >
+                  <Pencil size={11} /> Edit item
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -2355,30 +2326,14 @@ export default function CountPage() {
       const isCounted = line.countedQty !== null && !line.skipped
       const isSkipped = line.skipped
       const locLabel  = item.storageArea?.name ?? item.location
-      const f = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n).toFixed(1))
 
       const uoms        = getCountableUoms(item)
       const unitLabels  = Array.from(new Set([...uoms.map(u => u.label), line.selectedUom]))   // size order (case→pkg→each→units); selectedUom only appended if it's a legacy unit not in the list
       const uomDisplay  = (lbl: string) => uomBaseContentLabel(lbl, item)   // base-content text ("case (6,000 g)") vs stored token
-      // "+ unopened cases" — one full top-level container, derived from the pack
-      // chain. The top container is packChain[0]; one case = the base units it
-      // holds (levelBaseUnits[top.unit]). Shown when the top is a real container
-      // (per > 1) so single-each items don't get a meaningless "+ cases" row.
-      const _ci         = asChainItem({
-        dimension: item.dimension, baseUnit: item.baseUnit,
-        packChain: item.packChain, pricing: undefined,
-        countUnit: item.countUnit ?? undefined,
-      })
-      const _chain      = _ci.packChain
-      const _top        = _chain[0]
-      const _caseBase   = _top ? (levelBaseUnits(_chain)[_top.unit] ?? 0) : 0
-      const showCases   = _chain.length > 0 && _caseBase > 1 && /case|cs|box|ctn|pack|flat|tray|crate/i.test(_top?.unit || '')
-      // Selected-unit content (base units per 1 selected unit) — convert the
-      // case's base content back into the unit the stepper is counting in so the
-      // two add coherently.
-      const _selPer     = convertCountQtyToBase(1, line.selectedUom, item) || 1
-      const _caseInSel  = _caseBase / _selPer
-      const effectiveQty = (Number(inputQty) || 0) + (showCases ? caseQty * _caseInSel : 0)
+      // One loose count in the chosen unit; cases (or any second unit) go in
+      // the "Also have cases" rows below — the separate "+ unopened cases"
+      // stepper was a third way to say the same thing and is gone.
+      const effectiveQty = Number(inputQty) || 0
       // Mixed-unit: extra rows the user added sum on top of the primary count.
       const mHasExtras  = extraEntries.length > 0
       const mAllEntries = [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries]
@@ -2390,12 +2345,20 @@ export default function CountPage() {
         : null
       const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, item)
       const lastDisplay = item.lastCountQty != null ? convertBaseToCountUom(Number(item.lastCountQty), line.selectedUom, item) : null
-      const bigVar = isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
+      const reliable = hasReliableVariance(Number(line.expectedQty), line.selectedUom, item)
+      const bigVar = reliable && isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
+      const rowGap = isCounted && reliable ? countGap(Number(line.countedQty), expectedDisplay, line.selectedUom) : null
       const dotColor = isSkipped ? 'bg-ink-4' : isCounted ? (bigVar ? 'bg-gold' : 'bg-green') : 'bg-ink-4'
       const rowBg = isSkipped ? 'bg-bg-2 border-line opacity-60'
         : isCounted ? (bigVar ? 'bg-gold-soft border-gold-soft' : 'bg-green-soft border-[#86efac]')
         : isOpen ? 'border-gold bg-paper' : 'bg-paper border-line'
-      const sub = [item.category, lastDisplay != null ? `last ${f(lastDisplay)} ${line.selectedUom}` : locLabel].filter(Boolean).join(' · ')
+      // Only what the section doesn't say: the category just on a flat search
+      // list, the storage area unless the list is filtered to one.
+      const sub = [
+        searchQuery.trim() ? item.category : null,
+        lastDisplay != null ? `last ${fmtCount(lastDisplay)} ${line.selectedUom}` : null,
+        !locFilter ? locLabel : null,
+      ].filter(Boolean).join(' · ')
 
       return (
         <div key={`m-${line.id}`}
@@ -2420,12 +2383,7 @@ export default function CountPage() {
             <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className={`text-[14px] font-semibold truncate ${isSkipped ? 'line-through text-ink-4' : 'text-ink'}`}>{item.itemName}</span>
-                {bigVar && (
-                  <span className="font-mono text-[8.5px] font-bold uppercase tracking-[0.02em] px-1 py-0.5 rounded bg-red-soft text-red-text shrink-0">
-                    VAR {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(0)}%
-                  </span>
-                )}
+                <span className={`text-[14px] font-semibold break-words min-w-0 ${isSkipped ? 'line-through text-ink-4' : 'text-ink'}`}>{item.itemName}</span>
               </div>
               <div className="font-mono text-[10.5px] text-ink-3 truncate mt-0.5">{sub}</div>
             </div>
@@ -2436,21 +2394,18 @@ export default function CountPage() {
             ) : isCounted ? (
               <div className="text-right shrink-0">
                 <div className="text-sm font-semibold text-ink tabular-nums leading-tight">
-                  {f(Number(line.countedQty))}<span className="font-mono text-[10.5px] font-normal text-ink-3 ml-0.5">{line.selectedUom}</span>
+                  {fmtCount(Number(line.countedQty))}<span className="font-mono text-[10.5px] font-normal text-ink-3 ml-0.5">{line.selectedUom}</span>
                 </div>
-                {line.variancePct !== null && (
-                  <div className={`font-mono text-[11px] mt-0.5 ${varColor(line.variancePct)}`}>
-                    {Number(line.variancePct) >= 0 ? '+' : ''}{Number(line.variancePct).toFixed(1)}%
-                  </div>
+                {/* the gap to expected, in units, said once (no badge + percent) */}
+                {rowGap && rowGap.tone !== 'ok' && (
+                  <div className={`font-mono text-[10.5px] mt-0.5 ${GAP_CLASS[rowGap.tone]}`}>{rowGap.text}</div>
                 )}
                 {line.carriedForward && (
-                  <span className="px-1.5 py-0.5 rounded-[5px] bg-gold-soft text-gold-2 text-[9.5px] font-medium tracking-wide">carried</span>
+                  <span className="px-1.5 py-0.5 rounded-[5px] bg-gold-soft text-gold-2 text-[9.5px] font-medium tracking-wide">same as last</span>
                 )}
               </div>
             ) : (
-              <span className="shrink-0 inline-flex items-center gap-1 font-mono text-[11px] font-semibold text-ink-2 border border-line rounded-full px-2.5 py-1">
-                COUNT <span className="text-ink-4">›</span>
-              </span>
+              <ChevronRight size={16} className="text-ink-4 shrink-0" aria-hidden />
             )}
           </div>
 
@@ -2461,8 +2416,11 @@ export default function CountPage() {
                 <div className="w-9 h-1 bg-line rounded-full mx-auto mb-3" />
                 <div className="flex items-start gap-3 mb-1">
                   <div className="flex-1 min-w-0">
-                    <div className="text-[17px] font-semibold text-ink truncate tracking-[-0.02em]">{item.itemName}</div>
-                    <div className="font-mono text-[11px] text-ink-3 mt-0.5 truncate">{[item.category, locLabel].filter(Boolean).join(' · ')}</div>
+                    <div className="text-[17px] font-semibold text-ink break-words tracking-[-0.02em]">{item.itemName}</div>
+                    {/* where it lives, the last count and what's expected — stated once, up top */}
+                    <div className="font-mono text-[11px] text-ink-3 mt-0.5">
+                      {[locLabel, lastDisplay != null ? `last ${fmtCount(lastDisplay)} ${line.selectedUom}` : null, reliable ? `expected ${fmtCount(expectedDisplay)}` : null].filter(Boolean).join(' · ')}
+                    </div>
                   </div>
                   <button onClick={() => setOpenId(null)} className="p-1 -mr-1 text-ink-4 shrink-0"><X size={18} /></button>
                 </div>
@@ -2487,7 +2445,7 @@ export default function CountPage() {
                   <input type="number" value={inputQty} onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
                     className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={0.1} />
                   <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
-                    className="w-[60px] h-[60px] rounded-2xl bg-ink grid place-items-center shrink-0 active:bg-ink-2" aria-label="Add 1"><Plus size={26} className="text-gold" /></button>
+                    className="w-[60px] h-[60px] rounded-2xl bg-gold-soft border border-gold/40 grid place-items-center shrink-0 active:bg-gold/25" aria-label="Add 1"><Plus size={26} strokeWidth={2.4} className="text-gold-2" /></button>
                 </div>
                 {/* fine ±0.1 row, constrained to the input width (button 60px + gap 12px each side) */}
                 <div className="flex gap-3 mt-2 px-[72px]">
@@ -2496,23 +2454,10 @@ export default function CountPage() {
                   <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 0.1) * 100) / 100)}
                     className="flex-1 h-10 rounded-xl bg-bg-2 border border-line flex items-center justify-center gap-1 active:bg-line text-ink-3" aria-label="Add 0.1"><Plus size={16} /><span className="text-[13px] font-medium">0.1</span></button>
                 </div>
-                <div className="text-center font-mono text-[10.5px] text-ink-4 mt-2">tap to type</div>
-
-                {/* Unopened cases */}
-                {showCases && (
-                  <div className="flex items-center justify-between gap-3 border-t border-line mt-3 pt-3">
-                    <span className="font-mono text-[11px] text-ink-2 uppercase tracking-[0.03em]">+ unopened cases <span className="text-ink-4">({f(_caseBase)} {item.baseUnit}/{_top?.unit || 'CS'})</span></span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button onClick={() => setCaseQty(v => Math.max(0, v - 1))} className="w-9 h-9 rounded-[9px] bg-bg-2 border border-line grid place-items-center active:bg-line"><Minus size={16} className="text-ink-2" /></button>
-                      <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{caseQty}</span>
-                      <button onClick={() => setCaseQty(v => v + 1)} className="w-9 h-9 rounded-[9px] bg-ink grid place-items-center active:bg-ink-2"><Plus size={16} className="text-gold" /></button>
-                    </div>
-                  </div>
-                )}
 
                 {/* Mixed-unit entry — PRIMARY: a row per unit on the shelf. */}
-                <div className="border-t border-line mt-3 pt-3">
-                  <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] mb-2">Count — a row per unit on the shelf</div>
+                {/* The ONE way to count a second unit on the shelf (cases + loose, …). */}
+                <div className="mt-4">
                   {mHasExtras ? (
                     <MixedUnitRows
                       rows={extraEntries}
@@ -2523,56 +2468,36 @@ export default function CountPage() {
                     />
                   ) : (
                     <button type="button"
-                      onClick={() => setExtraEntries([{ qty: 0, unit: uoms[0]?.label ?? item.baseUnit }])}
+                      onClick={() => setExtraEntries([{ qty: 0, unit: uoms.find(u => u.label !== line.selectedUom)?.label ?? uoms[0]?.label ?? item.baseUnit }])}
                       className="w-full h-10 rounded-[9px] border border-dashed border-line-2 grid place-items-center font-mono text-[11px] text-ink-3 active:text-ink-2 active:bg-bg-2">
-                      <span className="inline-flex items-center gap-1"><Plus size={13} /> add unit</span>
+                      <span className="inline-flex items-center gap-1"><Plus size={13} /> Also have cases or another unit</span>
                     </button>
                   )}
                 </div>
 
-                {/* Counted / Variance / Value summary — valued at the live spine price. */}
+                {/* The live gap to expected, in units — and the money only for managers. */}
                 {(() => {
+                  const typed = inputQty !== '' || mHasExtras
+                  const counted = mHasExtras ? convertBaseToCountUom(effBase, line.selectedUom, item) : effectiveQty
+                  const gap = typed && reliable ? countGap(counted, expectedDisplay, line.selectedUom) : null
                   const livePpb = Number(item.pricePerBaseUnit ?? line.priceAtCount)
                   const varCost = (effBase - Number(line.expectedQty)) * livePpb
                   const value   = effBase * livePpb
+                  if (!gap && !seesMoney) return null
                   return (
-                    <div className="grid grid-cols-3 gap-2 mt-3 bg-bg-2 rounded-[10px] p-3">
-                      <div>
-                        <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Counted</div>
-                        <div className="font-mono text-[13px] font-medium text-ink mt-0.5">
-                          {effBase.toLocaleString(undefined, { maximumFractionDigits: 1 })} {item.baseUnit}
+                    <div className="mt-4 px-3 py-2.5 rounded-[10px] bg-bg-2 font-mono text-[11.5px]">
+                      {gap && (
+                        <div className={`font-semibold ${GAP_CLASS[gap.tone]}`}>
+                          {gap.tone === 'ok' ? 'On target' : `${gap.text} of expected`}
+                          {mHasExtras && <span className="font-normal text-ink-4"> · {fmtCount(effBase)} {item.baseUnit} in all</span>}
                         </div>
-                      </div>
-                      <div>
-                        <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Variance</div>
-                        <div className={`font-mono text-[13px] font-medium mt-0.5 ${varCost > 0 ? 'text-green-text' : varCost < 0 ? 'text-red-text' : 'text-ink-3'}`}>
-                          {varCost > 0 ? '+' : ''}{formatCurrency(varCost)}
+                      )}
+                      {seesMoney && (
+                        <div className={`flex items-center gap-4 text-ink-3 ${gap ? 'mt-1' : ''}`}>
+                          <span>Value <b className="text-ink font-medium">{formatCurrency(value)}</b></span>
+                          <span>Variance <b className={`font-medium ${varCost > 0 ? 'text-green-text' : varCost < 0 ? 'text-red-text' : 'text-ink-3'}`}>{varCost > 0 ? '+' : ''}{formatCurrency(varCost)}</b></span>
                         </div>
-                      </div>
-                      <div>
-                        <div className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">Value</div>
-                        <div className="font-mono text-[13px] font-medium text-ink mt-0.5">{formatCurrency(value)}</div>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* Variance vs theoretical + last count — neutral "on track" near zero, else signed unit delta */}
-                {Number(line.expectedQty) > 0 && (() => {
-                  const onTrack = liveVar !== null && Math.abs(liveVar) < 2
-                  const short   = liveVar !== null && liveVar < 0
-                  const bg = onTrack ? 'bg-bg-2' : short ? 'bg-red-soft' : 'bg-gold-soft'
-                  const fg = onTrack ? 'text-ink-3' : short ? 'text-red-text' : 'text-gold-2'
-                  const delta = effectiveQty - expectedDisplay
-                  return (
-                    <div className={`flex items-center justify-between gap-2 mt-4 px-3 py-2.5 rounded-[10px] font-mono text-[11px] ${bg}`}>
-                      <span className="text-ink-3">
-                        Expected <b className="text-ink-2 font-medium">{expectedDisplay.toFixed(1)} {line.selectedUom}</b>
-                        {lastDisplay != null && <> · last {f(lastDisplay)} {line.selectedUom}</>}
-                      </span>
-                      <span className={`font-semibold whitespace-nowrap ${fg}`}>
-                        {onTrack ? 'on track' : `${delta > 0 ? '+' : ''}${f(delta)} ${line.selectedUom}`}
-                      </span>
+                      )}
                     </div>
                   )
                 })()}
