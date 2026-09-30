@@ -616,9 +616,9 @@ export default function PrepRecipeSection({
                 <button
                   type="button"
                   onClick={() => onStage(current + 1)}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 px-3 rounded-[9px] text-[12.5px] font-semibold bg-ink text-paper"
+                  className="flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 h-10 px-3 rounded-[9px] text-[12.5px] font-semibold bg-ink text-paper"
                 >
-                  Next: {chain[current + 1]?.name ?? 'next stage'} <ArrowRight size={13} className="text-gold" />
+                  <span className="truncate">Next: {chain[current + 1]?.name ?? 'next stage'}</span> <ArrowRight size={13} className="text-gold" />
                 </button>
               ) : (
                 <span className="flex-1 font-mono text-[10px] text-ink-3 text-center">last stage — Done logs the yield</span>

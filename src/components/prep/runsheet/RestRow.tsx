@@ -9,17 +9,16 @@
 // `resting`, green from `readyAt` (`ready since 07:30`), red only once it is
 // `overdue` past the grace. Nothing advances on its own — the primary button is
 // "Next: Bake" and the cook taps it. The row leads with the item and the
-// stage it is IN; the next step is the subtitle and the button. No Remove: an
+// stage it is IN; the button names the next stage and nothing else. No Remove: an
 // in-flight job is not taken off the list from a row (same rule as Working On).
 import { useRef, useState } from 'react'
-import { Hourglass, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, DeadlineChip, StageChip } from './atoms'
-import { IcRecipe } from '@/components/prep/icons'
-import { fmtStartBy, fmtClock, fmtMins, minutesBetween } from '@/lib/prep-runsheet'
-import { stageLabel, restPhaseName } from '@/lib/prep-stages'
+import { StationTag, DeadlineChip, ChefNote, RestBar } from './atoms'
+import { fmtClock, fmtMins, minutesBetween } from '@/lib/prep-runsheet'
+import { restPhaseName } from '@/lib/prep-stages'
 
 const ACCENT: Record<'resting' | 'ready' | 'overdue', string> = {
   resting: 'border-l-blue',
@@ -35,11 +34,14 @@ export function RestRow({
   onStage,
   onOpenRecipe,
   onClaim,
+  showStation = true,
 }: {
   item: PrepItemRich
   nowMin: number
   nowMs: number
   cooks: Cook[]
+  /** Off when every item is on one station, or the list is filtered to one. */
+  showStation?: boolean
   /** Move the live log to `stageIndex` (the next hands-on stage). */
   onStage: (item: PrepItemRich, stageIndex: number) => void
   onOpenRecipe: (item: PrepItemRich) => void
@@ -73,50 +75,42 @@ export function RestRow({
         {/* ready-at — where start-by sits on a RunRow */}
         <div className="self-start lg:self-center">
           <div className={`font-mono text-[14px] font-semibold tracking-[-0.01em] ${timeCls}`}>
-            {fmtStartBy(rest.readyAtMin)}
+            {fmtClock(rest.readyAtMin)}
           </div>
           <div className={`font-mono text-[9px] mt-0.5 whitespace-nowrap ${subCls}`}>{sub}</div>
         </div>
 
-        {/* task — "Cured Salmon · Curing": the item, then the stage it is IN.
-            Under it the stage's note and clock, then the next step as a subtitle. */}
+        {/* task — the item's name alone, then ONE line: the stage it is in, its
+            clock and its note ("Curing · 2h44 of 24h · in the walk-in"), and the
+            timer as a hairline. The blue edge already says "resting"; the word is
+            not repeated in a chip, a subtitle and the title. */}
         <div className="min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="w-[22px] h-[22px] rounded-[7px] bg-blue-soft grid place-items-center shrink-0">
-              <Hourglass size={12} className="text-blue-text" />
-            </span>
-            <span
-              onClick={() => onOpenRecipe(item)}
-              title="Open recipe"
-              className={`text-[14px] font-semibold tracking-[-0.015em] break-words cursor-pointer underline decoration-line-2 underline-offset-[3px] ${
-                rest.state === 'resting' ? 'text-ink-2' : 'text-ink'
-              }`}
-            >
-              {item.name} · {restPhaseName(rest.stage)}
-            </span>
-          </div>
+          <span
+            onClick={() => onOpenRecipe(item)}
+            title="Open recipe"
+            className={`text-[14px] font-semibold tracking-[-0.015em] break-words cursor-pointer underline decoration-line-2 underline-offset-[3px] ${
+              rest.state === 'resting' ? 'text-ink-2' : 'text-ink'
+            }`}
+          >
+            {item.name}
+          </span>
           <div className="flex items-center gap-x-3.5 gap-y-1 flex-wrap mt-1">
-            <span className="font-mono text-[10px] text-ink-3">
-              {rest.stage.note ? `${rest.stage.note} · ` : ''}
-              {rest.state === 'resting'
-                ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}`
-                : `rested ${fmtMins(elapsed)}`}
+            <span className="font-mono text-[10.5px] text-ink-3">
+              <span className="text-blue-text font-semibold">{restPhaseName(rest.stage)}</span>
+              {` · ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}`}
+              {rest.stage.note ? ` · ${rest.stage.note}` : ''}
             </span>
-            <StageChip label={stageLabel(rest.index, rest.total, rest.stage)} passive />
-            {item.station && <StationTag>{item.station}</StationTag>}
-            <DeadlineChip item={item} />
+            {showStation && item.station && <StationTag>{item.station}</StationTag>}
+            <DeadlineChip item={item} onlyIfMoved />
           </div>
-          {rest.next && (
-            <div className="font-mono text-[10px] text-ink-4 mt-1 truncate">
-              Next: {nextName} · {fmtMins(rest.next.stage.minutes)} hands-on
-            </div>
-          )}
+          <RestBar elapsed={elapsed} minutes={rest.stage.minutes} state={rest.state} />
+          <ChefNote note={item.todayLog?.note} className="mt-2" />
         </div>
 
-        {/* assignee · recipe · next */}
+        {/* assignee · next (the name opens the recipe) */}
         <div className="col-start-2 lg:col-start-3 flex items-center gap-[7px] justify-start lg:justify-end">
           <div ref={claimAnchor} className="relative shrink-0">
-            <AssigneeChip cook={item.assignedCook} onClick={() => setClaimOpen(o => !o)} />
+            <AssigneeChip cook={item.assignedCook} compact onClick={() => setClaimOpen(o => !o)} />
             {claimOpen && (
               <ClaimPopover
                 anchorRef={claimAnchor}
@@ -127,17 +121,10 @@ export function RestRow({
               />
             )}
           </div>
-          <button
-            onClick={() => onOpenRecipe(item)}
-            title="Recipe"
-            className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-line-2 grid place-items-center cursor-pointer shrink-0 text-ink-2"
-          >
-            <IcRecipe size={15} />
-          </button>
           {rest.next && (
             <button
               onClick={() => onStage(item, rest.next!.index)}
-              className={`inline-flex items-center gap-1.5 border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0 ${
+              className={`inline-flex items-center gap-1.5 border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0 whitespace-nowrap ${
                 rest.state === 'resting' ? 'bg-paper text-ink-2 border border-line-2' : 'bg-ink text-paper'
               }`}
             >

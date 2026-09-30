@@ -14,6 +14,7 @@ import { PREP_STATE_META, formatShortAge, PrepCountdown } from '@/lib/prep-utils
 import { whyLabel, effectiveUrgency, ANY_STATION } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
+import { ChefNote } from '@/components/prep/runsheet/atoms'
 import type { PrepProgress } from '@/lib/prep-progress'
 
 interface PrepDrawerProps {
@@ -252,6 +253,7 @@ export default function PrepDrawer({
                 <div className="font-mono text-[11px] text-ink-3 mt-1.5">
                   {item.category} · {item.station ?? ANY_STATION} · carries over daily
                 </div>
+                <ChefNote note={item.todayLog?.note} className="mt-3" />
               </div>
             </div>
 

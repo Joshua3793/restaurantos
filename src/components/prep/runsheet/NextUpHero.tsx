@@ -8,6 +8,7 @@ import { draftQty, fmtDeadline } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { fmtClock, fmtStartBy, fmtMins, fmtQty, runState, minutesBetween } from '@/lib/prep-runsheet'
 import { stageLabel, restPhaseName } from '@/lib/prep-stages'
+import { ChefNote } from './atoms'
 
 // A staged job resting in an unattended stage can sort first for a cook: the
 // hero then leads with READY AT (not start-by), reads "ready" in green once the
@@ -54,11 +55,7 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
         {' · '}{stageLabel(rest.index, rest.total, rest.stage)}
         {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
-      {rest.next && (
-        <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-1">
-          Next: {nextName} · {fmtMins(rest.next.stage.minutes)} hands-on
-        </div>
-      )}
+      <ChefNote note={item.todayLog?.note} surface="dark" className="mt-3" />
       {rest.next && (
         <button
           onClick={() => onStage(item, rest.next!.index)}
@@ -139,6 +136,8 @@ export function NextUpHero({
         {passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}
         {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
+
+      <ChefNote note={item.todayLog?.note} surface="dark" className="mt-3" />
 
       {/* Low-stock is advisory, not a blocker — surface the warning but still let the
           cook start (they may have uncounted stock, or be prepping toward a restock). */}

@@ -13,7 +13,7 @@ import { Flame, RotateCcw, ArrowRight } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
-import { StageChip } from './atoms'
+import { StageChip, ChefNote } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
 import { minutesBetween, fmtMins, fmtQty } from '@/lib/prep-runsheet'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
@@ -90,6 +90,7 @@ export function WorkingRowMobile({
             <AssigneeChip cook={item.assignedCook} size="sm" onClick={onClaim ? () => onClaim(item) : undefined} />
           </span>
         </div>
+        <ChefNote note={item.todayLog?.note} surface="gold" compact className="mt-2" />
       </div>
 
       <button

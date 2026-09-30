@@ -2,9 +2,9 @@
 // Ported from the prototype (shared.jsx: PTTag, PTNeed, PTDur, PTSegmented) and
 // the inline STOCK OUT / BLOCKED pills in desktop.jsx's DRow. Flat Tailwind
 // tokens replace the prototype's hex palette; mono via `font-mono`.
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, MessageSquareText } from 'lucide-react'
 import { fmtMins, fmtClock } from '@/lib/prep-runsheet'
-import { effectiveUrgency, whyLabel, fmtDeadline } from '@/lib/prep-plan'
+import { effectiveUrgency, whyLabel, fmtDeadline, postedDeadlineMoved } from '@/lib/prep-plan'
 
 // ─── StationTag ──────────────────────────────────────────────────────────
 // Small neutral "STATION" chip (PTTag).
@@ -34,12 +34,15 @@ export function StageChip({ label, passive }: { label: string; passive?: boolean
 // DraftRow showed the chef). When the live step no longer matches what was
 // posted (`todayLog.dueTime`, stamped at post), the posted deadline stays
 // visible so the row does not silently move under the cook.
-export function DeadlineChip({ item }: { item: import('@/components/prep/types').PrepItemRich }) {
+// `onlyIfMoved`: the row sits under a section header that already carries the
+// deadline, so the chip shows only when the chef's posted deadline really moved.
+export function DeadlineChip({ item, onlyIfMoved = false }: { item: import('@/components/prep/types').PrepItemRich; onlyIfMoved?: boolean }) {
   const dl = item.deadlineMinutes
   if (dl == null) return null
   const live = fmtDeadline(dl, fmtClock)
   const posted = item.todayLog?.dueTime ?? null
-  const moved = posted != null && posted !== live
+  const moved = postedDeadlineMoved(live, posted)
+  if (onlyIfMoved && !moved) return null
   return (
     <span className="font-mono text-[10px] text-ink-3 whitespace-nowrap">
       by <b className="font-semibold text-ink-2">{live}</b>
@@ -186,5 +189,69 @@ export function UrgencyDot({ item }: { item: import('@/components/prep/types').P
       aria-label={title}
       className={`w-[6px] h-[6px] rounded-full shrink-0 ${cls}`}
     />
+  )
+}
+
+// ─── ChefNote ────────────────────────────────────────────────────────────
+// The note the chef left on the item in Smart Prep (`todayLog.note`), carried
+// onto the To Do row so the cook reads it without opening anything. Same voice
+// as the drawer's "Why it's on the list" box: a mono label over plain text, with
+// a gold rule on the left — the one accent that says "a person wrote this for
+// you". The text wraps in full; it is never truncated. `surface` matches the row
+// it sits on (paper ladder row, gold Working On row, ink hero card). Renders
+// nothing for an empty or whitespace-only note.
+const NOTE_SURFACE = {
+  // The box is the rule's own gold, faded — the rule and label stay the
+  // strongest mark, the text sits on a lighter wash of the same colour.
+  paper: { box: 'bg-gold/[0.10]', label: 'text-gold-2', text: 'text-ink-2' },
+  gold: { box: 'bg-gold/[0.14]', label: 'text-gold-2', text: 'text-ink-2' },
+  dark: { box: 'bg-gold/[0.16]', label: 'text-gold', text: 'text-[#f4f4f5]' },
+} as const
+
+export function ChefNote({
+  note,
+  compact = false,
+  surface = 'paper',
+  className = '',
+}: {
+  note: string | null | undefined
+  compact?: boolean
+  surface?: keyof typeof NOTE_SURFACE
+  className?: string
+}) {
+  const text = note?.trim()
+  if (!text) return null
+  const t = NOTE_SURFACE[surface]
+  return (
+    <div
+      className={`w-fit max-w-full md:max-w-[560px] border-l-2 border-gold rounded-r-[7px] ${t.box} ${
+        compact ? 'pl-2.5 pr-3 py-[5px]' : 'pl-3 pr-3.5 py-[7px]'
+      } ${className}`}
+    >
+      <div className={`flex items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.06em] ${t.label}`}>
+        <MessageSquareText size={10} strokeWidth={2.4} aria-hidden />
+        Chef&apos;s note
+      </div>
+      <div
+        className={`mt-0.5 font-medium leading-snug break-words whitespace-pre-wrap ${t.text} ${
+          compact ? 'text-[12.5px]' : 'text-[13px]'
+        }`}
+      >
+        {text}
+      </div>
+    </div>
+  )
+}
+
+// ─── RestBar ─────────────────────────────────────────────────────────────
+// A resting job's timer as a hairline: blue while resting, green once ready,
+// red past the grace. Says "how far along" without another line of words.
+export function RestBar({ elapsed, minutes, state }: { elapsed: number; minutes: number; state: 'resting' | 'ready' | 'overdue' }) {
+  const pct = minutes > 0 ? Math.min(100, Math.max(3, (elapsed / minutes) * 100)) : 100
+  const fill = state === 'overdue' ? 'bg-red' : state === 'ready' ? 'bg-green' : 'bg-blue'
+  return (
+    <div className="h-[3px] w-full max-w-[260px] rounded-full bg-line overflow-hidden mt-2" aria-hidden>
+      <div className={`h-full rounded-full ${fill}`} style={{ width: `${pct}%` }} />
+    </div>
   )
 }

@@ -8,9 +8,9 @@ import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
-import { UrgencyDot } from './atoms'
-import { fmtStartBy, fmtMins, fmtQty, fmtClock, runState } from '@/lib/prep-runsheet'
-import { fmtDeadline } from '@/lib/prep-plan'
+import { UrgencyDot, ChefNote } from './atoms'
+import { fmtMins, fmtQty, fmtClock, runState, startBySub } from '@/lib/prep-runsheet'
+import { fmtDeadline, postedDeadlineMoved } from '@/lib/prep-plan'
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
   blocked: 'border-l-gold',
@@ -29,11 +29,17 @@ export function RunRowMobile({
   onOpenRecipe,
   onStart,
   onRemove,
+  showStation = true,
+  showDeadline = true,
 }: {
   item: PrepItemRich
   nowMin: number
   dense?: boolean
   kitchen?: boolean
+  /** Off when every item is on one station. */
+  showStation?: boolean
+  /** Off under a step header that already states the deadline (a real move still shows). */
+  showDeadline?: boolean
   // Currently-viewing cook. Not read directly here — claim-toggle logic
   // (assign to me vs. unassign) lives in the parent's onClaim handler, same
   // split as the prototype's `claimTap`. Accepted for interface parity.
@@ -47,7 +53,7 @@ export function RunRowMobile({
   const sb = item.startByMinutes
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
   const overdue = state === 'overdue'
-  const late = sb != null ? nowMin - sb : 0
+  const sub = sb != null ? startBySub(sb, nowMin) : null
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const active = item.activeMinutes ?? 0
   const passive = item.passiveMinutes ?? 0
@@ -59,11 +65,17 @@ export function RunRowMobile({
   const dl = item.deadlineMinutes
   const liveBy = dl != null ? fmtDeadline(dl, fmtClock) : null
   const postedBy = item.todayLog?.dueTime ?? null
+  const moved = liveBy != null && postedDeadlineMoved(liveBy, postedBy)
+  const batch = batchLabel(item, qty)
+  // ONE meta line: amount, time, then only what the section header doesn't
+  // already say (the station when there is more than one; the deadline when the
+  // header isn't a step, or when the chef's posted deadline really moved).
   const metaText = [
-    `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}`,
-    kitchen && item.station ? item.station : null,
-    // the step's deadline; the posted one stays visible if the step has since moved
-    liveBy ? `by ${liveBy}${postedBy && postedBy !== liveBy ? ` (posted ${postedBy})` : ''}` : null,
+    batch ? `${fmtQty(qty, item.unit)} · ${batch}` : fmtQty(qty, item.unit),
+    // no timing on the recipe → say nothing rather than "0m"
+    active > 0 || passive > 0 ? `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}` : null,
+    kitchen && showStation && item.station ? item.station : null,
+    liveBy && (showDeadline || moved) ? `by ${liveBy}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -75,11 +87,13 @@ export function RunRowMobile({
     // is a destructive action a thumb reached for by accident.
     <div className="relative">
     <div
-      className={`flex items-center gap-3 bg-paper border border-line border-l-[3px] rounded-[11px] ${
+      className={`bg-paper border border-line border-l-[3px] rounded-[11px] ${
         dense ? 'py-2 px-3' : 'py-[11px] px-[13px]'
       } ${ACCENT_CLASS[state]}`}
     >
-      {/* start-by time */}
+    <div className="flex items-center gap-3">
+      {/* start-by time — and, in kitchen mode, the claim button under it: the
+          time column has height to spare, the name column has no width to spare. */}
       <div className="w-11 shrink-0">
         {sb != null ? (
           <>
@@ -88,18 +102,25 @@ export function RunRowMobile({
                 overdue ? 'text-red' : 'text-ink'
               }`}
             >
-              {fmtStartBy(sb)}
+              {fmtClock(sb)}
             </div>
-            <div
-              className={`font-mono text-[8.5px] mt-px whitespace-nowrap ${
-                overdue ? 'text-red-text' : 'text-ink-4'
-              }`}
-            >
-              {overdue ? `${fmtMins(late)} late` : `in ${fmtMins(-late)}`}
-            </div>
+            {sub?.text && (
+              <div
+                className={`font-mono text-[8.5px] mt-px whitespace-nowrap ${
+                  sub.late ? 'text-red-text' : 'text-ink-4'
+                }`}
+              >
+                {sub.text}
+              </div>
+            )}
           </>
         ) : (
           <div className="font-mono text-[12.5px] font-semibold text-ink-4">—</div>
+        )}
+        {kitchen && (
+          <div className="mt-1.5">
+            <AssigneeChip cook={item.assignedCook} size="sm" compact onClick={() => onClaim(item)} />
+          </div>
         )}
       </div>
 
@@ -109,20 +130,12 @@ export function RunRowMobile({
         <div className="flex items-center gap-1.5">
           <UrgencyDot item={item} />
           <div className="text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0">
-            {item.name} <span className="font-mono text-[10.5px] font-normal text-ink-3 whitespace-nowrap">{(() => { const b = batchLabel(item, qty); return b ? `${b} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit) })()}</span>
+            {item.name}
           </div>
         </div>
-        {/* Claim chip rides the meta line rather than holding its own column — on a
-            phone that column cost the name ~80px of width, i.e. two extra wrapped
-            lines on any real prep name. stopPropagation so tapping it claims the
-            item instead of opening the recipe. */}
-        <div className={`flex items-center gap-2 flex-wrap font-mono text-[9.5px] text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
-          <span>{metaText}</span>
-          {kitchen && (
-            <span onClick={e => e.stopPropagation()}>
-              <AssigneeChip cook={item.assignedCook} size="sm" onClick={() => onClaim(item)} />
-            </span>
-          )}
+        <div className={`font-mono text-[9.5px] text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
+          {metaText}
+          {moved && <span className="text-gold-2"> · posted by {postedBy}</span>}
         </div>
       </div>
 
@@ -135,10 +148,18 @@ export function RunRowMobile({
           toward a restock). */}
       <button
         onClick={() => onStart(item)}
-        className="w-11 h-11 rounded-[10px] bg-ink border-none grid place-items-center cursor-pointer shrink-0"
+        aria-label={`Start ${item.name}`}
+        // Soft gold, not a black square: on a phone list of twenty rows the ink
+        // buttons were the loudest thing on screen. Same tint family as the
+        // brand's gold pills; the gold-2 bolt keeps it readable as the action.
+        className="w-11 h-11 rounded-[10px] bg-gold-soft border border-gold/40 grid place-items-center cursor-pointer shrink-0 active:bg-gold/25"
       >
-        <Zap size={15} className="text-gold" />
+        <Zap size={16} strokeWidth={2.4} className="text-gold-2" />
       </button>
+    </div>
+      {/* The chef's note runs the card's width under the name column, so a real
+          sentence reads in two lines instead of six. */}
+      <ChefNote note={item.todayLog?.note} compact className="mt-2 ml-14" />
     </div>
       {onRemove && (
         <button

@@ -5,6 +5,7 @@
 // is a Client Component.
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { UserPlus } from 'lucide-react'
 
 // Matches the shape returned by GET /api/prep/cooks and PrepItemRich.assignedCook.
 export type Cook = {
@@ -20,10 +21,14 @@ export function AssigneeChip({
   cook,
   size = 'md',
   onClick,
+  compact = false,
 }: {
   cook: Cook | null
   size?: 'sm' | 'md'
   onClick?: () => void
+  /** Unclaimed renders as a small round "claim" button instead of the dashed
+   *  "+ CLAIM" pill — the To Do cards use it so claiming never costs a line. */
+  compact?: boolean
 }) {
   const pad = size === 'sm' ? 'px-2 py-[3px]' : 'px-[10px] py-[5px]'
 
@@ -36,6 +41,20 @@ export function AssigneeChip({
       >
         <span className="w-[6px] h-[6px] rounded-full bg-gold" />
         {cook.initials}
+      </button>
+    )
+  }
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title="Claim"
+        aria-label="Claim"
+        className="w-[30px] h-[30px] rounded-full bg-paper text-ink-3 border border-dashed border-line-2 grid place-items-center cursor-pointer shrink-0 hover:text-ink hover:border-ink-3"
+      >
+        <UserPlus size={13} strokeWidth={2.2} />
       </button>
     )
   }
