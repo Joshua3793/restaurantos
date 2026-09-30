@@ -3,20 +3,46 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase, countEntriesToBase, countDimsOf, assertCountableUom, CountUomError, type CountEntry } from '@/lib/count-uom'
 import { withPpb } from '@/lib/item-model'
+import { requireSession, AuthError } from '@/lib/auth'
+import { assertRcWritable } from '@/lib/rc-scope'
+
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
 
 // PATCH /api/count/sessions/:id/lines/:lineId
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; lineId: string } }
 ) {
-  const body = await req.json()
-  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt, entries, carriedForward } = body
+  // Authenticate BEFORE touching the body. Counting is a STAFF task — no minRole.
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
 
   const line = await prisma.countLine.findUnique({
     where: { id: params.lineId },
-    include: { inventoryItem: true },
+    include: { inventoryItem: true, session: { select: { revenueCenterId: true } } },
   })
-  if (!line) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // The line must belong to the session in the URL — otherwise the scope check
+  // below would be run against one session while writing a line of another.
+  if (!line || line.sessionId !== params.id) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: same write guard as PATCH /api/count/sessions/:id — a legacy
+  // unscoped session (no RC) is left unguarded.
+  if (line.session.revenueCenterId) {
+    try { await assertRcWritable(user, line.session.revenueCenterId) }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+  }
+
+  const body = await req.json()
+  const { countedQty, selectedUom, skipped, notes, expectedUpdatedAt, entries, carriedForward } = body
 
   // Optimistic concurrency check: client sends the line's updatedAt it last saw.
   // If the stored updatedAt differs, another device has edited this line.

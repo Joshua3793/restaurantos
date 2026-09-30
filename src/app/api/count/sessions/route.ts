@@ -7,6 +7,10 @@ import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 
+// Mutating handlers must never be statically prerendered — a prerendered
+// route serves GET only and returns 405 for everything else.
+export const dynamic = 'force-dynamic'
+
 // ── GET /api/count/sessions ───────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   let user

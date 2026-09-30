@@ -153,6 +153,10 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
       })
       if (res.ok) {
         synced++
+      } else if (res.status === 401) {
+        // Signed out (session expired mid-count). The mutation is fine — the
+        // login isn't. Keep it queued so it lands once the counter signs back in.
+        throw new Error('401')
       } else if (res.status >= 400 && res.status < 500) {
         // The server REJECTED this mutation (invalid unit, conflict, deleted line…).
         // Retrying can never succeed — a 400 replayed every few seconds just spins
