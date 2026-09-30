@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { lineCountedBase, countDimsOf } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
+import { requireSession, AuthError } from '@/lib/auth'
+import { isRcInScope } from '@/lib/rc-scope'
+
+export const dynamic = 'force-dynamic'
 
 // GET /api/count/sessions/:id/report
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const session = await prisma.countSession.findUnique({
     where: { id: params.id },
     include: {
@@ -15,6 +26,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   })
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // RC scope: same read guard as GET /api/count/sessions/:id — 404 (not 403) so
+  // the response doesn't confirm the row exists; a legacy unscoped session is shared.
+  if (session.revenueCenterId && !(await isRcInScope(user, session.revenueCenterId))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   const lines = session.lines
     .filter(l => l.countedQty !== null && !l.skipped)
