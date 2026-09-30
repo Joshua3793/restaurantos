@@ -10,14 +10,13 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { RcService } from '@/lib/service-hours'
 import {
   effectiveUrgency, planDayContext, planSchedule, stationLoad, planGroups, batchYield,
-  mustStartToday, START_TODAY_KEY,
+  mustStartToday,
   draftListOrder as draftOrd,
   type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 import { GroupHead, Popover, popItemCls, popHeadCls } from './atoms'
-import { SuggestionRow } from './SuggestionRow'
-import { HiddenGroup } from './HiddenGroup'
+import { SuggestionList } from './SuggestionList'
 import { DraftRow } from './DraftRow'
 import { PostDialog, type PostDue } from './PostDialog'
 
@@ -154,6 +153,9 @@ export function PlannerDesktop({
     `inline-flex items-center gap-1.5 whitespace-nowrap rounded-[9px] px-[11px] py-[7px] text-[12px] font-semibold border ${disabled ? 'bg-bg-2 text-ink-4 border-line cursor-not-allowed' : 'bg-paper text-ink-2 border-line-2 hover:border-ink-3'}`
 
   const groupOpts = { stations, crew: cooks, ord: draftOrd }
+  // The station tag earns its place only when the list's items span more than
+  // one station (a station configured in settings but used by nothing doesn't count).
+  const multiStation = useMemo(() => new Set(allItems.flatMap(i => i.stations)).size > 1, [allItems])
 
   return (
     <div className="space-y-3.5">
@@ -196,21 +198,12 @@ export function PlannerDesktop({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto px-3 pb-3.5 pt-0.5 min-h-0">
-            {planGroups(pool, suggBy, { ...groupOpts, startToday: { ctx, nowMin } }).map(g => (
-              <div key={g.key}>
-                <GroupHead g={g} count={g.rows.length} />
-                <div className="flex flex-col gap-1.5">
-                  {g.rows.map(t => (
-                    <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY}
-                      onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
-                  ))}
-                </div>
-              </div>
-            ))}
             {pool.length === 0 && (
               <div className="py-14 text-center font-mono text-[10.5px] text-ink-4">NO ITEMS MATCH</div>
             )}
-            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} />
+            <SuggestionList items={pool} hidden={hidden} groupBy={suggBy} stations={stations} cooks={cooks} ord={draftOrd}
+              ctx={ctx} nowMin={nowMin} locked={locked} searching={search.trim() !== ''}
+              onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
           </div>
         </div>
 
@@ -284,7 +277,7 @@ export function PlannerDesktop({
                   {g.rows.map(t => (
                     <DraftRow key={t.id} item={t} cooks={cooks} locked={locked}
                       ctx={ctx} slot={sched.get(t.id) ?? null} batchMode={isBatchMode(t, batchToggles)}
-                      dragging={drag === t.id} over={over === t.id}
+                      dragging={drag === t.id} over={over === t.id} showStation={multiStation}
                       onQty={handlers.onQty} onToggleBatch={onToggleBatch} onNote={handlers.onNote} onAssign={handlers.onAssign}
                       onUrgChange={handlers.onPriorityChange} onRemove={handlers.onRemove} onOpen={handlers.onOpen}
                       onDragStart={() => setDrag(t.id)} onDragOver={onDragOverRow(t)} onDrop={onDropRow(t, g.key)}

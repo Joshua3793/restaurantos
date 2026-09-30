@@ -1,21 +1,22 @@
 'use client'
 // Smart Prep v2 — right-pane prep-list row (design PPDraftRow): batch-aware qty
-// stepper, THE urgency dial, assign pill, reason + schedule-slot line, note.
+// stepper, THE urgency dial (which carries the deadline), assign button, one
+// plain reason line, and the chef's note in the To Do's own style.
 import { GripVertical, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import {
   PLAN_URG_META, effectiveUrgency, suggestedDraftQty, draftQty,
-  suggestedBatches, batchesToQty, fmtBatch, fmtDeadline,
+  suggestedBatches, batchesToQty, fmtBatch, fmtDeadline, plainReason, whyLabel,
   type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
 import { fmtClock } from '@/lib/prep-runsheet'
-import { UrgPicker, AssignPill, QtyStepper, Reason } from './atoms'
+import { UrgPicker, AssignPill, QtyStepper, NoteField } from './atoms'
 
 const fmtQ = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
 
 export function DraftRow({
-  item, cooks, locked, ctx, slot, batchMode, dragging, over,
+  item, cooks, locked, ctx, slot, batchMode, dragging, over, showStation = false,
   onQty, onToggleBatch, onNote, onAssign, onUrgChange, onRemove, onOpen,
   onDragStart, onDragOver, onDrop, onDragEnd,
 }: {
@@ -27,6 +28,8 @@ export function DraftRow({
   batchMode: boolean
   dragging: boolean
   over: boolean
+  /** The station tag, only when the kitchen has more than one. */
+  showStation?: boolean
   onQty: (item: PrepItemRich, qty: number) => void
   onToggleBatch: (item: PrepItemRich, next: boolean) => void
   onNote: (item: PrepItemRich, note: string) => void
@@ -66,10 +69,10 @@ export function DraftRow({
         >
           <GripVertical size={13} className="text-ink-4" />
         </span>
+        {/* the name wraps; it never truncates */}
         <button type="button" onClick={() => onOpen(item)} className="flex-1 min-w-[140px] flex items-center gap-1.5 text-left">
-          <span className="text-[13px] font-semibold tracking-[-0.01em] text-ink truncate">{item.name}</span>
-          {item.station && <span className="font-mono text-[9px] font-medium uppercase tracking-[0.04em] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
-          {item.isBlocked && <span className="font-mono text-[9px] font-bold uppercase bg-gold-soft text-gold-2 px-1.5 py-0.5 rounded-full shrink-0">BLOCKED</span>}
+          <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink break-words min-w-0">{item.name}</span>
+          {showStation && item.station && <span className="font-mono text-[9px] font-medium uppercase tracking-[0.04em] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
         </button>
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={onQty} onToggleBatch={onToggleBatch} suggested={sugg} />
         <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => onUrgChange(item.id, step)} />
@@ -79,32 +82,41 @@ export function DraftRow({
           <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
         </button>
       </div>
-      <div className="flex flex-wrap items-center gap-[7px] mt-[5px] pl-[18px] font-mono text-[9px] text-ink-4 whitespace-nowrap min-w-0">
-        <Reason item={item} sm />
-        <span>·</span>
-        {overridden
-          ? (
-            <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="font-mono text-[9px] font-bold text-gold-2 shrink-0">
-              SUGG {batchMode && nb ? `${fmtBatch(nb)} BATCH` : fmtQ(sugg, item.unit)} ↺
-            </button>
-          )
-          : <span className="font-semibold text-ink-3 shrink-0">SMART QTY</span>}
-        {slot && (
-          <span className={`truncate ${slot.fits ? 'text-ink-3' : 'text-red-text font-bold'}`}>
-            · {fmtClock(slot.start)}–{fmtClock(slot.end % 1440)} · BY {fmtDeadline(slot.deadline, fmtClock)}{slot.fits ? '' : ` · ${slot.over}m PAST`}
-          </span>
+      {/* ONE plain line: why it is on the list (full evidence in the tooltip and
+          the drawer), the suggested amount only when the chef changed it, and
+          the schedule only when it won't fit. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 pl-[21px] min-w-0">
+        <DraftReason item={item} />
+        {overridden && (
+          <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="font-mono text-[10px] font-semibold text-gold-2 shrink-0 hover:underline">
+            · suggested {batchMode && nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)} ↺
+          </button>
         )}
+        <WontFit slot={slot} />
       </div>
-      <div className="pl-[18px]">
-        <input
-          key={item.todayLog?.id ?? item.id}
-          defaultValue={item.todayLog?.note ?? ''}
-          disabled={locked}
-          onBlur={e => { if ((item.todayLog?.note ?? '') !== e.target.value) onNote(item, e.target.value) }}
-          placeholder="+ note for the cook"
-          className={`w-full mt-1 text-[11.5px] text-ink-2 bg-transparent border-0 border-b border-dashed ${item.todayLog?.note ? 'border-line-2' : 'border-transparent'} py-0.5 outline-none placeholder:text-ink-4`}
-        />
+      <div className="pl-[21px]">
+        <NoteField item={item} locked={locked} onNote={onNote} />
       </div>
     </div>
+  )
+}
+
+/** The plain reason, red when out of stock; the full evidence is the tooltip. */
+export function DraftReason({ item }: { item: PrepItemRich }) {
+  const out = !item.pipeline && (item.parLevel ?? 0) > 0 && (item.onHand ?? 0) <= 0
+  return (
+    <span title={whyLabel(item)} className={`text-[11.5px] leading-snug min-w-0 ${out ? 'text-red-text font-medium' : 'text-ink-3'}`}>
+      {plainReason(item)}
+    </span>
+  )
+}
+
+/** The schedule, said only when it matters: the job won't fit before its deadline. */
+export function WontFit({ slot }: { slot: PlanSlot | null }) {
+  if (!slot || slot.fits) return null
+  return (
+    <span className="font-mono text-[10px] font-semibold text-red-text whitespace-nowrap">
+      · won&apos;t fit — {slot.over}m past {fmtDeadline(slot.deadline, fmtClock)}
+    </span>
   )
 }
