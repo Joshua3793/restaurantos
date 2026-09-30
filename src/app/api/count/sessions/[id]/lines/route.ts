@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -64,5 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   // Re-populate the computed pricePerBaseUnit the count page reads off the line.
-  return NextResponse.json({ ...line, inventoryItem: withPpb(line.inventoryItem) }, { status: 201 })
+  const out = { ...line, inventoryItem: withPpb(line.inventoryItem) }
+  // Below MANAGER: no price on the line or its item.
+  return NextResponse.json(seesCountMoney(user.role) ? out : redactLineMoney(out), { status: 201 })
 }

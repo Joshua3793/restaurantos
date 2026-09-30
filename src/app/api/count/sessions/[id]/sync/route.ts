@@ -5,6 +5,7 @@ import { MovementLedger } from '@/lib/ledger-balance'
 import { lineCountedBase, resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
+import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
 import { assertRcWritable } from '@/lib/rc-scope'
 
 // Mutating (POST) handler — never statically prerender, or non-GET returns 405.
@@ -253,6 +254,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     added:   toAdd.length,
     removed: toRemove.length,
     updated: toUpdate.length + toReprice.length,
-    lines:   enriched,
+    // Below MANAGER: lines carry quantities and units only.
+    lines:   seesCountMoney(user.role) ? enriched : enriched.map(redactLineMoney),
   })
 }

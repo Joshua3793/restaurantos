@@ -5,6 +5,7 @@ import { convertCountQtyToBase, countEntriesToBase, countDimsOf, assertCountable
 import { withPpb } from '@/lib/item-model'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -22,6 +23,7 @@ export async function PATCH(
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
+  const money = seesCountMoney(user.role)
 
   const line = await prisma.countLine.findUnique({
     where: { id: params.lineId },
@@ -47,11 +49,12 @@ export async function PATCH(
   // Optimistic concurrency check: client sends the line's updatedAt it last saw.
   // If the stored updatedAt differs, another device has edited this line.
   if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== line.updatedAt.getTime()) {
+    const { session: _session, ...currentLine } = line
     return NextResponse.json(
       {
         error: 'Conflict',
         message: 'This line was edited on another device. Refresh to see the latest count.',
-        currentLine: line,
+        currentLine: money ? currentLine : redactLineMoney(currentLine),
       },
       { status: 409 },
     )
@@ -177,5 +180,7 @@ export async function PATCH(
   })
 
   // Re-populate the computed pricePerBaseUnit the count page reads off the line.
-  return NextResponse.json({ ...updated, inventoryItem: withPpb(updated.inventoryItem) })
+  const out = { ...updated, inventoryItem: withPpb(updated.inventoryItem) }
+  // Below MANAGER: no price or $ variance on the line or its item.
+  return NextResponse.json(money ? out : redactLineMoney(out))
 }

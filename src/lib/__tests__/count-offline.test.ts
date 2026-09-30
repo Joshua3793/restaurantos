@@ -156,6 +156,19 @@ describe('count offline queue — selected UOM', () => {
     expect(loadCountQueue().map(m => m.lineId)).toEqual(['flaky'])
   })
 
+  it('keeps a 401 queued — a lapsed sign-in is not the server refusing the count', async () => {
+    ;(globalThis as unknown as { fetch: unknown }).fetch = vi.fn(async () => (
+      { ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) }
+    ) as unknown as Response)
+    enqueueCountMutation({ sessionId: 's1', lineId: 'l1', type: 'count', qty: 4, uom: 'kg' })
+
+    const { failed, rejected } = await flushCountQueue()
+
+    expect(failed).toBe(1)
+    expect(rejected).toEqual([])
+    expect(loadCountQueue().map(m => m.lineId)).toEqual(['l1'])
+  })
+
   it('a rejected count does not resurrect on the next flush', async () => {
     ;(globalThis as unknown as { fetch: unknown }).fetch = vi.fn(async () => (
       { ok: false, status: 400, json: async () => ({ error: 'nope' }) }

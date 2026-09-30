@@ -4,6 +4,7 @@ import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
+import { seesCountMoney, redactSummaryMoney } from '@/lib/count-redact'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -37,5 +38,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   // A finalized count resets stock baselines — drop the theoretical-stock cache so the
   // prep list / cost strip reflect the new counts immediately (within this instance).
   invalidateTheoreticalCache()
-  return NextResponse.json({ ok: true, summary: result.summary })
+  // Below MANAGER: the summary keeps its counts but loses its $ value and $ variance.
+  const summary = seesCountMoney(user.role) ? result.summary : redactSummaryMoney(result.summary)
+  return NextResponse.json({ ok: true, summary })
 }
