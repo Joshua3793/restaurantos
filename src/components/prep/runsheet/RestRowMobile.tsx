@@ -3,13 +3,12 @@
 // 44px ready-at column | task (name · stage, meta line, Next subtitle) | one 44px
 // action button that moves the job to its next hands-on stage. Muted while
 // resting, green once ready, red only past the grace — never "late" mid-rest.
-import { Hourglass, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
-import { StageChip } from './atoms'
-import { fmtStartBy, fmtClock, fmtMins, minutesBetween } from '@/lib/prep-runsheet'
-import { fmtDeadline } from '@/lib/prep-plan'
-import { stageLabel, restPhaseName } from '@/lib/prep-stages'
+import { ChefNote, RestBar } from './atoms'
+import { fmtClock, fmtMins, minutesBetween } from '@/lib/prep-runsheet'
+import { restPhaseName } from '@/lib/prep-stages'
 
 const ACCENT: Record<'resting' | 'ready' | 'overdue', string> = {
   resting: 'border-l-blue',
@@ -25,11 +24,14 @@ export function RestRowMobile({
   onClaim,
   onOpenRecipe,
   onStage,
+  showStation = true,
 }: {
   item: PrepItemRich
   nowMin: number
   nowMs: number
   kitchen?: boolean
+  /** Off when every item is on one station. */
+  showStation?: boolean
   onClaim: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
   onStage: (item: PrepItemRich, stageIndex: number) => void
@@ -46,63 +48,58 @@ export function RestRowMobile({
   const timeCls = rest.state === 'overdue' ? 'text-red' : rest.state === 'ready' ? 'text-green-text' : 'text-ink-3'
   const subCls = rest.state === 'overdue' ? 'text-red-text' : rest.state === 'ready' ? 'text-green-text' : 'text-ink-4'
   const nextName = rest.next?.stage.name ?? 'Next stage'
-  const dl = item.deadlineMinutes
-  const metaText = [
+  // ONE line after the name: stage · clock · its note (· station when there are several).
+  const metaRest = [
+    `${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}`,
     rest.stage.note ?? null,
-    rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`,
-    kitchen && item.station ? item.station : null,
-    dl != null ? `by ${fmtDeadline(dl, fmtClock)}` : null,
+    kitchen && showStation && item.station ? item.station : null,
   ].filter(Boolean).join(' · ')
 
   return (
     <div className="relative">
       <div
-        className={`flex items-center gap-3 border border-line border-l-[3px] rounded-[11px] py-[11px] px-[13px] ${
+        className={`border border-line border-l-[3px] rounded-[11px] py-[11px] px-[13px] ${
           rest.state === 'resting' ? 'bg-bg' : 'bg-paper'
         } ${ACCENT[rest.state]}`}
       >
+      <div className="flex items-center gap-3">
+        {/* ready-at, and in kitchen mode the claim button under it (the time
+            column has height to spare; the name column has no width to spare) */}
         <div className="w-11 shrink-0">
-          <div className={`font-mono text-[12.5px] font-semibold tracking-[-0.01em] ${timeCls}`}>{fmtStartBy(rest.readyAtMin)}</div>
+          <div className={`font-mono text-[12.5px] font-semibold tracking-[-0.01em] ${timeCls}`}>{fmtClock(rest.readyAtMin)}</div>
           <div className={`font-mono text-[8.5px] mt-px whitespace-nowrap ${subCls}`}>{sub}</div>
-        </div>
-
-        <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
-          <div className="flex items-center gap-1.5">
-            <span className="w-5 h-5 rounded-[6px] bg-blue-soft grid place-items-center shrink-0">
-              <Hourglass size={11} className="text-blue-text" />
-            </span>
-            <div className={`text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0 ${rest.state === 'resting' ? 'text-ink-2' : 'text-ink'}`}>
-              {item.name} · {restPhaseName(rest.stage)}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap font-mono text-[9.5px] text-ink-3 mt-[3px]">
-            <StageChip label={stageLabel(rest.index, rest.total, rest.stage)} passive />
-            <span>{metaText}</span>
-            {kitchen && (
-              <span onClick={e => e.stopPropagation()}>
-                <AssigneeChip cook={item.assignedCook} size="sm" onClick={() => onClaim(item)} />
-              </span>
-            )}
-          </div>
-          {rest.next && (
-            <div className="font-mono text-[9.5px] text-ink-4 mt-[3px] truncate">
-              Next: {nextName} · {fmtMins(rest.next.stage.minutes)}
+          {kitchen && (
+            <div className="mt-1.5">
+              <AssigneeChip cook={item.assignedCook} size="sm" compact onClick={() => onClaim(item)} />
             </div>
           )}
         </div>
 
+        <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
+          <div className={`text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0 ${rest.state === 'resting' ? 'text-ink-2' : 'text-ink'}`}>
+            {item.name}
+          </div>
+          <div className="font-mono text-[9.5px] text-ink-3 mt-[3px]">
+            <span className="text-blue-text font-semibold">{restPhaseName(rest.stage)}</span> · {metaRest}
+          </div>
+          <RestBar elapsed={elapsed} minutes={rest.stage.minutes} state={rest.state} />
+        </div>
+
+        {/* The button names the next stage ("Slice →") — the one place it is said. */}
         {rest.next && (
           <button
             onClick={() => onStage(item, rest.next!.index)}
             aria-label={`Next: ${nextName}`}
-            title={`Next: ${nextName}`}
-            className={`w-11 h-11 rounded-[10px] grid place-items-center cursor-pointer shrink-0 ${
-              rest.state === 'resting' ? 'bg-paper border border-line-2 text-ink-2' : 'bg-ink border-none text-gold'
+            className={`min-h-11 max-w-[92px] px-2.5 py-1.5 rounded-[10px] inline-flex items-center gap-1 cursor-pointer shrink-0 text-[11.5px] font-semibold leading-tight text-left ${
+              rest.state === 'resting' ? 'bg-paper border border-line-2 text-ink-2' : 'bg-gold-soft border border-gold/40 text-gold-2 active:bg-gold/25'
             }`}
           >
-            <ArrowRight size={15} />
+            <span className="break-words min-w-0">{nextName}</span>
+            <ArrowRight size={13} className={`shrink-0 ${rest.state === 'resting' ? 'text-ink-3' : 'text-gold-2'}`} />
           </button>
         )}
+      </div>
+      <ChefNote note={item.todayLog?.note} compact className="mt-2 ml-14" />
       </div>
     </div>
   )

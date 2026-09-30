@@ -65,6 +65,21 @@ export const dayOffset = (min: number): number => Math.floor(min / 1440)
  * Prep that takes longer than the runway to service genuinely had to start on an
  * earlier day; hiding that reads as "start at 18:00 tonight", which is backwards.
  */
+/**
+ * The start-by column's second line, so the row never says the same thing
+ * twice: how late when late, a countdown only when start-by is close (≤ 2h —
+ * "in 5h43" on every row was noise), otherwise the day when it is not today
+ * ("tmrw", "+2d", "−1d"), otherwise nothing. Pair with `fmtClock` for line one.
+ */
+export function startBySub(startBy: number, nowMin: number): { text: string | null; late: boolean } {
+  const delta = startBy - nowMin
+  if (delta < 0) return { text: `${fmtMins(-delta)} late`, late: true }
+  if (delta <= 120) return { text: `in ${fmtMins(delta)}`, late: false }
+  const d = dayOffset(startBy)
+  if (d === 0) return { text: null, late: false }
+  return { text: d === 1 ? 'tmrw' : `${d < 0 ? '−' : '+'}${Math.abs(d)}d`, late: false }
+}
+
 export function fmtStartBy(min: number): string {
   const d = dayOffset(min)
   return d === 0 ? fmtClock(min) : `${fmtClock(min)} ${d < 0 ? '−' : '+'}${Math.abs(d)}d`

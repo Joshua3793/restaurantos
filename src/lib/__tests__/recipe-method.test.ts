@@ -24,11 +24,11 @@ describe('methodToChain — the run-sheet chain is derived, never authored', () 
       'PASSIVE:Curing · wait:720',
       'ACTIVE:Smoking:20',
       'PASSIVE:Smoking · wait:240',
-      'ACTIVE:Wrap in butcher paper with 4 tbsp…:10',
+      'ACTIVE:Smoking:10',
       'PASSIVE:Smoking · wait:240',
       'ACTIVE:Resting:5',
       'PASSIVE:Resting · wait:120',
-      'ACTIVE:Slice against the grain, portion, log…:30',
+      'ACTIVE:Resting:30',
     ])
     expect(chain[1].note).toBe('uncovered in the walk-in')
     expect(stageTotals(chain)).toEqual({ active: 105, passive: 1320 })
@@ -56,7 +56,14 @@ describe('methodToChain — the run-sheet chain is derived, never authored', () 
   })
   it('hands-on minutes with no wait is one block', () => {
     const chain = methodToChain([{ key: 'a', text: 'Mix', minutes: 30 }, { key: 'b', text: 'Bake', minutes: 60 }])!
-    expect(chain).toEqual([{ key: 'a', name: 'Mix', kind: 'ACTIVE', minutes: 90 }])
+    expect(chain).toEqual([{ key: 'a', name: 'Step 1', kind: 'ACTIVE', minutes: 90 }])
+  })
+  it('a method with no stage labels names its hands-on blocks Step 1, Step 2 — never an instruction', () => {
+    const chain = methodToChain([
+      { key: 'a', text: 'Cook in slow heat using a big pot or rondeau', minutes: 30, wait: { minutes: 60 } },
+      { key: 'b', text: 'Once cooled down, label and date', minutes: 5 },
+    ])!
+    expect(chain.map(s => s.name)).toEqual(['Step 1', 'Wait', 'Step 2'])
   })
   it('a zero-minute block between waits is still a checkpoint the cook taps', () => {
     const chain = methodToChain([
@@ -86,7 +93,8 @@ describe('methodToChain — the run-sheet chain is derived, never authored', () 
       { key: 'b', text: 'Shape', minutes: 10, wait: { minutes: 720 } },
       { key: 'c', phase: 'Bake', text: 'Bake', minutes: 60 },
     ])!
-    expect(chain.map(s => s.name)).toEqual(['Dough', 'Dough · wait', 'Shape', 'Dough · wait', 'Bake'])
+    // the Shape step carries no label of its own, so it is still the Dough stage
+    expect(chain.map(s => s.name)).toEqual(['Dough', 'Dough · wait', 'Dough', 'Dough · wait', 'Bake'])
   })
   it('refuses to derive a chain that ends on a wait (a hand-edited column)', () => {
     expect(methodToChain([{ key: 'a', text: 'Mix', minutes: 30, wait: { minutes: 60 } }])).toBeNull()

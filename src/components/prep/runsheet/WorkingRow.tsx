@@ -14,8 +14,8 @@ import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, StageChip } from './atoms'
-import { IcCheck, IcRecipe } from '@/components/prep/icons'
+import { StationTag, StageChip, ChefNote } from './atoms'
+import { IcCheck } from '@/components/prep/icons'
 import { minutesBetween, fmtMins, fmtQty } from '@/lib/prep-runsheet'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 
@@ -99,13 +99,14 @@ export function WorkingRow({
           {item.station && <StationTag>{item.station}</StationTag>}
           {stages && cur && <StageChip label={stageLabel(cur.index, stages.length, cur.stage)} />}
         </div>
+        <ChefNote note={item.todayLog?.note} surface="gold" className="mt-2" />
       </div>
 
-      {/* claim · recipe · stop · next / done */}
+      {/* claim · stop · next / done (the name opens the recipe) */}
       <div className="col-start-2 lg:col-start-3 flex items-center gap-[7px] justify-start lg:justify-end">
         {onClaim ? (
           <div ref={claimAnchor} className="relative shrink-0">
-            <AssigneeChip cook={item.assignedCook} onClick={() => setClaimOpen(o => !o)} />
+            <AssigneeChip cook={item.assignedCook} compact onClick={() => setClaimOpen(o => !o)} />
             {claimOpen && (
               <ClaimPopover
                 anchorRef={claimAnchor}
@@ -123,13 +124,6 @@ export function WorkingRow({
           <AssigneeChip cook={item.assignedCook} />
         )}
         <button
-          onClick={() => onOpenRecipe(item)}
-          title="Recipe"
-          className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-[#fcd34d] grid place-items-center cursor-pointer shrink-0 text-ink-2"
-        >
-          <IcRecipe size={15} />
-        </button>
-        <button
           onClick={() => onStop(item)}
           title="Stop prep — back to the run sheet"
           className="inline-flex items-center gap-[5px] bg-paper text-ink-2 border border-[#fcd34d] rounded-[9px] px-3 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0 hover:border-ink-3"
@@ -139,7 +133,7 @@ export function WorkingRow({
         {next && onStage ? (
           <button
             onClick={() => onStage(item, next.index)}
-            className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0 whitespace-nowrap"
           >
             Next: {next.stage.name} <ArrowRight size={12} className="text-gold" />
           </button>

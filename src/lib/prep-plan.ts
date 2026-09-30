@@ -511,6 +511,18 @@ export function fmtDeadline(m: number, fmtClock: (min: number) => string): strin
   return `+${d}d ${fmtClock(m % 1440)}`
 }
 
+/**
+ * Did the step's deadline really move since the chef posted? `dueTime` is the
+ * label stamped at post, relative to THAT planning day ("09:00"); once the day
+ * rolls the same deadline reads "TMRW 09:00". Comparing the raw strings flagged
+ * every row "posted by 09:00" after close — so compare the clock only.
+ */
+export function postedDeadlineMoved(live: string, posted: string | null | undefined): boolean {
+  if (posted == null) return false
+  const clock = (label: string) => label.replace(/^(TMRW|[+−-]\d+d)\s+/, '').trim()
+  return clock(posted) !== clock(live)
+}
+
 export interface PlanSlot {
   start: number
   end: number

@@ -233,7 +233,11 @@ export function RunSheet({
     return n ? `${n} low on stock` : null
   }
 
-  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove }
+  // A row only says what its section doesn't: the station tag only when the
+  // kitchen has more than one and the list isn't already narrowed to one; the
+  // deadline only under a station header (a step header already states it).
+  const showStation = stations.length > 1 && mode === 'kitchen' && stFilter === 'all' && group !== 'station'
+  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove, showStation, showDeadline: group === 'station' }
   const rows = (list: PrepItemRich[]) => (
     <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
       {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}
@@ -377,7 +381,7 @@ export function RunSheet({
           />
           <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
             {waiting.map(i => (
-              <RestRow key={i.id} item={i} nowMin={nowMin} nowMs={nowMs} cooks={cooks} onStage={onStage} onOpenRecipe={onOpenRecipe} onClaim={onClaim} />
+              <RestRow key={i.id} item={i} nowMin={nowMin} nowMs={nowMs} cooks={cooks} onStage={onStage} onOpenRecipe={onOpenRecipe} onClaim={onClaim} showStation={showStation} />
             ))}
           </div>
         </>

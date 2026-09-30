@@ -7,9 +7,8 @@ import { Zap, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, RunwayBar, UrgencyDot, DeadlineChip } from './atoms'
-import { IcRecipe } from '@/components/prep/icons'
-import { fmtStartBy, fmtMins, fmtQty, runState } from '@/lib/prep-runsheet'
+import { StationTag, RunwayBar, UrgencyDot, DeadlineChip, ChefNote } from './atoms'
+import { fmtClock, fmtQty, runState, startBySub } from '@/lib/prep-runsheet'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 
 const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
@@ -28,6 +27,8 @@ export function RunRow({
   onClaim,
   onRemove,
   dense = false,
+  showStation = true,
+  showDeadline = true,
 }: {
   item: PrepItemRich
   nowMin: number
@@ -39,19 +40,24 @@ export function RunRow({
    *  disabled) for anyone who cannot plan — that is what hides the button. */
   onRemove?: (item: PrepItemRich) => void
   dense?: boolean
+  /** Off when every item is on one station, or the list is already filtered to one. */
+  showStation?: boolean
+  /** Off under a step header that already states the deadline — the chip then
+   *  appears only when the chef's posted deadline really moved. */
+  showDeadline?: boolean
 }) {
   const [claimOpen, setClaimOpen] = useState(false)
   const claimAnchor = useRef<HTMLDivElement>(null)
 
   const sb = item.startByMinutes
   const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
-  const late = sb != null ? nowMin - sb : 0
+  const sub = sb != null ? startBySub(sb, nowMin) : null
   // Planned qty: the chef's posted requiredQty wins, then the live suggestion.
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const batch = batchLabel(item, qty)
 
   // Below lg (iPad portrait, and landscape before the sidebar docks) the row
-  // stacks: start-by + name on the first line, the claim/recipe/Start cluster on
+  // stacks: start-by + name on the first line, the claim/Start cluster on
   // a second. Keeping all four columns on one line at that width squeezed the
   // name column to ~140px and broke long names over seven lines.
   return (
@@ -74,15 +80,17 @@ export function RunRow({
                 state === 'overdue' ? 'text-red' : 'text-ink'
               }`}
             >
-              {fmtStartBy(sb)}
+              {fmtClock(sb)}
             </div>
-            <div
-              className={`font-mono text-[9px] mt-0.5 whitespace-nowrap ${
-                state === 'overdue' ? 'text-red-text' : 'text-ink-4'
-              }`}
-            >
-              {state === 'overdue' ? `${fmtMins(late)} LATE` : `in ${fmtMins(-late)}`}
-            </div>
+            {sub?.text && (
+              <div
+                className={`font-mono text-[9px] mt-0.5 whitespace-nowrap uppercase ${
+                  sub.late ? 'text-red-text' : 'text-ink-4'
+                }`}
+              >
+                {sub.text}
+              </div>
+            )}
           </>
         ) : (
           <div className="font-mono text-[14px] font-semibold text-ink-4">—</div>
@@ -105,15 +113,12 @@ export function RunRow({
           </span>
         </div>
         <div className="flex items-center gap-x-3.5 gap-y-1 flex-wrap mt-1">
-          <span className="font-mono text-[11px] text-ink-3">{batch ? `${batch} · ${fmtQty(qty, item.unit)}` : fmtQty(qty, item.unit)}</span>
-          {item.station && <StationTag>{item.station}</StationTag>}
-          {!dense && (
-            <>
-              <RunwayBar activeMin={item.activeMinutes} passiveMin={item.passiveMinutes} passiveNote={item.passiveNote} />
-              <DeadlineChip item={item} />
-            </>
-          )}
+          <span className="font-mono text-[11px] text-ink-3">{batch ? `${fmtQty(qty, item.unit)} · ${batch}` : fmtQty(qty, item.unit)}</span>
+          {showStation && item.station && <StationTag>{item.station}</StationTag>}
+          {!dense && <RunwayBar activeMin={item.activeMinutes} passiveMin={item.passiveMinutes} passiveNote={item.passiveNote} />}
+          <DeadlineChip item={item} onlyIfMoved={!showDeadline || dense} />
         </div>
+        <ChefNote note={item.todayLog?.note} compact={dense} className="mt-2" />
       </div>
 
       {/* assignee + actions — one cluster so it can drop to its own line under the
@@ -122,7 +127,7 @@ export function RunRow({
           still start it (uncounted stock, or prepping toward a later restock). */}
       <div className="col-start-2 lg:col-start-3 flex items-center gap-[7px] justify-start lg:justify-end">
         <div ref={claimAnchor} className="relative shrink-0">
-          <AssigneeChip cook={item.assignedCook} onClick={() => setClaimOpen(o => !o)} />
+          <AssigneeChip cook={item.assignedCook} compact onClick={() => setClaimOpen(o => !o)} />
           {claimOpen && (
             <ClaimPopover
               anchorRef={claimAnchor}
@@ -136,13 +141,6 @@ export function RunRow({
             />
           )}
         </div>
-        <button
-          onClick={() => onOpenRecipe(item)}
-          title="Recipe"
-          className="w-[34px] h-[34px] rounded-[9px] bg-paper border border-line-2 grid place-items-center cursor-pointer shrink-0 text-ink-2"
-        >
-          <IcRecipe size={15} />
-        </button>
         <button
           onClick={() => onStart(item)}
           className="inline-flex items-center gap-1.5 bg-ink text-paper border-none rounded-[9px] px-3.5 py-2 text-[12.5px] font-semibold cursor-pointer shrink-0"

@@ -35,8 +35,6 @@ export interface MethodStep {
 export const LAST_STEP_WAIT_ERROR =
   "A wait can't be the last thing — add the step that finishes the job (it ends with the yield log)."
 
-const NAME_MAX = 40
-
 export function newStepKey(): string {
   return Math.random().toString(36).slice(2, 10)
 }
@@ -127,16 +125,13 @@ export function isTimedMethod(method: MethodStep[] | null | undefined): boolean 
   return !!method?.some(s => (s.minutes ?? 0) > 0 || s.wait != null)
 }
 
-/** A long first instruction is cut at a word boundary — it becomes a button label ("Next: …"). */
-function shortName(text: string): string {
-  const t = text.trim().split('\n')[0]
-  if (t.length <= NAME_MAX) return t
-  const head = t.slice(0, NAME_MAX)
-  const cut = head.lastIndexOf(' ')
-  return `${(cut > NAME_MAX / 2 ? head.slice(0, cut) : head).trimEnd()}…`
-}
-
-const blockName = (phase: string | undefined, first: MethodStep): string => phase ?? shortName(first.text)
+/**
+ * A hands-on block is named by the stage (phase) it belongs to — that name is
+ * the "Next: …" button label, so it must be the stage name and nothing else.
+ * A method with no stage labels gets "Step 1", "Step 2"… (counting hands-on
+ * blocks), never a cut-down instruction: the instruction lives in the Method.
+ */
+const blockName = (phase: string | undefined, ordinal: number): string => phase ?? `Step ${ordinal}`
 
 /** Per chain index, the step keys it covers — what the cook-along lights. */
 export interface ChainBlock {
@@ -155,12 +150,14 @@ function derive(method: MethodStep[] | null | undefined): Derived | null {
   let phase: string | undefined
   let pending: MethodStep[] = []
   let pendingPhase: string | undefined
+  let activeCount = 0
   const flushBlock = () => {
     if (pending.length === 0) return
     const first = pending[0]
+    activeCount += 1
     chain.push({
       key: first.key,
-      name: blockName(pendingPhase, first),
+      name: blockName(pendingPhase, activeCount),
       kind: 'ACTIVE',
       minutes: pending.reduce((a, s) => a + (s.minutes ?? 0), 0),
     })
@@ -169,11 +166,11 @@ function derive(method: MethodStep[] | null | undefined): Derived | null {
   }
   for (const step of method) {
     if (step.phase) phase = step.phase
-    // A block is NAMED by a phase only when the label is set on its own first
-    // step; otherwise its first instruction names it ("Next: Wrap in butcher
-    // paper…" tells a cook more than "Next: Smoking" would). The phase in
-    // effect still names the waits ("Smoking · wait").
-    if (pending.length === 0) pendingPhase = step.phase
+    // A block is named by the phase in effect at its first step — the label
+    // set on that step, or the one carried down from an earlier step — so a
+    // block that continues a stage after a wait reads "Next: Smoking". The
+    // same phase names the waits ("Smoking · wait").
+    if (pending.length === 0) pendingPhase = phase
     const last = chain[chain.length - 1]
     // A wait straight after a wait, with no hands-on work between: one merged
     // wait, so the chef is never told to restructure their method.

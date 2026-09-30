@@ -187,6 +187,11 @@ export function RunSheetMobile({
   // (mirrors the prototype's `claimTap`).
   const claimTap = (item: PrepItemRich) => onClaim(item, item.assignedCook?.id === cook ? null : cook)
 
+  // A row only says what its section doesn't: the station only when the kitchen
+  // has more than one; the deadline only outside the step groups (whose header
+  // already states it) — i.e. on My station's "Coming up" queue.
+  const multiStation = useMemo(() => new Set(items.flatMap(i => i.stations)).size > 1, [items])
+
   const rows = (list: PrepItemRich[], kitchen: boolean) => (
     <div className={`flex flex-col gap-[7px] ${MOBILE_GUTTER}`}>
       {list.map(i => (
@@ -195,6 +200,8 @@ export function RunSheetMobile({
           item={i}
           nowMin={nowMin}
           kitchen={kitchen}
+          showStation={multiStation}
+          showDeadline={!kitchen}
           cook={member}
           onClaim={claimTap}
           onOpenRecipe={onOpenRecipe}
@@ -305,6 +312,7 @@ export function RunSheetMobile({
                 nowMin={nowMin}
                 nowMs={nowMs}
                 kitchen={mode === 'kitchen'}
+                showStation={multiStation}
                 onClaim={claimTap}
                 onOpenRecipe={onOpenRecipe}
                 onStage={onStage}
