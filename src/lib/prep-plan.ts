@@ -222,6 +222,30 @@ export function shortfallReason(t: Pick<PlanFields, 'shortfall' | 'unit' | 'last
 }
 
 /** Read-only evidence: why the system put the item at its step. */
+/**
+ * The short, plain reason a planner card shows — the stock condition only, in
+ * a cook's words ("Out of stock", "3 of 8 kg — won't last service"), plus the
+ * short ingredient if one is low. The full evidence (`whyLabel`: rhythm, shelf
+ * cap, the "18387.5 g more used than logged…" shortfall) stays in the tooltip
+ * and the drawer. A chef override is not restated here — the step button shows it.
+ */
+export function plainReason(t: PlanFields & { blockedReason?: string | null }): string {
+  const oh = t.onHand ?? 0, par = t.parLevel ?? 0
+  let stock: string
+  if (t.pipeline) {
+    stock = `In progress${t.pipeline.readyAt ? ` · ready ${fmtPipelineReady(t.pipeline.readyAt)}` : ''}`
+  } else {
+    stock =
+      par > 0 && oh <= 0 ? 'Out of stock'
+      : t.targetToday != null && oh < t.targetToday ? `Under today's target of ${fmtQ(t.targetToday, t.unit)}`
+      : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} — won't last service`
+      : oh < par ? `Below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
+      : 'At par'
+  }
+  const low = t.blockedReason?.replace(/^low stock:\s*/i, '').trim()
+  return low ? `${stock} · low on ${low}` : stock
+}
+
 export function whyLabel(t: PlanFields, now: number = Date.now()): string {
   const oh = t.onHand ?? 0, par = t.parLevel ?? 0
   if (t.pipeline) {

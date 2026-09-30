@@ -3,8 +3,8 @@
 // read-only stock evidence (Reason), a batch-aware qty stepper, and the
 // generic group heading. Ported from the design's planner.jsx with flat
 // Tailwind tokens and Lucide icons.
-import { useState } from 'react'
-import { Pencil, ChevronDown, Undo2, Minus, Plus } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Pencil, ChevronDown, Undo2, Minus, Plus, UserPlus, MessageSquareText } from 'lucide-react'
 import type { PrepUrgency } from '@/lib/prep-utils'
 import {
   PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, autoUrgencyOf, whyLabel,
@@ -67,7 +67,11 @@ export function Reason({ item, sm }: { item: PrepItemRich; sm?: boolean }) {
 }
 
 // ─── THE dial: one step, carrying deadline + stock meaning ─────────────────
-export function UrgPicker({ item, locked, ctx, onChange, w = 'w-[126px]' }: {
+// The step's name as the button says it — the section header already uses the
+// long label, and "CRIT" read as a code rather than a word.
+const STEP_NAME: Record<PrepUrgency, string> = { PASS: 'Critical', MID: 'Mid-service', CLOSE: 'Before close', TMRW: 'Tomorrow' }
+
+export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: {
   item: PrepItemRich
   locked: boolean
   /** day anchors for the per-step deadline captions; null hides the times */
@@ -79,16 +83,22 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'w-[126px]' }: {
   const u = effectiveUrgency(item)
   const auto = autoUrgencyOf(item)
   const m = PLAN_URG_META[u]
+  // The deadline rides the button ("Critical · 09:00"), so the card never
+  // repeats it on a meta line.
+  const dl = ctx ? urgencyDeadline(u, ctx) : null
   return (
     <div className="relative shrink-0">
       <button
         type="button"
         onClick={() => !locked && setOpen(v => !v)}
         title={locked ? 'Pick a revenue center you can edit' : 'When is it needed?'}
-        className={`inline-flex items-center gap-1.5 ${w} ${m.softClass} ${m.textClass} border ${item.manualPriorityOverride ? 'border-current' : 'border-transparent'} rounded-lg px-2 py-1.5 font-mono text-[9.5px] font-bold ${locked ? 'cursor-default' : 'cursor-pointer'}`}
+        className={`inline-flex items-center gap-1.5 ${w} ${m.softClass} ${m.textClass} border ${item.manualPriorityOverride ? 'border-current' : 'border-transparent'} rounded-lg px-2 py-1.5 text-[11.5px] font-semibold whitespace-nowrap ${locked ? 'cursor-default' : 'cursor-pointer'}`}
       >
         <span className={`w-1.5 h-1.5 rounded-full ${m.dotClass} shrink-0`} />
-        <span className="flex-1 text-left truncate">{m.short}</span>
+        <span className="flex-1 text-left">
+          {STEP_NAME[u]}
+          {dl != null && <span className="font-mono text-[10.5px] font-medium opacity-80"> · {fmtClock(dl)}</span>}
+        </span>
         {item.manualPriorityOverride ? <Pencil size={10} className="shrink-0" /> : !locked && <ChevronDown size={10} className="shrink-0" />}
       </button>
       {open && (
@@ -171,9 +181,11 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
           disabled={locked}
           onClick={() => onToggleBatch(item, !batch)}
           title={batch ? `1 batch = ${fmtUom(yieldPerBatch, item.unit)} · switch to ${item.unit}` : `Count in batches of ${fmtUom(yieldPerBatch, item.unit)}`}
-          className={`border-l border-line ${sm ? 'px-1' : 'px-[7px]'} font-mono text-[8.5px] font-bold tracking-[0.04em] ${batch ? 'bg-ink text-gold' : 'bg-transparent text-ink-3'} ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          // Names what a tap switches TO ("kg" while counting batches, "batch"
+          // while counting kg) — the old black "×" read as a delete button.
+          className={`border-l border-line ${sm ? 'px-1.5' : 'px-2'} font-mono text-[9px] font-semibold text-ink-3 bg-paper hover:text-ink ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
-          {batch ? '×' : item.unit.toUpperCase()}
+          {batch ? item.unit : 'batch'}
         </button>
       )}
     </div>
@@ -192,9 +204,14 @@ export function AssignPill({ cookId, cooks, locked, onAssign, sm }: {
         type="button"
         onClick={() => !locked && setOpen(v => !v)}
         title={locked ? 'Pick a revenue center you can edit' : 'Assign'}
-        className={`inline-flex items-center gap-1.5 rounded-full font-mono text-[9.5px] font-bold whitespace-nowrap ${sm ? 'px-2 py-0.5' : 'px-2.5 py-1.5'} ${c ? 'bg-ink text-paper border border-ink' : 'bg-paper text-ink-3 border border-dashed border-line-2'} ${locked ? 'cursor-default' : 'cursor-pointer'}`}
+        aria-label={c ? `Assigned to ${c.name}` : 'Assign'}
+        // Unassigned is a small round button, the same one the To Do uses —
+        // "+ ASSIGN" cost a pill's width on every card.
+        className={c
+          ? `inline-flex items-center gap-1.5 rounded-full font-mono text-[9.5px] font-bold whitespace-nowrap ${sm ? 'px-2 py-0.5' : 'px-2.5 py-1.5'} bg-ink text-paper border border-ink ${locked ? 'cursor-default' : 'cursor-pointer'}`
+          : `w-[30px] h-[30px] rounded-full grid place-items-center bg-paper text-ink-3 border border-dashed border-line-2 ${locked ? 'cursor-default' : 'cursor-pointer hover:text-ink hover:border-ink-3'}`}
       >
-        {c ? <><span className="w-[5px] h-[5px] rounded-full bg-gold" />{c.initials}</> : '+ ASSIGN'}
+        {c ? <><span className="w-[5px] h-[5px] rounded-full bg-gold" />{c.initials}</> : <UserPlus size={13} strokeWidth={2.2} />}
       </button>
       {open && (
         <Popover onClose={() => setOpen(false)}>
@@ -211,5 +228,55 @@ export function AssignPill({ cookId, cooks, locked, onAssign, sm }: {
         </Popover>
       )}
     </div>
+  )
+}
+
+// ─── the chef's note, written where the cook will read it ─────────────────
+// The same gold-rule "Chef's note" box the To Do shows, edited in place — so
+// the chef writes exactly what the cook will see. No note yet: one quiet
+// "Add a note" link instead of an empty input line on every card. Saved on
+// blur (unchanged text is not re-sent); clearing it folds the box away.
+export function NoteField({ item, locked, onNote }: {
+  item: PrepItemRich
+  locked: boolean
+  onNote: (item: PrepItemRich, note: string) => void
+}) {
+  const saved = item.todayLog?.note ?? ''
+  const [expanded, setExpanded] = useState(false)
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const open = expanded || saved.trim() !== ''
+  const fit = () => { const el = ref.current; if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` } }
+  useEffect(fit, [open, saved])
+  if (!open) {
+    if (locked) return null
+    return (
+      <button type="button" onClick={() => setExpanded(true)}
+        className="inline-flex items-center gap-1 mt-1.5 font-mono text-[10px] text-ink-4 hover:text-gold-2">
+        <MessageSquareText size={11} /> Add a note for the cook
+      </button>
+    )
+  }
+  return (
+    <label className="block mt-2 border-l-2 border-gold rounded-r-[7px] bg-gold/[0.10] pl-3 pr-3 py-[6px] cursor-text">
+      <span className="flex items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-gold-2">
+        <MessageSquareText size={10} strokeWidth={2.4} aria-hidden /> Chef&apos;s note
+      </span>
+      <textarea
+        ref={ref}
+        key={item.todayLog?.id ?? item.id}
+        rows={1}
+        defaultValue={saved}
+        disabled={locked}
+        autoFocus={expanded && !saved}
+        onInput={fit}
+        onBlur={e => {
+          const v = e.target.value
+          if (v !== saved) onNote(item, v)
+          if (!v.trim()) setExpanded(false)
+        }}
+        placeholder="What should the cook know?"
+        className="block w-full mt-0.5 bg-transparent border-0 outline-none resize-none overflow-hidden text-[13px] font-medium leading-snug text-ink-2 placeholder:text-ink-4 placeholder:font-normal"
+      />
+    </label>
   )
 }

@@ -9,13 +9,13 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { RcService } from '@/lib/service-hours'
 import {
   PLAN_URG_META, effectiveUrgency, planDayContext, planSchedule, planGroups,
-  suggestedDraftQty, fmtDeadline, draftListOrder as draftOrd, START_TODAY_KEY,
+  suggestedDraftQty, draftListOrder as draftOrd,
   type PlanSlot, type PlanDayContext,
 } from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
-import { GroupHead, UrgPicker, AssignPill, QtyStepper, Reason } from './atoms'
-import { SuggestionRow } from './SuggestionRow'
-import { HiddenGroup } from './HiddenGroup'
+import { GroupHead, UrgPicker, AssignPill, QtyStepper, NoteField } from './atoms'
+import { SuggestionList } from './SuggestionList'
+import { DraftReason, WontFit } from './DraftRow'
 import { PostDialog } from './PostDialog'
 import { Segmented } from '@/components/prep/runsheet/atoms'
 import { isBatchMode } from './PlannerDesktop'
@@ -34,6 +34,7 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
   const m = PLAN_URG_META[effectiveUrgency(item)]
   const arrow = (dir: -1 | 1, disabled: boolean) => (
     <button type="button" onClick={() => onMove(dir)} disabled={locked || disabled}
+      aria-label={dir < 0 ? 'Move up' : 'Move down'}
       className={`w-[26px] h-5 rounded-md bg-bg border border-line grid place-items-center ${disabled ? 'opacity-30' : ''}`}>
       <ChevronDown size={11} className="text-ink-3" style={{ transform: dir < 0 ? 'rotate(180deg)' : 'none' }} />
     </button>
@@ -42,45 +43,34 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
     <div className="bg-paper border border-line rounded-[11px] px-2.5 py-[9px] border-l-[3px]" style={{ borderLeftColor: m.hex }}>
       <div className="flex items-start gap-2">
         <div className="flex flex-col gap-[3px] shrink-0 pt-px">{arrow(-1, first)}{arrow(1, last)}</div>
+        {/* name (wraps, never truncates) and ONE plain reason line — the deadline
+            lives on the step button, the schedule only speaks when it won't fit */}
         <button type="button" onClick={() => handlers.onOpen(item)} className="flex-1 min-w-0 text-left">
-          <span className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink truncate">{item.name}</span>
-            {item.isBlocked && <span className="font-mono text-[9px] font-bold uppercase bg-gold-soft text-gold-2 px-1.5 py-0.5 rounded-full shrink-0">BLOCKED</span>}
-          </span>
-          <span className={`block font-mono text-[9px] mt-0.5 truncate ${slot && !slot.fits ? 'text-red-text font-bold' : 'text-ink-4'}`}>
-            {item.station ?? item.category}
-            {slot
-              ? ` · ${fmtClock(slot.start)}–${fmtClock(slot.end % 1440)} · by ${fmtDeadline(slot.deadline, fmtClock)}${slot.fits ? '' : ' · WON’T FIT'}`
-              : ''}
-          </span>
+          <span className="block text-[14px] font-semibold tracking-[-0.01em] text-ink break-words">{item.name}</span>
+          <span className="block mt-0.5"><DraftReason item={item} /> <WontFit slot={slot} /></span>
         </button>
+        {/* assign rides the name row — the controls row below is full with the
+            stepper and the step button on a 375px phone */}
+        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} locked={locked} onAssign={id => handlers.onAssign(item, id)} />
         <button type="button" disabled={locked} onClick={() => handlers.onRemove(item)}
+          aria-label={`Take ${item.name} off the list`}
           className="w-6 h-6 rounded-[7px] grid place-items-center shrink-0">
           <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
         </button>
       </div>
-      {/* flex-wrap: on narrow screens (≤375px) the batch stepper + dial can fill
-          the row — the assign pill then wraps below instead of clipping off-screen */}
+      {/* flex-wrap stays as the fallback for very narrow screens */}
       <div className="flex flex-wrap items-center gap-x-[7px] gap-y-1.5 mt-2">
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={handlers.onQty} onToggleBatch={onToggleBatch} suggested={suggestedDraftQty(item)} sm />
-        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="w-[96px]" />
-        <span className="flex-1" />
-        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} locked={locked} onAssign={id => handlers.onAssign(item, id)} />
+        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="" />
       </div>
-      <div className="mt-[7px]"><Reason item={item} sm /></div>
-      <input
-        key={item.todayLog?.id ?? item.id}
-        defaultValue={item.todayLog?.note ?? ''}
-        disabled={locked}
-        onBlur={e => { if ((item.todayLog?.note ?? '') !== e.target.value) handlers.onNote(item, e.target.value) }}
-        placeholder="+ note for the cook"
-        className="w-full mt-1.5 text-[12px] text-ink-2 bg-transparent border-0 border-t border-line pt-[7px] outline-none placeholder:text-ink-4"
-      />
+      <NoteField item={item} locked={locked} onNote={handlers.onNote} />
     </div>
   )
 }
 
-export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
+export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers, searching = false }: {
+  /** A search is narrowing the pool — at-par suggestions then show inline. */
+  searching?: boolean
   items: PrepItemRich[]
   allItems: PrepItemRich[]
   /** Items switched off the prep list — the collapsed group under the suggestions. */
@@ -111,7 +101,8 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
   const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits).length
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
   const openCount = draft.filter(t => !t.todayLog?.assignedTo).length
-  const notInDraft = items.filter(t => !t.isOnList).length
+  // The Suggestions badge counts what there is to make, not every item off the list.
+  const notInDraft = items.filter(t => !t.isOnList && suggestedDraftQty(t) > 0).length
   const clean = post != null && !post.dirty
   const groupOpts = { stations, crew: cooks, ord: draftOrd }
 
@@ -180,15 +171,9 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
               </button>
             </div>
             {groupPills([['urgency', 'Step'], ['station', 'Station'], ['category', 'Category']])}
-            {planGroups(items, groupBy, { ...groupOpts, startToday: { ctx, nowMin } }).map(g => (
-              <div key={g.key}>
-                <GroupHead g={g} count={g.rows.length} />
-                <div className="flex flex-col gap-1.5">
-                  {g.rows.map(t => <SuggestionRow key={t.id} item={t} locked={locked} longLead={g.key === START_TODAY_KEY} onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />)}
-                </div>
-              </div>
-            ))}
-            <HiddenGroup hidden={hidden} locked={locked} onOpen={handlers.onOpen} />
+            <SuggestionList items={items} hidden={hidden} groupBy={groupBy} stations={stations} cooks={cooks} ord={draftOrd}
+              ctx={ctx} nowMin={nowMin} locked={locked} searching={searching}
+              onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
           </>
         ) : (
           <>
@@ -222,7 +207,9 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
 
       {/* sticky post bar */}
       <div className="fixed left-0 right-0 bottom-[64px] z-30 px-4 pb-2 pt-4 bg-gradient-to-t from-bg via-bg/90 to-transparent pointer-events-none">
-        <div className="pointer-events-auto">
+        {/* mr-[60px]: the chat bubble sits bottom-right at this height — the bar
+            stops short of it so it never covers Recall or the post button */}
+        <div className="pointer-events-auto mr-[60px]">
           {locked ? (
             <div className="flex items-center justify-center gap-2 bg-paper border border-line rounded-xl py-3 font-mono text-[10.5px] font-bold uppercase tracking-[0.03em] text-ink-3">
               <Lock size={13} /> Chef posts the list
