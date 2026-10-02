@@ -2,11 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { parseImportFile, validateRows } from '@/lib/inventory-import'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { requireSession, AuthError } from '@/lib/auth'
 
 // Mutating/multipart route — must run live, never statically optimized.
 export const dynamic = 'force-dynamic'
 
 async function handlePOST(req: NextRequest) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   try {
     const formData = await req.formData()
     const file = formData.get('file')

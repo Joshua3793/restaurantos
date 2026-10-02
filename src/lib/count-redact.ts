@@ -16,9 +16,9 @@ export function seesCountMoney(role: Role): boolean {
   return atLeast(role, 'MANAGER')
 }
 
-type Nulled<T, K extends PropertyKey> = { [P in keyof T]: P extends K ? T[P] | null : T[P] }
+export type Nulled<T, K extends PropertyKey> = { [P in keyof T]: P extends K ? T[P] | null : T[P] }
 
-function nullKeys<T extends object, K extends PropertyKey>(obj: T, keys: readonly K[]): Nulled<T, K> {
+export function nullKeys<T extends object, K extends PropertyKey>(obj: T, keys: readonly K[]): Nulled<T, K> {
   const out = { ...obj } as Record<PropertyKey, unknown>
   for (const k of keys) if (k in out) out[k] = null
   return out as Nulled<T, K>

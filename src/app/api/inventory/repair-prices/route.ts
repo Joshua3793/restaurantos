@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/inventory/repair-prices
@@ -12,6 +15,13 @@ import { NextResponse } from 'next/server'
  * chain and break the parity invariant. Repair is now a no-op.
  */
 export async function POST() {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   return NextResponse.json({
     deprecated: true,
     message: 'pricePerBaseUnit is now derived from packChain; repair is obsolete',

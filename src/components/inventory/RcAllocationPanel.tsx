@@ -30,9 +30,12 @@ interface Props {
    *  stored in baseUnit; the default-RC stockOnHand prop is already in countUOM. */
   toDisplay:    (base: number) => number
   onPulled:     () => void
+  /** Below MANAGER the item drawer is view-only: membership, par and pull controls are
+   *  hidden (the membership and par routes refuse them server-side anyway). */
+  readOnly?:    boolean
 }
 
-export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, onPulled }: Props) {
+export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, onPulled, readOnly = false }: Props) {
   const { revenueCenters } = useRc()
   const [allocations, setAllocations] = useState<Allocation[]>([])
   // Per-RC THEORETICAL on-hand (baseUnit), keyed by rcId. This — not the raw
@@ -217,6 +220,13 @@ export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, on
                   {rc.name}
                   {isDefaultRc && <span className="text-xs text-ink-4 font-normal ml-1">main pool</span>}
                 </span>
+                {readOnly ? (
+                  <span className={`shrink-0 text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                    isMember ? 'bg-green-soft text-green-text border-green-soft' : 'bg-bg-2 text-ink-4 border-line'
+                  }`}>
+                    {isMember ? '✓ in RC' : 'not in RC'}
+                  </span>
+                ) : (
                 <button
                   onClick={() => toggleMembership(rc.id, isMember)}
                   disabled={togglingRc === rc.id}
@@ -229,6 +239,7 @@ export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, on
                 >
                   {isMember ? '✓ in RC' : '+ add'}
                 </button>
+                )}
                 <span className="text-sm font-medium text-ink-2">
                   {qty.toFixed(2)} <span className="text-xs text-ink-4">{countUOM}</span>
                   {parLevel !== null && (
@@ -242,6 +253,7 @@ export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, on
                     ⚠ Below Par
                   </span>
                 )}
+                {!readOnly && (
                 <button
                   onClick={() => isEditingPar ? setEditParRcId(null) : openParEdit(rc.id, alloc)}
                   className="text-xs text-ink-4 hover:text-ink-3 shrink-0 p-1"
@@ -249,7 +261,8 @@ export function RcAllocationPanel({ itemId, countUOM, defaultRcId, toDisplay, on
                 >
                   {isEditingPar ? <X size={12} /> : <Pencil size={12} />}
                 </button>
-                {!isDefaultRc && (
+                )}
+                {!isDefaultRc && !readOnly && (
                   <button
                     onClick={() => {
                       setEditParRcId(null)   // close par edit form

@@ -7,6 +7,7 @@ import {
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
 
 export async function GET(req: NextRequest) {
   let user
@@ -18,10 +19,19 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const { rows } = await fetchInventoryList(user, parseInventoryListParams(searchParams))
-  return NextResponse.json(rows, { headers: { 'Cache-Control': 'no-store' } })
+  // STAFF never sees item prices (src/lib/inventory-redact.ts).
+  const body = seesItemMoney(user.role) ? rows : rows.map(r => redactInventoryItem(r))
+  return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 async function handlePOST(req: NextRequest) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
 
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the

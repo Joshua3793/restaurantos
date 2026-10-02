@@ -3,8 +3,19 @@ import { prisma } from '@/lib/prisma'
 import { syncPrepToInventory } from '@/lib/recipeCosts'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { requireSession, AuthError } from '@/lib/auth'
+
+// Mutating handlers must never be statically prerendered.
+export const dynamic = 'force-dynamic'
 
 async function handlePOST(req: NextRequest) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   try {
     const { ids, action, value } = await req.json()
 

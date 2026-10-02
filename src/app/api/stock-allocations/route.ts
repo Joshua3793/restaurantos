@@ -122,11 +122,25 @@ export async function POST(req: NextRequest) {
 
 // PATCH /api/stock-allocations — upsert parLevel/reorderQty for one RC+item pair
 export async function PATCH(req: NextRequest) {
+  // Par/reorder are item settings — MANAGER+, like every other item edit
+  // (src/lib/inventory-redact.ts canEditItems). It had no guard at all.
+  let user
+  try { user = await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json().catch(() => ({}))
   const { inventoryItemId, rcId, parLevel, reorderQty } = body
 
   if (!inventoryItemId || !rcId) {
     return NextResponse.json({ error: 'inventoryItemId and rcId are required' }, { status: 400 })
+  }
+  try { await assertRcWritable(user, rcId) }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
   }
   if (parLevel !== null && parLevel !== undefined) {
     const p = Number(parLevel)

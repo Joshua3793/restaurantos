@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { checkMembershipRemoval } from '@/lib/item-rc'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,6 +12,13 @@ async function handleDELETE(
   _req: NextRequest,
   { params }: { params: { id: string; rcId: string } },
 ) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const guard = await checkMembershipRemoval(params.id, params.rcId)
   if (!guard.ok) return NextResponse.json({ error: guard.reason }, { status: 409 })
 

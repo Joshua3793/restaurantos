@@ -4,23 +4,27 @@ import { getSupplierOffers } from '@/lib/supplier-offers'
 import { requireSession, AuthError } from '@/lib/auth'
 import { setPrimaryOffer } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { seesItemMoney, redactOffer } from '@/lib/inventory-redact'
 
 export const dynamic = 'force-dynamic'
 
 // GET /api/inventory/[id]/suppliers — offers + derived history stats
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  try { await requireSession() }
+  let user
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
   const offers = await getSupplierOffers(params.id)
-  return NextResponse.json(offers)
+  // STAFF: which suppliers carry it and their pack format, never what they charge.
+  return NextResponse.json(seesItemMoney(user.role) ? offers : offers.map(o => redactOffer(o)))
 }
 
 // PATCH /api/inventory/[id]/suppliers — { offerId } → set primary (clears siblings)
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  try { await requireSession() }
+  // Switching the primary offer re-prices the item — an item edit, MANAGER+.
+  try { await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

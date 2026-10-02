@@ -25,6 +25,7 @@ import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
+import { seesItemMoney, canEditItems } from '@/lib/inventory-redact'
 import { lookupDensity } from '@/lib/density'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -275,6 +276,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   // user a control (and a 403) they can't use.
   const { role } = useUser()
   const canMerge = role !== null && atLeast(role, 'MANAGER')
+  // Same default-deny. STAFF never sees a price (the API nulls them anyway);
+  // below MANAGER the drawer is view-only — the item routes refuse the edit
+  // server-side, this just keeps the controls out of reach.
+  const seesMoney = role !== null && seesItemMoney(role)
+  const canEdit = role !== null && canEditItems(role)
 
   const [item, setItem] = useState<InventoryItem | null>(null)
   const [loading, setLoading] = useState(true)
@@ -308,7 +314,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       fetch('/api/suppliers').then(r => r.json()),
       fetch('/api/categories').then(r => r.json()),
       fetch('/api/storage-areas').then(r => r.json()),
-      fetch(`/api/inventory/${itemId}/price-history`).then(r => r.json()).catch(() => []),
+      // LEAD+ only server-side — a STAFF 403 must land as an empty list, not an error body.
+      fetch(`/api/inventory/${itemId}/price-history`).then(r => (r.ok ? r.json() : [])).catch(() => []),
       fetch(`/api/inventory/${itemId}/stock-movements`).then(r => r.json()).catch(() => null),
     ]).then(([fetchedItem, sups, cats, areas, ph, sm]) => {
       const normalized = normalizeItem(fetchedItem)
@@ -319,12 +326,19 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       setPriceHistory(ph)
       setStockMovements(sm)
       setLoading(false)
-      if (initialEditMode) {
-        setEditForm(buildEditForm(normalized))
-        setEditMode(true)
-      }
     })
   }, [itemId])
+
+  // initialEditMode (the recipe editor's quick-edit) opens straight into the
+  // form — once, and only for someone who may edit. Its own effect because the
+  // role can resolve after the item does.
+  const appliedInitialEdit = useRef(false)
+  useEffect(() => {
+    if (!initialEditMode || appliedInitialEdit.current || !item || !canEdit) return
+    appliedInitialEdit.current = true
+    setEditForm(buildEditForm(item))
+    setEditMode(true)
+  }, [initialEditMode, item, canEdit])
 
   const openEdit = () => {
     if (!item) return
@@ -462,14 +476,16 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         <GitMerge size={12} /> Merge
                       </button>
                     )}
-                    <button
-                      onClick={openEdit}
-                      aria-label="Edit"
-                      title="Edit"
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
-                    >
-                      <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={openEdit}
+                        aria-label="Edit"
+                        title="Edit"
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
+                      >
+                        <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
+                      </button>
+                    )}
                   </>
                 )}
                 <button onClick={onClose} aria-label="Close" className="w-8 h-8 grid place-items-center rounded-[8px] border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors bg-paper"><X size={16} /></button>
@@ -791,7 +807,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       ['Supplier',       item.supplier?.name || '—'],
                       ['Storage area',   item.storageArea?.name || '—'],
                       ['Dimension',      `${dimLabel} · ${ci.baseUnit}`],
-                      ['Pricing',        c.pricing.mode === 'RATE' ? `Rate · per ${canonicalUom(c.pricing.rateUnit)}` : 'Per pack'],
+                      ...(seesMoney ? [['Pricing', c.pricing.mode === 'RATE' ? `Rate · per ${canonicalUom(c.pricing.rateUnit)}` : 'Per pack'] as [string, string]] : []),
                       ['Count unit',     c.countUnit],
                       ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
                     ]
@@ -819,6 +835,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     </div>
                   </div>
 
+                  {seesMoney && (
                   <div className={`rounded-[10px] p-3 col-span-2 border ${item.recipe ? 'bg-blue-soft border-blue-soft' : 'bg-gold-soft border-[#fcd34d]'}`}>
                     {item.recipe && (
                       <div className="flex items-center gap-1.5 mb-1.5">
@@ -839,11 +856,12 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       }
                     </div>
                   </div>
+                  )}
 
                   {/* What recipes actually cost this item at — the 30-day weighted average,
                       shown next to (not instead of) the price block above. PREP items have
                       no costBasis: their cost comes from the recipe, never an average. */}
-                  {!item.recipe && item.costBasis && (
+                  {seesMoney && !item.recipe && item.costBasis && (
                     <div className="bg-paper border border-line rounded-[10px] p-3 col-span-2">
                       <CostBasisRow cb={item.costBasis} baseUnit={ci.baseUnit} last={ppb} />
                     </div>
@@ -862,6 +880,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     countUOM={resolveCountUom(itemChainDims(item)) || item.baseUnit}
                     defaultRcId={defaultRcId}
                     toDisplay={(base) => baseToDisplay(item, base)}
+                    readOnly={!canEdit}
                     onPulled={() => {
                       fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(setItem)
                       onUpdated?.()
@@ -977,14 +996,17 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   )}
                 </div>
 
-                {/* Supplier offers */}
-                <SupplierOffersSection
-                  itemId={item.id}
-                  baseUnit={item.baseUnit ?? null}
-                  eachMeasureQty={item.eachMeasureQty ?? null}
-                  eachMeasureUnit={item.eachMeasureUnit ?? null}
-                  onRepriced={refreshItem}
-                />
+                {/* Supplier offers — prices, so LEAD+; switching the primary re-prices the item, so MANAGER+. */}
+                {seesMoney && (
+                  <SupplierOffersSection
+                    itemId={item.id}
+                    baseUnit={item.baseUnit ?? null}
+                    eachMeasureQty={item.eachMeasureQty ?? null}
+                    eachMeasureUnit={item.eachMeasureUnit ?? null}
+                    onRepriced={refreshItem}
+                    canSetPrimary={canEdit}
+                  />
+                )}
 
                 {/* Merges into this item, each with its Undo (the Merge button is in the header). */}
                 {canMerge && !item.recipe && (
@@ -992,7 +1014,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 )}
 
                 {/* Price History */}
-                {priceHistory.length > 0 && (
+                {seesMoney && priceHistory.length > 0 && (
                   <div className="mt-2">
                     <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em] mb-2">Price history</div>
                     <div className="space-y-1.5">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { rcHasStockForItem } from '@/lib/item-rc'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +14,13 @@ interface Blocked { itemId: string; rcId: string; reason: string }
 // Remove: per item, skip pairs that still hold stock or would empty the item's RC set;
 // blocked pairs are reported, never silently dropped.
 async function handlePOST(req: NextRequest) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { itemIds, rcIds, action } = await req.json().catch(() => ({}))
   if (!Array.isArray(itemIds) || !Array.isArray(rcIds) || itemIds.length === 0 || rcIds.length === 0) {
     return NextResponse.json({ error: 'itemIds and rcIds are required (non-empty arrays)' }, { status: 400 })

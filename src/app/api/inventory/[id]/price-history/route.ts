@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { displayDayKey } from '@/lib/prep-day'
 import { parseInvoiceDate } from '@/lib/purchase-date'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 // Returns the recent approved-purchase history for an inventory item, derived
 // from the active InvoiceScanItem records. Used by the invoice review drawer
@@ -10,6 +13,13 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // Every field here is a price — LEAD+ only (src/lib/inventory-redact.ts seesItemMoney).
+  try { await requireSession('LEAD') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { id } = params
 
   const scanItems = await prisma.invoiceScanItem.findMany({

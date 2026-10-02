@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 
 // Batch price-history endpoint. Used by the invoice review drawer to load
 // inline sparklines for every matched item in one round-trip instead of N.
@@ -7,6 +8,13 @@ import { prisma } from '@/lib/prisma'
 // GET /api/inventory/price-history?ids=id1,id2,id3
 // Returns: Record<inventoryItemId, Array<{ date, unitPrice, supplierName, ... }>>
 export async function GET(req: NextRequest) {
+  // Every field here is a price — LEAD+ only (src/lib/inventory-redact.ts seesItemMoney).
+  try { await requireSession('LEAD') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const idsParam = req.nextUrl.searchParams.get('ids') ?? ''
   const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean).slice(0, 200)
   if (ids.length === 0) return NextResponse.json({})

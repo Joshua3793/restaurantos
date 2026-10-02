@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 // GET /api/inventory/[id]/revenue-centers — the RCs this item is a member of.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const memberships = await prisma.itemRevenueCenter.findMany({
     where: { inventoryItemId: params.id },
     select: { revenueCenter: { select: { id: true, name: true, color: true, isDefault: true } } },
@@ -17,6 +24,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // POST /api/inventory/[id]/revenue-centers — add a membership { revenueCenterId }.
 // Idempotent (unique constraint → no-op if already a member).
 async function handlePOST(req: NextRequest, { params }: { params: { id: string } }) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { revenueCenterId } = await req.json().catch(() => ({}))
   if (!revenueCenterId) return NextResponse.json({ error: 'revenueCenterId is required' }, { status: 400 })
 

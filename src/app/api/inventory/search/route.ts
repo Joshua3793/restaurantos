@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,11 +28,15 @@ function fuzzyScore(query: string, target: string): number {
 // (used by the invoice Create-New modal's "looks like an existing item" banner),
 // plus purchaseCount + stockOnHand (used by the item-merge picker, Task 10).
 export async function GET(req: NextRequest) {
-  try { await requireSession() }
+  let user
+  try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
+  // STAFF scans barcodes on the count page — no prices on what comes back.
+  const money = seesItemMoney(user.role)
+  const out = <T extends object>(rows: T[]) => NextResponse.json(money ? rows : rows.map(r => redactInventoryItem(r)))
 
   const q         = req.nextUrl.searchParams.get('q')?.trim() ?? ''
   const barcode   = req.nextUrl.searchParams.get('barcode')?.trim() ?? ''
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
       },
     })
     if (!item) return NextResponse.json([])
-    return NextResponse.json([{ ...item, pricePerBaseUnit: pricePerBaseUnit(asChainItem(item)) }])
+    return out([{ ...item, pricePerBaseUnit: pricePerBaseUnit(asChainItem(item)) }])
   }
 
   const words = q.split(/\s+/).filter(w => w.length > 1)
@@ -107,7 +112,7 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  if (!q) return NextResponse.json(items.slice(0, limit))
+  if (!q) return out(items.slice(0, limit))
 
   // Re-rank by fuzzy score
   const scored = items
@@ -120,5 +125,5 @@ export async function GET(req: NextRequest) {
     .slice(0, limit)
     .map(({ _score, ...rest }) => (withUsage ? { ...rest, score: _score } : rest))
 
-  return NextResponse.json(scored)
+  return out(scored)
 }

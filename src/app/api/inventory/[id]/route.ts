@@ -10,8 +10,20 @@ import { windowedAvgCost } from '@/lib/cost-basis'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { requireSession, AuthError } from '@/lib/auth'
+import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
+
+// Mutating handlers must never be statically prerendered.
+export const dynamic = 'force-dynamic'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const item = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
     include: {
@@ -28,10 +40,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // null for a PREP-linked item — windowedAvgCost never averages those (its cost
   // comes from the recipe, not invoice receipts).
   const costBasis = item.recipe ? null : (await windowedAvgCost([item.id])).get(item.id) ?? null
-  return NextResponse.json({ ...withPpb(item), costBasis })
+  const body = { ...withPpb(item), costBasis }
+  // STAFF opens this drawer from the count page — quantities and units only.
+  return NextResponse.json(seesItemMoney(user.role) ? body : redactInventoryItem(body))
 }
 
 async function handlePUT(req: NextRequest, { params }: { params: { id: string } }) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
 
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
@@ -208,6 +229,13 @@ async function postUpdate(
 }
 
 async function handleDELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const id = params.id
 
   const item = await prisma.inventoryItem.findUnique({ where: { id }, select: { id: true, mergedIntoId: true } })

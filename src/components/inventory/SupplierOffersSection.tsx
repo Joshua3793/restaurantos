@@ -32,7 +32,7 @@ function fmtPack(o: SupplierOfferStats): string {
 const fmtPpb = formatPricePerBase
 
 export function SupplierOffersSection({
-  itemId, baseUnit, eachMeasureQty, eachMeasureUnit, onRepriced,
+  itemId, baseUnit, eachMeasureQty, eachMeasureUnit, onRepriced, canSetPrimary = true,
 }: {
   itemId: string
   baseUnit: string | null
@@ -41,6 +41,8 @@ export function SupplierOffersSection({
   eachMeasureQty?: number | string | null
   eachMeasureUnit?: string | null
   onRepriced?: () => void
+  /** Switching the primary re-prices the item — MANAGER+ (the PATCH refuses below that). */
+  canSetPrimary?: boolean
 }) {
   const [offers, setOffers] = useState<SupplierOfferStats[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -88,12 +90,12 @@ export function SupplierOffersSection({
             <div key={o.id} className={`flex items-center gap-3 px-3 py-2.5 ${isCheapest ? 'bg-green-soft/40' : 'bg-paper'}`}>
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || !canSetPrimary}
                 onClick={() => setPrimary(o.id)}
-                title={o.isPrimary ? 'Primary supplier' : 'Set as primary'}
-                className="shrink-0 p-1"
+                title={o.isPrimary ? 'Primary supplier' : canSetPrimary ? 'Set as primary' : 'Not primary'}
+                className="shrink-0 p-1 disabled:cursor-default"
               >
-                <Star size={14} className={o.isPrimary ? 'text-gold fill-gold' : 'text-line-2 hover:text-gold'} />
+                <Star size={14} className={o.isPrimary ? 'text-gold fill-gold' : canSetPrimary ? 'text-line-2 hover:text-gold' : 'text-line-2'} />
               </button>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium text-ink truncate">{o.supplierName}</div>
