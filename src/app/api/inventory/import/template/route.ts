@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { PRICE_BASES, CONTENT_UNITS } from '@/lib/inventory-import'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Inventory Import')
 

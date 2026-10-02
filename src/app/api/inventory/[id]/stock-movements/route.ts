@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
 import { buildItemLedger, splitLedger } from '@/lib/stock-ledger'
 import { displayDayKey } from '@/lib/prep-day'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,6 +64,12 @@ export interface StockMovementsResponse {
 // reimplemented the engine here and drifted from it on every axis (a catch-weight
 // receipt showed 10× the weight actually delivered).
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const item = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
     select: { id: true, baseUnit: true, dimension: true, packChain: true, countUnit: true },

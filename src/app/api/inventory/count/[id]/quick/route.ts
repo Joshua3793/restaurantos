@@ -5,12 +5,20 @@ import { computeExpectedForItem } from '@/lib/count-expected'
 import { recordQuickCount } from '@/lib/quick-count'
 import { convertBaseToCountUom, resolveCountUom, countDimsOf } from '@/lib/count-uom'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { seesItemMoney } from '@/lib/inventory-redact'
+import { redactSummaryMoney } from '@/lib/count-redact'
 
 export const dynamic = 'force-dynamic'
 
 
 // GET /api/inventory/count/:id/quick?rcId=... → expected on-hand for live preview
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const rcId = new URL(req.url).searchParams.get('rcId') || null
 
   const item = await prisma.inventoryItem.findUnique({ where: { id: params.id } })
@@ -79,13 +87,15 @@ async function handlePOST(req: NextRequest, { params }: { params: { id: string }
     select: { variancePct: true, varianceCost: true, expectedQty: true },
   })
 
+  // STAFF quick-counts too — the variance comes back in units and %, never $.
+  const money = seesItemMoney(user.role)
   return NextResponse.json({
     ok:           true,
     sessionId:    result.sessionId,
     expectedBase: Number(line?.expectedQty ?? result.expectedBase),
     variancePct:  line?.variancePct  != null ? Number(line.variancePct)  : 0,
-    varianceCost: line?.varianceCost != null ? Number(line.varianceCost) : 0,
-    summary:      result.summary,
+    varianceCost: !money ? null : line?.varianceCost != null ? Number(line.varianceCost) : 0,
+    summary:      money ? result.summary : redactSummaryMoney(result.summary),
   })
 }
 

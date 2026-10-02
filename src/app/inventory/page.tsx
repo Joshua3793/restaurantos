@@ -18,6 +18,7 @@ import { QuickCountSheet } from '@/components/inventory/QuickCountSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
+import { canEditItems } from '@/lib/inventory-redact'
 import { setScopeParams } from '@/lib/scope-params'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
 import { rcHex } from '@/lib/rc-colors'
@@ -241,6 +242,9 @@ function InventoryPageInner() {
   // stay hidden rather than flashing and then 403-ing. Mirrors CostChrome.
   const { role } = useUser()
   const canExport = role !== null && atLeast(role, 'MANAGER')
+  // /inventory is LEAD+; item writes (add, import, bulk, activate, delete) are
+  // MANAGER+ server-side, so a Shift Lead browses the library without those controls.
+  const canEdit = role !== null && canEditItems(role)
   const [selected,     setSelected]     = useState<InventoryItem | null>(null)
   const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
@@ -707,9 +711,11 @@ function InventoryPageInner() {
         onClick={() => setSelected(item)}
       >
         <td className="pl-4 py-[13px] pr-2" onClick={e => e.stopPropagation()}>
-          <button onClick={() => toggleCheck(item.id)} className="text-ink-4 hover:text-gold">
-            {checkedIds.has(item.id) ? <CheckSquare size={16} className="text-gold" /> : <Square size={16} />}
-          </button>
+          {canEdit && (
+            <button onClick={() => toggleCheck(item.id)} className="text-ink-4 hover:text-gold">
+              {checkedIds.has(item.id) ? <CheckSquare size={16} className="text-gold" /> : <Square size={16} />}
+            </button>
+          )}
         </td>
         <td className="px-3 py-[13px]">
           <div className="flex flex-col gap-1">
@@ -775,6 +781,7 @@ function InventoryPageInner() {
             >
               <ClipboardCheck size={14} />
             </button>
+            {canEdit && (<>
             <button
               onClick={e => handleToggleActive(e, item)}
               title={item.isActive ? 'Deactivate item' : 'Activate item'}
@@ -792,6 +799,7 @@ function InventoryPageInner() {
                 <Trash2 size={13} />
               </button>
             )}
+            </>)}
           </div>
         </td>
       </tr>
@@ -912,6 +920,7 @@ function InventoryPageInner() {
         >
           <ShoppingCart size={16} />
         </button>
+        {canEdit && (
         <button
           onClick={() => setShowAdd(true)}
           disabled={isReadOnly}
@@ -920,6 +929,7 @@ function InventoryPageInner() {
         >
           <span className="text-gold font-semibold">+</span> Add
         </button>
+        )}
       </div>
 
       {/* Desktop header */}
@@ -936,12 +946,14 @@ function InventoryPageInner() {
           >
             <ShoppingCart size={13} className="text-ink-3" /> Order List
           </button>
+          {canEdit && (
           <button
             onClick={() => setShowImport(true)}
             className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
           >
             <UploadCloud size={13} className="text-ink-3" /> Import
           </button>
+          )}
           {canExport && (
             <button
               onClick={() => { window.location.href = exportHref() }}
@@ -950,6 +962,7 @@ function InventoryPageInner() {
               <Download size={13} className="text-ink-3" /> {stockInHand ? 'Export Stock in Hand' : 'Export'}
             </button>
           )}
+          {canEdit && (
           <button
             onClick={() => setShowAdd(true)}
             disabled={isReadOnly}
@@ -958,6 +971,7 @@ function InventoryPageInner() {
           >
             <span className="text-gold font-semibold text-[14px]">+</span> Add Item
           </button>
+          )}
         </div>
       </div>
 
@@ -1217,6 +1231,7 @@ function InventoryPageInner() {
           </button>
           <div className="flex-1" />
           {/* Import CSV */}
+          {canEdit && (
           <button
             onClick={() => setShowImport(true)}
             title="Import CSV"
@@ -1224,6 +1239,7 @@ function InventoryPageInner() {
           >
             <UploadCloud size={11} /> Import
           </button>
+          )}
           {/* Export CSV */}
           {canExport && (
             <button
@@ -1398,7 +1414,7 @@ function InventoryPageInner() {
       )}
 
       {/* Bulk action bar — fixed at bottom so it's visible no matter how far you scroll */}
-      {checkedIds.size > 0 && (
+      {canEdit && checkedIds.size > 0 && (
         <div className="fixed bottom-16 md:bottom-4 left-0 right-0 z-40 px-3 pointer-events-none">
           <div className="max-w-5xl mx-auto pointer-events-auto">
             <div className="bg-ink border border-ink rounded-[12px] px-4 py-3 shadow-2xl flex flex-wrap items-center gap-2">
@@ -1841,10 +1857,12 @@ function InventoryPageInner() {
             <thead className="bg-bg-2 border-b border-line">
               <tr>
                 <th className="pl-4 py-[10px] pr-2 w-8">
-                  <button onClick={toggleAll} className="text-ink-4 hover:text-gold">
-                    {checkedIds.size === sortedItems.length && sortedItems.length > 0
-                      ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
-                  </button>
+                  {canEdit && (
+                    <button onClick={toggleAll} className="text-ink-4 hover:text-gold">
+                      {checkedIds.size === sortedItems.length && sortedItems.length > 0
+                        ? <CheckSquare size={15} className="text-gold" /> : <Square size={15} />}
+                    </button>
+                  )}
                 </th>
                 <SortTh col="item" label="Item" colSort={colSort} onSort={toggleColSort} className="text-left" />
                 {sortBy === 'all' && (
@@ -1873,9 +1891,11 @@ function InventoryPageInner() {
                         onClick={() => setCollapsedCats(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n })}
                       >
                         <td className="pl-4 py-[10px] pr-2" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => toggleCatGroup(rows)} className="text-ink-4 hover:text-gold-2">
-                            {allChecked ? <CheckSquare size={15} className="text-gold-2" /> : <Square size={15} />}
-                          </button>
+                          {canEdit && (
+                            <button onClick={() => toggleCatGroup(rows)} className="text-ink-4 hover:text-gold-2">
+                              {allChecked ? <CheckSquare size={15} className="text-gold-2" /> : <Square size={15} />}
+                            </button>
+                          )}
                         </td>
                         <td className="px-3 py-[10px]" colSpan={6}>
                           <div className="flex items-center gap-2">

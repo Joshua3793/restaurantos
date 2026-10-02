@@ -26,6 +26,7 @@ import { formToChain } from '@/lib/item-model-form'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { fmtCount, countGap, GAP_CLASS } from '@/lib/count-labels'
 import { atLeast } from '@/lib/roles'
+import { canEditItems } from '@/lib/inventory-redact'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -356,6 +357,8 @@ export default function CountPage() {
   const { user, role } = useUser()
   // Cost and money are manager information (see ROLE_DESCRIPTIONS: staff never see them).
   const seesMoney = role != null && atLeast(role as Parameters<typeof atLeast>[0], 'MANAGER')
+  // "Add item" creates a new priced inventory item — POST /api/inventory is MANAGER+.
+  const canAddItem = role != null && canEditItems(role as Parameters<typeof canEditItems>[0])
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
   const [selectedRcId, setSelectedRcId] = useState<string>('')
 
@@ -2608,9 +2611,11 @@ export default function CountPage() {
             <button onClick={handleSync} disabled={syncing} title="Sync" className="p-1.5 text-ink-3 active:text-ink shrink-0 disabled:opacity-50">
               <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
             </button>
-            <button onClick={openAddItem} title="Add item" className="p-1.5 text-ink-3 active:text-ink shrink-0">
-              <Plus size={16} />
-            </button>
+            {canAddItem && (
+              <button onClick={openAddItem} title="Add item" className="p-1.5 text-ink-3 active:text-ink shrink-0">
+                <Plus size={16} />
+              </button>
+            )}
           </div>
           <div className="flex items-center justify-between mt-1 font-mono text-[10.5px]">
             <span className="text-ink-3"><b className="text-ink font-semibold">{counted}</b> of {total} counted · {total > 0 ? Math.round((counted / total) * 100) : 0}%</span>
@@ -2642,13 +2647,15 @@ export default function CountPage() {
             <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
             Sync
           </button>
-          <button
-            onClick={openAddItem}
-            className="shrink-0 flex items-center gap-1.5 border border-line text-ink-2 font-mono text-[11px] px-3 py-1.5 rounded-[8px] hover:border-ink-3 whitespace-nowrap transition-colors"
-          >
-            <Plus size={13} />
-            Add item
-          </button>
+          {canAddItem && (
+            <button
+              onClick={openAddItem}
+              className="shrink-0 flex items-center gap-1.5 border border-line text-ink-2 font-mono text-[11px] px-3 py-1.5 rounded-[8px] hover:border-ink-3 whitespace-nowrap transition-colors"
+            >
+              <Plus size={13} />
+              Add item
+            </button>
+          )}
           <button
             onClick={() => setView('review')}
             className="shrink-0 bg-ink text-paper text-[12.5px] font-medium px-3 py-1.5 rounded-[8px] hover:bg-ink-2 whitespace-nowrap transition-colors"

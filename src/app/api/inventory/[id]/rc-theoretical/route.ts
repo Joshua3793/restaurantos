@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getTheoreticalStock } from '@/lib/count-expected'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,12 @@ export const dynamic = 'force-dynamic'
 // + purchases + prep + transfers − consumption − wastage), so a pull/transfer shifts
 // these values without any real-stock write. Returns { [rcId]: qtyBase }.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const item = await prisma.inventoryItem.findUnique({ where: { id: params.id }, select: { id: true } })
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
