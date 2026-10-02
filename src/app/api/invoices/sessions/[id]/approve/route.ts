@@ -87,10 +87,11 @@ async function doApprove(
     // center (dropped from per-RC theoretical stock). Default to the default RC.
     const effectiveSessionRcId = session.revenueCenterId ?? defaultRcId
     // The line's effective RC is its own override, else the invoice's active RC.
-    // Only non-default RCs need an allocation row (default RC reads global stockOnHand).
+    // Every RC gets a membership; only non-default RCs get an allocation row
+    // (default RC reads global stockOnHand) — see the upsert loop below.
     const registerAlloc = (itemId: string | null, lineRcId: string | null) => {
       const rcId = lineRcId ?? effectiveSessionRcId
-      if (itemId && rcId && rcId !== defaultRcId) allocPairs.push({ itemId, rcId })
+      if (itemId && rcId) allocPairs.push({ itemId, rcId })
     }
 
     // Offers are keyed by canonical supplier name so OCR name variants
@@ -976,7 +977,7 @@ async function doApprove(
       }
     }
 
-    // ── Register RC stock allocations ───────────────────────────────────
+    // ── Register RC stock allocations + membership ──────────────────────
     // Ensure each (item, non-default RC) pair has a StockAllocation row so the
     // purchased item shows up in that RC's inventory list. Quantity stays at its
     // existing value (0 for a fresh row) — theoretical on-hand fills in from the
@@ -987,12 +988,16 @@ async function doApprove(
         const key = `${rcId}::${itemId}`
         if (seen.has(key)) continue
         seen.add(key)
-        await prisma.stockAllocation.upsert({
-          where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId: itemId } },
-          create: { revenueCenterId: rcId, inventoryItemId: itemId, quantity: 0 },
-          update: {}, // already allocated — leave quantity/par/reorder untouched
-        }).catch((e) => console.error('[approve] stock allocation upsert failed:', e))
-        // Receiving stock into an RC implies membership (so it's countable there).
+        if (rcId !== defaultRcId) {
+          await prisma.stockAllocation.upsert({
+            where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId: itemId } },
+            create: { revenueCenterId: rcId, inventoryItemId: itemId, quantity: 0 },
+            update: {}, // already allocated — leave quantity/par/reorder untouched
+          }).catch((e) => console.error('[approve] stock allocation upsert failed:', e))
+        }
+        // Receiving stock into an RC implies membership (so it's countable there) —
+        // the default RC included: its counts select by membership too, and skipping
+        // it left every item first bought for the Kitchen off the Kitchen count.
         await prisma.itemRevenueCenter.upsert({
           where: { inventoryItemId_revenueCenterId: { inventoryItemId: itemId, revenueCenterId: rcId } },
           create: { inventoryItemId: itemId, revenueCenterId: rcId },
