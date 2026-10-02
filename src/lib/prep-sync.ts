@@ -95,6 +95,23 @@ export async function syncPrepItemFromRecipe(recipeId: string): Promise<void> {
     })
   }
 
+  // Make the linked inventory item countable where the prep is made. Counts select
+  // items by RC membership (ItemRevenueCenter), and nothing else ever tagged a
+  // recipe-created item — so every new prep was missing from every count. A Shared
+  // recipe (no RC) lands in the default RC. Additive only: moving a recipe to
+  // another RC leaves the old membership (a count in progress may still hold it).
+  if (recipe.inventoryItemId) {
+    const rcId = recipe.revenueCenterId
+      ?? (await prisma.revenueCenter.findFirst({ where: { isDefault: true }, select: { id: true } }))?.id
+    if (rcId) {
+      await prisma.itemRevenueCenter.upsert({
+        where: { inventoryItemId_revenueCenterId: { inventoryItemId: recipe.inventoryItemId, revenueCenterId: rcId } },
+        create: { inventoryItemId: recipe.inventoryItemId, revenueCenterId: rcId },
+        update: {},
+      })
+    }
+  }
+
   // Ensure the category is present in PrepSettings.categories (recipe-managed list).
   // ORM upsert with a text[] value — the same proven path the bulk route uses
   // (NOT $executeRaw tagged templates; see CLAUDE.md pgBouncer note). Gated on a miss
