@@ -2039,8 +2039,8 @@ function SupplierLinkCard({
           <IssueBadge kind="supplier">Supplier</IssueBadge>
           <div className="text-[12.5px] text-ink-2 leading-[1.45] min-w-0">
             {supplierName
-              ? <><b className="font-semibold text-ink">&ldquo;{supplierName}&rdquo;</b> isn&rsquo;t linked to a supplier in your directory.</>
-              : 'No supplier was detected on this invoice.'}
+              ? <><b className="font-semibold text-ink">&ldquo;{supplierName}&rdquo;</b> isn&rsquo;t linked to a supplier in your directory — until the supplier is linked, approving records no supplier box and will not change prices on items that already have one.</>
+              : 'No supplier was detected on this invoice — until the supplier is linked, approving records no supplier box and will not change prices on items that already have one.'}
           </div>
         </div>
         <div className="flex gap-1.5 flex-wrap">
