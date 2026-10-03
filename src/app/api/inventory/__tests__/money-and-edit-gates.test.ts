@@ -15,7 +15,7 @@ const ITEM = {
   eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null, stockOnHand: '20000', barcode: '0123',
   supplierPrices: [{ supplierId: 's1', supplier: { id: 's1', name: 'Gordon' } }], storageArea: null, recipe: null,
   invoiceLineItems: [{ id: 'x', unitPrice: '142.5', lineTotal: '285', invoice: { totalAmount: '1903.22' } }],
-  recipeIngredients: [],
+  recipeIngredients: [], lastUpdated: new Date('2026-10-03T10:00:00.000Z'), mergedIntoId: null,
 }
 const OFFER = {
   id: 'o1', supplierName: 'Gordon', supplierId: 's1', isPrimary: true, lastPrice: 142.5, pricePerBaseUnit: 0.01256,
@@ -40,6 +40,14 @@ vi.mock('@/lib/prisma', () => ({
       findFirst: async () => ITEM,
       findMany: async () => [ITEM],
     },
+    // The item drawer's edit-rule facts (src/lib/item-history.ts) — no history here.
+    countLine: { count: async () => 0 },
+    inventorySnapshot: { count: async () => 0 },
+    invoiceScanItem: { count: async () => 0 },
+    recipeIngredient: { count: async () => 0, findMany: async () => [] },
+    wastageLog: { count: async () => 0 },
+    stockTransfer: { count: async () => 0 },
+    inventorySupplierPrice: { count: async () => 1 },
   },
 }))
 vi.mock('@/lib/auth', () => ({
@@ -101,14 +109,17 @@ describe('inventory API — money', () => {
 describe('inventory API — edits are MANAGER+', () => {
   it.each(['STAFF', 'LEAD'] as const)('PUT and DELETE /inventory/[id] refuse %s', async role => {
     currentRole = role
-    expect((await item.PUT(putReq({ packChain: ITEM.packChain, pricing: null }), ctx)).status).toBe(403)
+    const save = { itemName: 'Butter', expectedLastUpdated: ITEM.lastUpdated.toISOString() }
+    expect((await item.PUT(putReq(save), ctx)).status).toBe(403)
     expect((await item.DELETE(getReq(), ctx)).status).toBe(403)
   })
 
   it('PUT /inventory/[id] lets a MANAGER through to validation', async () => {
     currentRole = 'MANAGER'
-    // No packChain → the route's own 400, which proves the role gate passed.
-    expect((await item.PUT(putReq({}), ctx)).status).toBe(400)
+    // No expectedLastUpdated → the route's own 400, which proves the role gate passed.
+    const res = await item.PUT(putReq({}), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('BAD_FIELD')
   })
 
   it('creating an item and switching the primary supplier refuse LEAD', async () => {
