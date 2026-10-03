@@ -50,11 +50,13 @@ interface StockMovement {
   dayKey?: string
   type: MovementType
   qty: number; unit: string; description: string
+  unbridged?: { qty: number; unit: string }
 }
 
 interface StockReconciliation {
   opening: number; additions: number; consumptions: number
   adjustment: number; theoretical: number; unit: string; movementCount: number
+  unbridgedCount?: number
 }
 
 interface StockMovementsResponse {
@@ -974,9 +976,15 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                               <span className="text-ink-4 truncate">{m.description}</span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
-                              <span className={`font-semibold ${isTransfer ? 'text-ink-3' : isPositive ? 'text-green' : 'text-red'}`}>
-                                {isTransfer ? '' : isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
-                              </span>
+                              {m.unbridged ? (
+                                <span className="font-semibold text-gold" title="Not applied — this item has no bridge for this unit">
+                                  {m.unbridged.qty.toFixed(2)} {m.unbridged.unit} · not counted
+                                </span>
+                              ) : (
+                                <span className={`font-semibold ${isTransfer ? 'text-ink-3' : isPositive ? 'text-green' : 'text-red'}`}>
+                                  {isTransfer ? '' : isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
+                                </span>
+                              )}
                               <span className="text-ink-4 w-14 text-right">
                                 {formatDay(m.dayKey, m.date)}
                               </span>
@@ -987,6 +995,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       {stockMovements.movements.length > 12 && (
                         <div className="font-mono text-[10.5px] text-ink-4 text-center pt-1">
                           + {stockMovements.movements.length - 12} earlier movement{stockMovements.movements.length - 12 === 1 ? '' : 's'} since the last count
+                        </div>
+                      )}
+                      {(stockMovements.reconciliation?.unbridgedCount ?? 0) > 0 && (
+                        <div className="font-mono text-[10.5px] text-gold text-center pt-1">
+                          {stockMovements.reconciliation!.unbridgedCount} movement{stockMovements.reconciliation!.unbridgedCount === 1 ? '' : 's'} not counted — set how much one {item.baseUnit === 'each' ? 'each weighs (1 each = ? g)' : 'each of this item measures (1 each = ? g)'} in Edit so they count
                         </div>
                       )}
                     </div>

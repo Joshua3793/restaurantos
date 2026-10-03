@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { convertQty } from '@/lib/uom'
+import { movementQtyBase } from '@/lib/movement-qty'
 import { itemCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
@@ -63,7 +63,7 @@ async function handlePOST(req: NextRequest) {
   // Wastage is an expense, costed like a recipe line: what a base unit actually
   // cost us lately (30-day average across suppliers), LAST when nothing was bought.
   const ppbu = item ? (await itemCost(item.id, 'AVG_30D'))?.pricePerBase ?? 0 : 0
-  const qtyBase = item ? convertQty(parseFloat(qtyWasted), unit, item.baseUnit) : parseFloat(qtyWasted)
+  const qtyBase = item ? movementQtyBase(parseFloat(qtyWasted), unit, item).qtyBase : parseFloat(qtyWasted)
   const costImpact = qtyBase * ppbu
 
   const log = await prisma.wastageLog.create({

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { portionsPerBatch } from '@/lib/recipe-portions'
-import { convertQty } from '@/lib/uom'
+import { movementQtyBase } from '@/lib/movement-qty'
 import { lineCountedBase, countDimsOf } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT } from '@/lib/item-model'
@@ -102,11 +102,11 @@ export async function GET(req: NextRequest) {
       if (ing.inventoryItemId && ing.inventoryItem) {
         // Direct inventory item
         const it = ing.inventoryItem
-        addUsage(it.id, it.itemName, it.baseUnit, lastCost(it), convertQty(qty, ing.unit, it.baseUnit))
+        addUsage(it.id, it.itemName, it.baseUnit, lastCost(it), movementQtyBase(qty, ing.unit, it).qtyBase)
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         // Linked PREP → charge the prep item's own stock and stop (no recursion)
         const prep = ing.linkedRecipe.inventoryItem
-        addUsage(prep.id, prep.itemName, prep.baseUnit, lastCost(prep), convertQty(qty, ing.unit, prep.baseUnit))
+        addUsage(prep.id, prep.itemName, prep.baseUnit, lastCost(prep), movementQtyBase(qty, ing.unit, prep).qtyBase)
       }
     }
   }

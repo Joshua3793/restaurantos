@@ -47,3 +47,10 @@ describe('splitLedger', () => {
     expect(s.consumptions).toBe(0)
   })
 })
+
+describe('splitLedger — unbridged movements', () => {
+  it('an unbridged movement (qtyBase 0) lands in neither column', () => {
+    const s = splitLedger([{ type: 'SALE', qtyBase: 0 }, { type: 'PURCHASE', qtyBase: 10 }])
+    expect(s).toEqual({ additions: 10, consumptions: 0, transferNet: 0 })
+  })
+})

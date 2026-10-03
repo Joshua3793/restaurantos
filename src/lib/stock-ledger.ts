@@ -49,6 +49,8 @@ export interface ItemLedger {
    * Surfaced as its own row rather than silently making the column not add up.
    */
   residualBase: number
+  /** Movements the engine listed but could not apply — the item has no bridge for their unit. */
+  unbridgedCount: number
 }
 
 /** Two figures that must not be compared with `===` after floating-point unit maths. */
@@ -130,5 +132,6 @@ export async function buildItemLedger(itemId: string, rcId?: string | null): Pro
     events,
     theoreticalBase,
     residualBase: Math.abs(residual) < EPSILON ? 0 : residual,
+    unbridgedCount: events.filter(e => e.unbridged).length,
   }
 }
