@@ -39,6 +39,7 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: async () => ITEM,
       findFirst: async () => ITEM,
       findMany: async () => [ITEM],
+      updateMany: async () => ({ count: 1 }),
     },
     // The item drawer's edit-rule facts (src/lib/item-history.ts) — no history here.
     countLine: { count: async () => 0 },
@@ -109,7 +110,8 @@ describe('inventory API — money', () => {
 describe('inventory API — edits are MANAGER+', () => {
   it.each(['STAFF', 'LEAD'] as const)('PUT and DELETE /inventory/[id] refuse %s', async role => {
     currentRole = role
-    const save = { itemName: 'Butter', expectedLastUpdated: ITEM.lastUpdated.toISOString() }
+    // A bad key (stockOnHand) would be a 400 from the route — a 403 proves the role gate runs first.
+    const save = { stockOnHand: 1, expectedLastUpdated: ITEM.lastUpdated.toISOString() }
     expect((await item.PUT(putReq(save), ctx)).status).toBe(403)
     expect((await item.DELETE(getReq(), ctx)).status).toBe(403)
   })

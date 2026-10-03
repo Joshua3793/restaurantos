@@ -26,10 +26,10 @@ export async function postUpdate(
     await syncPrepToInventory(linkedRecipe.id)
   }
 
-  // A manual price edit is a spine write: propagate it to every PREP recipe that
-  // uses this item (directly or transitively) so their costs don't go stale —
-  // same reason the invoice-approve path does. Runs after the own-prep sync above
-  // so a prep item's freshly-derived price also propagates to its parents.
+  // A count-unit or bridge edit can change what a prep recipe costs; propagate.
+  // It reaches every PREP recipe that uses this item (directly or transitively).
+  // Runs after the own-prep sync above so a prep item's freshly-derived price
+  // also propagates to its parents.
   await propagatePrepCostChanges([id])
 
   // If allergens changed, cascade-sync every PREP recipe that uses this item

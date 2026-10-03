@@ -75,8 +75,18 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   if (bad.length) {
     return NextResponse.json({ error: "That field can't be changed here.", code: 'BAD_FIELD', fields: bad }, { status: 400 })
   }
-  if (!body.expectedLastUpdated) {
+  if (!body.expectedLastUpdated || Number.isNaN(new Date(body.expectedLastUpdated).getTime())) {
     return NextResponse.json({ error: 'Reload the item and try again.', code: 'BAD_FIELD', fields: ['expectedLastUpdated'] }, { status: 400 })
+  }
+  // Input hygiene — a present-but-unusable value is refused, never stored.
+  if ('countUnit' in body && (typeof body.countUnit !== 'string' || !body.countUnit.trim())) {
+    return NextResponse.json({ error: 'Pick a count unit.', code: 'BAD_FIELD', fields: ['countUnit'] }, { status: 400 })
+  }
+  if ('itemName' in body && (typeof body.itemName !== 'string' || !body.itemName.trim())) {
+    return NextResponse.json({ error: 'The item needs a name.', code: 'BAD_FIELD', fields: ['itemName'] }, { status: 400 })
+  }
+  if ('allergens' in body && !Array.isArray(body.allergens)) {
+    return NextResponse.json({ error: 'Allergens must be a list.', code: 'BAD_FIELD', fields: ['allergens'] }, { status: 400 })
   }
   const { countUnit, eachMeasureQty, eachMeasureUnit, densityGPerMl } = body
 
@@ -84,7 +94,7 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
     where: { id: params.id },
     select: {
       id: true, itemName: true, allergens: true, countUnit: true, mergedIntoId: true, lastUpdated: true,
-      dimension: true, baseUnit: true, packChain: true, pricing: true, isStocked: true,
+      dimension: true, baseUnit: true, packChain: true, pricing: true,
       eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
       recipe: { select: { id: true, name: true } },
     },
@@ -149,7 +159,11 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
     eachMeasureUnit: hasEachMeasure ? (emValid ? emUnit : null) : before.eachMeasureUnit,
     densityGPerMl: nextDensity,
   })
-  const errors = validateChainItem(ci)
+  // Only the errors THIS save introduces: an item whose stored chain is already
+  // invalid (writers like invoice approve / prep sync never ran the validator)
+  // must still be able to save a name, an allergen or a deactivation.
+  const stored = new Set(validateChainItem(asChainItem(before)))
+  const errors = validateChainItem(ci).filter(e => !stored.has(e))
   if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
   // R7 — before the drawer clears an each-measure it asks which recipes cost
@@ -172,7 +186,15 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
     data.eachMeasureUnit = emValid ? emUnit : null
   }
   if (hasDensity) data.densityGPerMl = nextDensity
-  await prisma.inventoryItem.update({ where: { id: params.id }, data })
+  // The write itself re-checks the version it read, closing the window between
+  // the read-time STALE check and this update.
+  const { count } = await prisma.inventoryItem.updateMany({ where: { id: params.id, lastUpdated: before.lastUpdated }, data })
+  if (count === 0) {
+    return NextResponse.json({
+      error: 'Someone saved this item a moment ago. Reload to see their change before saving yours.',
+      code: 'STALE',
+    }, { status: 409 })
+  }
 
   return await postUpdate(params.id, before.allergens ?? [], body.allergens)
 }

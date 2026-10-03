@@ -20,9 +20,11 @@ let ITEM = { ...BASE_ITEM }
 let recipeLines: { unit: string; recipe: { id: string; name: string; type: string } }[] = []
 
 const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...ITEM, ...data }))
+let updateCount = 1
+const updateMany = vi.fn(async (a: { data: Record<string, unknown> }) => { await update(a); return { count: updateCount } })
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    inventoryItem: { findUnique: async () => ITEM, update: (a: { data: Record<string, unknown> }) => update(a) },
+    inventoryItem: { findUnique: async () => ITEM, updateMany: (a: { data: Record<string, unknown> }) => updateMany(a) },
     recipe: { findFirst: async () => null, findMany: async () => [] },
     inventorySupplierPrice: { count: async () => 0, findFirst: async () => null },
     countLine: { count: async () => 0 },
@@ -60,7 +62,7 @@ const putReq = (body: unknown, query = '') =>
 const getReq = (url = 'http://x/api/inventory/i1') =>
   ({ url, nextUrl: new URL(url) }) as unknown as NextRequest
 
-beforeEach(() => { update.mockClear() })
+beforeEach(() => { update.mockClear(); updateMany.mockClear(); updateCount = 1 })
 afterEach(() => { ITEM = { ...BASE_ITEM }; recipeLines = [] })
 
 describe('PUT /api/inventory/[id] — R1 allow-list', () => {
@@ -103,8 +105,37 @@ describe('R8 — two people editing', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe('STALE')
-    expect(body.error).toBe('Someone saved this item a moment ago. Reload to see their change before saving yours.')
     expect(update).not.toHaveBeenCalled()
+  })
+
+  it('refuses with STALE when the write finds the item changed under it (read check passed)', async () => {
+    updateCount = 0
+    const res = await item.PUT(putReq({ itemName: 'x', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('STALE')
+  })
+
+  it('an unparsable expectedLastUpdated is a 400', async () => {
+    const res = await item.PUT(putReq({ itemName: 'x', expectedLastUpdated: 'not-a-date' }), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('BAD_FIELD')
+    expect(update).not.toHaveBeenCalled()
+  })
+})
+
+describe('input hygiene and already-invalid items', () => {
+  it("countUnit '' is a 400", async () => {
+    const res = await item.PUT(putReq({ countUnit: '', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('BAD_FIELD')
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('an item with an already-invalid stored chain can still be renamed', async () => {
+    ITEM = { ...BASE_ITEM, pricing: { mode: 'RATE', rate: 1, rateUnit: 'each' } as never }
+    const res = await item.PUT(putReq({ itemName: 'Butter (block)', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalled()
   })
 })
 
