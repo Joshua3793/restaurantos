@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 import { PRICING_SELECT } from '@/lib/item-model'
+import { listedPrice, type ChainRow } from '@/lib/cost-basis'
 import { RULE_SELECT, ruleState, type UndoCollector } from '@/lib/invoice/approve-undo'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
@@ -59,7 +60,6 @@ interface InventoryItem {
   id: string
   itemName: string
   pricePerBaseUnit: number
-  purchasePrice: number
   // Chain pricing facts (PRICING_SELECT). The item's stored pack FORMAT is
   // derived from the chain, never from legacy pack columns.
   dimension: string
@@ -319,6 +319,17 @@ export function buildOfferSkuIndex(
   return index
 }
 
+/**
+ * The "was" price shown on a matched line: what THIS supplier charged last time
+ * (its offer's lastPrice), else the primary chain's listed price — box price or
+ * rate — the number the legacy column held. Derived from `pricing`, never the
+ * `purchasePrice` column itself (it drifts).
+ */
+export function previousPriceFor(offer: { lastPrice?: unknown } | null | undefined, item: ChainRow): number {
+  const offerLast = offer?.lastPrice != null ? Number(offer.lastPrice) : NaN
+  return Number.isFinite(offerLast) ? offerLast : listedPrice(item)
+}
+
 function buildMatchResult(
   ocrItem: OcrLineItem,
   bestItem: InventoryItem,
@@ -328,10 +339,9 @@ function buildMatchResult(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   offer?: any | null   // InventorySupplierPrice row for (bestItem, session supplier)
 ): OcrLineItem & MatchResult {
-  // "was" price = what THIS supplier charged last time, when known. Falls back
-  // to the item's purchase price (single-supplier behaviour) otherwise.
-  const offerLastPrice = offer?.lastPrice != null ? Number(offer.lastPrice) : null
-  const previousPrice = offerLastPrice ?? Number(bestItem.purchasePrice)
+  // "was" price = what THIS supplier charged last time, when known; else the
+  // primary chain's listed price (box price or rate — what the legacy column held; see previousPriceFor).
+  const previousPrice = previousPriceFor(offer, { ...bestItem, countUnit: bestItem.countUnit ?? undefined })
   // For per_weight items, the rate ($/kg) is the meaningful price to carry forward —
   // rawUnitPrice is the line total per container (e.g. $292/case) which changes each
   // shipment based on catch-weight and should never overwrite purchasePrice.
@@ -376,7 +386,7 @@ function buildMatchResult(
       // pricePerBaseUnit (which can be stale / mis-scaled).
       const offerHasFormat = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
       const itemFmt       = chainPackFormat(bestItem)
-      const invSidePrice  = offerLastPrice ?? Number(bestItem.purchasePrice)
+      const invSidePrice  = previousPrice
       const invSideQty    = offerHasFormat ? Number(offer.packQty)  : itemFmt.packQty
       const invSideSize   = offerHasFormat ? Number(offer.packSize) : itemFmt.packSize
       const invSideUOM    = offerHasFormat ? (offer.packUOM as string) : itemFmt.packUOM
@@ -455,7 +465,6 @@ export async function matchLineItems(
       id: true,
       itemName: true,
       ...PRICING_SELECT,
-      purchasePrice: true,
     },
   })
 
@@ -514,7 +523,6 @@ export async function matchLineItems(
             id: true,
             itemName: true,
             ...PRICING_SELECT,
-            purchasePrice: true,
           },
         },
       },
@@ -545,7 +553,6 @@ export async function matchLineItems(
               id: true,
               itemName: true,
               ...PRICING_SELECT,
-              purchasePrice: true,
             },
           },
         },

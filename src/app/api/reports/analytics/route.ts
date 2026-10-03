@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { volatilityOf, stabilityOf, scanLinePricePerBase, offerPricePerBase } from '@/lib/supplier-offers'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 import { fetchRecipeWithCost, dishServingCost } from '@/lib/recipeCosts'
 import { dedupeSalesEntries } from '@/lib/sales-dedup'
@@ -305,7 +306,7 @@ async function getInventory(ctx: Ctx) {
   // Inventory value by category (RC-aware current stock)
   const byCategory: Record<string, { value: number; count: number }> = {}
   for (const i of items) {
-    const val = effStock(i) * pricePerBaseUnit(asChainItem(i))
+    const val = effStock(i) * lastCost(i)
     if (!byCategory[i.category]) byCategory[i.category] = { value: 0, count: 0 }
     byCategory[i.category].value += val
     byCategory[i.category].count++
@@ -313,7 +314,7 @@ async function getInventory(ctx: Ctx) {
 
   // Top value items (RC-aware current stock)
   const topValueItems = items
-    .map(i => ({ ...i, invValue: effStock(i) * pricePerBaseUnit(asChainItem(i)) }))
+    .map(i => ({ ...i, invValue: effStock(i) * lastCost(i) }))
     .sort((a, b) => b.invValue - a.invValue)
     .slice(0, 10)
     .map(i => ({ name: i.itemName, category: i.category, supplier: i.supplier?.name ?? '—', value: i.invValue, stock: effStock(i) }))
@@ -325,7 +326,7 @@ async function getInventory(ctx: Ctx) {
     value: Number(s.totalCountedValue),
   })).reverse()
 
-  const totalValue = items.reduce((s, i) => s + effStock(i) * pricePerBaseUnit(asChainItem(i)), 0)
+  const totalValue = items.reduce((s, i) => s + effStock(i) * lastCost(i), 0)
 
   return {
     summary: { totalValue, totalItems: items.length, notCounted30, priceChanges: priceAlerts.length, priceIncreases: priceIncreases.length, priceDecreases: priceDecreases.length },

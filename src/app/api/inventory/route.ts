@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
   DIMENSION_BASE,
-  validateChainItem, withPpb, dimensionOf, type ChainItem,
+  validateChainItem, dimensionOf, type ChainItem,
 } from '@/lib/item-model'
+import { withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
@@ -115,7 +116,7 @@ async function handlePOST(req: NextRequest) {
       .catch(e => console.error('[inventory POST] membership create', e))
   }
 
-  return NextResponse.json(withPpb(item), { status: 201 })
+  return NextResponse.json(withLastCost(item), { status: 201 })
 }
 
 // Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).

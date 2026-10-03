@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,7 +71,7 @@ export async function GET(_req: NextRequest) {
 
   // Top by inventory value
   const ranked = items.map(it => {
-    const ppb = pricePerBaseUnit(asChainItem(it))
+    const ppb = lastCost(it)
     return {
       id: it.id,
       name: it.itemName,
@@ -113,7 +114,7 @@ export async function GET(_req: NextRequest) {
         itemName: r.inventoryItem!.itemName,
         recipeId: r.id,
         recipeName: r.name,
-        pricePerBaseUnit: pricePerBaseUnit(asChainItem(r.inventoryItem!)),
+        pricePerBaseUnit: lastCost(r.inventoryItem!),
         lastUpdated: r.inventoryItem!.lastUpdated,
       })),
   }, {

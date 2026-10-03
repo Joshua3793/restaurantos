@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPrepMap, buildPurchaseMap, buildWastageMap, buildCountFinalizedMap, buildTransferMap } from '@/lib/count-expected'
 import { MovementLedger } from '@/lib/ledger-balance'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 import { seesCountMoney, redactAreaMoney } from '@/lib/count-redact'
@@ -84,7 +85,7 @@ export async function GET(req: NextRequest) {
   for (const it of items) {
     if (!it.storageAreaId) continue   // unassigned items are only reachable via a full count
     const cur = agg.get(it.storageAreaId) ?? { itemCount: 0, onHandValue: 0, drift: 0, lastCountDate: null }
-    const price = pricePerBaseUnit(asChainItem(it))
+    const price = lastCost(it)
     const bs = baseStock(it)
     cur.itemCount += 1
     cur.onHandValue += bs * price

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
-  DIMENSION_BASE, validateChainItem, withPpb, dimensionOf, eachMeasureOf, densityOf,
+  DIMENSION_BASE, validateChainItem, dimensionOf, eachMeasureOf, densityOf,
   type ChainItem, type Pricing,
 } from '@/lib/item-model'
 import { keepBridgedRate } from '@/lib/item-model-form'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
-import { windowedAvgCost } from '@/lib/cost-basis'
+import { windowedAvgCost, withLastCost } from '@/lib/cost-basis'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
@@ -40,7 +40,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // null for a PREP-linked item — windowedAvgCost never averages those (its cost
   // comes from the recipe, not invoice receipts).
   const costBasis = item.recipe ? null : (await windowedAvgCost([item.id])).get(item.id) ?? null
-  const body = { ...withPpb(item), costBasis }
+  const body = { ...withLastCost(item), costBasis }
   // STAFF opens this drawer from the count page — quantities and units only.
   return NextResponse.json(seesItemMoney(user.role) ? body : redactInventoryItem(body))
 }
@@ -225,7 +225,7 @@ async function postUpdate(
     where: { id },
     include: { supplier: true, storageArea: true },
   })
-  return NextResponse.json(updated ? withPpb(updated) : updated)
+  return NextResponse.json(updated ? withLastCost(updated) : updated)
 }
 
 async function handleDELETE(_req: NextRequest, { params }: { params: { id: string } }) {

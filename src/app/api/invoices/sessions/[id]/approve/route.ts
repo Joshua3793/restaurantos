@@ -10,7 +10,8 @@ import { getUnitConv } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
-import { dimensionOf, pricePerBaseUnit, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
+import { dimensionOf, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { resolveLineFormat, pickOffer, supplierOffers, type OfferFormat } from '@/lib/invoice/line-format'
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
@@ -534,12 +535,13 @@ async function doApprove(
         // offer chain (see casePricePerBase / spineNewPpb above). Quoting the
         // offer's ppb next to the item's oldPpb would state a % the item never moved.
         //
-        // Read through `itemAsChain`, never a hand-built ChainItem: that one
+        // Read through the item ROW (via `lastCost`, same normalisation as
+        // `itemAsChain` above), never a hand-built ChainItem: that one
         // carried no BRIDGES, and an item whose own pricing is a bridged RATE
         // (`$3.49/lb` on an item counted in `each` — what this route can now write)
         // would read 0 there. An oldPpb of 0 silently suppresses the PriceAlert and
         // reports a 0 % change on a price that moved.
-        const oldPpb = pricePerBaseUnit(itemAsChain)
+        const oldPpb = lastCost({ ...item, baseUnit: item.baseUnit ?? 'each', countUnit: item.countUnit ?? undefined })
         const writtenPpb = spineNewPpb ?? newPricePerBase
         const changePct = oldPpb > 0 ? ((writtenPpb - oldPpb) / oldPpb) * 100 : 0
         if (scanItem.matchedItemId) priorPpbByItem.set(scanItem.matchedItemId, oldPpb)
@@ -1214,7 +1216,7 @@ async function doApprove(
       })
       for (const p of prepOutputs) {
         if (p.inventoryItem && !priorPpbByItem.has(p.inventoryItem.id)) {
-          priorPpbByItem.set(p.inventoryItem.id, pricePerBaseUnit(asChainItem(p.inventoryItem)))
+          priorPpbByItem.set(p.inventoryItem.id, lastCost(p.inventoryItem))
         }
       }
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { withLastCost } from '@/lib/cost-basis'
 
 export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get('q')?.trim() ?? ''
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
 
   // Keep the response's inventory[].pricePerBaseUnit field populated by
   // computing it from the chain (survives the legacy column drop).
-  const inventory = inventoryRaw.map(i => ({ ...i, pricePerBaseUnit: pricePerBaseUnit(asChainItem(i)) }))
+  const inventory = inventoryRaw.map(i => withLastCost(i))
 
   // Compute totalCost for each recipe the same way the recipes API does
   const recipes = rawRecipes.map(recipe => {

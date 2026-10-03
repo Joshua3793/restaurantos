@@ -1,6 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
-vi.mock('@/lib/prisma', () => ({ prisma: {} }))
-import { foldCostBasis, costWindow, COST_WINDOW_DAYS } from '@/lib/cost-basis'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const { db } = vi.hoisted(() => ({
+  db: { inventoryItem: { findMany: vi.fn() }, invoiceScanItem: { findMany: vi.fn() } }
+}))
+
+vi.mock('@/lib/prisma', () => ({ prisma: db }))
+import { foldCostBasis, costWindow, COST_WINDOW_DAYS, listedPrice } from '@/lib/cost-basis'
 
 const L = (rawLineTotal: unknown, receivedQtyBase: unknown) => ({ rawLineTotal, receivedQtyBase })
 
@@ -57,4 +62,76 @@ describe('costWindow', () => {
     expect(w.gte.toISOString()).toBe('2026-08-22T00:00:00.000Z')
     expect(COST_WINDOW_DAYS).toBe(30)
   })
+})
+
+import { lastCost, withLastCost, purchaseUnitCost, itemCosts, itemCost } from '@/lib/cost-basis'
+
+// Butter: 1 case = 11,350 g at $142.50 → $0.012555…/g
+const BUTTER = {
+  id: 'i1', dimension: 'MASS', baseUnit: 'g', countUnit: 'case',
+  packChain: [{ unit: 'case', per: 11350 }], pricing: { mode: 'PACK', purchasePrice: 142.5 },
+  eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null, recipe: null,
+}
+// Salmon: priced $28.60/kg, chain 1 lb = 453.6 g (purchase unit is a pound)
+const SALMON = {
+  id: 'i2', dimension: 'MASS', baseUnit: 'g', countUnit: 'lb',
+  packChain: [{ unit: 'lb', per: 453.6 }], pricing: { mode: 'RATE', rate: 28.6, rateUnit: 'kg' },
+  eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null, recipe: null,
+}
+
+describe('lastCost / withLastCost', () => {
+  it('lastCost is the primary chain price per base unit', () => {
+    expect(lastCost(BUTTER)).toBeCloseTo(142.5 / 11350, 9)
+    expect(lastCost(SALMON)).toBeCloseTo(28.6 / 1000, 9)
+  })
+  it('withLastCost attaches pricePerBaseUnit and keeps every other field', () => {
+    const out = withLastCost(BUTTER)
+    expect(out.pricePerBaseUnit).toBeCloseTo(142.5 / 11350, 9)
+    expect(out.packChain).toBe(BUTTER.packChain)
+  })
+})
+
+describe('purchaseUnitCost — the price of ONE top-of-chain unit', () => {
+  it('PACK: the box price', () => {
+    expect(purchaseUnitCost(BUTTER)).toBeCloseTo(142.5, 9)
+  })
+  it('RATE: rate × base units in one purchase unit (a pound of $28.60/kg salmon is $12.97, not $28.60)', () => {
+    expect(purchaseUnitCost(SALMON)).toBeCloseTo(28.6 * 0.4536, 6)
+  })
+})
+
+describe('itemCosts / itemCost', () => {
+  beforeEach(() => { db.inventoryItem.findMany.mockReset(); db.invoiceScanItem.findMany.mockReset() })
+
+  it('LAST: one findMany, every id priced from its chain', async () => {
+    db.inventoryItem.findMany.mockResolvedValueOnce([BUTTER, SALMON])
+    const m = await itemCosts(['i1', 'i2'], 'LAST')
+    expect(m.get('i1')).toEqual({ basis: 'LAST', pricePerBase: lastCost(BUTTER) })
+    expect(m.get('i2')).toEqual({ basis: 'LAST', pricePerBase: lastCost(SALMON) })
+    expect(db.invoiceScanItem.findMany).not.toHaveBeenCalled()
+  })
+
+  it('AVG_30D: averages receipts in the window and falls back to LAST with reason prep-linked for a prep output', async () => {
+    const PREP = { ...SALMON, id: 'p1', recipe: { id: 'r1' } }
+    // windowedAvgCost: items (recipe: null) then lines; the fill-in query for prep-linked ids
+    db.inventoryItem.findMany
+      .mockResolvedValueOnce([BUTTER])                 // windowedAvgCost items (recipe: null)
+      .mockResolvedValueOnce([PREP])                   // fill-in for ids it did not return
+    db.invoiceScanItem.findMany.mockResolvedValueOnce([
+      { matchedItemId: 'i1', rawLineTotal: '100', receivedQtyBase: '10000' },  // $0.01/g
+    ])
+    const m = await itemCosts(['i1', 'p1'], 'AVG_30D')
+    expect(m.get('i1')).toMatchObject({ basis: 'AVG_30D', pricePerBase: 0.01 })
+    expect(m.get('p1')).toEqual({ basis: 'LAST', pricePerBase: lastCost(PREP), fallbackReason: 'prep-linked' })
+  })
+
+  it('itemCost returns null for an unknown id', async () => {
+    db.inventoryItem.findMany.mockResolvedValueOnce([])
+    expect(await itemCost('nope', 'LAST')).toBeNull()
+  })
+})
+
+describe('listedPrice — the number the legacy purchasePrice column held', () => {
+  it('PACK: the box price', () => { expect(listedPrice(BUTTER)).toBe(142.5) })
+  it('RATE: the rate itself, not the purchase-unit cost', () => { expect(listedPrice(SALMON)).toBe(28.6) })
 })

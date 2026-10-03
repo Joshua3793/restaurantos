@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost, withLastCost } from '@/lib/cost-basis'
 import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
 
 export const dynamic = 'force-dynamic'
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
       },
     })
     if (!item) return NextResponse.json([])
-    return out([{ ...item, pricePerBaseUnit: pricePerBaseUnit(asChainItem(item)) }])
+    return out([withLastCost(item)])
   }
 
   const words = q.split(/\s+/).filter(w => w.length > 1)
@@ -105,7 +106,7 @@ export async function GET(req: NextRequest) {
     }
     return {
       ...rest,
-      pricePerBaseUnit: pricePerBaseUnit(asChainItem(i)),
+      pricePerBaseUnit: lastCost(i),
       ...(withUsage && _count
         ? { recipeCount: _count.recipeIngredients, purchaseCount: _count.invoiceMatches, stockOnHand: Number(stockOnHand) }
         : {}),

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
-import { windowedAvgCost } from '@/lib/cost-basis'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost, windowedAvgCost } from '@/lib/cost-basis'
 
 // Fuzzy score: how well does `query` match `target`?
 // Returns 0–100. Handles case, partial words, abbreviations.
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
     id: item.id,
     name: item.itemName,
     unit: item.baseUnit,
-    pricePerBaseUnit: basis.get(item.id)?.pricePerBase ?? pricePerBaseUnit(asChainItem(item)),
+    pricePerBaseUnit: basis.get(item.id)?.pricePerBase ?? lastCost(item),
     costBasis: basis.get(item.id)?.basis ?? 'LAST',
     category: item.category,
     _score: q ? fuzzyScore(q, item.itemName) : 100,
@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
     // in the synced item's canonical baseUnit (g/ml), so a kg-yield prep priced
     // per-g must report `g` here or the client costs the line 1000× too low.
     unit: recipe.inventoryItem?.baseUnit ?? recipe.yieldUnit,
-    pricePerBaseUnit: recipe.inventoryItem ? pricePerBaseUnit(asChainItem(recipe.inventoryItem)) : 0,
+    pricePerBaseUnit: recipe.inventoryItem ? lastCost(recipe.inventoryItem) : 0,
     // Deliberate deviation: prep results keep the spine value (LAST) instead of
     // recursing into the averaged nested cost — recursing 50 preps per keystroke
     // isn't worth it while typing, and the saved recipe already shows the averaged

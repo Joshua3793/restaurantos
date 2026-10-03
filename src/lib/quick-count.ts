@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { computeExpectedForItem } from '@/lib/count-expected'
 import { finalizeCountSession, type FinalizeSummary } from '@/lib/count-finalize'
 import { assertCountableUom, countDimsOf, CountUomError } from '@/lib/count-uom'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 
 export type QuickCountResult =
   | { ok: true; sessionId: string; expectedBase: number; summary: FinalizeSummary }
@@ -59,7 +59,7 @@ export async function recordQuickCount(a: {
           countedQty:      a.countedQty,
           selectedUom:     a.selectedUom,
           countedQtyBase:  a.countedQty * uomFactor,
-          priceAtCount:    pricePerBaseUnit(asChainItem(item)),
+          priceAtCount:    lastCost(item),
           sortOrder:       0,
         }],
       },
