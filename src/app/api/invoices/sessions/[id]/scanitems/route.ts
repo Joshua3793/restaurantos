@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     include: {
       matchedItem: {
         select: {
-          id: true, itemName: true,
+          id: true, itemName: true, lastUpdated: true,
           ...PRICING_SELECT,
         },
       },

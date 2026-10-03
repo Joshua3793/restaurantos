@@ -28,6 +28,9 @@ export interface InventoryMatch {
   eachMeasureQty: string | number | null
   eachMeasureUnit: string | null
   densityGPerMl: string | number | null
+  /** The item's row version — a bridge save names it (a mismatch → 409 STALE).
+   *  Absent on a match staged from search; the save reads it fresh then. */
+  lastUpdated?: string
   supplierPrices?: Array<{
     id: string
     supplierName: string

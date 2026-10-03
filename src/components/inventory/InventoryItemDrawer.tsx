@@ -93,6 +93,15 @@ interface InventoryItem {
   eachMeasureUnit?: string | null
   // Density bridge
   densityGPerMl?: number | string | null
+  // Edit rules (GET /api/inventory/[id]) — what the drawer may offer to change.
+  /** Counts, deliveries or recipes are recorded in its measure → measure locked. */
+  hasHistory?: boolean
+  /** Supplier boxes — with any, the price and pack live on the box. */
+  offerCount?: number
+  /** Recipes that cost this item only through its "1 each = N g" bridge. */
+  bridgeUsedBy?: { id: string; name: string; type: string }[]
+  /** The row version every save names (a mismatch → 409 STALE). */
+  lastUpdated?: string
 }
 
 interface EditForm {
@@ -103,7 +112,6 @@ interface EditForm {
   chain: PackLink[]
   pricing: Pricing
   countUnit: string
-  stockOnHand: string
   isActive: boolean
   isStocked: boolean
   allergens: string[]
@@ -131,12 +139,26 @@ function chainFromItem(item: InventoryItem): Pick<EditForm, 'dimension' | 'chain
   return { dimension, chain, pricing, countUnit }
 }
 
+/** Did the form change what the item IS or costs (measure, pack, price)? Those
+ *  go through the pricing route, never the item edit. Compared field by field so
+ *  a key-order or string-number difference is not mistaken for an edit. */
+function chainChanged(item: InventoryItem, f: EditForm): boolean {
+  const c = chainFromItem(item)
+  const priceKey = (p: Pricing) => p.mode === 'PACK'
+    ? `PACK:${Number(p.purchasePrice)}`
+    : `RATE:${Number(p.rate)}:${p.rateUnit}`
+  const chainKey = (ch: PackLink[]) => ch.map(l => `${l.unit}:${Number(l.per)}`).join('|')
+  return c.dimension !== f.dimension
+    || chainKey(c.chain) !== chainKey(f.chain)
+    || priceKey(c.pricing) !== priceKey(f.pricing)
+}
+
+const MEASURE_WORD: Record<Dimension, string> = { MASS: 'weight', VOLUME: 'volume', COUNT: 'each' }
+
 // Build a fresh EditForm (chain pricing + non-pricing fields) from an item.
+// Stock is not on the form: it changes only through a count.
 function buildEditForm(item: InventoryItem): EditForm {
   const c = chainFromItem(item)
-  const ci = { dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain, pricing: c.pricing, countUnit: c.countUnit }
-  const perCount = basePerUnit(ci, c.countUnit) || 1
-  const stockInCountUnit = Number(item.stockOnHand) / perCount
   return {
     itemName: item.itemName,
     category: item.category,
@@ -146,7 +168,6 @@ function buildEditForm(item: InventoryItem): EditForm {
     chain: c.chain,
     pricing: c.pricing,
     countUnit: c.countUnit,
-    stockOnHand: String(parseFloat(stockInCountUnit.toFixed(4))),
     isActive: item.isActive,
     isStocked: item.isStocked ?? true,
     allergens: item.allergens ?? [],
@@ -303,7 +324,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     storageAreaId: '', storageAreaName: '',
     dimension: 'COUNT', chain: [...DEFAULT_CHAIN], pricing: { ...DEFAULT_PRICING },
     countUnit: 'each',
-    stockOnHand: '0', isActive: true, isStocked: true, allergens: [], barcode: null,
+    isActive: true, isStocked: true, allergens: [], barcode: null,
     eachMeasureQty: null, eachMeasureUnit: 'g',
     densityGPerMl: null,
   })
@@ -352,55 +373,112 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     setEditMode(true)
   }
 
-  const handleSave = async () => {
+  // R8 — someone else saved this item since the form loaded: reload the row and
+  // rebuild the form from it, staying in edit mode.
+  const reloadForEdit = async () => {
     if (!item) return
-    setSaving(true)
-    // Chain item for the conversion: stock is entered in countUnit, stored in base.
-    const ci = {
-      dimension: editForm.dimension,
-      baseUnit: DIMENSION_BASE[editForm.dimension],
-      packChain: editForm.chain,
-      pricing: editForm.pricing,
-      countUnit: editForm.countUnit,
-    }
-    const perCount = basePerUnit(ci, editForm.countUnit) || 1
-    const stockInBase = (parseFloat(editForm.stockOnHand) || 0) * perCount
-    const res = await fetch(`/api/inventory/${item.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        itemName: editForm.itemName,
-        category: editForm.category,
-        storageAreaId: editForm.storageAreaId || null,
-        // Chain shape (new body) — route derives all legacy fields.
-        dimension: editForm.dimension,
-        packChain: editForm.chain,
-        pricing: editForm.pricing,
-        countUnit: editForm.countUnit,
-        stockOnHand: stockInBase,
-        isActive: editForm.isActive,
-        isStocked: editForm.isStocked,
-        allergens: editForm.allergens,
-        barcode: editForm.barcode,
-        // Count↔weight bridge (only meaningful when dimension === 'COUNT').
-        eachMeasureQty: editForm.eachMeasureQty,
-        eachMeasureUnit: editForm.eachMeasureUnit,
-        // Density bridge (only meaningful for measured items).
-        densityGPerMl: editForm.densityGPerMl,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      alert(err?.error ?? `Save failed (${res.status}). Please try again.`)
-      setSaving(false)
+    const fresh = await fetch(`/api/inventory/${item.id}`).then(r => (r.ok ? r.json() : null)).catch(() => null)
+    if (!fresh) return
+    const n = normalizeItem(fresh)
+    setItem(n)
+    setEditForm(buildEditForm(n))
+    setEditMode(true)
+  }
+
+  /** A save was refused: a clash reloads; anything else shows the server's words. */
+  const saveFailed = async (res: Response) => {
+    const err = await res.json().catch(() => null)
+    if (res.status === 409 && err?.code === 'STALE') {
+      alert('Someone saved this item a moment ago. Reloading…')
+      await reloadForEdit()
       return
     }
-    const updated = await res.json()
-    const next = normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
-    setItem(next)
-    setEditMode(false)
-    setSaving(false)
-    onUpdated?.(next)
+    alert(err?.error ?? `Save failed (${res.status}). Please try again.`)
+  }
+
+  const handleSave = async () => {
+    if (!item) return
+    // R3/R4 — the measure, pack and price are the item's own only while it has
+    // no supplier box and no recipe; they save through the pricing route, after
+    // the item edit, naming the version that edit returned. When they change,
+    // the count unit rides with them (it may name a pack level the new chain adds,
+    // which the item edit — validated against the STORED chain — would refuse).
+    const patchPricing = !item.recipe && (item.offerCount ?? 0) === 0 && chainChanged(item, editForm)
+    // R1 — the item edit takes these keys and nothing else (no stock, no chain).
+    // R6 — a recipe-made item's name, allergens and count unit belong to the
+    // recipe: they are not sent at all (the form's count unit is the RESOLVED
+    // one, which can differ from the stored value and would read as a change).
+    const prep = !!item.recipe
+    const body: Record<string, unknown> = {
+      ...(prep ? {} : { itemName: editForm.itemName, allergens: editForm.allergens }),
+      category: editForm.category,
+      storageAreaId: editForm.storageAreaId || null,
+      isActive: editForm.isActive,
+      isStocked: editForm.isStocked,
+      barcode: editForm.barcode,
+      ...(prep || patchPricing ? {} : { countUnit: editForm.countUnit }),
+      // Count↔weight bridge ("1 each = N g/ml") and the density bridge.
+      eachMeasureQty: editForm.eachMeasureQty,
+      eachMeasureUnit: editForm.eachMeasureUnit,
+      densityGPerMl: editForm.densityGPerMl,
+      expectedLastUpdated: item.lastUpdated,
+    }
+    const put = (dryRun: boolean) => fetch(`/api/inventory/${item.id}${dryRun ? '?dryRun=1' : ''}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    setSaving(true)
+    try {
+      // R7 — clearing "1 each = ? g" zeroes every recipe that costs this item by
+      // weight through it. Ask first, naming them.
+      const clearsBridge = item.eachMeasureQty != null && Number(item.eachMeasureQty) > 0
+        && !(Number(editForm.eachMeasureQty) > 0)
+      if (clearsBridge) {
+        const dry = await put(true)
+        if (!dry.ok) { await saveFailed(dry); return }
+        const { bridgeUsedBy = [] } = (await dry.json()) as { bridgeUsedBy?: { name: string }[] }
+        const names = bridgeUsedBy.map(r => r.name)
+        const n = names.length
+        if (n > 0 && !confirm(`${names.join(', ')} use${n === 1 ? 's' : ''} this item by weight. Without "1 each = ? g" they will cost $0 until fixed. Remove it anyway?`)) return
+      }
+
+      const res = await put(false)
+      if (!res.ok) { await saveFailed(res); return }
+      let updated = await res.json()
+
+      if (patchPricing) {
+        const pr = await fetch(`/api/inventory/${item.id}/pricing`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dimension: editForm.dimension,
+            packChain: editForm.chain,
+            pricing: editForm.pricing,
+            countUnit: editForm.countUnit,
+            expectedLastUpdated: updated.lastUpdated,
+          }),
+        })
+        if (!pr.ok) {
+          // The item edit landed — keep its row (and its new version) so a retry
+          // names the right one; the form keeps the price being fixed.
+          const kept = normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
+          setItem(kept)
+          onUpdated?.(kept)
+          await saveFailed(pr)
+          return
+        }
+        updated = await pr.json()
+      }
+
+      const next = normalizeItem({ ...item, ...updated, supplier: updated.supplier, storageArea: updated.storageArea })
+      setItem(next)
+      setEditMode(false)
+      onUpdated?.(next)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // The same refetch SupplierOffersSection's onRepriced already performs —
@@ -437,7 +515,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <input
                     value={editForm.itemName}
                     onChange={e => setEditForm(f => ({ ...f, itemName: e.target.value }))}
-                    className="w-full font-semibold text-ink border border-line rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                    disabled={!!item.recipe}
+                    title={item.recipe ? `Named by the recipe ${item.recipe.name}` : undefined}
+                    className="w-full font-semibold text-ink border border-line rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold disabled:bg-bg disabled:text-ink-3"
                   />
                 ) : (
                   <h2 className="font-medium text-ink text-[19px] leading-[1.15] tracking-[-0.02em] truncate">{item.itemName}</h2>
@@ -575,13 +655,19 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 {item.recipe && (
                   <div className="bg-blue-soft border border-blue-soft rounded-lg px-3 py-2 text-xs text-blue-text flex items-start gap-2">
                     <span className="text-blue mt-0.5">⟳</span>
-                    <span><strong>Price is managed by recipe:</strong> {item.recipe.name}. Edit the recipe to change costs. You can only change Count UOM and stock fields here.</span>
+                    <span>Made from the recipe <strong>{item.recipe.name}</strong>: its name, allergens, count unit and price are set there.</span>
                   </div>
                 )}
 
-                {/* Pricing chain (hidden for PREP-linked items — managed by recipe sync).
-                    Pricing mode first (top-level choice), then dimension, then chain. */}
-                {!item.recipe && (
+                {/* R3 — with a supplier box the price and pack live on the box. */}
+                {!item.recipe && (item.offerCount ?? 0) > 0 && (
+                  <p className="text-xs text-ink-3 bg-bg-2 rounded-lg px-3 py-2">Price and pack come from its supplier boxes below.</p>
+                )}
+
+                {/* Pricing chain — only an item with no recipe and no supplier box
+                    owns its price. Pricing mode first (top-level choice), then
+                    dimension, then chain. */}
+                {!item.recipe && (item.offerCount ?? 0) === 0 && (
                   <div className="space-y-3">
                     <PricingEditor
                       dimension={editForm.dimension}
@@ -589,17 +675,24 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       onChange={pricing => setEditForm(f => ({ ...f, pricing }))}
                     />
 
-                    <DimensionToggle
-                      dimension={editForm.dimension}
-                      onChange={d => setEditForm(f => {
-                        // Switching dimension invalidates pricing rateUnit + may invalidate countUnit.
-                        const pricing: Pricing = f.pricing.mode === 'RATE'
-                          ? { mode: 'RATE', rate: f.pricing.rate, rateUnit: DIM_UNITS[d][0] }
-                          : f.pricing
-                        const opts = countUnitOptions(d, f.chain)
-                        return { ...f, dimension: d, pricing, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
-                      })}
-                    />
+                    {/* R4 — the measure is locked once counts, deliveries or recipes use it. */}
+                    {item.hasHistory ? (
+                      <p className="text-xs text-ink-3">
+                        Measured in {MEASURE_WORD[editForm.dimension]} — locked because it has counts, deliveries or recipes. (Change how it&rsquo;s measured: coming next.)
+                      </p>
+                    ) : (
+                      <DimensionToggle
+                        dimension={editForm.dimension}
+                        onChange={d => setEditForm(f => {
+                          // Switching dimension invalidates pricing rateUnit + may invalidate countUnit.
+                          const pricing: Pricing = f.pricing.mode === 'RATE'
+                            ? { mode: 'RATE', rate: f.pricing.rate, rateUnit: DIM_UNITS[d][0] }
+                            : f.pricing
+                          const opts = countUnitOptions(d, f.chain)
+                          return { ...f, dimension: d, pricing, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
+                        })}
+                      />
+                    )}
 
                     <PackChainEditor
                       chain={editForm.chain}
@@ -675,20 +768,37 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   </div>
                 )}
 
-                {/* Stock + Count fields */}
+                {/* Count unit + stock. R2 — stock is read-only here: it changes
+                    only through a count (or receipts, wastage, transfers). */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-ink-3 mb-1">Count unit</label>
                     <select value={editForm.countUnit} onChange={e => setEditForm(f => ({ ...f, countUnit: e.target.value }))}
-                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white">
+                      disabled={!!item.recipe}
+                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white disabled:bg-bg disabled:text-ink-3">
+                      {/* a stored count unit outside the options stays selectable, or the select would swap it */}
+                      {!countUnitOptions(editForm.dimension, editForm.chain).includes(editForm.countUnit) && (
+                        <option value={editForm.countUnit}>{editForm.countUnit}</option>
+                      )}
                       {countUnitOptions(editForm.dimension, editForm.chain).map(u => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand ({editForm.countUnit})</label>
-                    <input type="number" step="any" value={editForm.stockOnHand}
-                      onChange={e => setEditForm(f => ({ ...f, stockOnHand: e.target.value }))}
-                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold" />
+                    <div className="block text-xs font-medium text-ink-3 mb-1">Stock</div>
+                    <div className="flex items-center gap-2">
+                      <span className="flex-1 min-w-0 text-sm text-ink-2 py-2 truncate">
+                        On hand: {parseFloat(displayStock(item).toFixed(2)).toLocaleString()} {resolveCountUom(itemChainDims(item)) || item.baseUnit}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowQuick(true)}
+                        disabled={!activeRc}
+                        title={activeRc ? `Count it now (${activeRc.name})` : 'Pick a revenue center to count'}
+                        className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ClipboardCheck size={12} /> Count now
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -708,6 +818,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 <div>
                   <label className="block text-xs font-medium text-ink-3 mb-2">Allergens (Health Canada Big 9)</label>
                   <AllergenToggles
+                    disabled={!!item.recipe}
                     active={new Set(editForm.allergens)}
                     onToggle={key => setEditForm(f => ({
                       ...f,
@@ -736,8 +847,6 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   }
                   const ppbu = isPrep ? Number(item.pricePerBaseUnit ?? 0) : pricePerBaseUnit(ci)
                   const perCount = basePerUnit(ci, editForm.countUnit)
-                  const stockQty = parseFloat(editForm.stockOnHand) || 0
-                  const stockVal = stockQty * perCount * ppbu
                   return (
                     <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-blue-soft' : 'bg-gold-soft'}`}>
                       <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-blue-text' : 'text-gold-2'}`}>
@@ -750,11 +859,6 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       <div className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>
                         1 {editForm.countUnit} = {perCount.toLocaleString()} {ci.baseUnit}
                       </div>
-                      {stockQty > 0 && (
-                        <div className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>
-                          Stock value: <span className="font-semibold">{formatCurrency(stockVal)}</span>
-                        </div>
-                      )}
                     </div>
                   )
                 })()}
@@ -1055,7 +1159,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
               <QuickCountSheet
                 item={item}
                 onClose={() => setShowQuick(false)}
-                onDone={() => { setShowQuick(false); onUpdated?.() }}
+                // Refetch the row: the count moves its stock and its version, so an
+                // open edit form saves against the fresh one (the form is kept).
+                onDone={() => { setShowQuick(false); refreshItem() }}
               />
             )}
 

@@ -32,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       supplier: { select: { name: true } },
       files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, displayRotation: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
-        include: { matchedItem: { select: { id: true, itemName: true, ...PRICING_SELECT, supplierPrices: true } } },
+        include: { matchedItem: { select: { id: true, itemName: true, lastUpdated: true, ...PRICING_SELECT, supplierPrices: true } } },
         orderBy: { sortOrder: 'asc' },
       },
       priceAlerts: {
