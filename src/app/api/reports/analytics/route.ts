@@ -231,7 +231,7 @@ async function getInventory(ctx: Ctx) {
       select: {
         id: true, itemName: true, category: true,
         stockOnHand: true, ...PRICING_SELECT,
-        purchasePrice: true, lastCountDate: true,
+        lastCountDate: true,
         ...PRIMARY_SUPPLIER_INCLUDE,
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },
       },

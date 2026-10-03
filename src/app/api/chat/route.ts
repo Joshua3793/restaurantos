@@ -60,7 +60,6 @@ export async function POST(req: NextRequest) {
           itemName: true,
           category: true,
           stockOnHand: true,
-          purchasePrice: true,
           ...PRICING_SELECT,
           lastCountDate: true,
         },

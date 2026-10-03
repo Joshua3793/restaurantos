@@ -67,7 +67,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         id: l.id,
         itemName:    l.inventoryItem.itemName,
         category:    l.inventoryItem.category,
-        location:    l.inventoryItem.location ?? l.inventoryItem.storageArea?.name ?? null,
+        location:    l.inventoryItem.storageArea?.name ?? null,
         expectedQty: Number(l.expectedQty),
         countedQty:  Number(l.countedQty),
         carriedForward: l.carriedForward,

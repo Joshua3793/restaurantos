@@ -3,6 +3,7 @@ import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { listedPrice, type ChainRow } from '@/lib/cost-basis'
+import { offerListedPrice } from '@/lib/offer-price'
 import { RULE_SELECT, ruleState, type UndoCollector } from '@/lib/invoice/approve-undo'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
@@ -307,13 +308,13 @@ export function buildOfferSkuIndex(
 
 /**
  * The "was" price shown on a matched line: what THIS supplier charged last time
- * (its offer's lastPrice), else the primary chain's listed price — box price or
+ * (its offer's listed price), else the primary chain's listed price — box price or
  * rate — the number the legacy column held. Derived from `pricing`, never the
  * `purchasePrice` column itself (it drifts).
  */
-export function previousPriceFor(offer: { lastPrice?: unknown } | null | undefined, item: ChainRow): number {
-  const offerLast = offer?.lastPrice != null ? Number(offer.lastPrice) : NaN
-  return Number.isFinite(offerLast) ? offerLast : listedPrice(item)
+export function previousPriceFor(offer: { pricing?: unknown } | null | undefined, item: ChainRow): number {
+  const offerLast = offer ? offerListedPrice(offer) : 0
+  return offerLast > 0 ? offerLast : listedPrice(item)
 }
 
 function buildMatchResult(

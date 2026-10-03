@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { withLastCost } from '@/lib/cost-basis'
+import { listedPrice, withLastCost } from '@/lib/cost-basis'
 
 // POST /api/invoices/sessions/[id]/scanitems — manually add a line item
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       matchedItem: {
         select: {
           id: true, itemName: true,
-          ...PRICING_SELECT, purchasePrice: true,
+          ...PRICING_SELECT,
         },
       },
     },
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // Keep the response's matchedItem.pricePerBaseUnit field populated for the
   // drawer by computing it from the chain (survives the legacy column drop).
   const out = item.matchedItem
-    ? { ...item, matchedItem: withLastCost(item.matchedItem) }
+    ? { ...item, matchedItem: { ...withLastCost(item.matchedItem), purchasePrice: listedPrice(item.matchedItem) } }
     : item
 
   return NextResponse.json(out, { status: 201 })

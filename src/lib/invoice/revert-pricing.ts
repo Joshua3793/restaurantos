@@ -4,7 +4,7 @@
 //
 // What the rollback has to work with:
 //  • `InvoiceScanItem.previousPrice` — a bare NUMBER, captured at MATCH time as
-//    `offer.lastPrice ?? listedPrice(item)` (`previousPriceFor` in
+//    `offerListedPrice(offer) || listedPrice(item)` (`previousPriceFor` in
 //    invoice-matcher.ts — the chain's box price or rate). It is
 //    therefore the price in whatever denomination that source used: a per-case
 //    price for a pack-priced item/offer, a $/kg rate for a rate-priced one.

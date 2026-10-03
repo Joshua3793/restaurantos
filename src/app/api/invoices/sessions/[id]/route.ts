@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { withLastCost } from '@/lib/cost-basis'
+import { listedPrice, withLastCost } from '@/lib/cost-basis'
+import { offerListedPrice } from '@/lib/offer-price'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
 import { deleteSession, RollbackRefused } from '@/lib/invoice/rollback-load'
@@ -31,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       supplier: { select: { name: true } },
       files: { select: { id: true, fileName: true, fileType: true, fileUrl: true, ocrStatus: true, displayRotation: true }, orderBy: { createdAt: 'asc' } },
       scanItems: {
-        include: { matchedItem: { select: { id: true, itemName: true, ...PRICING_SELECT, purchasePrice: true, supplierPrices: true } } },
+        include: { matchedItem: { select: { id: true, itemName: true, ...PRICING_SELECT, supplierPrices: true } } },
         orderBy: { sortOrder: 'asc' },
       },
       priceAlerts: {
@@ -54,8 +55,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const supplierPrices = mi.supplierPrices.map(o => ({
       ...o,
       pricePerBaseUnit: offerPricePerBase(o, mi),
+      lastPrice: offerListedPrice(o), // computed from pricing, not the column
     }))
-    return { ...si, matchedItem: { ...withLastCost(mi), supplierPrices } }
+    return { ...si, matchedItem: { ...withLastCost(mi), purchasePrice: listedPrice(mi), supplierPrices } }
   })
   return NextResponse.json({ ...session, scanItems })
 }

@@ -7,7 +7,7 @@
  */
 import { type User } from '@prisma/client'
 import { prisma } from './prisma'
-import { lastCost } from '@/lib/cost-basis'
+import { lastCost, listedPrice } from '@/lib/cost-basis'
 import { getTheoreticalStockMapCached } from './theoretical-cache'
 import { getCountedStockMap, type CountedStock } from './counted-stock'
 import { resolveScopedRcIds } from './rc-scope'
@@ -24,7 +24,6 @@ export interface InventoryListParams {
   /** location lens — narrows "All" to the revenue centres under this location */
   locationId: string
   includeNonStocked: boolean
-  needsReview: boolean
 }
 
 export interface InventoryListRow {
@@ -46,7 +45,7 @@ export interface InventoryListRow {
   countedDateScoped: string | null
   pricePerBaseUnit: number
   parLevel?: number | null
-  // packChain, pricing, purchasePrice, stockOnHand, lastCountQty and the rest of the
+  // packChain, pricing, purchasePrice (computed), stockOnHand, lastCountQty and the rest of the
   // Prisma row ride along untyped, exactly as the route returned them. `supplier` and
   // `supplierId` are derived from the item's primary supplier box (withSupplier).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,7 +71,6 @@ export function parseInventoryListParams(searchParams: URLSearchParams): Invento
     isDefault:         searchParams.get('isDefault') === 'true',
     locationId:        searchParams.get('locationId') || '',
     includeNonStocked: searchParams.get('includeNonStocked') === 'true',
-    needsReview:       searchParams.get('needsReview') === 'true',
   }
 }
 
@@ -128,6 +126,9 @@ function attachTheoreticalFields<T extends Record<string, any>>(
       countedDateScoped: scopedCount ? scopedCount.date    : null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pricePerBaseUnit: lastCost(item as any),
+      // Computed from the chain's pricing, not a column (the column is retired).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      purchasePrice: listedPrice(item as any),
     }
   })
 }
@@ -140,7 +141,7 @@ export async function fetchInventoryList(
   user: User,
   params: InventoryListParams,
 ): Promise<{ rows: InventoryListRow[]; outOfScope: boolean }> {
-  const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, locationId, includeNonStocked, needsReview } = params
+  const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, locationId, includeNonStocked } = params
 
   // Inventory items carry no revenueCenterId column (RC association lives in
   // StockAllocation / ItemRevenueCenter), so scopedRcWhere does not apply to the
@@ -181,7 +182,6 @@ export async function fetchInventoryList(
       // more, and nothing may be done to them but undo, from the survivor.
       { mergedIntoId: null },
       includeNonStocked ? {} : { isStocked: true },
-      needsReview ? { needsReview: true } : {},
     ],
   }
 

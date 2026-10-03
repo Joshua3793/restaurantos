@@ -5,8 +5,8 @@ const lettuce = { baseUnit: 'each', eachMeasureQty: '250', eachMeasureUnit: 'g' 
 
 describe('offerPriceLabel', () => {
   it('labels a RATE offer with its real unit and a PACK offer per case', () => {
-    expect(offerPriceLabel({ lastPrice: 5.25, pricing: { mode: 'RATE', rate: 5.25, rateUnit: 'lb' } })).toBe('$5.25/lb')
-    expect(offerPriceLabel({ lastPrice: 46.4, pricing: { mode: 'PACK', purchasePrice: 46.4 } })).toBe('$46.40/case')
+    expect(offerPriceLabel({ pricing: { mode: 'RATE', rate: 5.25, rateUnit: 'lb' } })).toBe('$5.25/lb')
+    expect(offerPriceLabel({ pricing: { mode: 'PACK', purchasePrice: 46.4 } })).toBe('$46.40/case')
   })
 })
 
@@ -21,5 +21,5 @@ describe('offerDerivation', () => {
 })
 
 it('shows a raw scanner unit token canonically', () => {
-  expect(offerPriceLabel({ lastPrice: 5.25, pricing: { mode: 'RATE', rate: 5.25, rateUnit: 'LB' } })).toBe('$5.25/lb')
+  expect(offerPriceLabel({ pricing: { mode: 'RATE', rate: 5.25, rateUnit: 'LB' } })).toBe('$5.25/lb')
 })

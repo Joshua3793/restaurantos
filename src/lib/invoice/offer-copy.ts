@@ -4,6 +4,7 @@
 
 import { formatCurrency } from '@/lib/utils'
 import { dimensionOf } from '@/lib/item-model'
+import { offerListedPrice } from '@/lib/offer-price'
 import { canonicalUom } from '@/lib/uom'
 
 /** The stored rate unit can be a raw scanner token ('LB') — show the canonical one. */
@@ -30,10 +31,10 @@ export interface ItemForOfferCopy {
  * base unit, which may be a different dimension entirely. "$70.30/case" for a
  * PACK offer (or anything else): the case price is all a pack offer has.
  */
-export function offerPriceLabel(o: { lastPrice: number; pricing: unknown }): string {
+export function offerPriceLabel(o: { pricing: unknown }): string {
   const p = o.pricing as OfferPricingShape | null
   if (p?.mode === 'RATE') return `${formatCurrency(Number(p.rate))}/${unitLabel(p.rateUnit)}`
-  return `${formatCurrency(Number(o.lastPrice))}/case`
+  return `${formatCurrency(offerListedPrice(o))}/case`
 }
 
 /**

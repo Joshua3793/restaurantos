@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
       where: { isActive: true, isStocked: true },
       select: {
         id: true, itemName: true, category: true,
-        stockOnHand: true, ...PRICING_SELECT, purchasePrice: true,
+        stockOnHand: true, ...PRICING_SELECT,
         lastCountDate: true,
         ...PRIMARY_SUPPLIER_INCLUDE,
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },

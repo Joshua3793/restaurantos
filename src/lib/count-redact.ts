@@ -25,6 +25,7 @@ export function nullKeys<T extends object, K extends PropertyKey>(obj: T, keys: 
 }
 
 /** The item's price itself, the legacy purchase price, and the computed $/base. */
+// `purchasePrice` is computed (listedPrice from pricing), not a column.
 export const ITEM_MONEY_KEYS = ['pricing', 'purchasePrice', 'pricePerBaseUnit'] as const
 /** The line's frozen price and its $ variance. */
 export const LINE_MONEY_KEYS = ['priceAtCount', 'varianceCost'] as const

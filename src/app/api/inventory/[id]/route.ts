@@ -6,7 +6,7 @@ import {
 } from '@/lib/item-model'
 import { keepBridgedRate } from '@/lib/item-model-form'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
-import { windowedAvgCost, withLastCost } from '@/lib/cost-basis'
+import { listedPrice, windowedAvgCost, withLastCost } from '@/lib/cost-basis'
 import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
@@ -41,7 +41,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // null for a PREP-linked item — windowedAvgCost never averages those (its cost
   // comes from the recipe, not invoice receipts).
   const costBasis = item.recipe ? null : (await windowedAvgCost([item.id])).get(item.id) ?? null
-  const body = { ...withLastCost(withSupplier(item)), costBasis }
+  const body = { ...withLastCost(withSupplier(item)), purchasePrice: listedPrice(item), costBasis }
   // STAFF opens this drawer from the count page — quantities and units only.
   return NextResponse.json(seesItemMoney(user.role) ? body : redactInventoryItem(body))
 }
@@ -227,7 +227,7 @@ async function postUpdate(
     where: { id },
     include: { ...PRIMARY_SUPPLIER_INCLUDE, storageArea: true },
   })
-  return NextResponse.json(updated ? withLastCost(withSupplier(updated)) : updated)
+  return NextResponse.json(updated ? { ...withLastCost(withSupplier(updated)), purchasePrice: listedPrice(updated) } : updated)
 }
 
 async function handleDELETE(_req: NextRequest, { params }: { params: { id: string } }) {

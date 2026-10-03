@@ -4,7 +4,7 @@ import {
   DIMENSION_BASE,
   validateChainItem, dimensionOf, type ChainItem,
 } from '@/lib/item-model'
-import { withLastCost } from '@/lib/cost-basis'
+import { listedPrice, withLastCost } from '@/lib/cost-basis'
 import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { offerListedPrice } from '@/lib/offer-price'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -147,7 +147,7 @@ async function handlePOST(req: NextRequest) {
       .catch(e => console.error('[inventory POST] membership create', e))
   }
 
-  return NextResponse.json(withLastCost(withSupplier(item)), { status: 201 })
+  return NextResponse.json({ ...withLastCost(withSupplier(item)), purchasePrice: listedPrice(item) }, { status: 201 })
 }
 
 // Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
