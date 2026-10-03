@@ -835,6 +835,27 @@ async function doApprove(
               },
             }),
           )
+          // The PRIMARY box must equal the item: same chain (the item's own,
+          // preserved by the spine write above), same pricing. Without this the
+          // box keeps the chain built from the invoice's printed pack — which may
+          // be OCR noise inside packFormatsDisagree's tolerance — and a later
+          // setPrimaryOffer would copy that drift onto the item. Undo for this box
+          // was already captured at the upsert (offerCaptureFor → undo.before /
+          // undo.created); flushUndo reads its `next` after this transaction.
+          if (writtenOfferId) {
+            itemOps.push(
+              prisma.inventorySupplierPrice.update({
+                where: { id: writtenOfferId },
+                data: {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  packChain:   (item.packChain ?? []) as any,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  pricing:     newPricing as any,
+                  lastUpdated: new Date(),
+                },
+              }),
+            )
+          }
           // PriceAlert on the SPINE ($/base) basis — old ppb → new ppb — so the
           // stored previousPrice/newPrice/changePct stay consistent and every inbox
           // renderer agrees (see the oldPpb/changePct computation above).
@@ -862,7 +883,7 @@ async function doApprove(
 
         await prisma.$transaction(itemOps)
         if (shouldReprice) updatedItemIds.push(scanItem.matchedItemId)
-        // The item was priced FROM the primary box above; nothing flows back.
+        // The item re-priced from this line; its PRIMARY box must equal the item (same chain, same pricing) — written in itemOps above. A non-primary supplier's box keeps its own invoice pack.
         // Every write this line makes has landed — read each touched row's `next`.
         await flushUndo()
         registerLineAllocs(scanItem.matchedItemId, scanItem)

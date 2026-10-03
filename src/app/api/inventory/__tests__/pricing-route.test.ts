@@ -102,6 +102,15 @@ describe('PATCH /api/inventory/[id]/pricing', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
+  it('R4 — allows a same-measure chain/price edit on an item with history and no boxes', async () => {
+    countLineCount = 3
+    const res = await pricing.PATCH(patchReq(VALID), ctx)
+    expect(res.status).toBe(200)
+    expect(update.mock.calls[0][0].data).toMatchObject({
+      dimension: 'MASS', baseUnit: 'g', packChain: VALID.packChain, pricing: VALID.pricing,
+    })
+  })
+
   it('R4 — allows a measure change with no history and no boxes', async () => {
     const res = await pricing.PATCH(patchReq({
       ...VALID, dimension: 'COUNT', packChain: [{ unit: 'case', per: 24 }], countUnit: 'case',

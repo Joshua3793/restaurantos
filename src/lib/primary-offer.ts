@@ -1,8 +1,10 @@
 // src/lib/primary-offer.ts
 //
-// The primary-offer invariant: an InventoryItem with ≥1 InventorySupplierPrice
-// row has EXACTLY ONE row with isPrimary=true, and the item's packChain/pricing
-// (the $ spine) equal that primary offer's. The item's dimension/baseUnit (its
+// The primary-offer invariant: an item with ≥1 box has exactly one primary, and
+// the item's packChain/pricing EQUAL the primary box's. Kept by: approve (writes
+// the primary box = item on the line that re-prices), setPrimaryOffer/
+// syncPrimaryOfferToItem (copies the box onto the item). Nothing flows item→box
+// from a manual edit any more (Stage 2a). The item's dimension/baseUnit (its
 // physical identity) never change with supplier; only the pack FORMAT + price do.
 //
 // Items with NO offers (PREP-linked, manual, non-stocked) keep authoring their
