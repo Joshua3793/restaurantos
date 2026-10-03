@@ -9,6 +9,8 @@ import { seesCountMoney, redactSummaryMoney } from '@/lib/count-redact'
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
 export const dynamic = 'force-dynamic'
+// Headroom only — finalize is a handful of statements now, well under a second.
+export const maxDuration = 60
 
 // POST /api/count/sessions/:id/finalize
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
