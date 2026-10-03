@@ -259,7 +259,6 @@ function InventoryPageInner() {
   const [showBulkMenu,      setShowBulkMenu]      = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showBulkAllergen, setShowBulkAllergen] = useState(false)
-  const [countedFlash,  setCountedFlash]  = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   // totalCountedValue is the value of the lines that were actually counted (incl.
   // "Same as last" confirmations) — blank lines never enter it. `counts` says how
@@ -603,18 +602,6 @@ function InventoryPageInner() {
     }
     setItems(prev => prev.filter(i => i.id !== id))
     if (selected?.id === id) setSelected(null)
-  }
-
-  const markCounted = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation()
-    // Optimistic update — turn green immediately
-    setItems(prev => prev.map(it =>
-      it.id === id ? { ...it, lastCountDate: new Date().toISOString() } : it
-    ))
-    setCountedFlash(id)
-    setTimeout(() => setCountedFlash(null), 2000)
-    await fetch(`/api/inventory/count/${id}`, { method: 'POST' })
-    fetchItems()
   }
 
   const handleAdd = async (e: React.FormEvent) => {

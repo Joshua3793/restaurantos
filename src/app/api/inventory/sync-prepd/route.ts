@@ -18,9 +18,9 @@ export const dynamic = 'force-dynamic'
  */
 export async function POST() {
   // API routes bypass middleware, so this guards itself — it creates inventory
-  // items and rewrites every PREP item's cost. Matches the sibling maintenance
+  // items and rewrites every PREP item's cost, so it is MANAGER+. Matches the sibling maintenance
   // route at /api/prep/sync-from-recipes.
-  try { await requireSession() }
+  try { await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

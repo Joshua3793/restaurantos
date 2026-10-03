@@ -140,6 +140,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 // Hard delete — cleans up references before removing the row
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  // Deleting a recipe removes its sales lines and deactivates its linked item —
+  // MANAGER+ (API routes bypass middleware, so the handler guards itself).
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const id = params.id
   try {
     let deactivatedItemId: string | null = null
