@@ -46,7 +46,7 @@ interface DeletePlan {
 // Verbatim — the clone tooltip and the 409 `deleteSession` throws both read this.
 const CLONE_MESSAGE = 'This is an RC copy — delete the original invoice instead'
 const LEGACY_SENTENCE =
-  'Approved before rollback records existed — price reverts are best-effort; supplier prices and learned matches are not restored.'
+  'Approved before rollback records existed — price reverts are best-effort (an item with supplier boxes keeps its main box’s price); supplier prices and learned matches are not restored.'
 
 const plural = (n: number, word: string, pluralWord = `${word}s`) => (n === 1 ? word : pluralWord)
 

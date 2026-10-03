@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule, previousPriceFor, inventorySideFormat } from '@/lib/invoice-matcher'
+import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule, previousPriceFor, inventorySideFormat, inventorySidePrice } from '@/lib/invoice-matcher'
 
 describe('capAliasConfidence', () => {
   it('caps a HIGH match won only through an alias down to MEDIUM', () => {
@@ -210,5 +210,34 @@ describe('inventorySideFormat — the pack behind the "was" price', () => {
 
   it("no box → the item's chain", () => {
     expect(inventorySideFormat(null, ITEM)).toEqual({ packQty: 1, packSize: 1000, packUOM: 'g' })
+  })
+
+  it('a three-level pack multiplies EVERY level above the leaf (4 × 6 × 1 = 24, not 4)', () => {
+    expect(inventorySideFormat({ ...PRICED, packChain: [{ unit: 'case', per: 4 }, { unit: 'pack', per: 6 }, { unit: 'each', per: 1 }] }, { ...ITEM, baseUnit: 'each' }))
+      .toEqual({ packQty: 24, packSize: 1, packUOM: 'each' })
+  })
+})
+
+describe('inventorySidePrice — the "was" price per one unit, in its own unit', () => {
+  const ITEM = { dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 10 } }
+
+  it('a rate-priced box keeps its rate unit ($8 per kg stays per kg, never per gram)', () => {
+    const box = { pricing: { mode: 'RATE', rate: 8, rateUnit: 'kg' }, packChain: [{ unit: 'kg', per: 1000 }] }
+    expect(inventorySidePrice(box, ITEM)).toEqual({ pricePerUnit: 8, unit: 'kg' })
+  })
+
+  it('a pack-priced box is spread over its own pack ($40 per 4 × 2500 g → $0.004 per g)', () => {
+    const box = { pricing: { mode: 'PACK', purchasePrice: 40 }, packChain: [{ unit: 'case', per: 4 }, { unit: 'bag', per: 2500 }] }
+    expect(inventorySidePrice(box, ITEM)).toEqual({ pricePerUnit: 40 / 10000, unit: 'g' })
+  })
+
+  it("no priced box → the item's own price over the item's chain ($10 per 1000 g)", () => {
+    expect(inventorySidePrice(null, ITEM)).toEqual({ pricePerUnit: 0.01, unit: 'g' })
+    expect(inventorySidePrice({ pricing: null, packChain: [{ unit: 'case', per: 4 }] }, ITEM)).toEqual({ pricePerUnit: 0.01, unit: 'g' })
+  })
+
+  it("a rate-priced item with no box keeps the item's rate unit", () => {
+    const item = { ...ITEM, pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } }
+    expect(inventorySidePrice(null, item)).toEqual({ pricePerUnit: 3.49, unit: 'lb' })
   })
 })

@@ -84,9 +84,34 @@ function chainPackFormat(item: { packChain: unknown; baseUnit: string }): PackFo
   const chain = Array.isArray(item.packChain) ? (item.packChain as { unit: string; per: number }[]) : []
   if (chain.length === 0) return { packQty: 1, packSize: 1, packUOM: item.baseUnit }
   const leaf = chain[chain.length - 1]
-  const packQty = chain.length >= 2 ? Number(chain[0].per) : 1
+  // Every level above the leaf multiplies into the pack count — a three-level
+  // pack `[case 4, pack 6, each 1]` is 24 of the leaf, not 4.
+  const packQty = chain.slice(0, -1).reduce((acc, l) => acc * Number(l.per || 0), 1)
   const packSize = Number(leaf.per)
   return { packQty, packSize, packUOM: item.baseUnit }
+}
+
+/**
+ * The "was" price (`previousPriceFor`) expressed per ONE unit, in the unit it
+ * is actually quoted in — so the price comparison never pairs a $/kg rate with
+ * a pack total or a gram label:
+ *   - a RATE price ($8 per kg) is already per unit → { 8, 'kg' }
+ *   - a PACK price ($40 per case of 4 × 2500 g) → { 40 / 10000, 'g' } over the
+ *     pack that price belongs to (`inventorySideFormat`)
+ * The pricing read is the same one `previousPriceFor` picks: the box's when it
+ * has a listed price, else the item's.
+ */
+export function inventorySidePrice(
+  offer: { pricing?: unknown; packChain?: unknown; packQty?: unknown; packSize?: unknown; packUOM?: unknown } | null | undefined,
+  item: ChainRow & { packChain: unknown; baseUnit: string },
+): { pricePerUnit: number; unit: string } {
+  const price = previousPriceFor(offer, item)
+  const pricing = (offer && offerListedPrice(offer) > 0 ? offer.pricing : item.pricing) as
+    { mode?: string; rateUnit?: string } | null | undefined
+  if (pricing?.mode === 'RATE' && pricing.rateUnit) return { pricePerUnit: price, unit: pricing.rateUnit }
+  const fmt = inventorySideFormat(offer, item)
+  const total = fmt.packQty * fmt.packSize
+  return { pricePerUnit: total > 0 ? price / total : 0, unit: fmt.packUOM }
 }
 
 type PackFormat = { packQty: number; packSize: number; packUOM: string }
@@ -394,20 +419,15 @@ function buildMatchResult(
       // per-UOM purchase price (which, for a UOM-priced item, IS the rate).
       const invoicePricePerPackUOM = isPerWeight ? rawUnitPrice : rawUnitPrice / total  // e.g. $2.756/L
       const invoiceUnit = isPerWeight ? (ocrItem.rateUOM ?? format.packUOM) : format.packUOM
-      // Inventory side of the comparison: the "was" price over the pack that
-      // price belongs to — the supplier's own box chain when the price is the
-      // box's, else the item's (inventorySideFormat). Recomputed from raw
-      // fields so we never rely on a stored pricePerBaseUnit.
-      const invSideFmt    = inventorySideFormat(offer, bestItem)
-      const invSidePrice  = previousPrice
-      const invSideUOM    = invSideFmt.packUOM
-      const invPackTotal  = invSideFmt.packQty * invSideFmt.packSize
-      const invPricePerPackUOM = isPerWeight
-        ? invSidePrice
-        : (invPackTotal > 0 ? invSidePrice / invPackTotal : 0)
+      // Inventory side of the comparison: the "was" price per ONE unit, in the
+      // unit it is quoted in — a rate keeps its own unit ($8 per kg stays per
+      // kg), a pack price is spread over the pack it belongs to (the supplier's
+      // own box chain when the price is the box's, else the item's). Recomputed
+      // from raw fields so we never rely on a stored pricePerBaseUnit.
+      const invSide = inventorySidePrice(offer, { ...bestItem, countUnit: bestItem.countUnit ?? undefined })
       const normalized = comparePricesNormalized(
         invoicePricePerPackUOM, invoiceUnit,       // invoice: $/packUOM
-        invPricePerPackUOM,     invSideUOM         // inventory: $/packUOM (recomputed)
+        invSide.pricePerUnit,   invSide.unit       // inventory: $/unit (recomputed)
       )
       if (normalized) {
         priceDiffPct = normalized.pctDiff
