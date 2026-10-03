@@ -47,7 +47,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
         orderBy: { createdAt: 'desc' },
       }),
       prisma.inventoryItem.findMany({
-        where: { supplierId: id },
+        where: { supplierPrices: { some: { supplierId: id } } },
         orderBy: { itemName: 'asc' },
         select: { id: true, itemName: true, ...PRICING_SELECT },
       }),

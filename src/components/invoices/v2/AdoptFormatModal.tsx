@@ -71,8 +71,9 @@ export function AdoptFormatModal({
     if (!item || !itemId) return
     setSaving(true); setError(null)
     try {
-      // Minimal PUT body: the change + the two scalars PUT force-writes (it nulls
-      // supplierId/storageAreaId when absent). Omitted columns stay untouched.
+      // Minimal PUT body: the change + the scalar PUT force-writes (it nulls
+      // storageAreaId when absent). Omitted columns stay untouched. No supplierId:
+      // PUT strips it — an item's supplier is its primary box's supplier.
       const res = await fetch(`/api/inventory/${itemId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -82,7 +83,6 @@ export function AdoptFormatModal({
           pricing:   offer.pricing,
           countUnit,
           stockOnHand:   0,
-          supplierId:    item.supplierId ?? null,
           storageAreaId: item.storageAreaId ?? null,
         }),
       })

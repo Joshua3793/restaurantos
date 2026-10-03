@@ -7,11 +7,10 @@ export async function GET() {
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
   const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
 
-  const [suppliers, monthAgg, prevMonthAgg, invoiceAgg] = await Promise.all([
+  const [suppliers, monthAgg, prevMonthAgg, invoiceAgg, boxPairs] = await Promise.all([
     prisma.supplier.findMany({
       orderBy: { name: 'asc' },
       include: {
-        _count: { select: { inventory: true } },
         aliases: { select: { id: true, name: true }, orderBy: { createdAt: 'asc' } },
       },
     }),
@@ -38,7 +37,17 @@ export async function GET() {
       where: { status: 'APPROVED', supplierId: { not: null } },
       _count: true,
     }),
+    // An item belongs to a supplier through its supplier boxes (the retired
+    // InventoryItem.supplierId is no longer read): one row per distinct
+    // (supplier, item) pair, counted per supplier below.
+    prisma.inventorySupplierPrice.groupBy({
+      by: ['supplierId', 'inventoryItemId'],
+      where: { inventoryItem: { isActive: true } },
+    }),
   ])
+
+  const itemCounts = new Map<string, number>()
+  for (const r of boxPairs) itemCounts.set(r.supplierId, (itemCounts.get(r.supplierId) ?? 0) + 1)
 
   const monthMap = Object.fromEntries(monthAgg.map(r => [r.supplierId, Number(r._sum.total ?? 0)]))
   const prevMap = Object.fromEntries(prevMonthAgg.map(r => [r.supplierId, Number(r._sum.total ?? 0)]))
@@ -46,6 +55,7 @@ export async function GET() {
 
   const result = suppliers.map(s => ({
     ...s,
+    _count: { inventory: itemCounts.get(s.id) ?? 0 },
     monthSpend: monthMap[s.id] ?? 0,
     prevMonthSpend: prevMap[s.id] ?? 0,
     invoiceCount: countMap[s.id] ?? 0,

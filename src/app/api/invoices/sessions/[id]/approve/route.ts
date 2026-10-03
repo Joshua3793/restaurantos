@@ -962,7 +962,10 @@ async function doApprove(
         // like the offer upsert above: a failure is logged, never fails the approval.
         const boxSupplierId: string | null = newData.supplierId || session.supplierId || null
         if (boxSupplierId) {
-          const box = await prisma.inventorySupplierPrice.create({
+          // The invoice's item code and session belong on the box only when the box
+          // is the invoice's own supplier; a different supplier never issued them.
+          const sameSupplier = boxSupplierId === session.supplierId
+          const box = await (async () => prisma.inventorySupplierPrice.create({
             data: {
               inventoryItemId:      created.id,
               supplierId:           boxSupplierId,
@@ -974,11 +977,11 @@ async function doApprove(
               packChain:            newChain.packChain as any,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               pricing:              newChain.pricing as any,
-              supplierItemCode:     scanItem.supplierItemCode ?? null,
-              lastInvoiceSessionId: sessionId,
+              supplierItemCode:     sameSupplier ? (scanItem.supplierItemCode ?? null) : null,
+              lastInvoiceSessionId: sameSupplier ? sessionId : null,
             },
             select: { id: true },
-          }).catch((e) => { console.error('[approve] CREATE_NEW supplier box failed:', e); return null })
+          }))().catch((e) => { console.error('[approve] CREATE_NEW supplier box failed:', e); return null })
           if (box) undo.created('OFFER', box.id)
         }
         updatedItemIds.push(created.id)

@@ -49,7 +49,17 @@ const PRICING_OR_FORM_SHAPE = /\bmode:|qtyUOM|priceType|purchaseUnit:/
 // on an item/offer row mean the dropped column; the receivers below are the
 // pricing JSON and item-form shapes that legitimately carry a same-named field.
 const SERVER_ONLY = (rel: string) => rel.startsWith('app/api/') || rel.startsWith('lib/')
-const JSON_OR_FORM_RECEIVER = new Set(['p', 'f', 'row', 'form', 'addItemForm', 'newData', 'pricing'])
+const JSON_OR_FORM_RECEIVER = new Set(['form', 'addItemForm', 'newData', 'pricing'])
+// Short receivers are exempt only in the files where they are known to hold a
+// pricing JSON / form / import-row shape, so a stray `row.purchasePrice` or
+// `p.lastPrice` elsewhere still fails the gate.
+const FILE_RECEIVERS: Record<string, string[]> = {
+  'lib/inventory-import.ts': ['row'],
+  'lib/cost-basis.ts': ['p'],
+  'lib/offer-price.ts': ['p'],
+  'lib/invoice/line-format.ts': ['p'],
+  'lib/item-model-form.ts': ['f'],
+}
 const FIELD_READ = /\b(\w+)\??\.(purchasePrice|lastPrice|needsReview)\b/g
 const ITEM_LOCATION_READ = /\b(item|inventoryItem|matchedItem|existing)\??\.location\b/
 
@@ -66,9 +76,9 @@ function offenders(test: (rel: string, line: string) => boolean): string[] {
   return out
 }
 
-function readsStaleField(line: string): boolean {
+function readsStaleField(rel: string, line: string): boolean {
   if (ITEM_LOCATION_READ.test(line)) return true
-  for (const m of line.matchAll(FIELD_READ)) if (!JSON_OR_FORM_RECEIVER.has(m[1])) return true
+  for (const m of line.matchAll(FIELD_READ)) if (!JSON_OR_FORM_RECEIVER.has(m[1]) && !FILE_RECEIVERS[rel]?.includes(m[1])) return true
   return false
 }
 
@@ -82,6 +92,6 @@ describe('stale columns stay unread', () => {
   })
 
   it('no reader takes a stale column off a row', () => {
-    expect(offenders((rel, l) => SERVER_ONLY(rel) && readsStaleField(l))).toEqual([])
+    expect(offenders((rel, l) => SERVER_ONLY(rel) && readsStaleField(rel, l))).toEqual([])
   })
 })
