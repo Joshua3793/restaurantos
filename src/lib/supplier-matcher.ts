@@ -36,7 +36,7 @@ function tokenise(name: string): string[] {
  *   "Fresh Direct" vs "Fresh Direct Ltd" → ["fresh","direct"] ⊂ ["fresh","direct"]     → 1.0
  *   "Premium Meats" vs "Quality Produce" → 0 overlap                                   → 0.0
  */
-function coverageScore(a: string, b: string): number {
+export function coverageScore(a: string, b: string): number {
   const ta = tokenise(a)
   const tb = tokenise(b)
   if (ta.length === 0 || tb.length === 0) return 0
