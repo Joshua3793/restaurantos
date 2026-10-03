@@ -72,6 +72,14 @@ describe('buildOfferSkuIndex — (supplier, SKU) → item from one supplier\'s r
     expect(idx).toEqual(new Map([['123', 'item1']]))
   })
 
+  it('a merged item with several SKUs indexes every one of them', () => {
+    const idx = buildOfferSkuIndex([
+      { supplierId: 's1', supplierItemCode: 'S-100', inventoryItemId: 'item1' },
+      { supplierId: 's1', supplierItemCode: 'S-200', inventoryItemId: 'item1' },
+    ])
+    expect(idx).toEqual(new Map([['S-100', 'item1'], ['S-200', 'item1']]))
+  })
+
   it('null and empty supplierItemCode values are ignored', () => {
     const idx = buildOfferSkuIndex([
       { supplierId: 's1', supplierItemCode: null, inventoryItemId: 'item1' },

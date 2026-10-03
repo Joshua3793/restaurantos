@@ -287,16 +287,14 @@ export function groupAliases(
 export function buildOfferSkuIndex(
   offerRows: { supplierId: string; supplierItemCode: string | null; inventoryItemId: string }[]
 ): Map<string, string> {
-  const skuByItem = new Map<string, string>()
-  for (const o of offerRows) {
-    if (o.supplierItemCode) skuByItem.set(o.inventoryItemId, o.supplierItemCode)
-  }
-
+  // One row per (item, supplier, SKU): a merged item can carry several SKUs, so
+  // every row's SKU is indexed — no one-SKU-per-item collapse.
   const itemsBySku = new Map<string, Set<string>>()
-  for (const [itemId, sku] of skuByItem) {
-    const set = itemsBySku.get(sku) ?? new Set<string>()
-    set.add(itemId)
-    itemsBySku.set(sku, set)
+  for (const o of offerRows) {
+    if (!o.supplierItemCode) continue
+    const set = itemsBySku.get(o.supplierItemCode) ?? new Set<string>()
+    set.add(o.inventoryItemId)
+    itemsBySku.set(o.supplierItemCode, set)
   }
 
   const index = new Map<string, string>()

@@ -97,11 +97,15 @@ async function doApprove(
     }
 
     // Offers are keyed by `supplierId`, so OCR name variants ("… Inc." vs
-    // "… Inc. - Vancouver") can't split one supplier into two. The name below is
-    // for display/receipts only; a session with no supplierId has no offer.
-    const offerSupplierName = session.supplierName
-      ? await canonicalSupplierName(session.supplierId, session.supplierName)
-      : null
+    // "… Inc. - Vancouver") can't split one supplier into two. A session with no
+    // supplierId has no offer; every offer/primary gate below keys on the id.
+    //
+    // The display name an offer row carries (`supplierName`, provenance only).
+    // Offers are keyed by supplierId; a linked supplier always has a name even
+    // when OCR read none, an unlinked one keeps the raw OCR text (or null).
+    const offerSupplierName = session.supplierId
+      ? await canonicalSupplierName(session.supplierId, session.supplierName ?? '')
+      : (session.supplierName ?? null)
 
     // ── Supplier offers, snapshotted ONCE before anything is written ─────────
     // An item's own chain is only its PRIMARY supplier's pack; every other
@@ -127,12 +131,12 @@ async function doApprove(
     }
     // pickOffer (keyed on supplierId — an unlinked session has no offer) is
     // the SAME rule the review UI uses, so the totals it validates against and the
-    // ones approve validates against can never disagree. Gated on a resolvable
-    // supplier name: with none there is no offer row to write either, and the
-    // legacy direct-spine path below must keep pricing over the item's own chain.
+    // ones approve validates against can never disagree. Gated on a linked
+    // supplier (supplierId): with none there is no offer row to write either, and
+    // the legacy direct-spine path below must keep pricing over the item's own chain.
     // The line's SKU picks among one supplier's several products on a merged item.
     const offerForLine = (matchedItemId: string | null, itemCode: string | null): OfferFormat | null =>
-      offerSupplierName && matchedItemId
+      session.supplierId && matchedItemId
         ? pickOffer(offersByItem.get(matchedItemId) ?? [], {
             supplierId:    session.supplierId,
             supplierName:  session.supplierName,
@@ -440,11 +444,12 @@ async function doApprove(
             },
             item.baseUnit ?? 'each',
           )
-          // "Item has offers" only silences the guard for a KNOWN supplier never seen on
-          // this item. With no resolvable supplier, lineOffer is always null AND this path
-          // still re-prices the item (legacy direct write) — so it must keep the old check
-          // against the item's own chain, or a changed case is written over a stale pack.
-          const ref = packReference((item.packChain as PackLink[]) ?? [], lineOffer, !!offerSupplierName && itemOffers.length > 0)
+          // "Item has offers" only silences the guard for a LINKED supplier never seen on
+          // this item. With no linked supplier, lineOffer is always null AND this path
+          // re-prices the item only when it has no boxes (legacy direct write) — so it must
+          // keep the old check against the item's own chain, or a changed case is written
+          // over a stale pack.
+          const ref = packReference((item.packChain as PackLink[]) ?? [], lineOffer, !!session.supplierId && itemOffers.length > 0)
           const packs = ref ? packFormatsDisagree(invoiceBaseTotal, ref.baseTotal) : { disagree: false, ratio: 1 }
           if (packs.disagree) {
             console.error(
@@ -563,8 +568,8 @@ async function doApprove(
 
         // Upsert this supplier's offer: their last price, their pack format
         // (post-review resolved values), their SKU. Non-critical, outside the
-        // transaction. Unique (inventoryItemId, supplierName) replaced the old
-        // findFirst/create dance (the SP-1 migration deduped old rows).
+        // transaction. Unique (inventoryItemId, supplierId, supplierItemCode)
+        // replaced the old findFirst/create dance.
         //
         // PRICE DENOMINATION: lastPrice must be the supplier's own price over
         // the pack format stored on this same row — the matcher divides one by
@@ -572,8 +577,8 @@ async function doApprove(
         // case price as printed (rawUnitPrice), NOT newPrice (which may have
         // been normalized into the ITEM's purchase format).
         let writtenOfferId: string | null = null
-        // An offer row needs a linked supplier (supplierId is NOT NULL). An invoice whose supplier is not linked still prices the item through the legacy direct spine write below — link the supplier on the review screen to record its box.
-        if (offerSupplierName && session.supplierId) {
+        // An offer row needs a linked supplier (supplierId is NOT NULL). An invoice whose supplier is not linked re-prices the item only when it has no boxes (legacy direct spine write below) — link the supplier on the review screen to record its box.
+        if (session.supplierId) {
           const hasLinePack = scanItem.invoicePackQty !== null && scanItem.invoicePackSize !== null
           const offerLastPrice = isUomMode
             ? newPurchasePrice
@@ -708,7 +713,7 @@ async function doApprove(
 
           const offerData = {
               inventoryItemId:      scanItem.matchedItemId,
-              supplierName:         offerSupplierName,
+              supplierName:         offerSupplierName!, // non-null: set whenever session.supplierId is (this block)
               supplierId:           session.supplierId,
               lastPrice:            offerLastPrice,
               isPrimary:            false,
@@ -760,7 +765,7 @@ async function doApprove(
         // never promotes or touches a primary. Rule: shouldRepriceItem.
         let primary: { id: string; supplierId: string } | null = null
         let supplierRowCount = 0
-        if (offerSupplierName && session.supplierId) {
+        if (session.supplierId) {
           await ensurePrimary(scanItem.matchedItemId, prisma, undo)
           primary = await prisma.inventorySupplierPrice.findFirst({
             where: { inventoryItemId: scanItem.matchedItemId, isPrimary: true },
@@ -769,7 +774,7 @@ async function doApprove(
           // A failed offer write leaves only the supplier to go on — trusted
           // only while that supplier sells this item as a single product.
           supplierRowCount = supplierOffers(offersByItem.get(scanItem.matchedItemId) ?? [], {
-            supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: offerSupplierName,
+            supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: offerSupplierName ?? '',
           }).length
         }
         const shouldReprice = shouldRepriceItem({
@@ -859,7 +864,7 @@ async function doApprove(
         // Keep the PRIMARY offer's chain == the item's chain so their per-base
         // prices never diverge (non-primary offers keep their own invoice chain
         // for accurate cross-supplier comparison).
-        if (shouldReprice && offerSupplierName) {
+        if (shouldReprice && session.supplierId) {
           await mirrorItemToPrimaryOffer(scanItem.matchedItemId, prisma, undo)
         }
         // Every write this line makes has landed — read each touched row's `next`.

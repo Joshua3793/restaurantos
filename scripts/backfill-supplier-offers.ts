@@ -1,3 +1,4 @@
+// DEAD: pre-dates supplierId NOT NULL (2026-10-03); writes nullable supplierId and keys on supplierName. Do not run.
 // Backfill InventorySupplierPrice offers from approved invoice history.
 // Walks approved sessions oldest → newest so the final upsert per
 // (item, supplier) is the most recent purchase. Idempotent.
