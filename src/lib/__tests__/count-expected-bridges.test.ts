@@ -7,9 +7,10 @@ const BUN = { id: 'bun', baseUnit: 'each', dimension: 'COUNT', eachMeasureQty: n
 const BUN_85 = { ...BUN, eachMeasureQty: '85', eachMeasureUnit: 'g' }
 const D = new Date('2026-09-20T00:00:00.000Z')
 let rows: unknown[] = []
-vi.mock('@/lib/prisma', () => ({ prisma: { wastageLog: { findMany: async () => rows } } }))
+let prepRows: unknown[] = []
+vi.mock('@/lib/prisma', () => ({ prisma: { wastageLog: { findMany: async () => rows }, prepLog: { findMany: async () => prepRows } } }))
 
-const { buildWastageMap } = await import('@/lib/count-expected')
+const { buildWastageMap, buildPrepMap } = await import('@/lib/count-expected')
 
 const wastage = (item: typeof BUN, qtyWasted: string, unit: string) => ({
   id: 'w1', inventoryItemId: item.id, qtyWasted, unit, date: D, reason: 'SPOILED', revenueCenterId: 'rc1', inventoryItem: item,
@@ -36,5 +37,17 @@ describe('buildWastageMap — bridged conversion', () => {
     rows = [wastage(BUN, '3', 'each')]
     const map = await buildWastageMap(new Date(0), ['bun'])
     expect(map.get('bun')).toBe(3)
+  })
+})
+
+describe('buildPrepMap — unbridged yield carries the scaled quantity', () => {
+  it('a 2-batch prep whose yield unit cannot reach the item reports qty × scale', async () => {
+    // Yield unit 'batch' is not a weight; the linked item is by weight with no bridge → unbridged.
+    const recipe = { id: 'r1', name: 'Stock', yieldUnit: 'batch', baseYieldQty: '1', inventoryItemId: 'stk', inventoryItem: { id: 'stk', baseUnit: 'g', dimension: 'MASS', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }, ingredients: [] }
+    prepRows = [{ id: 'p1', status: 'DONE', actualPrepQty: '2', logDate: D, createdAt: D, completedAt: D, revenueCenterId: 'rc1', prepItem: { unit: 'batch', linkedRecipe: recipe } }]
+    const sink: LedgerEvent[] = []
+    const { output } = await buildPrepMap(new Date(0), null, undefined, undefined, undefined, sink)
+    expect(output.get('stk')).toBe(0)
+    expect(sink[0]).toMatchObject({ type: 'PREP_OUT', unbridged: { qty: 2, unit: 'batch' } })
   })
 })

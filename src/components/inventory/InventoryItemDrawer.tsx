@@ -977,7 +977,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                             </div>
                             <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
                               {m.unbridged ? (
-                                <span className="font-semibold text-gold" title="Not applied — this item has no bridge for this unit">
+                                <span className="font-semibold text-gold-2" title="Not counted — this item has no weight set for one each">
                                   {m.unbridged.qty.toFixed(2)} {m.unbridged.unit} · not counted
                                 </span>
                               ) : (
@@ -998,8 +998,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         </div>
                       )}
                       {(stockMovements.reconciliation?.unbridgedCount ?? 0) > 0 && (
-                        <div className="font-mono text-[10.5px] text-gold text-center pt-1">
-                          {stockMovements.reconciliation!.unbridgedCount} movement{stockMovements.reconciliation!.unbridgedCount === 1 ? '' : 's'} not counted — set how much one {item.baseUnit === 'each' ? 'each weighs (1 each = ? g)' : 'each of this item measures (1 each = ? g)'} in Edit so they count
+                        <div className="font-mono text-[10.5px] text-gold-2 text-center pt-1">
+                          {stockMovements.reconciliation!.unbridgedCount} movement{stockMovements.reconciliation!.unbridgedCount === 1 ? '' : 's'} not counted — tell it how much one each weighs (1 each = ? g) in Edit so they count
                         </div>
                       )}
                     </div>

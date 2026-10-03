@@ -724,7 +724,7 @@ export async function buildPrepMap(
         id: `prep-out-${log.id}`, date: log.logDate, at, type: 'PREP_OUT',
         itemId: recipe.inventoryItem.id, qtyBase: yieldInBase,
         description: `Prep output: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
-        ...(unbridged ? { unbridged } : {}),
+        ...(unbridged ? { unbridged: { qty: unbridged.qty * scale, unit: unbridged.unit } } : {}),
       })
     }
   }
