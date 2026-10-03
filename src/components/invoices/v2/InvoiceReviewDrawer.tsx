@@ -1606,6 +1606,14 @@ export function InvoiceReviewDrawer({
       {adoptingForItem && (
         <AdoptFormatModal
           scanItem={adoptingForItem}
+          // The supplier linked right now (a just-linked one is ahead of the
+          // session row) — the box the invoice's format belongs on.
+          supplierId={linkedSupplierId}
+          supplierName={
+            allSuppliers.find(s => s.id === linkedSupplierId)?.name
+            ?? (session?.supplierId === linkedSupplierId ? session?.supplier?.name : null)
+            ?? null
+          }
           onClose={() => setAdoptingForItem(null)}
           onSaved={() => { setAdoptingForItem(null); if (session) refreshSession(session.id) }}
         />

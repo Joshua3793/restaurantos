@@ -1,0 +1,48 @@
+// Which record "Use the invoice's format" changes. An item with supplier boxes
+// is priced on its main box, so the invoice's pack and price belong on the
+// INVOICE SUPPLIER's box — picked by the same rule the review screen reads the
+// line through (`pickOffer`). Only a box-less item changes its own pack and
+// price. Pure + client-safe.
+
+import { pickOffer } from '@/lib/invoice/line-format'
+
+export interface AdoptBox {
+  id: string
+  supplierId: string | null
+  supplierItemCode?: string | null
+  isPrimary?: boolean | null
+}
+
+export type AdoptTarget =
+  | { kind: 'item' }
+  | { kind: 'box'; offerId: string; isPrimary: boolean }
+  | { kind: 'new-box' }
+  | { kind: 'unlinked' }
+
+export function adoptTarget({ offers, supplierId, itemCode }: {
+  offers: AdoptBox[]
+  supplierId: string | null | undefined
+  itemCode?: string | null
+}): AdoptTarget {
+  if (offers.length === 0) return { kind: 'item' }
+  if (!supplierId) return { kind: 'unlinked' }
+  const box = pickOffer(offers, { supplierId, itemCode })
+  return box ? { kind: 'box', offerId: box.id, isPrimary: !!box.isPrimary } : { kind: 'new-box' }
+}
+
+/** True when the invoice's pack cannot go onto the target yet: a supplier box
+ *  must be in its item's measure (a box never re-measures the item), so a line
+ *  in another measure has nowhere to go until changing how an item is measured
+ *  arrives (Stage 2c). A box-less item changes its own measure (the pricing
+ *  route's DIMENSION_LOCKED guards that), and an unlinked invoice is refused on
+ *  its own. The adopt modal is only reached on a measure conflict, so for an
+ *  item with boxes this is always true there. */
+export function adoptBlocked({ lineDimension, itemDimension, target }: {
+  lineDimension: string
+  itemDimension: string | null | undefined
+  target: AdoptTarget
+}): boolean {
+  if (target.kind !== 'box' && target.kind !== 'new-box') return false
+  // An item whose measure is not known yet cannot be shown to fit: blocked.
+  return !itemDimension || lineDimension !== itemDimension
+}

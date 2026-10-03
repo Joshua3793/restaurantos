@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule, previousPriceFor } from '@/lib/invoice-matcher'
+import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule, previousPriceFor, inventorySideFormat, inventorySidePrice } from '@/lib/invoice-matcher'
 
 describe('capAliasConfidence', () => {
   it('caps a HIGH match won only through an alias down to MEDIUM', () => {
@@ -177,5 +177,67 @@ describe('previousPriceFor — the "was" price on a matched line', () => {
   it('falls back to the RATE itself for a weight-priced item (what the line rate is compared with)', () => {
     const SALMON = { dimension: 'MASS', baseUnit: 'g', countUnit: 'lb', packChain: [{ unit: 'lb', per: 453.6 }], pricing: { mode: 'RATE', rate: 28.6, rateUnit: 'kg' }, eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
     expect(previousPriceFor(null, SALMON)).toBe(28.6)
+  })
+})
+
+// The inventory side of the price comparison divides the "was" price by the pack
+// THAT price belongs to. A drawer-made or re-packed box has no (or stale) legacy
+// pack fields; pairing its price with the item's pack read as a false big change.
+describe('inventorySideFormat — the pack behind the "was" price', () => {
+  const ITEM = { baseUnit: 'g', packChain: [{ unit: 'case', per: 1000 }] }
+  const PRICED = { pricing: { mode: 'PACK', purchasePrice: 40 } }
+
+  it("a priced box is read through its OWN chain, not the item's (main box) pack", () => {
+    expect(inventorySideFormat({ ...PRICED, packChain: [{ unit: 'case', per: 4 }, { unit: 'bag', per: 2500 }] }, ITEM))
+      .toEqual({ packQty: 4, packSize: 2500, packUOM: 'g' })
+  })
+
+  it('a re-packed box ignores the stale legacy pack fields it still carries', () => {
+    expect(inventorySideFormat({
+      ...PRICED, packChain: [{ unit: 'case', per: 2000 }], packQty: 6, packSize: 1, packUOM: 'kg',
+    }, ITEM)).toEqual({ packQty: 1, packSize: 2000, packUOM: 'g' })
+  })
+
+  it('a priced box with no chain falls back to its legacy pack fields', () => {
+    expect(inventorySideFormat({ ...PRICED, packChain: null, packQty: '6', packSize: '1', packUOM: 'kg' }, ITEM))
+      .toEqual({ packQty: 6, packSize: 1, packUOM: 'kg' })
+  })
+
+  it("a box with no price (the \"was\" price is the item's) → the item's chain, whatever the box's pack", () => {
+    expect(inventorySideFormat({ pricing: null, packChain: [{ unit: 'case', per: 4 }, { unit: 'bag', per: 2500 }], packQty: 4, packSize: 2.5, packUOM: 'kg' }, ITEM))
+      .toEqual({ packQty: 1, packSize: 1000, packUOM: 'g' })
+  })
+
+  it("no box → the item's chain", () => {
+    expect(inventorySideFormat(null, ITEM)).toEqual({ packQty: 1, packSize: 1000, packUOM: 'g' })
+  })
+
+  it('a three-level pack multiplies EVERY level above the leaf (4 × 6 × 1 = 24, not 4)', () => {
+    expect(inventorySideFormat({ ...PRICED, packChain: [{ unit: 'case', per: 4 }, { unit: 'pack', per: 6 }, { unit: 'each', per: 1 }] }, { ...ITEM, baseUnit: 'each' }))
+      .toEqual({ packQty: 24, packSize: 1, packUOM: 'each' })
+  })
+})
+
+describe('inventorySidePrice — the "was" price per one unit, in its own unit', () => {
+  const ITEM = { dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 10 } }
+
+  it('a rate-priced box keeps its rate unit ($8 per kg stays per kg, never per gram)', () => {
+    const box = { pricing: { mode: 'RATE', rate: 8, rateUnit: 'kg' }, packChain: [{ unit: 'kg', per: 1000 }] }
+    expect(inventorySidePrice(box, ITEM)).toEqual({ pricePerUnit: 8, unit: 'kg' })
+  })
+
+  it('a pack-priced box is spread over its own pack ($40 per 4 × 2500 g → $0.004 per g)', () => {
+    const box = { pricing: { mode: 'PACK', purchasePrice: 40 }, packChain: [{ unit: 'case', per: 4 }, { unit: 'bag', per: 2500 }] }
+    expect(inventorySidePrice(box, ITEM)).toEqual({ pricePerUnit: 40 / 10000, unit: 'g' })
+  })
+
+  it("no priced box → the item's own price over the item's chain ($10 per 1000 g)", () => {
+    expect(inventorySidePrice(null, ITEM)).toEqual({ pricePerUnit: 0.01, unit: 'g' })
+    expect(inventorySidePrice({ pricing: null, packChain: [{ unit: 'case', per: 4 }] }, ITEM)).toEqual({ pricePerUnit: 0.01, unit: 'g' })
+  })
+
+  it("a rate-priced item with no box keeps the item's rate unit", () => {
+    const item = { ...ITEM, pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } }
+    expect(inventorySidePrice(null, item)).toEqual({ pricePerUnit: 3.49, unit: 'lb' })
   })
 })
