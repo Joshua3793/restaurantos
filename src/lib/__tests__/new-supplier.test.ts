@@ -17,15 +17,12 @@ describe('isNewSupplierForItem', () => {
     expect(isNewSupplierForItem(base, {})).toBe(false)
     expect(isNewSupplierForItem({ ...base, matchedItem: { supplierPrices: [] } } as unknown as ScanItem, { supplierName: 'X' })).toBe(false)
   })
-  // The session ref carries the OCR-variant supplierName plus the Supplier row's
-  // own canonicalName; offers are keyed by the canonical name. A ref that matches
-  // an existing offer ONLY via canonicalName (not supplierId or supplierName) must
-  // still be found — otherwise the note would wrongly claim "first time buying"
-  // from a supplier the item already has an offer from.
-  it('false when only canonicalName matches an existing offer (OCR variant supplier name)', () => {
+  // Offers join on the supplier id alone — a session with only names (no linked
+  // supplier) can't be told apart from a known one, so it is never "new".
+  it('false when the session has only names and no linked supplier', () => {
     const item = {
       ...base,
-      matchedItem: { supplierPrices: [{ supplierId: null, supplierName: 'North Arm Farms Ltd.' }] },
+      matchedItem: { supplierPrices: [{ supplierId: 'n', supplierName: 'North Arm Farms Ltd.' }] },
     } as unknown as ScanItem
     expect(isNewSupplierForItem(item, {
       supplierName: 'North Arm Farms (per invoice)',

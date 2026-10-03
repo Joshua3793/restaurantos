@@ -9,23 +9,21 @@ import { prisma } from '../src/lib/prisma'
 import { proposeSupplier } from '../src/lib/supplier-propose'
 
 async function main() {
-  const orphans = await prisma.inventorySupplierPrice.findMany({
-    where: { supplierId: null },
-    select: { id: true, supplierName: true, isPrimary: true, inventoryItem: { select: { itemName: true } } },
-  })
+  // supplierId is NOT NULL now, so the typed client cannot express "unlinked" — raw SQL stays a valid regression check.
+  const orphans = await prisma.$queryRawUnsafe<{ id: string; supplierName: string; isPrimary: boolean; itemName: string }[]>(
+    `SELECT o.id, o."supplierName", o."isPrimary", i."itemName" FROM "InventorySupplierPrice" o JOIN "InventoryItem" i ON i.id = o."inventoryItemId" WHERE o."supplierId" IS NULL`)
   console.log(`Offers with no supplier link: ${orphans.length}`)
   for (const o of orphans) {
     const p = await proposeSupplier(o.supplierName)
-    console.log(`  ${o.id}  ${o.inventoryItem.itemName.padEnd(30)} "${o.supplierName}" → ${p ? `${p.name} (${p.how}${p.how === 'fuzzy' ? ` ${p.score.toFixed(2)}` : ''})` : 'UNRESOLVED'}`)
+    console.log(`  ${o.id}  ${o.itemName.padEnd(30)} "${o.supplierName}" → ${p ? `${p.name} (${p.how}${p.how === 'fuzzy' ? ` ${p.score.toFixed(2)}` : ''})` : 'UNRESOLVED'}`)
   }
 
   const mismatched = await prisma.inventorySupplierPrice.findMany({
-    where: { supplierId: { not: null } },
     select: { id: true, supplierName: true, supplier: { select: { name: true } }, inventoryItem: { select: { itemName: true } } },
   })
-  const bad = mismatched.filter(o => o.supplier && o.supplierName !== o.supplier.name)
+  const bad = mismatched.filter(o => o.supplierName !== o.supplier.name)
   console.log(`Offers whose supplierName differs from the linked supplier: ${bad.length}`)
-  for (const o of bad) console.log(`  ${o.id}  ${o.inventoryItem.itemName.padEnd(30)} "${o.supplierName}" → "${o.supplier!.name}"`)
+  for (const o of bad) console.log(`  ${o.id}  ${o.inventoryItem.itemName.padEnd(30)} "${o.supplierName}" → "${o.supplier.name}"`)
 
   const dups = await prisma.$queryRawUnsafe<{ inventoryItemId: string; supplierId: string; code: string; n: number }[]>(
     `SELECT "inventoryItemId", "supplierId", COALESCE("supplierItemCode", '') AS code, COUNT(*)::int AS n

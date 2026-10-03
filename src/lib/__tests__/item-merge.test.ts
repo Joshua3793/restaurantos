@@ -234,12 +234,12 @@ describe('planMerge ops', () => {
   describe('CRITICAL 1: synthesized offer id, and Crit-3 verbatim pricing', () => {
     it('gets an id from opts.newId, carries packChain+pricing verbatim, and undo deletes by that same id', () => {
       const p = plan(S, row({ id: 'A', packChain: [{ unit: 'lb', per: 453.592 }], pricing: { mode: 'PACK', purchasePrice: 22 } }),
-        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: 'sN', supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
       // survivor has zero offers, so I-1 promotes this synthesized one to primary.
       expect(created.row).toMatchObject({
-        inventoryItemId: 'S', supplierName: 'North Arm Farms', isPrimary: true,
+        inventoryItemId: 'S', supplierName: 'North Arm Farms', supplierId: 'sN', isPrimary: true,
         packChain: [{ unit: 'lb', per: 453.592 }], pricing: { mode: 'PACK', purchasePrice: 22 }, lastPrice: 22,
       })
       expect(typeof created.row.id).toBe('string')
@@ -253,7 +253,7 @@ describe('planMerge ops', () => {
 
     it('Crit-3: a RATE-priced absorbed item synthesizes with the RATE pricing object and a finite lastPrice', () => {
       const p = plan(S, row({ id: 'A', pricing: { mode: 'RATE', rate: 3.5, rateUnit: 'g' } }),
-        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: 'sN', supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       const created = p.manifest.ops.find(o => o.t === 'create') as { row: Record<string, unknown> }
       expect(created.row.pricing).toEqual({ mode: 'RATE', rate: 3.5, rateUnit: 'g' })
@@ -263,7 +263,7 @@ describe('planMerge ops', () => {
 
     it('does not synthesize when the derived price is not a finite positive number', () => {
       const p = plan(S, row({ id: 'A', packChain: [{ unit: 'lb', per: 453.592 }], pricing: { mode: 'PACK', purchasePrice: 0 } }),
-        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: null, supplierName: 'North Arm Farms' } })
+        { ...noRel, scanItemIds: ['si1'], latestPurchaseSupplier: { supplierId: 'sN', supplierName: 'North Arm Farms' } })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'create')).toBe(false)
       expect(p.summary.offerSynthesized).toBe(false)
@@ -276,8 +276,8 @@ describe('planMerge ops', () => {
       const p = plan(S, A,
         { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: true }] },
         { ...noSRel, offers: [
-          { id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-08-01', isPrimary: false },
-          { id: 'oKeep', supplierName: 'Keep Co', lastUpdated: '2020-01-01', isPrimary: true },
+          { id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-08-01', isPrimary: false },
+          { id: 'oKeep', supplierName: 'Keep Co', supplierId: 'sK', lastUpdated: '2020-01-01', isPrimary: true },
         ] })
       if (!p.ok) throw new Error(p.message)
       expect(p.manifest.ops.some(o => o.t === 'delete' && o.table === 'InventorySupplierPrice' && o.row.id === 'oS')).toBe(true)
@@ -297,7 +297,7 @@ describe('planMerge ops', () => {
       }
       const p = plan(S, A,
         { ...noRel, offers: [absorbedOffer] },
-        { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-09-01', isPrimary: false }] })
+        { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: false }] })
       if (!p.ok) throw new Error(p.message)
       const del = p.manifest.ops.find(o => o.t === 'delete' && o.table === 'InventorySupplierPrice' && o.row.id === 'oA') as { row: Record<string, unknown> }
       expect(del.row).toMatchObject({ lastPrice: 12.5, packQty: 3, inventoryItemId: 'A' })
@@ -307,11 +307,20 @@ describe('planMerge ops', () => {
       expect(created.row).toMatchObject({ lastPrice: 12.5, packQty: 3, inventoryItemId: 'A' })
     })
 
+    it('same supplier NAME but different supplier ids are different suppliers — both offers survive, nothing is deleted', () => {
+      const p = plan(S, A,
+        { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's1', lastUpdated: '2026-09-01', isPrimary: false }] },
+        { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's2', lastUpdated: '2026-08-01', isPrimary: true }] })
+      if (!p.ok) throw new Error(p.message)
+      expect(p.manifest.ops.some(o => o.t === 'delete' && o.table === 'InventorySupplierPrice')).toBe(false)
+      expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'InventorySupplierPrice', ids: ['oA'] })
+    })
+
     describe('CRITICAL 2: the survivor primary offer is never touched', () => {
       it('survivor primary + OLDER than the absorbed offer → absorbed offer deleted, survivor untouched', () => {
         const p = plan(S, A,
           { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: false }] },
-          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-08-01', isPrimary: true }] })
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-08-01', isPrimary: true }] })
         if (!p.ok) throw new Error(p.message)
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.table === 'InventorySupplierPrice' && o.row.id === 'oA')).toBe(true)
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oS')).toBe(false)
@@ -326,8 +335,8 @@ describe('planMerge ops', () => {
         const p = plan(S, A,
           { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: false }] },
           { ...noSRel, offers: [
-            { id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-08-01', isPrimary: true },
-            { id: 'oX', supplierName: 'Other', lastUpdated: '2026-01-01', isPrimary: false },
+            { id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-08-01', isPrimary: true },
+            { id: 'oX', supplierName: 'Other', supplierId: 'sO', lastUpdated: '2026-01-01', isPrimary: false },
           ] })
         if (!p.ok) throw new Error(p.message)
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oS')).toBe(false)
@@ -339,8 +348,8 @@ describe('planMerge ops', () => {
     describe('M-iv: the date check runs before the primary test, so the two drop reasons are distinguishable', () => {
       it('a drop that is BOTH stale AND primary-protected is labelled stale — the primary rule adds nothing extra to say here', () => {
         const p = plan(S, A,
-          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2020-01-01', isPrimary: false }] },
-          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-01-01', isPrimary: true }] })
+          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2020-01-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-01-01', isPrimary: true }] })
         if (!p.ok) throw new Error(p.message)
         expect(p.summary.absorbedOffersDroppedStale).toBe(1)
         expect(p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(0)
@@ -348,8 +357,8 @@ describe('planMerge ops', () => {
 
       it('a drop that is primary-protected but NOT stale (the absorbed offer is genuinely newer) is labelled as the override it is', () => {
         const p = plan(S, A,
-          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-09-01', isPrimary: false }] },
-          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2020-01-01', isPrimary: true }] })
+          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2020-01-01', isPrimary: true }] })
         if (!p.ok) throw new Error(p.message)
         expect(p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(1)
         expect(p.summary.absorbedOffersDroppedStale).toBe(0)
@@ -357,8 +366,8 @@ describe('planMerge ops', () => {
 
       it('an ordinary stale drop (neither offer primary) is labelled stale', () => {
         const p = plan(S, A,
-          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: '2020-01-01', isPrimary: false }] },
-          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-01-01', isPrimary: false }] })
+          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2020-01-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-01-01', isPrimary: false }] })
         if (!p.ok) throw new Error(p.message)
         expect(p.summary.absorbedOffersDroppedStale).toBe(1)
         expect(p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(0)
@@ -368,8 +377,8 @@ describe('planMerge ops', () => {
     describe('MINOR M-a: ts() NaN safety', () => {
       it('an unparsable lastUpdated is treated as oldest; a NaN-vs-NaN tie keeps the survivor', () => {
         const p = plan(S, A,
-          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: null, lastUpdated: 'not-a-date', isPrimary: false }] },
-          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: 'also-not-a-date', isPrimary: false }] })
+          { ...noRel, offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: 'not-a-date', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: 'also-not-a-date', isPrimary: false }] })
         if (!p.ok) throw new Error(p.message)
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oA')).toBe(true)
         expect(p.manifest.ops.some(o => o.t === 'delete' && o.row.id === 'oS')).toBe(false)
@@ -381,8 +390,8 @@ describe('planMerge ops', () => {
       it('scenario H: survivor with zero offers — the most recently updated moved offer is promoted; undo restores the absorbed item\'s original single primary', () => {
         const p = plan(S, A,
           { ...noRel, offers: [
-            { id: 'o1', supplierName: 'Sysco', supplierId: null, lastUpdated: '2026-01-01', isPrimary: true },
-            { id: 'o2', supplierName: 'Other', supplierId: null, lastUpdated: '2026-06-01', isPrimary: false },
+            { id: 'o1', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-01-01', isPrimary: true },
+            { id: 'o2', supplierName: 'Other', supplierId: 'sO', lastUpdated: '2026-06-01', isPrimary: false },
           ] },
           { ...noSRel, offers: [] })
         if (!p.ok) throw new Error(p.message)
@@ -407,8 +416,8 @@ describe('planMerge ops', () => {
 
       it('a survivor with its own primary offer gets no promotion at all', () => {
         const p = plan(S, A,
-          { ...noRel, offers: [{ id: 'o1', supplierName: 'Other2', supplierId: null, lastUpdated: '2026-01-01', isPrimary: false }] },
-          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', lastUpdated: '2020-01-01', isPrimary: true }] })
+          { ...noRel, offers: [{ id: 'o1', supplierName: 'Other2', supplierId: 'sO2', lastUpdated: '2026-01-01', isPrimary: false }] },
+          { ...noSRel, offers: [{ id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2020-01-01', isPrimary: true }] })
         if (!p.ok) throw new Error(p.message)
         expect(p.summary.primaryPromoted).toBeNull()
         expect(p.manifest.ops.some(o => o.t === 'update' && o.table === 'InventorySupplierPrice' && 'isPrimary' in o.after)).toBe(false)
@@ -681,8 +690,8 @@ describe('planUndo', () => {
         offers: [{ id: 'oA', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-09-01', isPrimary: true }],
       },
       { ...noSRel, offers: [
-        { id: 'oS', supplierName: 'Sysco', lastUpdated: '2026-08-01', isPrimary: false },
-        { id: 'oKeep', supplierName: 'Keep Co', lastUpdated: '2020-01-01', isPrimary: true },
+        { id: 'oS', supplierName: 'Sysco', supplierId: 's', lastUpdated: '2026-08-01', isPrimary: false },
+        { id: 'oKeep', supplierName: 'Keep Co', supplierId: 'sK', lastUpdated: '2020-01-01', isPrimary: true },
       ] })
     if (!p.ok) throw new Error(p.message)
     const undo: MergeOp[] = planUndo(p.manifest)

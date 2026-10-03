@@ -278,30 +278,18 @@ export function groupAliases(
   return result
 }
 
-/** (supplier, SKU) → item, from this session's own supplier-offer rows (already
- *  scoped to the raw + canonical supplier names — see offerRows). Per item, a
- *  canonical-name row's code overrides a raw-name row's code for the SAME item
- *  (mirrors offerByItemId's precedence). But `InventorySupplierPrice` has only a
- *  non-unique index on (supplierName, supplierItemCode): a stale code can survive
- *  on an old item's offer after a line gets re-matched elsewhere, so after that
- *  per-item resolution a code MAY still name more than one distinct item. That is
- *  ambiguous — there is no signal here for which one is current — so the code is
- *  omitted from the index entirely rather than guessed; the line falls through to
- *  tier 1/2 where a human confirms it. */
+/** (supplier, SKU) → item, from one supplier's offer rows (already scoped —
+ *  loaded by supplierId). A stale code can survive on an old item's offer after a
+ *  line gets re-matched elsewhere, so a code MAY still name more than one distinct
+ *  item. That is ambiguous — there is no signal here for which one is current — so
+ *  the code is omitted from the index entirely rather than guessed; the line falls
+ *  through to tier 1/2 where a human confirms it. */
 export function buildOfferSkuIndex(
-  offerRows: { supplierName: string; supplierItemCode: string | null; inventoryItemId: string }[],
-  canonicalName?: string | null
+  offerRows: { supplierId: string; supplierItemCode: string | null; inventoryItemId: string }[]
 ): Map<string, string> {
   const skuByItem = new Map<string, string>()
   for (const o of offerRows) {
-    if (o.supplierName === canonicalName) continue
     if (o.supplierItemCode) skuByItem.set(o.inventoryItemId, o.supplierItemCode)
-  }
-  if (canonicalName) {
-    for (const o of offerRows) {
-      if (o.supplierName !== canonicalName) continue
-      if (o.supplierItemCode) skuByItem.set(o.inventoryItemId, o.supplierItemCode)
-    }
   }
 
   const itemsBySku = new Map<string, Set<string>>()
@@ -452,7 +440,8 @@ function buildMatchResult(
 export async function matchLineItems(
   ocrItems: OcrLineItem[],
   supplierName?: string | null,
-  canonicalName?: string | null
+  canonicalName?: string | null,
+  supplierId?: string | null
 ): Promise<(OcrLineItem & MatchResult)[]> {
   const inventoryItems = await prisma.inventoryItem.findMany({
     where: {
@@ -576,38 +565,20 @@ export async function matchLineItems(
   // price changes and format mismatches on every invoice.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let offerRows: any[] = []
-  if (supplierName) {
-    try {
-      offerRows = await prisma.inventorySupplierPrice.findMany({
-        // Offers are written under the CANONICAL supplier name (Supplier.name)
-        // since the name-variant fix; also query the raw OCR name so legacy
-        // rows keyed by a variant still match.
-        where: { supplierName: { in: canonicalName && canonicalName !== supplierName ? [supplierName, canonicalName] : [supplierName] } },
-      })
-    } catch {
-      // table/columns missing on a stale client — fall back to item comparison
-    }
+  if (supplierId) {
+    try { offerRows = await prisma.inventorySupplierPrice.findMany({ where: { supplierId } }) }
+    catch { /* stale client — fall back to item comparison */ }
   }
-  // Raw-name vs canonical-name partition, computed once and shared by both maps
-  // below — a canonical-name row always takes precedence over a raw-name row for
-  // the same item (offerByItemId) / SKU (offerBySku via buildOfferSkuIndex).
-  const rawOfferRows = offerRows.filter(o => o.supplierName !== canonicalName)
-  const canonicalOfferRows = canonicalName ? offerRows.filter(o => o.supplierName === canonicalName) : []
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const offerByItemId = new Map<string, any>()
-  // Insert raw-name rows first so canonical-name rows overwrite them when
-  // both exist for the same item — the canonical offer wins.
-  for (const o of rawOfferRows) offerByItemId.set(o.inventoryItemId, o)
-  for (const o of canonicalOfferRows) offerByItemId.set(o.inventoryItemId, o)
+  for (const o of offerRows) if (!offerByItemId.has(o.inventoryItemId) || o.isPrimary) offerByItemId.set(o.inventoryItemId, o)
 
   // Offer SKUs are the supplier library itself: (supplier, SKU) → item, even
   // when no match rule was ever saved (e.g. an offer that arrived through a
-  // merge). offerRows is already filtered to this supplier's names (raw +
-  // canonical) so a SKU only ever resolves within the same supplier; ambiguous
-  // SKUs (claimed by more than one distinct item after raw/canonical
-  // precedence) are omitted by buildOfferSkuIndex, never guessed.
-  const offerBySku = buildOfferSkuIndex(offerRows, canonicalName)
+  // merge). offerRows is already this supplier's (loaded by supplierId) so a
+  // SKU only ever resolves within the same supplier; ambiguous SKUs (claimed by
+  // more than one distinct item) are omitted by buildOfferSkuIndex, never guessed.
+  const offerBySku = buildOfferSkuIndex(offerRows)
   // Built from inventoryItems (already excludes inactive/tombstoned rows and
   // PREP outputs) so an offer SKU can never resolve to one of those.
   const itemById = new Map(inventoryItems.map(i => [i.id, i]))

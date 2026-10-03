@@ -266,7 +266,7 @@ export async function loadMergeInputs(
   const sRel: SurvivorRelations = {
     offers: sOf.map(o => ({
       ...toPlainRow(o),
-      id: o.id, supplierName: o.supplierName, isPrimary: o.isPrimary, lastUpdated: o.lastUpdated.toISOString(),
+      id: o.id, supplierName: o.supplierName, supplierId: o.supplierId, isPrimary: o.isPrimary, lastUpdated: o.lastUpdated.toISOString(),
     })),
     allocations: sAl.map(a => ({ id: a.id, revenueCenterId: a.revenueCenterId, quantity: n(a.quantity) })),
     itemRcs: sRc,

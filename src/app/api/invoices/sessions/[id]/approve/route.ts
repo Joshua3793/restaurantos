@@ -570,7 +570,8 @@ async function doApprove(
         // case price as printed (rawUnitPrice), NOT newPrice (which may have
         // been normalized into the ITEM's purchase format).
         let writtenOfferId: string | null = null
-        if (offerSupplierName) {
+        // An offer row needs a linked supplier (supplierId is NOT NULL). An invoice whose supplier is not linked still prices the item through the legacy direct spine write below — link the supplier on the review screen to record its box.
+        if (offerSupplierName && session.supplierId) {
           const hasLinePack = scanItem.invoicePackQty !== null && scanItem.invoicePackSize !== null
           const offerLastPrice = isUomMode
             ? newPurchasePrice
@@ -698,15 +699,15 @@ async function doApprove(
           // this same invoice updates the row the first one created.
           let offerReadOk = true
           const existingOffer = await prisma.inventorySupplierPrice.findMany({
-            where:  { inventoryItemId: scanItem.matchedItemId, supplierName: offerSupplierName },
+            where:  { inventoryItemId: scanItem.matchedItemId, supplierId: session.supplierId },
             select: { id: true, supplierName: true, ...OFFER_SELECT },
-          }).then(rows => pickOffer(rows, { canonicalName: offerSupplierName, itemCode: scanItem.supplierItemCode }))
+          }).then(rows => pickOffer(rows, { supplierId: session.supplierId, itemCode: scanItem.supplierItemCode }))
             .catch(() => { offerReadOk = false; return null })
 
           const offerData = {
               inventoryItemId:      scanItem.matchedItemId,
               supplierName:         offerSupplierName,
-              supplierId:           session.supplierId || null,
+              supplierId:           session.supplierId,
               lastPrice:            offerLastPrice,
               isPrimary:            false,
               supplierItemCode:     scanItem.supplierItemCode ?? null,
@@ -727,7 +728,7 @@ async function doApprove(
               lastPrice:            offerLastPrice,
               lastUpdated:          new Date(),
               lastInvoiceSessionId: sessionId,
-              ...(session.supplierId ? { supplierId: session.supplierId } : {}),
+              supplierId:           session.supplierId,
               ...(scanItem.supplierItemCode ? { supplierItemCode: scanItem.supplierItemCode } : {}),
               ...offerPack,
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -756,11 +757,13 @@ async function doApprove(
         // their case price over the primary's pack — OR when the invoice had no resolvable supplier (no offer to
         // derive from → legacy direct write so the spine still updates).
         let shouldReprice = true
-        if (offerSupplierName) {
+        // No linked supplier → no offer was written (above), so the legacy direct
+        // spine write stands (shouldReprice stays true).
+        if (offerSupplierName && session.supplierId) {
           await ensurePrimary(scanItem.matchedItemId, prisma, undo)
           const primary = await prisma.inventorySupplierPrice.findFirst({
             where: { inventoryItemId: scanItem.matchedItemId, isPrimary: true },
-            select: { id: true, supplierName: true },
+            select: { id: true, supplierId: true },
           })
           // A failed offer write leaves only the supplier to go on — trusted
           // only while that supplier sells this item as a single product.
@@ -769,7 +772,7 @@ async function doApprove(
           }).length
           shouldReprice = writtenOfferId
             ? primary?.id === writtenOfferId
-            : supplierRowCount <= 1 && primary?.supplierName === offerSupplierName
+            : supplierRowCount <= 1 && primary?.supplierId === session.supplierId
         }
 
         // ── Freeze the receipt ──────────────────────────────────────────────

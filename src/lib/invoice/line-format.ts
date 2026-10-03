@@ -19,7 +19,7 @@ export interface OfferFormat {
 export interface SupplierRef {
   supplierId?: string | null
   supplierName?: string | null
-  /** Supplier.name — offers are stored under it; sessions may carry an OCR variant. */
+  /** Display-only: Supplier.name. Offers join on `supplierId` alone; the review UI still passes the names. */
   canonicalName?: string | null
   /** The line's SKU. One supplier can sell an item as several products (a
    *  merged "Mushrooms Mix" is six Sysco SKUs, each its own box), so the SKU
@@ -32,21 +32,11 @@ export function normItemCode(code: string | null | undefined): string {
   return (code ?? '').trim().toUpperCase()
 }
 
-/** Every offer belonging to a line's supplier. supplierId is the reliable join,
- *  then the canonical name, then the raw (OCR) name — the first key that finds
- *  any rows wins, so one supplier's rows are never mixed with another's. */
+/** Every offer belonging to a line's supplier — by supplier id only. A session
+ *  with no linked supplier has no offers: nothing stands in for the id. */
 export function supplierOffers<T extends OfferFormat>(offers: T[] | null | undefined, ref: SupplierRef): T[] {
-  if (!offers?.length) return []
-  if (ref.supplierId) {
-    const byId = offers.filter(o => o.supplierId === ref.supplierId)
-    if (byId.length) return byId
-  }
-  for (const name of [ref.canonicalName, ref.supplierName]) {
-    if (!name) continue
-    const byName = offers.filter(o => o.supplierName === name)
-    if (byName.length) return byName
-  }
-  return []
+  if (!offers?.length || !ref.supplierId) return []
+  return offers.filter(o => o.supplierId === ref.supplierId)
 }
 
 /**

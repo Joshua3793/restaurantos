@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pickOffer, resolveLineFormat } from '@/lib/invoice/line-format'
+import { pickOffer, resolveLineFormat, supplierOffers } from '@/lib/invoice/line-format'
 import { lineReceivedBaseUnits } from '@/lib/invoice/line-qty'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 
@@ -128,14 +128,14 @@ describe('resolveLineFormat — cross-dimension RATE offer bridged by the item',
 describe('pickOffer', () => {
   const offers = [
     { supplierId: 'sup-a', supplierName: 'Sysco', packChain: [] },
-    { supplierId: null, supplierName: 'North Arm Farms', packChain: [] },
+    { supplierId: 'sup-b', supplierName: 'North Arm Farms', packChain: [] },
   ]
   it('joins on supplierId first', () => {
     expect(pickOffer(offers, { supplierId: 'sup-a', supplierName: 'SYSCO CANADA' })?.supplierName).toBe('Sysco')
   })
-  it('falls back to the canonical then the raw name', () => {
-    expect(pickOffer(offers, { supplierName: 'NAF', canonicalName: 'North Arm Farms' })?.supplierName).toBe('North Arm Farms')
-    expect(pickOffer(offers, { supplierName: 'North Arm Farms' })?.supplierName).toBe('North Arm Farms')
+  it('never falls back to a name — only the id joins', () => {
+    expect(pickOffer(offers, { supplierId: 'sup-b', supplierName: 'NAF' })?.supplierName).toBe('North Arm Farms')
+    expect(pickOffer(offers, { supplierName: 'North Arm Farms', canonicalName: 'North Arm Farms' })).toBeNull()
   })
   it('null when nothing matches or there is no supplier', () => {
     expect(pickOffer(offers, { supplierName: 'GFS' })).toBeNull()
@@ -169,5 +169,18 @@ describe('pickOffer — one supplier, several products (SKUs)', () => {
     expect(pickOffer(mix, { supplierId: 'naf', itemCode: 'X1' })?.id).toBe('naf')
     const legacy = [...mix, { id: 'legacy', supplierId: 'sysco', supplierName: 'Sysco', supplierItemCode: null, isPrimary: false, packChain: [] }]
     expect(pickOffer(legacy, { ...sysco, itemCode: '5108840' })?.id).toBe('legacy')
+  })
+})
+
+describe('supplierOffers — keyed on the supplier id only', () => {
+  const rows = [
+    { supplierId: 's1', supplierName: 'Sysco', supplierItemCode: 'A1', isPrimary: true },
+    { supplierId: 's2', supplierName: 'Snow Cap', supplierItemCode: null, isPrimary: false },
+  ]
+  it('returns the rows of ref.supplierId', () => {
+    expect(supplierOffers(rows, { supplierId: 's2' }).map(o => o.supplierName)).toEqual(['Snow Cap'])
+  })
+  it('returns nothing when the session has no linked supplier — a name never stands in for the id', () => {
+    expect(supplierOffers(rows, { supplierName: 'Sysco', canonicalName: 'Sysco' })).toEqual([])
   })
 })

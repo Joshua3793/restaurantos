@@ -149,12 +149,12 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
     orderBy: { session: { purchaseDate: 'asc' } },
   })
 
-  // Group history by supplier identity: supplierId when the session resolved
-  // one (collapses raw OCR name variants), else the raw name.
-  const keyOf = (id: string | null | undefined, name: string | null | undefined) => id ?? name ?? ''
+  // Group history by supplier identity: the supplier id. A session line with no
+  // linked supplier contributes no history.
+  const keyOf = (id: string | null | undefined) => id ?? ''
   const bySupplier = new Map<string, { date: string; ppb: number; code: string }[]>()
   for (const l of lines) {
-    const key = keyOf(l.session?.supplierId, l.session?.supplierName)
+    const key = keyOf(l.session?.supplierId)
     if (!key) continue
     const ppb = scanLinePricePerBase(l, item)
     if (ppb === null) continue
@@ -167,8 +167,8 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
     // A supplier selling this item as several products (a merged item keeps one
     // offer per SKU) splits its history by SKU; a lone offer keeps all of it.
     const code = normItemCode(o.supplierItemCode)
-    const siblings = offers.filter(x => keyOf(x.supplierId, x.supplierName) === keyOf(o.supplierId, o.supplierName)).length
-    const history = (bySupplier.get(keyOf(o.supplierId, o.supplierName)) ?? [])
+    const siblings = offers.filter(x => keyOf(x.supplierId) === keyOf(o.supplierId)).length
+    const history = (bySupplier.get(keyOf(o.supplierId)) ?? [])
       .filter(h => siblings <= 1 || !code || h.code === code)
       .map(({ date, ppb }) => ({ date, ppb }))
     const volatility = volatilityOf(history.map(h => h.ppb))

@@ -156,14 +156,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       })
       await learnAlias(body.supplierId, session.supplierName)
-
-      // Adopt orphaned offers: supplier prices recorded under this OCR text name
-      // with no supplier link belong to the now-linked supplier. Backfilling lets
-      // the Suppliers page attribute their spend/history to the real record.
-      await prisma.inventorySupplierPrice.updateMany({
-        where: { supplierName: session.supplierName, supplierId: null },
-        data:  { supplierId: body.supplierId },
-      })
     } else if (body.supplierId === null && session.supplierName) {
       // Clearing the link: the user is saying this OCR name should NOT map to the
       // auto-picked supplier. Drop the learned alias entirely so it stops

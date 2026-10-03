@@ -634,7 +634,7 @@ export function InvoiceReviewDrawer({
   )
 
   // ONE supplier ref for every offer lookup in this drawer — the same shape the
-  // approve route builds (supplierId → canonical name → OCR name), so the UI and
+  // approve route builds (offers join on supplierId; the names are display-only), so the UI and
   // the server can never validate a line against different supplier offers.
   const sessionSupplierRef = useMemo<SupplierRef>(() => ({
     supplierId:    session?.supplierId ?? null,

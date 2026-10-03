@@ -16,13 +16,16 @@ const APPLY = process.argv.includes('--apply')
 async function main() {
   const plan: { kind: 'offer-link' | 'offer-name' | 'session-link'; id: string; before: unknown; after: unknown; label: string }[] = []
 
-  for (const o of await prisma.inventorySupplierPrice.findMany({ where: { supplierId: null }, select: { id: true, supplierName: true, inventoryItem: { select: { itemName: true } } } })) {
+  // supplierId is NOT NULL now: raw SQL keeps this section a valid regression check.
+  const unlinked = await prisma.$queryRawUnsafe<{ id: string; supplierName: string; itemName: string }[]>(
+    `SELECT o.id, o."supplierName", i."itemName" FROM "InventorySupplierPrice" o JOIN "InventoryItem" i ON i.id = o."inventoryItemId" WHERE o."supplierId" IS NULL`)
+  for (const o of unlinked) {
     const p = await proposeSupplier(o.supplierName)
-    if (!p) { console.log(`UNRESOLVED offer ${o.id} ${o.inventoryItem.itemName} "${o.supplierName}"`); continue }
-    plan.push({ kind: 'offer-link', id: o.id, before: { supplierId: null, supplierName: o.supplierName }, after: { supplierId: p.id, supplierName: p.name }, label: `${o.inventoryItem.itemName}: "${o.supplierName}" → ${p.name} (${p.how})` })
+    if (!p) { console.log(`UNRESOLVED offer ${o.id} ${o.itemName} "${o.supplierName}"`); continue }
+    plan.push({ kind: 'offer-link', id: o.id, before: { supplierId: null, supplierName: o.supplierName }, after: { supplierId: p.id, supplierName: p.name }, label: `${o.itemName}: "${o.supplierName}" → ${p.name} (${p.how})` })
   }
-  for (const o of await prisma.inventorySupplierPrice.findMany({ where: { supplierId: { not: null } }, select: { id: true, supplierName: true, supplier: { select: { name: true } }, inventoryItem: { select: { itemName: true } } } })) {
-    if (o.supplier && o.supplierName !== o.supplier.name)
+  for (const o of await prisma.inventorySupplierPrice.findMany({ select: { id: true, supplierName: true, supplier: { select: { name: true } }, inventoryItem: { select: { itemName: true } } } })) {
+    if (o.supplierName !== o.supplier.name)
       plan.push({ kind: 'offer-name', id: o.id, before: { supplierName: o.supplierName }, after: { supplierName: o.supplier.name }, label: `${o.inventoryItem.itemName}: "${o.supplierName}" → "${o.supplier.name}"` })
   }
   for (const s of await prisma.invoiceSession.findMany({ where: { supplierId: null, status: 'APPROVED' }, select: { id: true, supplierName: true, invoiceNumber: true } })) {
