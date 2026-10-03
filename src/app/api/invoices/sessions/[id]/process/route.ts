@@ -329,7 +329,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       const canonicalName = finalSupplierName
         ? await canonicalSupplierName(session.supplierId ?? autoSupplierId, finalSupplierName)
         : null
-      matched = await matchLineItems(allOcrItems, finalSupplierName, canonicalName)
+      matched = await matchLineItems(allOcrItems, finalSupplierName, canonicalName, session.supplierId ?? autoSupplierId ?? null)
       await prisma.invoiceScanItem.deleteMany({ where: { sessionId: params.id } })
       if (matched.length > 0) {
         await prisma.invoiceScanItem.createMany({

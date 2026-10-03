@@ -33,7 +33,12 @@ export default function SuppliersPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this supplier? Inventory items will be unlinked.')) return
-    await fetch(`/api/suppliers/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/suppliers/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: 'Could not delete this supplier.' }))
+      alert(error)
+      return
+    }
     setSelectedId(prev => (prev === id ? null : prev))
     fetchSuppliers()
   }

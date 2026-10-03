@@ -534,7 +534,7 @@ model InventorySupplierPrice {
   id                   String        @id @default(uuid())
   inventoryItemId      String
   supplierName         String
-  supplierId           String?
+  supplierId           String
   lastPrice            Decimal
   // pricePerBaseUnit removed — offer ppb derives from packChain/pricing via offerPricePerBase()
   lastUpdated          DateTime      @default(now())
@@ -554,13 +554,13 @@ model InventorySupplierPrice {
   pricing              Json?
   lastInvoiceSessionId String?  // provenance: approval that last set this offer
   inventoryItem        InventoryItem @relation("InventorySupplierPrices", fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  supplier             Supplier?     @relation(fields: [supplierId], references: [id])
+  supplier             Supplier      @relation(fields: [supplierId], references: [id])
 
-  // One offer per supplier PRODUCT: unique (inventoryItemId, supplierName,
+  // One offer per supplier PRODUCT: unique (inventoryItemId, supplierId,
   // COALESCE(supplierItemCode, '')) — an expression index Prisma cannot model,
-  // created by migration 20260926000000_offer_per_supplier_product. A merged item
-  // (e.g. "Mushrooms Mix") keeps one Sysco offer per SKU, each with its own box.
-  @@index([inventoryItemId, supplierName])
+  // created by migration 20261003000000_offer_supplier_required (it replaced the
+  // supplierName-keyed index from 20260926). supplierName is display/provenance only.
+  @@index([inventoryItemId, supplierId])
 }
 
 model ItemMerge {

@@ -390,10 +390,9 @@ export async function buildPurchaseMap(
       rawLineTotal:    si.rawLineTotal?.toString() ?? null,
     }, resolveLineFormat(
       asChainItem(si.matchedItem),
-      // Offers are stored under the canonical supplier name; supplierId is the
-      // reliable join, the canonical name the next-best, and the raw session name
-      // the fallback. Same ref the approve route and the review UI build, so all
-      // three read a line through the same supplier's pack.
+      // Offers are keyed by supplierId; a session with no linked supplier reads the
+      // line through the item's own chain. Same ref the approve route and the
+      // review UI build, so all three read a line through the same supplier's pack.
       pickOffer(si.matchedItem.supplierPrices, {
         supplierId:    si.session.supplierId,
         supplierName:  si.session.supplierName,

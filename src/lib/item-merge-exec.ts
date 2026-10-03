@@ -211,7 +211,7 @@ export async function loadMergeInputs(
   const rc = await db.itemRevenueCenter.findMany({ where: w })
   const prior = await db.inventoryItem.findMany({ where: { mergedIntoId: absorbedId }, select: { id: true } })
   const last = await db.invoiceScanItem.findFirst({
-    where: { matchedItemId: absorbedId, approved: true, session: { supplierName: { not: null } } },
+    where: { matchedItemId: absorbedId, approved: true, session: { supplierId: { not: null } } },
     orderBy: { session: { purchaseDate: 'desc' } },
     select: { session: { select: { supplierId: true, supplierName: true } } },
   })
@@ -250,8 +250,8 @@ export async function loadMergeInputs(
       reorderQty: a.reorderQty == null ? null : Number(a.reorderQty),
     })),
     itemRcs: rc.map(r => ({ ...toPlainRow(r), id: r.id, revenueCenterId: r.revenueCenterId })),
-    latestPurchaseSupplier: last?.session.supplierName
-      ? { supplierId: last.session.supplierId, supplierName: last.session.supplierName }
+    latestPurchaseSupplier: last?.session.supplierId
+      ? { supplierId: last.session.supplierId, supplierName: last.session.supplierName ?? '' }
       : null,
     priorAbsorbeeIds: prior.map(x => x.id),
   }
@@ -266,7 +266,7 @@ export async function loadMergeInputs(
   const sRel: SurvivorRelations = {
     offers: sOf.map(o => ({
       ...toPlainRow(o),
-      id: o.id, supplierName: o.supplierName, isPrimary: o.isPrimary, lastUpdated: o.lastUpdated.toISOString(),
+      id: o.id, supplierName: o.supplierName, supplierId: o.supplierId, isPrimary: o.isPrimary, lastUpdated: o.lastUpdated.toISOString(),
     })),
     allocations: sAl.map(a => ({ id: a.id, revenueCenterId: a.revenueCenterId, quantity: n(a.quantity) })),
     itemRcs: sRc,

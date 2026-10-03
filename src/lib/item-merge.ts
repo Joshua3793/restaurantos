@@ -70,7 +70,7 @@ export interface MergeRelations {          // everything that points at the ABSO
   // loaded by the executor as FULL database rows (extra fields beyond those
   // declared here) so a `delete` op's `row` can re-create the row on undo.
   snapshots: Array<{ id: string; sessionId: string; qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number; source: string } & Record<string, unknown>>
-  offers: Array<{ id: string; supplierName: string; supplierId: string | null; lastUpdated: string; isPrimary: boolean } & Record<string, unknown>>
+  offers: Array<{ id: string; supplierName: string; supplierId: string; lastUpdated: string; isPrimary: boolean } & Record<string, unknown>>
   allocations: { id: string; revenueCenterId: string; quantity: number; parLevel: number | null; reorderQty: number | null }[]
   itemRcs: { id: string; revenueCenterId: string }[]
   latestPurchaseSupplier: { supplierId: string | null; supplierName: string } | null
@@ -79,7 +79,7 @@ export interface MergeRelations {          // everything that points at the ABSO
   priorAbsorbeeIds: string[]
 }
 export interface SurvivorRelations {       // …and what the SURVIVOR already has that can collide
-  offers: Array<{ id: string; supplierName: string; lastUpdated: string; isPrimary: boolean } & Record<string, unknown>>
+  offers: Array<{ id: string; supplierName: string; supplierId: string; lastUpdated: string; isPrimary: boolean } & Record<string, unknown>>
   allocations: { id: string; revenueCenterId: string; quantity: number }[]
   itemRcs: { revenueCenterId: string }[]
   snapshots: { id: string; sessionId: string; qtyOnHand: number; totalValue: number; source: string }[]
@@ -347,7 +347,7 @@ export function planMerge(
   }
   repoint('InventorySnapshot', moveSnaps)
 
-  // ── offers: unique (item, supplierName, SKU) ──────────────────────────────────
+  // ── offers: unique (item, supplierId, SKU) ──────────────────────────────────
   // Two offers collide only when they are the same supplier's same product (same
   // SKU, blank = blank). Different SKUs are different boxes and both survive —
   // that is what lets "Mushrooms Mix" keep every Sysco mushroom's own case.
@@ -369,16 +369,16 @@ export function planMerge(
   // write belongs to primary-offer.ts, not a merge. The executor runs no
   // primary-election pass of its own; this manifest is the complete record of
   // every write.
-  const offerKey = (supplierName: string, code: unknown) =>
-    `${supplierName}\u0000${normItemCode(typeof code === 'string' ? code : null)}`
-  const sOffer = new Map(sRel.offers.map(o => [offerKey(o.supplierName, o.supplierItemCode), o]))
+  const offerKey = (supplierId: string, code: unknown) =>
+    `${supplierId}\u0000${normItemCode(typeof code === 'string' ? code : null)}`
+  const sOffer = new Map(sRel.offers.map(o => [offerKey(o.supplierId, o.supplierItemCode), o]))
   const moveOffers: string[] = []
   const movedOffers: MergeRelations['offers'] = []
   let absorbedOffersDroppedStale = 0
   let absorbedOffersDroppedForSurvivorPrimary = 0
   let survivorOffersReplaced = 0
   for (const o of rel.offers) {
-    const hit = sOffer.get(offerKey(o.supplierName, o.supplierItemCode))
+    const hit = sOffer.get(offerKey(o.supplierId, o.supplierItemCode))
     if (hit) {
       const isStale = ts(hit.lastUpdated) >= ts(o.lastUpdated)
       if (isStale || hit.isPrimary) {
@@ -395,8 +395,10 @@ export function planMerge(
   }
 
   const derivedPrice = toNum(absorbed.pricing.mode === 'RATE' ? absorbed.pricing.rate : absorbed.pricing.purchasePrice)
-  const canSynth = rel.offers.length === 0 && rel.scanItemIds.length > 0 && !!rel.latestPurchaseSupplier
-    && !sOffer.has(offerKey(rel.latestPurchaseSupplier!.supplierName, null))
+  const canSynth = rel.offers.length === 0 && rel.scanItemIds.length > 0
+    // a session without a linked supplier cannot synthesize an offer row
+    && !!rel.latestPurchaseSupplier?.supplierId
+    && !sOffer.has(offerKey(rel.latestPurchaseSupplier.supplierId, null))
     && Number.isFinite(derivedPrice) && derivedPrice > 0
 
   // I-1: decide the promotion winner BEFORE emitting any isPrimary op, since it
@@ -446,7 +448,7 @@ export function planMerge(
     ops.push({ t: 'create', table: 'InventorySupplierPrice', row: {
       id: opts.newId(),
       inventoryItemId: survivor.id, supplierName: rel.latestPurchaseSupplier!.supplierName,
-      supplierId: rel.latestPurchaseSupplier!.supplierId,
+      supplierId: rel.latestPurchaseSupplier!.supplierId!,
       isPrimary: !survivorHasPrimary, // movedOffers is always empty when canSynth
       lastPrice: derivedPrice,
       packChain: absorbed.packChain,

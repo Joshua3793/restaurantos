@@ -53,59 +53,38 @@ describe('pickBestFuzzy', () => {
   })
 })
 
-describe('buildOfferSkuIndex', () => {
-  it('indexes a single item under its SKU', () => {
-    const idx = buildOfferSkuIndex(
-      [{ supplierName: 'Sysco', supplierItemCode: '123', inventoryItemId: 'item1' }],
-      'Sysco'
-    )
+describe('buildOfferSkuIndex — (supplier, SKU) → item from one supplier\'s rows', () => {
+  it('maps each SKU to its item and drops a SKU two items claim', () => {
+    const idx = buildOfferSkuIndex([
+      { supplierId: 's1', supplierItemCode: 'A1', inventoryItemId: 'i1' },
+      { supplierId: 's1', supplierItemCode: 'B2', inventoryItemId: 'i2' },
+      { supplierId: 's1', supplierItemCode: 'B2', inventoryItemId: 'i3' },
+    ])
+    expect(idx.get('A1')).toBe('i1')
+    expect(idx.has('B2')).toBe(false)
+  })
+
+  it('the same item twice under one SKU is not ambiguous', () => {
+    const idx = buildOfferSkuIndex([
+      { supplierId: 's1', supplierItemCode: '123', inventoryItemId: 'item1' },
+      { supplierId: 's1', supplierItemCode: '123', inventoryItemId: 'item1' },
+    ])
     expect(idx).toEqual(new Map([['123', 'item1']]))
   })
 
-  it('the same item under both raw and canonical supplier names is not ambiguous — one entry', () => {
-    const idx = buildOfferSkuIndex(
-      [
-        { supplierName: 'SYSCO Canada, Inc.', supplierItemCode: '123', inventoryItemId: 'item1' },
-        { supplierName: 'Sysco', supplierItemCode: '123', inventoryItemId: 'item1' },
-      ],
-      'Sysco'
-    )
-    expect(idx.size).toBe(1)
-    expect(idx.get('123')).toBe('item1')
-  })
-
-  it('a canonical-name code overrides a raw-name code for the SAME item (no ambiguity)', () => {
-    const idx = buildOfferSkuIndex(
-      [
-        { supplierName: 'SYSCO Canada, Inc.', supplierItemCode: 'AAA', inventoryItemId: 'item1' },
-        { supplierName: 'Sysco', supplierItemCode: 'BBB', inventoryItemId: 'item1' },
-      ],
-      'Sysco'
-    )
-    expect(idx).toEqual(new Map([['BBB', 'item1']]))
-    expect(idx.has('AAA')).toBe(false)
-  })
-
-  it('two different items sharing a SKU are ambiguous and both omitted', () => {
-    const idx = buildOfferSkuIndex(
-      [
-        { supplierName: 'Sysco', supplierItemCode: '999', inventoryItemId: 'itemA' },
-        { supplierName: 'Sysco', supplierItemCode: '999', inventoryItemId: 'itemB' },
-      ],
-      'Sysco'
-    )
-    expect(idx.has('999')).toBe(false)
-    expect(idx.size).toBe(0)
+  it('a merged item with several SKUs indexes every one of them', () => {
+    const idx = buildOfferSkuIndex([
+      { supplierId: 's1', supplierItemCode: 'S-100', inventoryItemId: 'item1' },
+      { supplierId: 's1', supplierItemCode: 'S-200', inventoryItemId: 'item1' },
+    ])
+    expect(idx).toEqual(new Map([['S-100', 'item1'], ['S-200', 'item1']]))
   })
 
   it('null and empty supplierItemCode values are ignored', () => {
-    const idx = buildOfferSkuIndex(
-      [
-        { supplierName: 'Sysco', supplierItemCode: null, inventoryItemId: 'item1' },
-        { supplierName: 'Sysco', supplierItemCode: '', inventoryItemId: 'item2' },
-      ],
-      'Sysco'
-    )
+    const idx = buildOfferSkuIndex([
+      { supplierId: 's1', supplierItemCode: null, inventoryItemId: 'item1' },
+      { supplierId: 's1', supplierItemCode: '', inventoryItemId: 'item2' },
+    ])
     expect(idx.size).toBe(0)
   })
 })
