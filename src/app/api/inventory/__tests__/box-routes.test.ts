@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { NextRequest } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { ROLE_RANK } from '@/lib/roles'
 
 // The supplier-box routes (Stage 2b, R4): add a box (POST /suppliers), edit one
@@ -46,7 +47,8 @@ const db = {
   supplier: { findUnique: async () => SUPPLIER },
   inventorySupplierPrice: {
     findFirst: (a: Args) => findFirst(a),
-    findMany: async () => BOXES,
+    findMany: async (a?: { where?: { isPrimary?: boolean } }) =>
+      a?.where?.isPrimary ? BOXES.filter(b => b.isPrimary) : BOXES,
     count: async () => BOXES.length,
     create: (a: Args) => create(a),
     update: async () => ({}),
@@ -157,6 +159,13 @@ describe('POST /api/inventory/[id]/suppliers — add a box', () => {
     expect(propagatePrepCostChanges).toHaveBeenCalledWith(['i1'])
   })
 
+  it('a duplicate that slips past the check (unique index, P2002) → 409 DUPLICATE_BOX', async () => {
+    create.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }))
+    const res = await list.POST(req(NEW_BOX), itemCtx)
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('DUPLICATE_BOX')
+  })
+
   it('a duplicate box → 409 DUPLICATE_BOX', async () => {
     DUP = { id: 'o1' }
     const res = await list.POST(req(NEW_BOX), itemCtx)
@@ -254,13 +263,53 @@ describe('PATCH /api/inventory/[id]/suppliers/[offerId] — edit a box', () => {
     expect(propagatePrepCostChanges).toHaveBeenCalledWith(['i1'])
   })
 
-  it('a non-main box → written, item untouched', async () => {
+  it('a non-main box → written; the always-run sync changes nothing so nothing re-costs', async () => {
     BOXES = [PRIMARY, OTHER]
+    syncPrimaryOfferToItem.mockResolvedValueOnce({ changed: false, oldPpb: 0.0182, newPpb: 0.0182 })
     const res = await one.PATCH(req(EDIT), boxCtx('o2'))
     expect(res.status).toBe(200)
     expect(boxUpdateMany).toHaveBeenCalled()
-    expect(syncPrimaryOfferToItem).not.toHaveBeenCalled()
+    expect(syncPrimaryOfferToItem).toHaveBeenCalledWith('i1', expect.anything())
     expect(propagatePrepCostChanges).not.toHaveBeenCalled()
+  })
+
+  it('only a product code → the stored pack and price are kept untouched', async () => {
+    BOXES = [PRIMARY]
+    const res = await one.PATCH(req({ supplierItemCode: ' gc9 ', expectedLastUpdated: BOX_TIME.toISOString() }), boxCtx('o1'))
+    expect(res.status).toBe(200)
+    expect(boxUpdateMany.mock.calls[0][0].data).toMatchObject({
+      packChain: PRIMARY.packChain, pricing: PRIMARY.pricing, supplierItemCode: 'GC9', lastPrice: 18.2,
+    })
+  })
+
+  // A legacy box: a RATE price in 'each' on a by-weight item does not fit the item.
+  const LEGACY: Box = { ...PRIMARY, pricing: { mode: 'RATE', rate: 4.5, rateUnit: 'each' } }
+
+  it('a legacy box that already fails can still change its code (stored errors excused) → 200', async () => {
+    BOXES = [LEGACY]
+    const res = await one.PATCH(req({ supplierItemCode: 'gc9', expectedLastUpdated: BOX_TIME.toISOString() }), boxCtx('o1'))
+    expect(res.status).toBe(200)
+    expect(boxUpdateMany).toHaveBeenCalled()
+  })
+
+  it('a legacy box with a CHANGED pack is judged whole → 400 INVALID', async () => {
+    BOXES = [LEGACY]
+    const res = await one.PATCH(req({
+      packChain: [{ unit: 'case', per: 500 }], expectedLastUpdated: BOX_TIME.toISOString(),
+    }), boxCtx('o1'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('INVALID')
+    expect(boxUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('$0 is never excused, even when the stored box is already $0 → 400 ZERO_PRICE', async () => {
+    BOXES = [{ ...PRIMARY, pricing: { mode: 'PACK', purchasePrice: 0 } }]
+    const res = await one.PATCH(req({
+      pricing: { mode: 'PACK', purchasePrice: 0 }, expectedLastUpdated: BOX_TIME.toISOString(),
+    }), boxCtx('o1'))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('ZERO_PRICE')
+    expect(boxUpdateMany).not.toHaveBeenCalled()
   })
 
   it('a stale box version → 409 STALE', async () => {
@@ -316,15 +365,25 @@ describe('PATCH /api/inventory/[id]/suppliers/[offerId] — edit a box', () => {
 describe('DELETE /api/inventory/[id]/suppliers/[offerId] — remove a box', () => {
   const DEL = { expectedLastUpdated: BOX_TIME.toISOString() }
 
-  it('a non-main box → deleted, no sync', async () => {
+  it('a non-main box → deleted; the main box is re-checked (no-op) and the item is not synced', async () => {
     BOXES = [PRIMARY, OTHER]
+    ensureResult = 'o1'
     const res = await one.DELETE(req(DEL), boxCtx('o2'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual(OFFERS)
     expect(deleteMany.mock.calls[0][0].where).toEqual({ id: 'o2', inventoryItemId: 'i1', lastUpdated: BOX_TIME })
-    expect(ensurePrimary).not.toHaveBeenCalled()
+    expect(ensurePrimary).toHaveBeenCalledWith('i1', expect.anything())
     expect(syncPrimaryOfferToItem).not.toHaveBeenCalled()
     expect(propagatePrepCostChanges).not.toHaveBeenCalled()
+  })
+
+  it('a non-main box when the main box vanished meanwhile → one is promoted and the item follows it', async () => {
+    BOXES = [OTHER, { ...OTHER, id: 'o3' }] // neither is main any more
+    ensureResult = 'o2'
+    const res = await one.DELETE(req(DEL), boxCtx('o3'))
+    expect(res.status).toBe(200)
+    expect(syncPrimaryOfferToItem).toHaveBeenCalledWith('i1', expect.anything())
+    expect(propagatePrepCostChanges).toHaveBeenCalledWith(['i1'])
   })
 
   it('the main box with another left → the next becomes main and the item follows it', async () => {

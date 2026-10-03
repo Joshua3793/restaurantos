@@ -90,6 +90,8 @@ export async function syncPrimaryOfferToItem(itemId: string, db: Db = prisma): P
   // ChainItem from the offer alone made a bridged `$/lb` primary read 0, and the
   // guard below then turned this sync into a permanent silent no-op.
   const newPpb = primaryOfferPpb(primary, item)
+  // A NON-stocked item may legitimately hold a $0 box; the item then keeps its
+  // own (also $0) pricing rather than following it. Stocked items cannot save $0.
   if (!Number.isFinite(newPpb) || newPpb <= 0) {
     return { changed: false, oldPpb, newPpb: oldPpb }
   }

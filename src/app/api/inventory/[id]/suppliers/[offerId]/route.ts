@@ -24,6 +24,7 @@ type Ctx = { params: { id: string; offerId: string } }
 
 const BOX_STALE = 'Someone changed this supplier box a moment ago. Reload to see their change before saving yours.'
 const BOX_GONE = { error: 'That supplier box is no longer there. Reload the item.', code: 'NOT_FOUND' } as const
+const ZERO_PRICE_ERROR = 'price must be above $0'
 const BAD_FIELD = { error: 'Reload the item and try again.', code: 'BAD_FIELD' } as const
 /** Thrown inside a transaction when the box moved on after the read. */
 class StaleBox extends Error {}
@@ -81,7 +82,19 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
     packChain: (body.packChain ?? box.packChain) as PackLink[],
     pricing: (body.pricing ?? box.pricing) as Pricing,
   }
-  const bad = boxRefusal(validateBox(item, next))
+  // Judge only what this save changes: an error the stored box already had is
+  // excused while its chain is untouched (a legacy box can still get a new code
+  // or price). A changed chain is judged whole, and a $0 price is never excused.
+  const chainChanged = body.packChain !== undefined
+    && JSON.stringify(body.packChain) !== JSON.stringify(box.packChain)
+  const stored = chainChanged
+    ? new Set<string>()
+    : new Set(validateBox(item, {
+      supplierId: box.supplierId, supplierItemCode: box.supplierItemCode,
+      packChain: box.packChain as PackLink[], pricing: box.pricing as Pricing,
+    }))
+  const errors = validateBox(item, next).filter(e => !stored.has(e) || e === ZERO_PRICE_ERROR)
+  const bad = boxRefusal(errors)
   if (bad) return NextResponse.json(bad, { status: 400 })
 
   // A new product code must not collide with another box of the same supplier.
@@ -96,8 +109,9 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
     if (dup) return NextResponse.json({ error: DUPLICATE_BOX_ERROR, code: 'DUPLICATE_BOX' }, { status: 409 })
   }
 
+  let synced: { changed: boolean } = { changed: false }
   try {
-    await prisma.$transaction(async (tx) => {
+    synced = await prisma.$transaction(async (tx) => {
       // The write itself re-checks the version it read, closing the window
       // between the read-time STALE check and this update.
       const { count } = await tx.inventorySupplierPrice.updateMany({
@@ -112,7 +126,10 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
         },
       })
       if (count === 0) throw new StaleBox()
-      if (box.isPrimary) await syncPrimaryOfferToItem(id, tx)
+      // Always sync: it is a no-op unless a main box exists, and it re-reads which
+      // box is main INSIDE this transaction, so a promote/demote that raced the
+      // read-time `box.isPrimary` can never leave the item behind its main box.
+      return syncPrimaryOfferToItem(id, tx)
     })
   } catch (e) {
     if (e instanceof StaleBox) return NextResponse.json({ error: BOX_STALE, code: 'STALE' }, { status: 409 })
@@ -123,7 +140,7 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
   }
 
   // The main box's price IS the item's — re-cost the PREP recipes that use it.
-  if (box.isPrimary) await propagatePrepCostChanges([id])
+  if (synced.changed) await propagatePrepCostChanges([id])
   return NextResponse.json(await getSupplierOffers(id))
 }
 
@@ -140,14 +157,23 @@ async function handleDELETE(req: NextRequest, ctx: Ctx) {
   let promoted: string | null = null
   try {
     promoted = await prisma.$transaction(async (tx) => {
+      const primariesBefore = (await tx.inventorySupplierPrice.findMany({
+        where: { inventoryItemId: id, isPrimary: true }, select: { id: true },
+      })).map(b => b.id)
       const { count } = await tx.inventorySupplierPrice.deleteMany({
         where: { id: offerId, inventoryItemId: id, lastUpdated: box.lastUpdated },
       })
       if (count === 0) throw new StaleBox()
-      if (!box.isPrimary) return null
+      // Always settle the main box (a no-op when exactly one exists) so a
+      // concurrent promote/demote can't leave the item with none. The item
+      // re-follows when the deleted box was main or a box was just promoted.
       const next = await ensurePrimary(id, tx)
-      if (next) await syncPrimaryOfferToItem(id, tx)
-      return next
+      const unchanged = next != null && primariesBefore.length === 1 && primariesBefore[0] === next
+      if (next && !unchanged) {
+        await syncPrimaryOfferToItem(id, tx)
+        return next
+      }
+      return null
     })
   } catch (e) {
     if (e instanceof StaleBox) return NextResponse.json({ error: BOX_STALE, code: 'STALE' }, { status: 409 })
