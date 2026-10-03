@@ -108,11 +108,31 @@ describe('MovementLedger — a sink that keeps every item\'s events apart', () =
     l.push(ev('SALE', -8, D1, undefined, 'a'))
     l.push(ev('PREP_OUT', 6, D2, undefined, 'a'))
     l.push(ev('PURCHASE', 3, D1, undefined, 'b'))
-    expect(l.balance('a', 0)).toEqual({ expected: 6, shortfall: 8 })
-    expect(l.balance('b', 1)).toEqual({ expected: 4, shortfall: 0 })
-    expect(l.balance('c', 7)).toEqual({ expected: 7, shortfall: 0 })
+    expect(l.balance('a', 0)).toEqual({ expected: 6, shortfall: 8, unbridged: 0 })
+    expect(l.balance('b', 1)).toEqual({ expected: 4, shortfall: 0, unbridged: 0 })
+    expect(l.balance('c', 7)).toEqual({ expected: 7, shortfall: 0, unbridged: 0 })
     expect(l.moved('a')).toBe(true)
     expect(l.moved('c')).toBe(false)
     expect(l.events('a')).toHaveLength(2)
+  })
+})
+
+describe('runLedger — unbridged movements', () => {
+  it('counts an unbridged event and never lets it move the shelf', () => {
+    const unbridged: LedgerEvent = {
+      ...ev('SALE', 0, D1), unbridged: { qty: 200, unit: 'g' },
+    }
+    const r = runLedger(10, [unbridged, ev('SALE', -4, D2)])
+    expect(r).toEqual({ expected: 6, shortfall: 0, unbridged: 1 })
+  })
+  it('reports unbridged: 0 for a healthy ledger', () => {
+    expect(runLedger(10, [ev('PURCHASE', 5, D1)])).toEqual({ expected: 15, shortfall: 0, unbridged: 0 })
+  })
+  it('MovementLedger.balance carries the count per item', () => {
+    const l = new MovementLedger()
+    l.push({ ...ev('WASTAGE', 0, D1), unbridged: { qty: 2, unit: 'each' } })
+    l.push({ ...ev('WASTAGE', 0, D2, undefined, 'other'), unbridged: { qty: 1, unit: 'each' } })
+    expect(l.balance(ITEM, 3).unbridged).toBe(1)
+    expect(l.balance('other', 0).unbridged).toBe(1)
   })
 })

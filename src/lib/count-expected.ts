@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { convertQty } from '@/lib/uom'
+import { movementQtyBase, MOVEMENT_ITEM_SELECT, type MovementItem } from '@/lib/movement-qty'
 import { computeScale } from '@/lib/prep-utils'
 import { portionsPerBatch } from '@/lib/recipe-portions'
 import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
@@ -47,15 +47,15 @@ export interface TheoreticalTrace {
 
 type IngredientWithLinks = {
   inventoryItemId: string | null
-  inventoryItem:   { id: string; baseUnit: string } | null
+  inventoryItem:   ({ id: string } & MovementItem) | null
   linkedRecipeId:  string | null
   linkedRecipe: null | {
     id: string
     inventoryItemId: string | null
-    inventoryItem:   { id: string; baseUnit: string } | null
+    inventoryItem:   ({ id: string } & MovementItem) | null
     ingredients: Array<{
       inventoryItemId: string | null
-      inventoryItem:   { id: string; baseUnit: string } | null
+      inventoryItem:   ({ id: string } & MovementItem) | null
       qtyBase: string | number | { toString(): string }
       unit: string
     }>
@@ -196,24 +196,26 @@ function expandRecipeIngredients(
 
   for (const ing of recipe.ingredients) {
     if (ing.inventoryItemId && ing.inventoryItem && (!eventDate || inWindow(cutoff, ing.inventoryItemId, eventDate, until))) {
-      const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, ing.inventoryItem.baseUnit)
+      const { qtyBase: consumed, unbridged } = movementQtyBase(Number(ing.qtyBase) * batches, ing.unit, ing.inventoryItem)
       map.set(ing.inventoryItemId, (map.get(ing.inventoryItemId) ?? 0) + consumed)
       if (meta?.sink && eventDate) meta.sink.push({
         id: `sale-${meta.saleId}-${recipe.id}-${ing.inventoryItemId}`,
         date: eventDate, type: 'SALE', itemId: ing.inventoryItemId,
         qtyBase: -consumed, description: meta.label, revenueCenterId: meta.rcId,
+        ...(unbridged ? { unbridged } : {}),
       })
     }
 
     if (ing.linkedRecipeId && ing.linkedRecipe && !visitedRecipes.has(ing.linkedRecipeId)) {
       const prep = ing.linkedRecipe
       if (prep.inventoryItemId && prep.inventoryItem && (!eventDate || inWindow(cutoff, prep.inventoryItemId, eventDate, until))) {
-        const consumed = convertQty(Number(ing.qtyBase) * batches, ing.unit, prep.inventoryItem.baseUnit)
+        const { qtyBase: consumed, unbridged } = movementQtyBase(Number(ing.qtyBase) * batches, ing.unit, prep.inventoryItem)
         map.set(prep.inventoryItemId, (map.get(prep.inventoryItemId) ?? 0) + consumed)
         if (meta?.sink && eventDate) meta.sink.push({
           id: `sale-${meta.saleId}-${recipe.id}-prep-${prep.inventoryItemId}`,
           date: eventDate, type: 'SALE', itemId: prep.inventoryItemId,
           qtyBase: -consumed, description: meta.label, revenueCenterId: meta.rcId,
+          ...(unbridged ? { unbridged } : {}),
         })
       }
     }
@@ -242,12 +244,12 @@ export async function buildConsumptionMap(
         include: {
           ingredients: {
             include: {
-              inventoryItem: { select: { id: true, baseUnit: true } },
+              inventoryItem: { select: MOVEMENT_ITEM_SELECT },
               linkedRecipe: {
                 include: {
-                  inventoryItem: { select: { id: true, baseUnit: true } },
+                  inventoryItem: { select: MOVEMENT_ITEM_SELECT },
                   ingredients: {
-                    include: { inventoryItem: { select: { id: true, baseUnit: true } } },
+                    include: { inventoryItem: { select: MOVEMENT_ITEM_SELECT } },
                   },
                 },
               },
@@ -435,20 +437,21 @@ export async function buildWastageMap(
       date:            true,
       reason:          true,
       revenueCenterId: true,
-      inventoryItem:   { select: { baseUnit: true } },
+      inventoryItem:   { select: MOVEMENT_ITEM_SELECT },
     },
   })
 
   const map = new Map<string, number>()
   for (const w of wastageRows) {
     if (!inWindow(cutoff, w.inventoryItemId, w.date, until)) continue
-    const converted = convertQty(Number(w.qtyWasted), w.unit, w.inventoryItem.baseUnit)
+    const { qtyBase: converted, unbridged } = movementQtyBase(Number(w.qtyWasted), w.unit, w.inventoryItem)
     map.set(w.inventoryItemId, (map.get(w.inventoryItemId) ?? 0) + converted)
     sink?.push({
       id: w.id, date: w.date, type: 'WASTAGE', itemId: w.inventoryItemId,
       qtyBase: -converted,
       description: w.reason && w.reason !== 'UNKNOWN' ? w.reason : 'Wastage',
       revenueCenterId: w.revenueCenterId,
+      ...(unbridged ? { unbridged } : {}),
     })
   }
   return map
@@ -554,7 +557,7 @@ export async function computeExpectedForItem(
   // No RC selected → mirror getTheoreticalStockMap(null): sum across RCs.
   if (!rcId) {
     const m = await getTheoreticalBalanceMap(null, [itemId])
-    const b = m.get(itemId) ?? { expected: 0, shortfall: 0 }
+    const b = m.get(itemId) ?? { expected: 0, shortfall: 0, unbridged: 0 }
     return { expectedBase: b.expected, baseStock: b.expected, shortfallBase: b.shortfall }
   }
 
@@ -643,11 +646,11 @@ export async function buildPrepMap(
         include: {
           linkedRecipe: {
             include: {
-              inventoryItem: { select: { id: true, baseUnit: true } },
+              inventoryItem: { select: MOVEMENT_ITEM_SELECT },
               ingredients: {
                 include: {
-                  inventoryItem: { select: { id: true, baseUnit: true } },
-                  linkedRecipe: { select: { inventoryItem: { select: { id: true, baseUnit: true } } } },
+                  inventoryItem: { select: MOVEMENT_ITEM_SELECT },
+                  linkedRecipe: { select: { inventoryItem: { select: MOVEMENT_ITEM_SELECT } } },
                 },
               },
             },
@@ -684,40 +687,44 @@ export async function buildPrepMap(
     const at = log.completedAt ?? log.createdAt
 
     for (const ing of recipe.ingredients) {
-      // qtyBase is in ing.unit (not yet base units); convertQty handles the
-      // conversion afterward — same pattern as recipeCosts.ts.
+      // qtyBase is in ing.unit (not yet base units); movementQtyBase converts
+      // through the item's bridges — same rule as recipeCosts.ts.
       const qty = Number(ing.qtyBase) * scale
       if (ing.inventoryItemId && ing.inventoryItem) {
         if (prepEventCounts(finalizedAt, cutoff, ing.inventoryItem.id, log.createdAt, log.logDate, until)) {
-          const drawn = convertQty(qty, ing.unit, ing.inventoryItem.baseUnit)
+          const { qtyBase: drawn, unbridged } = movementQtyBase(qty, ing.unit, ing.inventoryItem)
           add(consumption, ing.inventoryItem.id, drawn)
           sink?.push({
             id: `prep-in-${log.id}-${ing.inventoryItem.id}`, date: log.logDate, at, type: 'PREP_IN',
             itemId: ing.inventoryItem.id, qtyBase: -drawn,
             description: `Prep: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
+            ...(unbridged ? { unbridged } : {}),
           })
         }
       } else if (ing.linkedRecipeId && ing.linkedRecipe?.inventoryItem) {
         const prep = ing.linkedRecipe.inventoryItem
         if (prepEventCounts(finalizedAt, cutoff, prep.id, log.createdAt, log.logDate, until)) {
-          const drawn = convertQty(qty, ing.unit, prep.baseUnit)
+          const { qtyBase: drawn, unbridged } = movementQtyBase(qty, ing.unit, prep)
           add(consumption, prep.id, drawn)
           sink?.push({
             id: `prep-in-${log.id}-${prep.id}`, date: log.logDate, at, type: 'PREP_IN',
             itemId: prep.id, qtyBase: -drawn,
             description: `Prep: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
+            ...(unbridged ? { unbridged } : {}),
           })
         }
       }
     }
 
     if (recipe.inventoryItemId && recipe.inventoryItem && prepEventCounts(finalizedAt, cutoff, recipe.inventoryItem.id, log.createdAt, log.logDate, until)) {
-      const yieldInBase = convertQty(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem.baseUnit) * scale
+      const { qtyBase: yieldPerBatch, unbridged } = movementQtyBase(Number(recipe.baseYieldQty), recipe.yieldUnit, recipe.inventoryItem)
+      const yieldInBase = yieldPerBatch * scale
       add(output, recipe.inventoryItem.id, yieldInBase)
       sink?.push({
         id: `prep-out-${log.id}`, date: log.logDate, at, type: 'PREP_OUT',
         itemId: recipe.inventoryItem.id, qtyBase: yieldInBase,
         description: `Prep output: ${recipe.name}`, revenueCenterId: log.revenueCenterId ?? null,
+        ...(unbridged ? { unbridged: { qty: unbridged.qty * scale, unit: unbridged.unit } } : {}),
       })
     }
   }
@@ -771,8 +778,8 @@ export async function getTheoreticalBalanceMap(
     const perRc = await Promise.all(rcs.map(rc => getTheoreticalBalanceMap(rc.id, itemIds, null, trace)))
     const sum = new Map<string, LedgerBalance>()
     for (const m of perRc) for (const [id, b] of m) {
-      const cur = sum.get(id) ?? { expected: 0, shortfall: 0 }
-      sum.set(id, { expected: cur.expected + b.expected, shortfall: cur.shortfall + b.shortfall })
+      const cur = sum.get(id) ?? { expected: 0, shortfall: 0, unbridged: 0 }
+      sum.set(id, { expected: cur.expected + b.expected, shortfall: cur.shortfall + b.shortfall, unbridged: cur.unbridged + b.unbridged })
     }
     return sum
   }

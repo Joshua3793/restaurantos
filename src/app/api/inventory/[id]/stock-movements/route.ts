@@ -23,6 +23,8 @@ export interface StockMovement {
   unit: string
   description: string
   revenueCenterId?: string | null
+  /** Present when this movement was NOT applied: the item has no bridge for its unit. qty is then 0. */
+  unbridged?: { qty: number; unit: string }
 }
 
 /**
@@ -47,6 +49,8 @@ export interface StockReconciliation {
   unit:         string
   /** Total movements in the window; `movements` carries them all, the UI truncates. */
   movementCount: number
+  /** Movements listed but not applied (no bridge). Zero for a healthy item. */
+  unbridgedCount: number
 }
 
 export interface StockMovementsResponse {
@@ -97,6 +101,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     unit:            displayUnit,
     description:     e.description,
     revenueCenterId: e.revenueCenterId,
+    ...(e.unbridged ? { unbridged: e.unbridged } : {}),
   }))
 
   // Transfer legs stay in the list for provenance but out of the split — see splitLedger.
@@ -121,6 +126,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       theoretical:   toDisplay(ledger.theoreticalBase),
       unit:          displayUnit,
       movementCount: ledger.events.length,
+      unbridgedCount: ledger.unbridgedCount,
     },
   }
 
