@@ -9,7 +9,7 @@ export function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
   value: string
   placeholder?: string
   onSelect: (id: string, name: string) => void
-  onAddNew?: (name: string) => Promise<{ id: string; name: string }>
+  onAddNew?: (name: string) => Promise<{ id: string; name: string } | null>
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -41,7 +41,7 @@ export function Combobox({ items, value, placeholder, onSelect, onAddNew }: {
           {!exactMatch && query && onAddNew && (
             <button type="button"
               className="w-full text-left px-3 py-2 text-sm text-gold font-medium hover:bg-gold/10"
-              onClick={async () => { const r = await onAddNew(query); onSelect(r.id, r.name); setOpen(false); setQuery('') }}
+              onClick={async () => { const r = await onAddNew(query); if (r) { onSelect(r.id, r.name); setOpen(false); setQuery('') } }}
             >+ Add &quot;{query}&quot;</button>
           )}
           {filtered.length === 0 && !query && <div className="px-3 py-2 text-xs text-ink-4">No options</div>}

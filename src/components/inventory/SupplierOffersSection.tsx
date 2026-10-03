@@ -107,6 +107,10 @@ function BoxForm({
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name }),
               })
+              if (!res.ok) {
+                alert('Could not add that supplier.')
+                return null
+              }
               const sup = await res.json()
               setSuppliers(prev => [...prev, { id: sup.id, name: sup.name }])
               return { id: sup.id, name: sup.name }
@@ -234,6 +238,7 @@ export function SupplierOffersSection({
     }).then(r => (r.ok ? r.json() : null)).catch(() => null)
     setSaving(false)
     load()
+    onChanged?.()
     if (res?.repriced) onRepriced?.()
   }
 
