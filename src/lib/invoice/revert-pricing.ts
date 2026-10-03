@@ -79,8 +79,7 @@ export function priorPpbFromAlerts(
 const near = (a: number, b: number) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= Math.abs(b) * 1e-4
 
 /**
- * The `pricing` (and the legacy headline `purchasePrice`) an item should be
- * rolled back to.
+ * The `pricing` an item should be rolled back to.
  *
  * Same-dimension shapes keep TODAY's behaviour byte for byte — every live item
  * is one of those, so a rollback's number can only change for an item carrying a
@@ -107,7 +106,7 @@ export function revertedPricing(a: {
   item: RevertItemRow
   /** The item's pre-approve $/base, from this session's PriceAlert. */
   priorPpb?: number | null
-}): { pricing: Pricing; purchasePrice: number; basis: RevertBasis } {
+}): { pricing: Pricing; basis: RevertBasis } {
   const prev = Number(a.previousPrice)
   const item: ChainItem = asChainItem({
     dimension: (a.item.dimension ?? '') as string,
@@ -120,7 +119,6 @@ export function revertedPricing(a: {
   })
   const pack = (p: number) => ({
     pricing: { mode: 'PACK', purchasePrice: p } as Pricing,
-    purchasePrice: p,
   })
 
   const current = a.item.pricing as { mode?: string; rateUnit?: string } | null
@@ -129,7 +127,6 @@ export function revertedPricing(a: {
   const rateUnit = current.rateUnit || a.item.baseUnit || 'each'
   const rate = (r: number) => ({
     pricing: { mode: 'RATE', rate: r, rateUnit } as Pricing,
-    purchasePrice: r,
   })
   if (!rateCrossesItemDimension(rateUnit, a.item)) return { ...rate(prev), basis: 'rate-same-dimension' }
 

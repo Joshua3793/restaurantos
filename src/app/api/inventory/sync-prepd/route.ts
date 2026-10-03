@@ -42,7 +42,6 @@ export async function POST() {
       data: {
         itemName: r.name,
         category: 'PREPD',
-        purchasePrice: 0,
         baseUnit: yieldUnit,
         stockOnHand: 0,
         // Chain placeholder — syncPrepToInventory fills in the real cost/yield.

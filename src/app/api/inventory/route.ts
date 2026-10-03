@@ -6,6 +6,7 @@ import {
 } from '@/lib/item-model'
 import { withLastCost } from '@/lib/cost-basis'
 import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
+import { offerListedPrice } from '@/lib/offer-price'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
@@ -39,8 +40,15 @@ async function handlePOST(req: NextRequest) {
   // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
   // single source of truth. Every create path (inventory add, count quick-add,
   // CSV import) sends a chain body — there is no legacy-field create path.
+  // `location`, `purchasePrice`, `needsReview` are retired copies (the storage
+  // area, the pricing, nothing) — pulled out here so `...rest` never writes them.
+  // `supplierId` is not an item column either: a chosen supplier becomes the
+  // item's first (primary) supplier box below, and the item's supplier derives
+  // from that box.
   const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, revenueCenterId,
-          eachMeasureQty, eachMeasureUnit, ...rest } = body
+          eachMeasureQty, eachMeasureUnit,
+          location: _location, purchasePrice: _purchasePrice, needsReview: _needsReview,
+          ...rest } = body
   if (!packChain) {
     return NextResponse.json({ error: 'packChain is required' }, { status: 400 })
   }
@@ -74,6 +82,14 @@ async function handlePOST(req: NextRequest) {
   const errors = validateChainItem(ci)
   if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
 
+  // The chosen supplier's name is stored on its box (display/provenance).
+  const supplier = supplierId
+    ? await prisma.supplier.findUnique({ where: { id: String(supplierId) }, select: { id: true, name: true } })
+    : null
+  if (supplierId && !supplier) {
+    return NextResponse.json({ error: 'That supplier no longer exists — pick another.' }, { status: 400 })
+  }
+
   // Non-stocked (recipe-only) items carry no inventory value — pin spine price to 0.
   const isStocked = body.isStocked !== false
 
@@ -95,12 +111,26 @@ async function handlePOST(req: NextRequest) {
       pricing: pricing as any,
       countUnit,
       baseUnit: ci.baseUnit,
-      supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
       // Count↔weight bridge — valid in either direction (see [id] PUT route),
       // so not gated on dimension; the unit must be a measured one.
       eachMeasureQty:  emValid ? emQty : null,
       eachMeasureUnit: emValid ? emUnit : null,
+      // The chosen supplier → the item's first box, primary, carrying the new
+      // item's own chain + pricing (item == primary box from the start).
+      ...(supplier ? {
+        supplierPrices: {
+          create: {
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            isPrimary: true,
+            // NOT NULL until Stage 1e drops it; nothing reads it (offerListedPrice derives).
+            lastPrice: offerListedPrice({ pricing }),
+            packChain: packChain as unknown as object,
+            pricing: pricing as unknown as object,
+          },
+        },
+      } : {}),
     },
     include: { ...PRIMARY_SUPPLIER_INCLUDE, storageArea: true },
   })

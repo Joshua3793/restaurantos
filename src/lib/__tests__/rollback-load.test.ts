@@ -128,7 +128,6 @@ describe('referencePhrases — invoice lines carry the unapproved detail', () =>
 const offerCanon = (o: Partial<Canon> = {}): Canon => ({
   isPrimary: false,
   lastInvoiceSessionId: null,
-  lastPrice: 10,
   packChain: null,
   packQty: null,
   packSize: null,
@@ -167,10 +166,19 @@ describe('plannedRowDeletes', () => {
     expect([...got.ruleIds]).toEqual([])
   })
 
+  it('an OLD created-offer record still carrying the retired lastPrice is still deleted', () => {
+    const got = plannedRowDeletes(
+      [rec({ next: { ...offerCanon(), lastPrice: 10 } })],
+      new Map([['o1', asCurrentOffer(offerCanon())]]),
+      new Map(),
+    )
+    expect([...got.offerIds]).toEqual(['o1'])
+  })
+
   it('keeps a created offer that changed since the approval', () => {
     const got = plannedRowDeletes(
       [rec({})],
-      new Map([['o1', asCurrentOffer(offerCanon({ lastPrice: 99 }))]]),
+      new Map([['o1', asCurrentOffer(offerCanon({ pricing: { mode: 'PACK', purchasePrice: 99 } }))]]),
       new Map(),
     )
     expect([...got.offerIds]).toEqual([])
@@ -183,7 +191,7 @@ describe('plannedRowDeletes', () => {
 
   it('never excludes an offer the approval only UPDATED (prev !== null)', () => {
     const got = plannedRowDeletes(
-      [rec({ prev: offerCanon({ lastPrice: 8 }) })],
+      [rec({ prev: offerCanon({ pricing: { mode: 'PACK', purchasePrice: 8 } }) })],
       new Map([['o1', asCurrentOffer(offerCanon())]]),
       new Map(),
     )

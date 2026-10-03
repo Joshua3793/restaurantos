@@ -1,3 +1,6 @@
+// DEAD: one-off, applied to the live db 2026-09-21 (3 North Arm Farms offers). It
+// reads/writes the retired InventorySupplierPrice.lastPrice and the old
+// RepairOffer/RepairPlan shape; excluded from tsconfig — do not run.
 /**
  * Repair supplier offers stored as a case (PACK) price when they were actually
  * billed by weight — a shape only possible BEFORE this branch's dimension-aware

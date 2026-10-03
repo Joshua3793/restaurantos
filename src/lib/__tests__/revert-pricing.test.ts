@@ -24,8 +24,15 @@ describe('revertedPricing — a rollback must restore the price the item actuall
       item: { dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 20000 }], pricing: { mode: 'PACK', purchasePrice: 120 } },
     })
     expect(got.pricing).toEqual({ mode: 'PACK', purchasePrice: 112.83 })
-    expect(got.purchasePrice).toBe(112.83)
     expect(got.basis).toBe('pack')
+  })
+
+  it('returns only { pricing, basis } — the item has no headline price copy to restore', () => {
+    const got = revertedPricing({
+      previousPrice: 41.0,
+      item: { dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'RATE', rate: 42.5, rateUnit: 'kg' } },
+    })
+    expect(Object.keys(got).sort()).toEqual(['basis', 'pricing'])
   })
 
   it('bison: a rate in the item’s OWN dimension keeps the rate shape (unchanged)', () => {

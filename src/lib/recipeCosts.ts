@@ -570,7 +570,6 @@ export async function syncPrepToInventory(recipeId: string) {
     where: { id: recipe.inventoryItemId },
     data: {
       itemName:           recipe.name,
-      purchasePrice:      recipe.totalCost,
       baseUnit:           canonBase,
       allergens:          recipe.allergens,
       dimension:          prepDimension,

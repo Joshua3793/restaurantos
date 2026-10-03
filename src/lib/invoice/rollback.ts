@@ -89,6 +89,7 @@ import {
   itemState,
   ruleState,
   canonEqual,
+  currentFieldsOnly,
 } from '@/lib/invoice/approve-undo'
 import { revertedPricing, priorPpbFromAlerts, type RevertItemRow } from '@/lib/invoice/revert-pricing'
 
@@ -263,7 +264,7 @@ function planOne(rec: UndoRecord, input: PlanInput): PlanRow {
   // Same selector both sides: the display fields hanging off `current`
   // (inventoryItemId / supplierName / itemName) are stripped here, so they can
   // never make a row look changed.
-  if (!canonEqual(selectorFor(rec.kind)(current), rec.next)) {
+  if (!canonEqual(selectorFor(rec.kind)(current), currentFieldsOnly(rec.kind, rec.next))) {
     return { ...base, outcome: 'skipped', reason: 'changed-since' }
   }
 
@@ -408,7 +409,7 @@ function legacyRows(legacy: LegacyInput): PlanRow[] {
       write: {
         table: 'item',
         op: 'update',
-        data: { purchasePrice: revert.purchasePrice, pricing: revert.pricing as unknown as Canon },
+        data: { pricing: revert.pricing as unknown as Canon },
       },
     })
   }
@@ -471,9 +472,11 @@ export function planRollback(input: PlanInput): RollbackPlan {
 // column that was SQL NULL; it goes back as SQL NULL.
 const JSON_FIELDS = new Set(['packChain', 'pricing'])
 
-function toPrismaData(data: Canon): Record<string, unknown> {
+// A record written before a column was retired still carries it in `prev`;
+// `currentFieldsOnly` keeps the retired column out of the write.
+function toPrismaData(kind: UndoKind, data: Canon): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(data)) out[k] = JSON_FIELDS.has(k) && v === null ? Prisma.DbNull : v
+  for (const [k, v] of Object.entries(currentFieldsOnly(kind, data))) out[k] = JSON_FIELDS.has(k) && v === null ? Prisma.DbNull : v
   return out
 }
 
@@ -489,7 +492,7 @@ async function applyRow(tx: Db, row: PlanRow): Promise<void> {
     return
   }
 
-  const data = toPrismaData(w.data ?? {})
+  const data = toPrismaData(row.kind, w.data ?? {})
   if (w.table === 'offer') {
     await tx.inventorySupplierPrice.update({ where, data: data as unknown as Prisma.InventorySupplierPriceUncheckedUpdateInput })
   } else if (w.table === 'item') {

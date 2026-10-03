@@ -55,7 +55,6 @@ async function handlePOST(req: NextRequest) {
         data: {
           itemName: r.payload!.itemName,
           category: r.payload!.category,
-          purchasePrice: r.payload!.purchasePrice,
           baseUnit: r.payload!.baseUnit,
           stockOnHand: r.payload!.stockOnHand,
           lastCountDate: importedAt,

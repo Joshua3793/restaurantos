@@ -79,7 +79,6 @@ interface InventoryItem {
   barcode?: string | null
   isActive: boolean
   isStocked?: boolean
-  needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   recipe?: { id: string; name: string } | null
   /** 30-day weighted-average cost basis (null for PREP-linked items — they're never averaged). */
@@ -98,7 +97,6 @@ interface InventoryItem {
 
 interface EditForm {
   itemName: string; category: string
-  supplierId: string; supplierName: string
   storageAreaId: string; storageAreaName: string
   // Chain pricing model
   dimension: Dimension
@@ -142,8 +140,6 @@ function buildEditForm(item: InventoryItem): EditForm {
   return {
     itemName: item.itemName,
     category: item.category,
-    supplierId: item.supplierId || '',
-    supplierName: item.supplier?.name || '',
     storageAreaId: item.storageAreaId || '',
     storageAreaName: item.storageArea?.name || '',
     dimension: c.dimension,
@@ -303,7 +299,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState<EditForm>({
-    itemName: '', category: '', supplierId: '', supplierName: '',
+    itemName: '', category: '',
     storageAreaId: '', storageAreaName: '',
     dimension: 'COUNT', chain: [...DEFAULT_CHAIN], pricing: { ...DEFAULT_PRICING },
     countUnit: 'each',
@@ -311,7 +307,6 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     eachMeasureQty: null, eachMeasureUnit: 'g',
     densityGPerMl: null,
   })
-  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([])
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [storageAreas, setStorageAreas] = useState<{ id: string; name: string }[]>([])
   const [priceHistory, setPriceHistory] = useState<Array<{
@@ -324,16 +319,14 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     setLoading(true)
     Promise.all([
       fetch(`/api/inventory/${itemId}`).then(r => r.json()),
-      fetch('/api/suppliers').then(r => r.json()),
       fetch('/api/categories').then(r => r.json()),
       fetch('/api/storage-areas').then(r => r.json()),
       // LEAD+ only server-side — a STAFF 403 must land as an empty list, not an error body.
       fetch(`/api/inventory/${itemId}/price-history`).then(r => (r.ok ? r.json() : [])).catch(() => []),
       fetch(`/api/inventory/${itemId}/stock-movements`).then(r => r.json()).catch(() => null),
-    ]).then(([fetchedItem, sups, cats, areas, ph, sm]) => {
+    ]).then(([fetchedItem, cats, areas, ph, sm]) => {
       const normalized = normalizeItem(fetchedItem)
       setItem(normalized)
-      setSuppliers(sups)
       setCategories(cats)
       setStorageAreas(areas)
       setPriceHistory(ph)
@@ -378,7 +371,6 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
       body: JSON.stringify({
         itemName: editForm.itemName,
         category: editForm.category,
-        supplierId: editForm.supplierId || null,
         storageAreaId: editForm.storageAreaId || null,
         // Chain shape (new body) — route derives all legacy fields.
         dimension: editForm.dimension,
@@ -551,24 +543,13 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   />
                 </div>
 
-                {/* Supplier */}
+                {/* Supplier — read-only: an item's supplier IS its main (primary)
+                    supplier box, so it changes only by making another box main
+                    in the supplier boxes section below. */}
                 <div>
                   <label className="block text-xs font-medium text-ink-3 mb-1">Supplier</label>
-                  <Combobox
-                    items={suppliers}
-                    value={editForm.supplierName}
-                    placeholder="Type to search suppliers…"
-                    onSelect={(id, name) => setEditForm(f => ({ ...f, supplierId: id, supplierName: name }))}
-                    onAddNew={async (name) => {
-                      const res = await fetch('/api/suppliers', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name }),
-                      })
-                      const sup = await res.json()
-                      fetch('/api/suppliers').then(r => r.json()).then(setSuppliers)
-                      return { id: sup.id, name: sup.name }
-                    }}
-                  />
+                  <div className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink-2 bg-bg">{item.supplier?.name ?? '—'}</div>
+                  <p className="mt-1 text-xs text-ink-4">From its main supplier box — make another box main to change it.</p>
                 </div>
 
                 {/* Storage Area */}

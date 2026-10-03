@@ -60,9 +60,13 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   // single source of truth. Every edit form sends a chain body — there is no
   // legacy-field update path.
   const {
-    dimension, packChain, pricing, countUnit, supplierId, storageAreaId,
+    dimension, packChain, pricing, countUnit, storageAreaId,
     eachMeasureQty, eachMeasureUnit, densityGPerMl,
     supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
+    // Retired copies — never written. The supplier is the item's primary box
+    // (changed only by making another box primary), the location is its storage
+    // area, the price is its pricing; `needsReview` is unused.
+    supplierId: _supplierId, location: _location, purchasePrice: _purchasePrice, needsReview: _needsReview,
     ...rest
   } = body
   if (!packChain) {
@@ -70,7 +74,6 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   }
   delete rest.pricePerBaseUnit; delete rest.baseUnit
   delete rest.dimension; delete rest.pricing; delete rest.countUnit
-  delete rest.needsReview
 
   const before = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
@@ -147,9 +150,7 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
       pricing: finalPricing as any,
       countUnit,
       baseUnit: ci.baseUnit,
-      needsReview: false,
       lastUpdated: new Date(),
-      supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
       // Count↔weight bridge ("1 each = N g/ml"). Valid in EITHER direction — a
       // per-each weight on a COUNT item, or how much one each weighs on a

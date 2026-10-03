@@ -43,6 +43,7 @@
     "scripts/normalize-purchase-unit.ts",
     "scripts/relabel-each-to-case.ts",
     "scripts/repair-pull-soh.ts",
-    "scripts/verify-count-conversion.ts"
+    "scripts/verify-count-conversion.ts",
+    "scripts/repair-weight-priced-offers.ts"
   ]
 }

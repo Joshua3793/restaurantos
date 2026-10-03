@@ -9,10 +9,10 @@ export type UndoKind = 'OFFER' | 'ITEM' | 'MATCH_RULE' | 'ITEM_CREATED'
 export type Canon = Record<string, unknown>
 type Db = Prisma.TransactionClient | typeof prisma
 
-const OFFER_FIELDS = ['lastPrice', 'packQty', 'packSize', 'packUOM', 'packChain', 'pricing', 'supplierId', 'supplierItemCode', 'isPrimary', 'lastInvoiceSessionId'] as const
-const ITEM_FIELDS = ['packChain', 'pricing', 'purchasePrice', 'densityGPerMl'] as const
+const OFFER_FIELDS = ['packQty', 'packSize', 'packUOM', 'packChain', 'pricing', 'supplierId', 'supplierItemCode', 'isPrimary', 'lastInvoiceSessionId'] as const
+const ITEM_FIELDS = ['packChain', 'pricing', 'densityGPerMl'] as const
 const RULE_FIELDS = ['rawDescription', 'supplierName', 'inventoryItemId', 'invoicePackQty', 'invoicePackSize', 'invoicePackUOM', 'supplierItemCode'] as const
-const DECIMAL_FIELDS = new Set(['lastPrice', 'packQty', 'packSize', 'purchasePrice', 'densityGPerMl', 'invoicePackQty', 'invoicePackSize'])
+const DECIMAL_FIELDS = new Set(['packQty', 'packSize', 'densityGPerMl', 'invoicePackQty', 'invoicePackSize'])
 
 export const OFFER_SELECT = Object.fromEntries(OFFER_FIELDS.map(f => [f, true])) as Record<(typeof OFFER_FIELDS)[number], true>
 export const ITEM_SELECT = Object.fromEntries(ITEM_FIELDS.map(f => [f, true])) as Record<(typeof ITEM_FIELDS)[number], true>
@@ -38,6 +38,24 @@ function canon(row: Record<string, unknown>, fields: readonly string[]): Canon {
 export type OfferRowLike = Record<string, unknown>
 export type ItemRowLike = Record<string, unknown>
 export type RuleRowLike = Record<string, unknown>
+
+// The columns each kind's records cover TODAY. A record written before a column
+// was retired (`InventoryItem.purchasePrice`, `InventorySupplierPrice.lastPrice`)
+// still carries it in prev/next: rollback compares and restores through
+// `currentFieldsOnly`, so an old record behaves exactly like a new one and a
+// retired column is never written back.
+const FIELDS_OF: Record<UndoKind, ReadonlySet<string>> = {
+  OFFER: new Set(OFFER_FIELDS),
+  ITEM: new Set(ITEM_FIELDS),
+  ITEM_CREATED: new Set(ITEM_FIELDS),
+  MATCH_RULE: new Set(RULE_FIELDS),
+}
+
+export function currentFieldsOnly(kind: UndoKind, state: Canon): Canon {
+  const out: Canon = {}
+  for (const [k, v] of Object.entries(state)) if (FIELDS_OF[kind].has(k)) out[k] = v
+  return out
+}
 
 export const offerState = (row: OfferRowLike): Canon => canon(row, OFFER_FIELDS)
 export const itemState = (row: ItemRowLike): Canon => canon(row, ITEM_FIELDS)

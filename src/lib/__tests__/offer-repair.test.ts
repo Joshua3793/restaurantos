@@ -34,12 +34,11 @@ describe('planOfferRepair — the three real by-weight-as-PACK offers', () => {
   for (const c of cases) {
     it(`${c.name} → rewrite to RATE ${c.rate}/lb`, () => {
       const item = weightItem(c.em)
-      const offer = { pricing: { mode: 'PACK' as const, purchasePrice: c.rate }, lastPrice: c.rate, isPrimary: false }
+      const offer = { pricing: { mode: 'PACK' as const, purchasePrice: c.rate }, isPrimary: false }
       const plan = planOfferRepair({ offer, item, lastLine: weightLine(c.qty, c.rate, c.total) })
       expect(plan).toEqual({
         action: 'rewrite',
         pricing: { mode: 'RATE', rate: c.rate, rateUnit: 'lb' },
-        lastPrice: c.rate,
       })
     })
   }
@@ -48,7 +47,7 @@ describe('planOfferRepair — the three real by-weight-as-PACK offers', () => {
 describe('planOfferRepair — the PRIMARY offer goes to a human (Cilantro FARM)', () => {
   it('a primary offer with a costable weight line → human, never rewritten automatically', () => {
     const item = weightItem({ q: 0.05, u: 'lb' })
-    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 2.5 }, lastPrice: 2.5, isPrimary: true }
+    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 2.5 }, isPrimary: true }
     const plan = planOfferRepair({ offer, item, lastLine: weightLine(10, 2.5, 25) })
     expect(plan.action).toBe('human')
     if (plan.action === 'human') {
@@ -60,7 +59,7 @@ describe('planOfferRepair — the PRIMARY offer goes to a human (Cilantro FARM)'
 describe('planOfferRepair — a Sysco case offer is not received by weight → skip', () => {
   it('a plain case line (no billed weight, no shipped weight unit) is left alone', () => {
     const item = weightItem({ q: 0.4, u: 'lb' })
-    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 48 }, lastPrice: 48, isPrimary: false }
+    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 48 }, isPrimary: false }
     const line: RepairLine = { rawQty: 2, rawUnit: 'CS', invoicePackQty: 24, invoicePackSize: 1, invoicePackUOM: 'each' }
     const plan = planOfferRepair({ offer, item, lastLine: line })
     expect(plan.action).toBe('skip')
@@ -85,7 +84,7 @@ describe('planOfferRepair — an item with no bridge for the rate unit → skip'
       pricing: { mode: 'PACK', purchasePrice: 200 },
       eachMeasureQty: null, eachMeasureUnit: null,
     })
-    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 22 }, lastPrice: 22, isPrimary: false }
+    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 22 }, isPrimary: false }
     const line: RepairLine = { rawQty: 18.4, rawUnit: 'lb', rate: 2.28, rateUOM: 'lb', rawLineTotal: 41.88 }
     const plan = planOfferRepair({ offer, item, lastLine: line })
     expect(plan.action).toBe('skip')
@@ -98,7 +97,7 @@ describe('planOfferRepair — an item with no bridge for the rate unit → skip'
 describe('planOfferRepair — no purchase line on record → skip', () => {
   it('nothing to repair from', () => {
     const item = weightItem({ q: 0.4, u: 'lb' })
-    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 48 }, lastPrice: 48, isPrimary: false }
+    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 48 }, isPrimary: false }
     const plan = planOfferRepair({ offer, item, lastLine: null })
     expect(plan).toEqual({ action: 'skip', reason: expect.stringMatching(/no purchase line/) })
   })
@@ -107,7 +106,7 @@ describe('planOfferRepair — no purchase line on record → skip', () => {
 describe('planOfferRepair — an offer already a weight RATE needs no repair', () => {
   it('skips a per-lb RATE offer, whatever the line looks like', () => {
     const item = weightItem({ q: 0.4, u: 'lb' })
-    const offer = { pricing: { mode: 'RATE' as const, rate: 3.49, rateUnit: 'lb' }, lastPrice: 3.49, isPrimary: false }
+    const offer = { pricing: { mode: 'RATE' as const, rate: 3.49, rateUnit: 'lb' }, isPrimary: false }
     const plan = planOfferRepair({ offer, item, lastLine: weightLine(12, 3.49, 41.88) })
     expect(plan.action).toBe('skip')
     if (plan.action === 'skip') expect(plan.reason).toMatch(/already a weight rate/i)
@@ -115,18 +114,18 @@ describe('planOfferRepair — an offer already a weight RATE needs no repair', (
 })
 
 describe('planOfferRepair — packChain and the provenance triple are never touched', () => {
-  it('the rewrite plan carries only pricing + lastPrice, no packChain field', () => {
+  it('the rewrite plan carries only pricing — no packChain, no lastPrice', () => {
     const item = weightItem({ q: 0.4, u: 'lb' })
-    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 3.49 }, lastPrice: 3.49, isPrimary: false }
+    const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 3.49 }, isPrimary: false }
     const plan = planOfferRepair({ offer, item, lastLine: weightLine(12, 3.49, 41.88) })
     expect(plan.action).toBe('rewrite')
-    expect(Object.keys(plan)).toEqual(['action', 'pricing', 'lastPrice'])
+    expect(Object.keys(plan)).toEqual(['action', 'pricing'])
   })
 })
 
 describe('planOfferRepair — a container rate unit is never a rate denominator', () => {
   const item = weightItem({ q: 0.4, u: 'lb' })
-  const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 41.88 }, lastPrice: 41.88, isPrimary: false }
+  const offer = { pricing: { mode: 'PACK' as const, purchasePrice: 41.88 }, isPrimary: false }
   it("rate printed per 'CS' on a line shipped in lb, with a total → the rate is DERIVED per lb", () => {
     const plan = planOfferRepair({ offer, item, lastLine: { ...weightLine(12, 41.88, 41.88), rateUOM: 'CS', totalQty: null, totalQtyUOM: null } })
     expect(plan.action).toBe('rewrite')
