@@ -5,6 +5,8 @@ import { formatCurrency, formatDate, WASTAGE_REASONS, compatibleCountUnits } fro
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
+import { useUser } from '@/contexts/UserContext'
+import { seesItemMoney } from '@/lib/inventory-redact'
 import { Plus, X, AlertTriangle, Search, Check } from 'lucide-react'
 
 // Lazy-load recharts — only renders when there are logs to display
@@ -54,10 +56,12 @@ function ItemPicker({
   items,
   value,
   onSelect,
+  showPrice,
 }: {
   items: InventoryItem[]
   value: string
   onSelect: (item: InventoryItem) => void
+  showPrice: boolean
 }) {
   const selected = items.find(i => i.id === value) ?? null
   const [query, setQuery] = useState('')
@@ -139,7 +143,9 @@ function ItemPicker({
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-ink truncate">{item.itemName}</div>
-                  <div className="text-xs text-ink-3 tabular-nums">{formatCurrency(parseFloat(String(item.pricePerBaseUnit)))}/{item.baseUnit}</div>
+                  <div className="text-xs text-ink-3 tabular-nums">
+                    {showPrice ? <>{formatCurrency(parseFloat(String(item.pricePerBaseUnit)))}/{item.baseUnit}</> : item.baseUnit}
+                  </div>
                 </div>
                 {item.id === value && <Check size={14} className="text-gold shrink-0" />}
               </button>
@@ -165,6 +171,10 @@ const REASON_COLORS: Record<string, string> = {
 
 export default function WastagePage() {
   const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  // STAFF logs waste but never sees what it cost — the API nulls costImpact and
+  // prices for them. Default-deny while the role loads.
+  const { role } = useUser()
+  const seesMoney = role != null && seesItemMoney(role)
   const [logs, setLogs] = useState<WastageLog[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [reasonFilter, setReasonFilter] = useState('')
@@ -280,13 +290,22 @@ export default function WastagePage() {
       {/* Summary */}
       <div className="bg-red-soft border border-red-soft rounded-xl p-4 flex items-center gap-3">
         <AlertTriangle size={20} className="text-red shrink-0" />
-        <div>
-          <div className="font-semibold text-red-text">Total Wastage Cost (filtered)</div>
-          <div className="text-2xl font-bold text-red-text">{formatCurrency(totalCost)}</div>
-        </div>
-        <div className="ml-auto text-right">
-          <div className="text-xs text-red">{logs.length} entries</div>
-        </div>
+        {seesMoney ? (
+          <>
+            <div>
+              <div className="font-semibold text-red-text">Total Wastage Cost (filtered)</div>
+              <div className="text-2xl font-bold text-red-text">{formatCurrency(totalCost)}</div>
+            </div>
+            <div className="ml-auto text-right">
+              <div className="text-xs text-red">{logs.length} entries</div>
+            </div>
+          </>
+        ) : (
+          <div>
+            <div className="font-semibold text-red-text">Wastage logged (filtered)</div>
+            <div className="text-2xl font-bold text-red-text">{logs.length} {logs.length === 1 ? 'entry' : 'entries'}</div>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -325,7 +344,8 @@ export default function WastagePage() {
       </div>
 
       {/* Charts — only show when there's data, recharts loads lazily */}
-      {logs.length > 0 && (
+      {/* Both charts are $ — managers and leads only. */}
+      {seesMoney && logs.length > 0 && (
         <WastageCharts byReason={byReason} byWeek={byWeek} />
       )}
 
@@ -340,7 +360,7 @@ export default function WastagePage() {
                 <th className="text-left px-4 py-3 font-medium text-ink-3 hidden sm:table-cell">Category</th>
                 <th className="text-right px-4 py-3 font-medium text-ink-3">Qty Wasted</th>
                 <th className="text-left px-4 py-3 font-medium text-ink-3 hidden md:table-cell">Reason</th>
-                <th className="text-right px-4 py-3 font-medium text-ink-3">Cost Impact</th>
+                {seesMoney && <th className="text-right px-4 py-3 font-medium text-ink-3">Cost Impact</th>}
                 <th className="text-left px-4 py-3 font-medium text-ink-3 hidden lg:table-cell">Logged By</th>
               </tr>
             </thead>
@@ -360,9 +380,11 @@ export default function WastagePage() {
                       {log.reason}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-red">
-                    {formatCurrency(parseFloat(String(log.costImpact)))}
-                  </td>
+                  {seesMoney && (
+                    <td className="px-4 py-3 text-right font-semibold text-red">
+                      {formatCurrency(parseFloat(String(log.costImpact)))}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-ink-3 hidden lg:table-cell">{log.loggedBy}</td>
                 </tr>
               ))}
@@ -393,6 +415,7 @@ export default function WastagePage() {
                   items={inventoryItems}
                   value={form.inventoryItemId}
                   onSelect={item => setForm(f => ({ ...f, inventoryItemId: item.id, unit: item.baseUnit || 'g' }))}
+                  showPrice={seesMoney}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -459,7 +482,7 @@ export default function WastagePage() {
                   rows={2}
                 />
               </div>
-              {previewCost > 0 && (
+              {seesMoney && previewCost > 0 && (
                 <div className="bg-red-soft rounded-lg p-3 text-sm">
                   <span className="text-red font-medium">Estimated cost impact: </span>
                   <span className="font-bold text-red-text">{formatCurrency(previewCost)}</span>

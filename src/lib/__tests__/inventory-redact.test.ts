@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { seesItemMoney, canEditItems, redactInventoryItem, redactOffer } from '../inventory-redact'
+import { seesItemMoney, canEditItems, redactInventoryItem, redactOffer, redactWastageLog } from '../inventory-redact'
 
 const ITEM = {
   id: 'i1', itemName: 'Butter', baseUnit: 'g', dimension: 'MASS', countUnit: 'case',
@@ -44,6 +44,14 @@ describe('inventory money + edit gates', () => {
     const r = redactOffer(offer)
     expect(r).toMatchObject({ lastPrice: null, pricePerBaseUnit: null, pricing: null, volatility: null, stability: null, history: [] })
     expect(r).toMatchObject({ supplierName: 'Gordon', isPrimary: true, supplierItemCode: 'B-1', packChain: offer.packChain })
+  })
+
+  it('strips a wastage log cost and its item price, keeps what was wasted', () => {
+    const log = { id: 'w1', qtyWasted: '500', unit: 'g', reason: 'SPOILED', costImpact: '6.28', inventoryItem: ITEM }
+    const r = redactWastageLog(log) as Record<string, unknown>
+    for (const v of ['6.28', '142.5', '0.01256']) expect(JSON.stringify(r)).not.toContain(v)
+    expect(r).toMatchObject({ costImpact: null, qtyWasted: '500', unit: 'g', reason: 'SPOILED' })
+    expect((r.inventoryItem as { itemName: string }).itemName).toBe('Butter')
   })
 
   it('does not mutate its input', () => {
