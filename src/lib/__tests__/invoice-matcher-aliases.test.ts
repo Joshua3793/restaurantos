@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule } from '@/lib/invoice-matcher'
+import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule, previousPriceFor } from '@/lib/invoice-matcher'
 
 describe('capAliasConfidence', () => {
   it('caps a HIGH match won only through an alias down to MEDIUM', () => {
@@ -179,5 +179,20 @@ describe('offerSkuTierYieldsToRule', () => {
     expect(offerSkuTierYieldsToRule(null, 'Sysco', 'Sysco')).toBe(false)
     expect(offerSkuTierYieldsToRule(undefined, 'Sysco', 'Sysco')).toBe(false)
     expect(offerSkuTierYieldsToRule({ supplierName: 'Sysco', inventoryItem: null }, 'Sysco', 'Sysco')).toBe(false)
+  })
+})
+
+describe('previousPriceFor — the "was" price on a matched line', () => {
+  const BUTTER = {
+    dimension: 'MASS', baseUnit: 'g', countUnit: 'case',
+    packChain: [{ unit: 'case', per: 11350 }], pricing: { mode: 'PACK', purchasePrice: 142.5 },
+    eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null,
+  }
+  it("is this supplier's own last offer price when the offer exists", () => {
+    expect(previousPriceFor({ lastPrice: '139.9' }, BUTTER)).toBe(139.9)
+  })
+  it('falls back to the primary chain purchase-unit price, never a stored column', () => {
+    expect(previousPriceFor(null, BUTTER)).toBeCloseTo(142.5, 9)
+    expect(previousPriceFor({ lastPrice: null }, BUTTER)).toBeCloseTo(142.5, 9)
   })
 })
