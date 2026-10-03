@@ -3,6 +3,11 @@ import { lineCountedBase, countDimsOf, countUomFactor, lineConversionUnits } fro
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
 import { snapshotSourceOf, isObservedSource, type SnapshotSource } from '@/lib/count-snapshot-source'
+import { randomUUID } from 'crypto'
+import {
+  allocationUpsertSql, itemCountUpdateSql, lineFinalizeUpdateSql, FinalizeValueError,
+  type ItemCountWrite, type LineFinalizeWrite,
+} from '@/lib/count-finalize-sql'
 
 export interface FinalizeSummary {
   /** Lines that were observed — entered OR confirmed "Same as last". */
@@ -94,8 +99,9 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
   let itemsUncounted = 0
   let totalVarianceCost = 0
 
-  const stockUpdates: ReturnType<typeof prisma.inventoryItem.update>[] = []
-  const lineUpdates:  ReturnType<typeof prisma.countLine.update>[] = []
+  // Collected per line, written set-based (one statement per kind) below.
+  const itemWrites: ItemCountWrite[]     = []
+  const lineWrites: LineFinalizeWrite[]  = []
   const snapshotData: {
     sessionId: string; inventoryItemId: string; snapshotDate: Date
     qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number; category: string
@@ -134,22 +140,18 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
       // showed live (review uses live price for in-progress sessions).
       const expected    = Number(line.expectedQty)
       const lineVarCost = line.skipped ? 0 : (qtyBase - expected) * price
-      lineUpdates.push(
-        prisma.countLine.update({
-          where: { id: line.id },
-          data: line.skipped
-            ? { priceAtCount: price }
-            : {
-                priceAtCount: price,
-                variancePct:  expected > 0 ? ((qtyBase - expected) / expected) * 100 : 0,
-                varianceCost: lineVarCost,
-                // Freeze the base on legacy lines that reached finalize without one
-                // (counted before the column existed, or created by direct insert).
-                // qtyBase IS the frozen value when the line already carries it.
-                countedQtyBase: qtyBase,
-              },
-        })
-      )
+      lineWrites.push({
+        lineId: line.id,
+        priceAtCount: price,
+        // Freeze the base on legacy lines that reached finalize without one
+        // (counted before the column existed, or created by direct insert).
+        // qtyBase IS the frozen value when the line already carries it.
+        counted: line.skipped ? null : {
+          variancePct:    expected > 0 ? ((qtyBase - expected) / expected) * 100 : 0,
+          varianceCost:   lineVarCost,
+          countedQtyBase: qtyBase,
+        },
+      })
 
       if (line.skipped) {
         itemsSkipped++
@@ -159,14 +161,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
         totalVarianceCost += Math.abs(lineVarCost)
         // For RC-scoped counts only update lastCountDate/lastCountQty (stock lives in StockAllocation).
         // For default-RC and unscoped counts also update the global stockOnHand.
-        stockUpdates.push(
-          prisma.inventoryItem.update({
-            where: { id: item.id },
-            data: isRcScopedCount
-              ? { lastCountDate: countDate, lastCountQty: qtyBase }
-              : { stockOnHand: qtyBase, lastCountDate: countDate, lastCountQty: qtyBase },
-          })
-        )
+        itemWrites.push({ itemId: item.id, qtyBase })
       }
     } else {
       // Left blank — record the theoretical qty (already in baseUnit) flagged
@@ -184,49 +179,45 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
     }
   }
 
-  await prisma.$transaction([
-    ...stockUpdates,
-    ...lineUpdates,
+  // ONE transaction, a handful of statements. Per-line writes used to be ~900
+  // separate statements plus a concurrent upsert per counted line for a
+  // non-default RC — slow enough on the live pooler, and hungry enough for
+  // connections, that the request failed AFTER the main write had committed:
+  // a Catering count was left with 120 of 334 allocations unwritten and bounced
+  // back to review. Now everything commits together or nothing does.
+  let sql: string[]
+  try {
+    sql = [
+      ...itemCountUpdateSql(itemWrites, { countDate, now, writeStockOnHand: !isRcScopedCount }),
+      ...lineFinalizeUpdateSql(lineWrites, { now }),
+      // Update StockAllocation for this RC if one is set. The default RC's stock
+      // lives in inventoryItem.stockOnHand (written above) — it must NOT also get
+      // a StockAllocation row, or the "All RCs" view double-counts it.
+      ...(isRcScopedCount
+        ? allocationUpsertSql(itemWrites, { revenueCenterId: session.revenueCenterId!, now, newId: randomUUID })
+        : []),
+    ]
+  } catch (e) {
+    if (e instanceof FinalizeValueError) {
+      return { ok: false, status: 400, error: `This count has a value that can't be saved (${e.message}). Check the counted quantities, then approve again.` }
+    }
+    throw e
+  }
+
+  await prisma.$transaction(async tx => {
+    for (const stmt of sql) await tx.$executeRawUnsafe(stmt)
     // A session can be reopened and finalized again. Snapshots are the session's
     // valuation, not an audit log of finalize attempts, so the previous set must
     // go — appending leaves two complete sets under one sessionId and every
     // reader that sums by session silently doubles. (Seen live: the 1 Aug count
     // carried 826 rows totalling $49,294.75 for a $23,854.07 position.)
-    prisma.inventorySnapshot.deleteMany({ where: { sessionId: session.id } }),
-    prisma.inventorySnapshot.createMany({ data: snapshotData }),
-    prisma.countSession.update({
+    await tx.inventorySnapshot.deleteMany({ where: { sessionId: session.id } })
+    await tx.inventorySnapshot.createMany({ data: snapshotData })
+    await tx.countSession.update({
       where: { id: session.id },
       data: { status: 'FINALIZED', finalizedAt: now, totalCountedValue },
-    }),
-  ])
-
-  // Update StockAllocation for this RC if one is set.
-  // The default RC's stock lives in inventoryItem.stockOnHand (written above) —
-  // it must NOT also get a StockAllocation row, or the "All RCs" view double-counts it.
-  if (session.revenueCenterId && !session.revenueCenter?.isDefault) {
-    const allocationUpdates = session.lines
-      .filter(line => !line.skipped && line.countedQty !== null)
-      .map(line => {
-        const item = line.inventoryItem
-        const itemDims = countDimsOf(item)
-        const qtyBase = lineCountedBase(line, itemDims)
-        return prisma.stockAllocation.upsert({
-          where: {
-            revenueCenterId_inventoryItemId: {
-              revenueCenterId: session.revenueCenterId!,
-              inventoryItemId: line.inventoryItemId,
-            },
-          },
-          update: { quantity: qtyBase },
-          create: {
-            revenueCenterId: session.revenueCenterId!,
-            inventoryItemId: line.inventoryItemId,
-            quantity: qtyBase,
-          },
-        })
-      })
-    await Promise.all(allocationUpdates)
-  }
+    })
+  }, { timeout: 60_000, maxWait: 15_000 })
 
   const largeVariances = session.lines.filter(
     l => l.variancePct !== null && Math.abs(Number(l.variancePct)) > LARGE_VARIANCE_PCT
