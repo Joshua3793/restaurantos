@@ -34,8 +34,22 @@ import {
   type PackLink,
 } from '../src/lib/item-model'
 import { canonicalUom, CONTAINER_UNITS, UNIT_FACTORS } from '../src/lib/uom'
-import { mirrorItemToPrimaryOffer } from '../src/lib/primary-offer'
 import { benchmarkFor } from './market-benchmarks-bc'
+
+/** This repair's own item→primary-box copy (the app no longer flows item→box;
+ *  kept here so the historical script still does what it did when it ran). */
+async function mirrorItemToPrimaryOffer(itemId: string): Promise<void> {
+  const primary = await prisma.inventorySupplierPrice.findFirst({
+    where: { inventoryItemId: itemId, isPrimary: true }, select: { id: true },
+  })
+  if (!primary) return
+  const item = await prisma.inventoryItem.findUnique({ where: { id: itemId }, select: { packChain: true, pricing: true } })
+  if (!item) return
+  await prisma.inventorySupplierPrice.update({
+    where: { id: primary.id },
+    data: { packChain: item.packChain as unknown as object, pricing: item.pricing as unknown as object, lastUpdated: new Date() },
+  })
+}
 
 const APPLY = process.argv.includes('--apply')
 const OUT = path.resolve(process.cwd(), 'docs/audits')
@@ -354,7 +368,7 @@ async function main() {
     })
     // The item's chain and its PRIMARY offer's chain must stay equal — that
     // invariant holds for every item today (197/197) and writing one side alone
-    // would be the first break. Same call the inventory edit route makes.
+    // would be the first break.
     await mirrorItemToPrimaryOffer(p.id)
     done++
   }

@@ -119,33 +119,3 @@ export async function setPrimaryOffer(itemId: string, offerId: string, db: Db = 
   await db.inventorySupplierPrice.update({ where: { id: offerId }, data: { isPrimary: true } })
   return syncPrimaryOfferToItem(itemId, db)
 }
-
-/**
- * After a manual item edit, mirror the item's chain+pricing onto the primary
- * offer so the invariant (item == primary offer) holds. No-op when no primary.
- */
-export async function mirrorItemToPrimaryOffer(itemId: string, db: Db = prisma, undo?: UndoCollector): Promise<void> {
-  const primary = await db.inventorySupplierPrice.findFirst({
-    where: { inventoryItemId: itemId, isPrimary: true },
-    // Widened to the undo selector so `undo.before` below sees the whole row;
-    // nothing but `primary.id` is used by the write itself.
-    select: { id: true, ...OFFER_SELECT },
-  })
-  if (!primary) return
-  const item = await db.inventoryItem.findUnique({
-    where: { id: itemId },
-    select: { packChain: true, pricing: true },
-  })
-  if (!item) return
-  undo?.before('OFFER', primary.id, offerState(primary))
-  await db.inventorySupplierPrice.update({
-    where: { id: primary.id },
-    data: {
-      // Chain + pricing only: every reader derives the box's price from them
-      // (offerPricePerBase / offerListedPrice) — no stored price copy.
-      packChain: item.packChain as unknown as object,
-      pricing: item.pricing as unknown as object,
-      lastUpdated: new Date(),
-    },
-  })
-}

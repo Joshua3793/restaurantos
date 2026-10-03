@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
-import { ensurePrimary, mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
+import { ensurePrimary } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
@@ -862,12 +862,7 @@ async function doApprove(
 
         await prisma.$transaction(itemOps)
         if (shouldReprice) updatedItemIds.push(scanItem.matchedItemId)
-        // Keep the PRIMARY offer's chain == the item's chain so their per-base
-        // prices never diverge (non-primary offers keep their own invoice chain
-        // for accurate cross-supplier comparison).
-        if (shouldReprice && session.supplierId) {
-          await mirrorItemToPrimaryOffer(scanItem.matchedItemId, prisma, undo)
-        }
+        // The item was priced FROM the primary box above; nothing flows back.
         // Every write this line makes has landed — read each touched row's `next`.
         await flushUndo()
         registerLineAllocs(scanItem.matchedItemId, scanItem)
