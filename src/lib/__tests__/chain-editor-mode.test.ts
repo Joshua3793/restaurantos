@@ -5,10 +5,10 @@ import type { Pricing } from '@/lib/item-model'
 // Flipping "Per pack" ⇄ "Per unit (rate)" used to zero the price, so a slip of
 // the finger on the drawer saved a $0 item. The number now carries across.
 describe('carryPricingMode', () => {
-  it('PACK $50 → RATE 50 per the first unit of the dimension', () => {
+  it('PACK $50 → RATE 50 per the everyday unit of the dimension (kg / l / each)', () => {
     const p: Pricing = { mode: 'PACK', purchasePrice: 50 }
-    expect(carryPricingMode(p, 'RATE', 'MASS')).toEqual({ mode: 'RATE', rate: 50, rateUnit: 'g' })
-    expect(carryPricingMode(p, 'RATE', 'VOLUME')).toEqual({ mode: 'RATE', rate: 50, rateUnit: 'ml' })
+    expect(carryPricingMode(p, 'RATE', 'MASS')).toEqual({ mode: 'RATE', rate: 50, rateUnit: 'kg' })
+    expect(carryPricingMode(p, 'RATE', 'VOLUME')).toEqual({ mode: 'RATE', rate: 50, rateUnit: 'l' })
     expect(carryPricingMode(p, 'RATE', 'COUNT')).toEqual({ mode: 'RATE', rate: 50, rateUnit: 'each' })
   })
 
@@ -24,6 +24,6 @@ describe('carryPricingMode', () => {
 
   it('a missing / non-finite number carries as 0', () => {
     const p = { mode: 'PACK', purchasePrice: NaN } as Pricing
-    expect(carryPricingMode(p, 'RATE', 'MASS')).toEqual({ mode: 'RATE', rate: 0, rateUnit: 'g' })
+    expect(carryPricingMode(p, 'RATE', 'MASS')).toEqual({ mode: 'RATE', rate: 0, rateUnit: 'kg' })
   })
 })

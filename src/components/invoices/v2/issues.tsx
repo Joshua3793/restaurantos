@@ -141,7 +141,7 @@ function IssueShell({
 //     blocker that leads with re-link.
 //   • IDENTICAL      — already bridged / no gap — renders nothing.
 // In every branch the destructive "change the item to match the invoice"
-// (resets stock, re-costs recipes) is demoted behind an "Advanced" disclosure.
+// (re-costs recipes) is demoted behind an "Advanced" disclosure.
 
 const DIM_LABEL: Record<string, string> = { MASS: 'weight', VOLUME: 'volume', COUNT: 'count' }
 

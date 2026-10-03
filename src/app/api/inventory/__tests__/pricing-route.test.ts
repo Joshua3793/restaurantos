@@ -128,6 +128,22 @@ describe('PATCH /api/inventory/[id]/pricing', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
+  it('R5 — an item whose stored chain already has an error can still save a price change', async () => {
+    // Stored countUnit is not a chain level or a mass unit: invalid before this save.
+    ITEM = { ...BASE_ITEM, countUnit: 'bogus' }
+    const res = await pricing.PATCH(patchReq({ ...VALID, packChain: BASE_ITEM.packChain, countUnit: undefined }), ctx)
+    expect(res.status).toBe(200)
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('R5 — a stored-$0 item still gets 400 on a $0 save', async () => {
+    ITEM = { ...BASE_ITEM, pricing: { mode: 'PACK', purchasePrice: 0 } }
+    const res = await pricing.PATCH(patchReq({ ...VALID, pricing: { mode: 'PACK', purchasePrice: 0 } }), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('ZERO_PRICE')
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it('R5 — allows $0 on a non-stocked item', async () => {
     ITEM = { ...BASE_ITEM, isStocked: false }
     const res = await pricing.PATCH(patchReq({ ...VALID, pricing: { mode: 'PACK', purchasePrice: 0 } }), ctx)

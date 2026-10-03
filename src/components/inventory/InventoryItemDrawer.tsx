@@ -484,10 +484,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   // The same refetch SupplierOffersSection's onRepriced already performs —
   // shared so a merge (which can move offers, recipe lines, count lines, etc.
   // onto this item) refreshes the drawer the same way a re-price does.
-  function refreshItem() {
-    if (!item) return
-    fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => setItem(normalizeItem(d)))
+  function refreshItem(): Promise<void> {
+    if (!item) return Promise.resolve()
+    const p = fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => { setItem(normalizeItem(d)) })
     onUpdated?.()
+    return p
   }
 
   return (
@@ -661,7 +662,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                 {/* R3 — with a supplier box the price and pack live on the box. */}
                 {!item.recipe && (item.offerCount ?? 0) > 0 && (
-                  <p className="text-xs text-ink-3 bg-bg-2 rounded-lg px-3 py-2">Price and pack come from its supplier boxes below.</p>
+                  <p className="text-xs text-ink-3 bg-bg-2 rounded-lg px-3 py-2">Price and pack come from its supplier boxes — close Edit to see them.</p>
                 )}
 
                 {/* Pricing chain — only an item with no recipe and no supplier box
@@ -1161,7 +1162,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 onClose={() => setShowQuick(false)}
                 // Refetch the row: the count moves its stock and its version, so an
                 // open edit form saves against the fresh one (the form is kept).
-                onDone={() => { setShowQuick(false); refreshItem() }}
+                onDone={async () => { await refreshItem(); setShowQuick(false) }}
               />
             )}
 

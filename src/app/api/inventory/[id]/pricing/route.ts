@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { DIMENSION_BASE, validateChainItem, eachMeasureOf, densityOf, type ChainItem, type Dimension } from '@/lib/item-model'
+import { DIMENSION_BASE, validateChainItem, asChainItem, eachMeasureOf, densityOf, type ChainItem, type Dimension } from '@/lib/item-model'
 import { itemHistory, hasHistory } from '@/lib/item-history'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 import { postUpdate } from '@/lib/inventory-post-update'
@@ -29,6 +29,7 @@ async function handlePATCH(req: NextRequest, { params }: { params: { id: string 
     where: { id: params.id },
     select: {
       id: true, mergedIntoId: true, lastUpdated: true, dimension: true, baseUnit: true, countUnit: true,
+      packChain: true, pricing: true,
       isStocked: true, eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true, allergens: true,
       recipe: { select: { id: true, name: true } },
     },
@@ -77,7 +78,12 @@ async function handlePATCH(req: NextRequest, { params }: { params: { id: string 
     dimension, baseUnit: DIMENSION_BASE[dimension], packChain: body.packChain, pricing: body.pricing,
     countUnit, eachMeasure: eachMeasureOf(before), densityGPerMl: densityOf(before),
   }
+  // Only the errors THIS save introduces: an item whose stored chain is already
+  // invalid can still save a price change. A $0 price is never excused, so an
+  // item that is $0 today cannot stay $0.
+  const stored = new Set(validateChainItem(asChainItem(before)))
   const errors = validateChainItem(ci, { requirePositivePrice: before.isStocked })
+    .filter(e => e === 'price must be above $0' || !stored.has(e))
   if (errors.length) {
     const zero = errors.includes('price must be above $0')
     return NextResponse.json({

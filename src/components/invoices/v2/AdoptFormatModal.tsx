@@ -4,10 +4,12 @@
 // side" path). Derives the new chain from the SAME buildOffer the conflict
 // detector uses, then writes it via the item's pricing route — which validates
 // the chain and cascades recipe re-costing. It changes only the pack, price and
-// count unit: never the measure (locked once the item has history) and never the
-// stock (that moves only through counts). An item with a supplier box is priced
-// on the box, so the route refuses it (HAS_OFFERS). Re-costs recipes, so it
-// spells out the impact before the user confirms.
+// count unit, and — when the invoice is in another measure — the measure itself.
+// The route allows that only while the item has no history (otherwise it answers
+// DIMENSION_LOCKED with a plain sentence, shown here). It never touches stock
+// (that moves only through counts). An item with a supplier box is priced on the
+// box, so the route refuses it (HAS_OFFERS). Re-costs recipes, so it spells out
+// the impact before the user confirms.
 
 import { useEffect, useState } from 'react'
 import { X, AlertTriangle, Loader2, ArrowRight } from 'lucide-react'
@@ -68,17 +70,19 @@ export function AdoptFormatModal({
   const recipeCount = item?.recipeIngredients?.length ?? 0
   const fromDim = item ? (item.dimension ?? dimensionOf(item.baseUnit ?? 'each')) : null
   const fromUnit = item ? (item.countUnit || item.baseUnit) : ''
-  // The pricing route keeps the item's measure, so a chain built for ANOTHER
-  // measure would be stored against the wrong base unit (a 5 lb case read as
-  // 2268 each). Changing the measure is not done here — refuse it up front.
+  // This modal is only reached when the invoice's measure differs from the
+  // item's, so the measure changes along with the pack (the server refuses it
+  // when the item has history).
   const measureChanges = !!fromDim && fromDim !== offer.dimension
+  const measurePhrase = (dim: string, unit: string) =>
+    dim === 'COUNT' ? `counted by ${unit}` : `measured by ${DIM_LABEL[dim]}`
 
   async function confirm() {
-    if (!item || !itemId || measureChanges) return
+    if (!item || !itemId) return
     setSaving(true); setError(null)
     try {
       // The item's own pack + price, naming the row version it was loaded at.
-      // No dimension (the measure is not changed here) and no stock.
+      // The invoice's measure rides along; no stock.
       const res = await fetch(`/api/inventory/${itemId}/pricing`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -86,6 +90,7 @@ export function AdoptFormatModal({
           packChain: newChain,
           pricing:   offer.pricing,
           countUnit,
+          dimension: offer.dimension,
           expectedLastUpdated: item.lastUpdated,
         }),
       })
@@ -94,6 +99,8 @@ export function AdoptFormatModal({
         const msg: string = d.error || 'Failed to update item'
         if (res.status === 409 && d.code === 'HAS_OFFERS') {
           setError(`${msg} (Editing a box arrives in the next update.)`)
+        } else if (res.status === 409 && d.code === 'DIMENSION_LOCKED') {
+          setError(msg)
         } else {
           alert(msg)
           setError(msg)
@@ -154,9 +161,9 @@ export function AdoptFormatModal({
                     This re-costs <b>{recipeCount} recipe{recipeCount === 1 ? '' : 's'}</b> that use this item.
                   </div>
                 </div>
-                {measureChanges && (
+                {measureChanges && fromDim && (
                   <div className="text-[12px] text-ink-3">
-                    This changes how the item is measured ({DIM_LABEL[fromDim]} → {DIM_LABEL[offer.dimension]}). Changing how an item is measured arrives in the next update.
+                    This changes {item?.itemName ?? 'this item'} from {measurePhrase(fromDim, fromUnit)} to {measurePhrase(offer.dimension, offer.baseUnit)}.
                   </div>
                 )}
                 {error && <div className="text-[12px] text-red">{error}</div>}
@@ -166,7 +173,7 @@ export function AdoptFormatModal({
 
           <div className="flex justify-end gap-2 px-6 py-4 border-t border-bg-2">
             <ActButton onClick={onClose} disabled={saving}>Cancel</ActButton>
-            <ActButton variant="primary" onClick={confirm} disabled={loading || saving || measureChanges}>
+            <ActButton variant="primary" onClick={confirm} disabled={loading || saving}>
               {saving ? <><Loader2 size={14} className="animate-spin" /> Applying…</> : 'Change item & resolve'}
             </ActButton>
           </div>

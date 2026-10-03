@@ -124,7 +124,12 @@ function RecipesInner() {
   }
 
   const handleDelete = async (id: string) => {
-    await fetch(`/api/recipes/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/recipes/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      alert(d.error ?? 'Could not delete this recipe.')
+      return
+    }
     if (selectedRecipeId === id) setSelectedRecipeId(null)
     await loadRecipes()
     await loadCategories()
@@ -163,9 +168,14 @@ function RecipesInner() {
     if (ids.has(selectedRecipeId ?? '')) setSelectedRecipeId(null)
     setSelectedIds(new Set())
     setBulkConfirm(null)
-    await Promise.all([...ids].map(id =>
+    const results = await Promise.all([...ids].map(id =>
       fetch(`/api/recipes/${id}`, { method: 'DELETE' })
     ))
+    const failed = results.find(r => !r.ok)
+    if (failed) {
+      const d = await failed.json().catch(() => ({}))
+      alert(d.error ?? 'Could not delete this recipe.')
+    }
     await loadRecipes()
     await loadCategories()
   }
