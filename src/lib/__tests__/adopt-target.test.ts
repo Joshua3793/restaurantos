@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { adoptTarget } from '@/lib/invoice/adopt-target'
+import { adoptTarget, adoptBlocked } from '@/lib/invoice/adopt-target'
 
 // "Use the invoice's format" must fix the box the invoice speaks for — the
 // invoice supplier's box, picked by the same rule the review screen reads lines
@@ -38,5 +38,40 @@ describe('adoptTarget', () => {
 
   it('an invoice with no linked supplier cannot pick a box', () => {
     expect(adoptTarget({ offers: [box('b1', SYSCO, null, true)], supplierId: null, itemCode: '123' })).toEqual({ kind: 'unlinked' })
+  })
+})
+
+// The adopt modal opens only on a measure conflict. A supplier box must be in its
+// item's measure, so for an item with boxes nothing may be sent: the main box
+// would make the item read "1 case = 9071.84 each" and re-cost every recipe.
+describe('adoptBlocked', () => {
+  const BOX = { kind: 'box', offerId: 'b1', isPrimary: true } as const
+  const NEW_BOX = { kind: 'new-box' } as const
+
+  it("a weight line onto a counted item's box (main or not) or a new box → blocked", () => {
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: 'COUNT', target: BOX })).toBe(true)
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: 'COUNT', target: { ...BOX, isPrimary: false } })).toBe(true)
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: 'COUNT', target: NEW_BOX })).toBe(true)
+  })
+
+  it("a counted line or a volume line onto a weight item's box → blocked", () => {
+    expect(adoptBlocked({ lineDimension: 'COUNT', itemDimension: 'MASS', target: BOX })).toBe(true)
+    expect(adoptBlocked({ lineDimension: 'VOLUME', itemDimension: 'MASS', target: NEW_BOX })).toBe(true)
+  })
+
+  it("a box in the item's own measure → not blocked", () => {
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: 'MASS', target: BOX })).toBe(false)
+  })
+
+  it('an item whose measure is not known yet → a box target is blocked', () => {
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: null, target: NEW_BOX })).toBe(true)
+  })
+
+  it('a box-less item changes its own measure (the server guards history) → not blocked', () => {
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: 'COUNT', target: { kind: 'item' } })).toBe(false)
+  })
+
+  it('an unlinked invoice is refused on its own, not by this rule', () => {
+    expect(adoptBlocked({ lineDimension: 'MASS', itemDimension: 'COUNT', target: { kind: 'unlinked' } })).toBe(false)
   })
 })

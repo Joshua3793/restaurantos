@@ -3,13 +3,13 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getSupplierOffers } from '@/lib/supplier-offers'
 import { requireSession, AuthError } from '@/lib/auth'
-import { ensurePrimary, syncPrimaryOfferToItem } from '@/lib/primary-offer'
+import { ensurePrimary, syncPrimaryOfferToItem, type SyncResult } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { offerListedPrice } from '@/lib/offer-price'
 import { normItemCode } from '@/lib/invoice/line-format'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import {
-  validateBox, normalizeCode, boxRefusal, itemRefusal, sameProductWhere,
+  validateBox, normalizeCode, boxRefusal, itemRefusal, sameProductWhere, statedDimension,
   BOX_ITEM_SELECT, DUPLICATE_BOX_ERROR, ITEM_NOT_FOUND, type BoxInput,
 } from '@/lib/box-rules'
 import type { PackLink, Pricing } from '@/lib/item-model'
@@ -62,8 +62,10 @@ async function loadBox(req: NextRequest, { params }: Ctx) {
 }
 
 // PATCH /api/inventory/[id]/suppliers/[offerId] — edit a box's pack, price or
-// product code. Body { packChain?, pricing?, supplierItemCode?, expectedLastUpdated }.
+// product code. Body { packChain?, pricing?, supplierItemCode?, dimension?, expectedLastUpdated }.
 // The merged box is judged whole against the item; a main box re-prices the item.
+// A new pack clears the box's legacy pack fields (packQty/packSize/packUOM): they
+// described the OLD pack, and the invoice matcher would otherwise read them.
 async function handlePATCH(req: NextRequest, ctx: Ctx) {
   const loaded = await loadBox(req, ctx)
   if (loaded.res) return loaded.res
@@ -72,7 +74,8 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
 
   const code = body.supplierItemCode
   if ((body.packChain === undefined && body.pricing === undefined && code === undefined)
-    || (code != null && typeof code !== 'string')) {
+    || (code != null && typeof code !== 'string')
+    || statedDimension(body.dimension) === null) {
     return NextResponse.json(BAD_FIELD, { status: 400 })
   }
 
@@ -81,6 +84,7 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
     supplierItemCode: code !== undefined ? normalizeCode(code) : box.supplierItemCode,
     packChain: (body.packChain ?? box.packChain) as PackLink[],
     pricing: (body.pricing ?? box.pricing) as Pricing,
+    dimension: statedDimension(body.dimension) ?? undefined,
   }
   // Judge only what this save changes: an error the stored box already had is
   // excused while its chain is untouched (a legacy box can still get a new code
@@ -109,7 +113,7 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
     if (dup) return NextResponse.json({ error: DUPLICATE_BOX_ERROR, code: 'DUPLICATE_BOX' }, { status: 409 })
   }
 
-  let synced: { changed: boolean } = { changed: false }
+  let synced: Pick<SyncResult, 'changed'> = { changed: false }
   try {
     synced = await prisma.$transaction(async (tx) => {
       // The write itself re-checks the version it read, closing the window
@@ -122,14 +126,21 @@ async function handlePATCH(req: NextRequest, ctx: Ctx) {
           supplierItemCode: next.supplierItemCode ?? null,
           // DEPRECATED NOT NULL column (dropped by Stage 1e) — kept in step, never read.
           lastPrice: offerListedPrice({ pricing: next.pricing }),
+          // The legacy pack fields described the old pack — a new chain voids them.
+          ...(chainChanged ? { packQty: null, packSize: null, packUOM: null } : {}),
           lastUpdated: new Date(),
         },
       })
       if (count === 0) throw new StaleBox()
-      // Always sync: it is a no-op unless a main box exists, and it re-reads which
-      // box is main INSIDE this transaction, so a promote/demote that raced the
-      // read-time `box.isPrimary` can never leave the item behind its main box.
-      return syncPrimaryOfferToItem(id, tx)
+      // The item follows only its MAIN box. Which box is main is re-read here,
+      // after the write and inside this transaction, so a promote/demote that
+      // raced the read-time `box.isPrimary` can never leave the item behind. A
+      // non-main edit leaves the item row alone: syncing would bump its
+      // lastUpdated and send everyone else editing the item a needless STALE.
+      const now = await tx.inventorySupplierPrice.findFirst({
+        where: { id: offerId, inventoryItemId: id }, select: { isPrimary: true },
+      })
+      return now?.isPrimary ? syncPrimaryOfferToItem(id, tx) : { changed: false }
     })
   } catch (e) {
     if (e instanceof StaleBox) return NextResponse.json({ error: BOX_STALE, code: 'STALE' }, { status: 409 })

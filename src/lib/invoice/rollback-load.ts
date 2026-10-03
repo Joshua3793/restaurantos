@@ -43,6 +43,7 @@ import {
   planRollback,
   executeRestores,
   executeCreatedItemDeletes,
+  resettleMainBoxes,
   type PlanInput,
   type PlanRow,
   type RollbackPlan,
@@ -534,14 +535,20 @@ export async function deleteSession(sessionId: string, user: { role: Role }): Pr
   }
 
   const plan = planRollback(input)
-  const priorPpbByItem = await priorPpbFor(plan.restoredItemIds)
+  // Read for every item whose price can move: the restored ones, and the ones the
+  // main-box re-settle may re-price.
+  const priorPpbByItem = await priorPpbFor([...new Set([...plan.restoredItemIds, ...plan.resettleItemIds])])
 
+  let resettled: string[] = []
   await prisma.$transaction(async tx => {
     // Order matters in both directions. The restores run while the session row
     // is still there; the created-item deletes can only run once it is gone,
     // because the session's own approved InvoiceLineItem/scan rows point at
     // those items and would block the delete.
     await executeRestores(tx, plan)
+    // A box and its item restore independently — one can be 'changed-since'
+    // while the other goes back. Every touched item ends equal to its main box.
+    resettled = await resettleMainBoxes(tx, plan)
     await tx.invoiceSession.deleteMany({ where: { parentSessionId: sessionId } })
     await tx.invoiceSession.delete({ where: { id: sessionId } })
     await executeCreatedItemDeletes(tx, plan)
@@ -551,11 +558,12 @@ export async function deleteSession(sessionId: string, user: { role: Role }): Pr
   // has no business holding the delete's transaction open. No sessionId is
   // passed — a RecipeAlert belongs to an invoice, and this one no longer exists.
   let recosted = 0
-  if (plan.restoredItemIds.length > 0) {
+  const repriced = [...new Set([...plan.restoredItemIds, ...resettled])]
+  if (repriced.length > 0) {
     try {
-      const moved = await propagatePrepCostChanges(plan.restoredItemIds)
+      const moved = await propagatePrepCostChanges(repriced)
       const alerts = await recalculateRecipeCosts(
-        [...new Set([...plan.restoredItemIds, ...moved])],
+        [...new Set([...repriced, ...moved])],
         undefined,
         priorPpbByItem,
       )

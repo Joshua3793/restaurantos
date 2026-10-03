@@ -29,3 +29,20 @@ export function adoptTarget({ offers, supplierId, itemCode }: {
   const box = pickOffer(offers, { supplierId, itemCode })
   return box ? { kind: 'box', offerId: box.id, isPrimary: !!box.isPrimary } : { kind: 'new-box' }
 }
+
+/** True when the invoice's pack cannot go onto the target yet: a supplier box
+ *  must be in its item's measure (a box never re-measures the item), so a line
+ *  in another measure has nowhere to go until changing how an item is measured
+ *  arrives (Stage 2c). A box-less item changes its own measure (the pricing
+ *  route's DIMENSION_LOCKED guards that), and an unlinked invoice is refused on
+ *  its own. The adopt modal is only reached on a measure conflict, so for an
+ *  item with boxes this is always true there. */
+export function adoptBlocked({ lineDimension, itemDimension, target }: {
+  lineDimension: string
+  itemDimension: string | null | undefined
+  target: AdoptTarget
+}): boolean {
+  if (target.kind !== 'box' && target.kind !== 'new-box') return false
+  // An item whose measure is not known yet cannot be shown to fit: blocked.
+  return !itemDimension || lineDimension !== itemDimension
+}

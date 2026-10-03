@@ -11,6 +11,7 @@ import {
   executeRollback,
   executeRestores,
   executeCreatedItemDeletes,
+  resettleMainBoxes,
   type PlanInput,
   type CurrentItem,
   type CurrentOffer,
@@ -710,6 +711,7 @@ describe('executeRollback', () => {
     await executeRollback(tx, {
       legacy: false,
       restoredItemIds: [],
+      resettleItemIds: [],
       summary: { restored: 0, deleted: 0, skipped: 0, bestEffort: 0 },
       rows: [
         { kind: 'OFFER', targetId: 'o1', name: 'Sysco', outcome: 'restored', write: { table: 'offer', op: 'update', data: offerCanon({ isPrimary: false }) } },
@@ -735,6 +737,7 @@ describe('executeRollback', () => {
     await executeRollback(tx, {
       legacy: false,
       restoredItemIds: [],
+      resettleItemIds: [],
       summary: { restored: 1, deleted: 0, skipped: 0, bestEffort: 0 },
       rows: [
         {
@@ -821,6 +824,7 @@ describe('executeRestores / executeCreatedItemDeletes', () => {
   const plan = () => ({
     legacy: false,
     restoredItemIds: [],
+    resettleItemIds: [] as string[],
     summary: { restored: 1, deleted: 3, skipped: 0, bestEffort: 0 },
     rows: [
       { kind: 'OFFER' as const, targetId: 'o1', name: 'Sysco', outcome: 'deleted' as const, write: { table: 'offer' as const, op: 'delete' as const } },
@@ -862,5 +866,121 @@ describe('executeRestores / executeCreatedItemDeletes', () => {
       'item:delete:n1',
       'item:delete:n2',
     ])
+  })
+})
+
+// Deleting an invoice restores a box and its item independently. A code-only edit
+// to the main box after the approval makes the BOX 'changed-since' (skipped) while
+// the ITEM still goes back to its pre-invoice price — item and main box split, and
+// nothing re-synced them. The re-settle runs after the restores, in the same
+// transaction: every touched item ends equal to its (one) main box.
+describe('resettleMainBoxes — after a rollback the item equals its main box', () => {
+  type Offer = Record<string, unknown> & { id: string; inventoryItemId: string; isPrimary: boolean; lastUpdated: Date }
+  type Item = Record<string, unknown> & { id: string }
+  const memDb = (items: Item[], offers: Offer[]) => {
+    const byItem = (id: unknown) => offers.filter(o => o.inventoryItemId === id)
+    const db = {
+      items, offers,
+      inventoryItem: {
+        findUnique: async ({ where }: { where: { id: string } }) => items.find(i => i.id === where.id) ?? null,
+        update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const it = items.find(i => i.id === where.id)!
+          Object.assign(it, data)
+          return it
+        },
+        delete: async () => ({}),
+      },
+      inventorySupplierPrice: {
+        findMany: async ({ where }: { where: { inventoryItemId: string } }) =>
+          [...byItem(where.inventoryItemId)].sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime()),
+        findFirst: async ({ where }: { where: { inventoryItemId: string; isPrimary?: boolean } }) =>
+          byItem(where.inventoryItemId).find(o => where.isPrimary === undefined || o.isPrimary === where.isPrimary) ?? null,
+        update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const o = offers.find(x => x.id === where.id)!
+          Object.assign(o, data)
+          return o
+        },
+        updateMany: async ({ where, data }: { where: { inventoryItemId: string }; data: Record<string, unknown> }) => {
+          byItem(where.inventoryItemId).forEach(o => Object.assign(o, data))
+          return { count: byItem(where.inventoryItemId).length }
+        },
+        delete: async ({ where }: { where: { id: string } }) => {
+          offers.splice(offers.findIndex(o => o.id === where.id), 1)
+          return {}
+        },
+      },
+      invoiceMatchRule: { update: async () => ({}), delete: async () => ({}) },
+    }
+    return { db, tx: db as unknown as Parameters<typeof resettleMainBoxes>[0] }
+  }
+  const ITEM_FACTS = { dimension: 'COUNT', baseUnit: 'each', countUnit: 'case', eachMeasureQty: null, eachMeasureUnit: null }
+
+  it('a code-only edit skips the main box, the item is restored — then the item re-follows the box', async () => {
+    const itemPrev = itemCanon(pp(12))
+    const itemNext = itemCanon(pp(15))
+    const boxPrev = offerCanon({ ...pp(12), isPrimary: true, packChain: [{ unit: 'case', per: 24 }], supplierId: 's1', supplierItemCode: 'A1' })
+    const boxNext = { ...boxPrev, ...pp(15) }
+    const boxNow = { ...boxNext, supplierItemCode: 'B2' } // edited after the approval: code only
+    const plan = planRollback(input({
+      records: [
+        { kind: 'OFFER', targetId: 'o1', prev: boxPrev, next: boxNext },
+        { kind: 'ITEM', targetId: 'i1', prev: itemPrev, next: itemNext },
+      ],
+      current: {
+        offers: new Map([['o1', offer(boxNow)]]),
+        items: new Map([['i1', item(itemNext)]]),
+        rules: new Map(),
+      },
+    }))
+    expect(plan.rows.map(r => `${r.kind}:${r.outcome}`)).toEqual(['OFFER:skipped', 'ITEM:restored'])
+    expect(plan.resettleItemIds).toEqual(['i1'])
+
+    const { db, tx } = memDb(
+      [{ id: 'i1', ...ITEM_FACTS, ...itemNext }],
+      [{ id: 'o1', inventoryItemId: 'i1', lastUpdated: new Date('2026-10-01'), ...boxNow } as Offer],
+    )
+    await executeRestores(tx, plan)
+    expect(db.items[0].pricing).toEqual({ mode: 'PACK', purchasePrice: 12 }) // the split the finding describes
+    const moved = await resettleMainBoxes(tx, plan)
+    expect(db.items[0].pricing).toEqual(db.offers[0].pricing)
+    expect(db.items[0].packChain).toEqual(db.offers[0].packChain)
+    expect(moved).toEqual(['i1']) // the item's price moved back up → re-costed after commit
+  })
+
+  it('a deleted main box (created by the approval) → another box is promoted and the item follows it', async () => {
+    const created = offerCanon({ ...pp(15), isPrimary: true, packChain: [{ unit: 'case', per: 24 }], supplierId: 's1' })
+    const plan = planRollback(input({
+      records: [{ kind: 'OFFER', targetId: 'o1', prev: null, next: created }],
+      current: { offers: new Map([['o1', offer(created)]]), items: new Map(), rules: new Map() },
+    }))
+    expect(plan.resettleItemIds).toEqual(['i1'])
+    const { db, tx } = memDb(
+      [{ id: 'i1', ...ITEM_FACTS, ...itemCanon(pp(15)) }],
+      [
+        { id: 'o1', inventoryItemId: 'i1', lastUpdated: new Date('2026-10-02'), ...created } as Offer,
+        { id: 'o2', inventoryItemId: 'i1', lastUpdated: new Date('2026-09-01'), ...offerCanon({ ...pp(9), packChain: [{ unit: 'case', per: 12 }], supplierId: 's2' }) } as Offer,
+      ],
+    )
+    await executeRestores(tx, plan)
+    await resettleMainBoxes(tx, plan)
+    expect(db.offers.map(o => [o.id, o.isPrimary])).toEqual([['o2', true]])
+    expect(db.items[0].pricing).toEqual({ mode: 'PACK', purchasePrice: 9 })
+    expect(db.items[0].packChain).toEqual([{ unit: 'case', per: 12 }])
+  })
+
+  it('a box-less item keeps its restored own price; a created item the plan deletes is not re-settled', async () => {
+    const plan = planRollback(input({
+      records: [
+        { kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(12)), next: itemCanon(pp(15)) },
+        { kind: 'ITEM_CREATED', targetId: 'n1', prev: null, next: itemCanon(pp(5)) },
+      ],
+      current: { offers: new Map(), items: new Map([['i1', item(itemCanon(pp(15)))], ['n1', item(itemCanon(pp(5)), 'New')]]), rules: new Map() },
+      refs: new Map([['n1', noRefs]]),
+    }))
+    expect(plan.resettleItemIds).toEqual(['i1'])
+    const { db, tx } = memDb([{ id: 'i1', ...ITEM_FACTS, ...itemCanon(pp(15)) }], [])
+    await executeRestores(tx, plan)
+    expect(await resettleMainBoxes(tx, plan)).toEqual([])
+    expect(db.items[0].pricing).toEqual({ mode: 'PACK', purchasePrice: 12 })
   })
 })

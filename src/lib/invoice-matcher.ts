@@ -80,15 +80,42 @@ interface InventoryItem {
  *   packSize = base content of the leaf (innermost) pack = leaf.per
  *   packUOM  = the item's base unit
  */
-function chainPackFormat(item: InventoryItem): {
-  packQty: number; packSize: number; packUOM: string
-} {
+function chainPackFormat(item: { packChain: unknown; baseUnit: string }): PackFormat {
   const chain = Array.isArray(item.packChain) ? (item.packChain as { unit: string; per: number }[]) : []
   if (chain.length === 0) return { packQty: 1, packSize: 1, packUOM: item.baseUnit }
   const leaf = chain[chain.length - 1]
   const packQty = chain.length >= 2 ? Number(chain[0].per) : 1
   const packSize = Number(leaf.per)
   return { packQty, packSize, packUOM: item.baseUnit }
+}
+
+type PackFormat = { packQty: number; packSize: number; packUOM: string }
+
+/**
+ * The pack the inventory side of the price comparison divides its "was" price
+ * by — always the pack THAT price belongs to (see `previousPriceFor`):
+ *   - the supplier's box has a price → the box's OWN chain (read like the item's,
+ *     in the item's base unit); a box with no chain falls back to its legacy
+ *     pack fields; a box with neither, to the item's chain;
+ *   - no box, or a box with no price → the "was" price is the item's own, so the
+ *     item's chain.
+ * Never the box's legacy packQty/packSize/packUOM while it has a chain: a box
+ * added or re-packed in the drawer has none, or stale ones, and pairing its
+ * price with another pack is what reads as a false big price change.
+ */
+export function inventorySideFormat(
+  offer: { pricing?: unknown; packChain?: unknown; packQty?: unknown; packSize?: unknown; packUOM?: unknown } | null | undefined,
+  item: { packChain: unknown; baseUnit: string },
+): PackFormat {
+  if (offer && offerListedPrice(offer) > 0) {
+    if (Array.isArray(offer.packChain) && offer.packChain.length > 0) {
+      return chainPackFormat({ packChain: offer.packChain, baseUnit: item.baseUnit })
+    }
+    if (offer.packQty != null && offer.packSize != null && offer.packUOM) {
+      return { packQty: Number(offer.packQty), packSize: Number(offer.packSize), packUOM: String(offer.packUOM) }
+    }
+  }
+  return chainPackFormat(item)
 }
 
 // Generic food descriptors that appear in many products and should not drive matching
@@ -367,17 +394,14 @@ function buildMatchResult(
       // per-UOM purchase price (which, for a UOM-priced item, IS the rate).
       const invoicePricePerPackUOM = isPerWeight ? rawUnitPrice : rawUnitPrice / total  // e.g. $2.756/L
       const invoiceUnit = isPerWeight ? (ocrItem.rateUOM ?? format.packUOM) : format.packUOM
-      // Inventory side of the comparison: prefer the supplier's own offer
-      // (their price over their pack format); fall back to the item fields.
-      // Recomputed from raw fields so we never rely on the stored
-      // pricePerBaseUnit (which can be stale / mis-scaled).
-      const offerHasFormat = !!(offer && offer.packQty != null && offer.packSize != null && offer.packUOM)
-      const itemFmt       = chainPackFormat(bestItem)
+      // Inventory side of the comparison: the "was" price over the pack that
+      // price belongs to — the supplier's own box chain when the price is the
+      // box's, else the item's (inventorySideFormat). Recomputed from raw
+      // fields so we never rely on a stored pricePerBaseUnit.
+      const invSideFmt    = inventorySideFormat(offer, bestItem)
       const invSidePrice  = previousPrice
-      const invSideQty    = offerHasFormat ? Number(offer.packQty)  : itemFmt.packQty
-      const invSideSize   = offerHasFormat ? Number(offer.packSize) : itemFmt.packSize
-      const invSideUOM    = offerHasFormat ? (offer.packUOM as string) : itemFmt.packUOM
-      const invPackTotal = invSideQty * invSideSize
+      const invSideUOM    = invSideFmt.packUOM
+      const invPackTotal  = invSideFmt.packQty * invSideFmt.packSize
       const invPricePerPackUOM = isPerWeight
         ? invSidePrice
         : (invPackTotal > 0 ? invSidePrice / invPackTotal : 0)

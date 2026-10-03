@@ -9,7 +9,7 @@ import { seesItemMoney, redactOffer } from '@/lib/inventory-redact'
 import { offerListedPrice } from '@/lib/offer-price'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import {
-  validateBox, normalizeCode, boxRefusal, itemRefusal, sameProductWhere,
+  validateBox, normalizeCode, boxRefusal, itemRefusal, sameProductWhere, statedDimension,
   BOX_ITEM_SELECT, DUPLICATE_BOX_ERROR, ITEM_NOT_FOUND, type BoxInput,
 } from '@/lib/box-rules'
 
@@ -56,8 +56,9 @@ const ITEM_STALE = 'Someone saved this item a moment ago. Reload to see their ch
 class StaleItem extends Error {}
 
 // POST /api/inventory/[id]/suppliers — add a supplier box.
-// Body { supplierId, supplierItemCode?, packChain, pricing, makePrimary?, expectedLastUpdated }
-// (the ITEM's lastUpdated). An item's first box is always its main box; after
+// Body { supplierId, supplierItemCode?, packChain, pricing, makePrimary?, dimension?, expectedLastUpdated }
+// (the ITEM's lastUpdated; `dimension` = the measure the box was built in, when
+// known — a box in another measure than the item is refused). An item's first box is always its main box; after
 // that a new box is main only when asked. A main box re-prices the item (R4).
 async function handlePOST(req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession('MANAGER') }
@@ -71,7 +72,8 @@ async function handlePOST(req: NextRequest, { params }: { params: { id: string }
   if (typeof body.supplierId !== 'string' || !body.supplierId || !body.packChain || !body.pricing
     || !body.expectedLastUpdated
     || (code != null && typeof code !== 'string')
-    || (body.makePrimary !== undefined && typeof body.makePrimary !== 'boolean')) {
+    || (body.makePrimary !== undefined && typeof body.makePrimary !== 'boolean')
+    || statedDimension(body.dimension) === null) {
     return NextResponse.json({ error: 'Reload the item and try again.', code: 'BAD_FIELD' }, { status: 400 })
   }
 
@@ -91,6 +93,7 @@ async function handlePOST(req: NextRequest, { params }: { params: { id: string }
   const box: BoxInput = {
     supplierId: supplier.id, supplierItemCode: normalizeCode(code),
     packChain: body.packChain, pricing: body.pricing,
+    dimension: statedDimension(body.dimension) ?? undefined,
   }
   const bad = boxRefusal(validateBox(item, box))
   if (bad) return NextResponse.json(bad, { status: 400 })

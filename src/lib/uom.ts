@@ -312,6 +312,17 @@ function dimensionForUnit(unit: string): UnitDimension {
   return UNIT_FACTORS[canonicalUom(unit)]?.dim ?? 'count'
 }
 
+/**
+ * The MEASURE a unit names: 'weight' or 'volume' for a unit in UNIT_FACTORS of
+ * that kind, null for everything else — count units ('each', 'dozen'), the
+ * containers ('case', 'bag') and unknown tokens. A container says nothing about
+ * how an item is measured; only a weight or volume unit does.
+ */
+export function unitMeasure(unit: string | null | undefined): 'weight' | 'volume' | null {
+  const dim = UNIT_FACTORS[canonicalUom(unit)]?.dim
+  return dim === 'weight' || dim === 'volume' ? dim : null
+}
+
 /** True when both units share the same physical dimension (weight/volume/count). */
 export function sameDimension(unitA: string, unitB: string): boolean {
   return dimensionForUnit(unitA) === dimensionForUnit(unitB)

@@ -92,6 +92,7 @@ import {
   currentFieldsOnly,
 } from '@/lib/invoice/approve-undo'
 import { revertedPricing, priorPpbFromAlerts, type RevertItemRow } from '@/lib/invoice/revert-pricing'
+import { ensurePrimary, syncPrimaryOfferToItem } from '@/lib/primary-offer'
 
 type Db = Prisma.TransactionClient | typeof prisma
 
@@ -120,6 +121,12 @@ export interface RollbackPlan {
   rows: PlanRow[]
   /** Items whose price this plan moves — the prep/recipe re-cost set, after commit. */
   restoredItemIds: string[]
+  /** Every surviving item the plan touches (its item row or any of its boxes, in
+   *  any outcome). After the restores, each one's main box is settled and the
+   *  item re-follows it (`resettleMainBoxes`): a box and its item are restored
+   *  independently, so one can be skipped ('changed-since') while the other is
+   *  put back — which would leave the item off its main box. */
+  resettleItemIds: string[]
   summary: { restored: number; deleted: number; skipped: number; bestEffort: number }
 }
 
@@ -416,6 +423,41 @@ function legacyRows(legacy: LegacyInput): PlanRow[] {
   return rows
 }
 
+/** `RollbackPlan.resettleItemIds`: the items behind every ITEM / OFFER /
+ *  ITEM_CREATED row, in first-seen order, minus the created items this plan
+ *  deletes. An OFFER row names its item through `current.offers`; an offer that
+ *  is already gone names nothing (its item had no row of its own to split). */
+function resettleTargets(rows: PlanRow[], input: PlanInput): string[] {
+  const deleted = new Set(rows.filter(r => r.kind === 'ITEM_CREATED' && r.outcome === 'deleted').map(r => r.targetId))
+  const out: string[] = []
+  const add = (id: string | undefined) => {
+    if (id && !deleted.has(id) && !out.includes(id)) out.push(id)
+  }
+  for (const r of rows) {
+    if (r.kind === 'ITEM' || r.kind === 'ITEM_CREATED') add(r.targetId)
+    else if (r.kind === 'OFFER') add(input.current.offers.get(r.targetId)?.inventoryItemId)
+  }
+  return out
+}
+
+/**
+ * Re-establish "an item with boxes equals its main box" for every item the plan
+ * touched — inside the delete's transaction, after `executeRestores`. Exactly one
+ * box is main (`ensurePrimary` promotes one if a restore or delete left none),
+ * then the item copies it (`syncPrimaryOfferToItem`, a no-op for a box-less item,
+ * which keeps its restored own price). Returns the items whose $/base moved here,
+ * for the after-commit re-cost.
+ */
+export async function resettleMainBoxes(tx: Db, plan: RollbackPlan): Promise<string[]> {
+  const moved: string[] = []
+  for (const id of plan.resettleItemIds) {
+    await ensurePrimary(id, tx)
+    const synced = await syncPrimaryOfferToItem(id, tx)
+    if (synced.changed) moved.push(id)
+  }
+  return moved
+}
+
 export function planRollback(input: PlanInput): RollbackPlan {
   let legacy = false
   let rows: PlanRow[]
@@ -455,6 +497,7 @@ export function planRollback(input: PlanInput): RollbackPlan {
     legacy,
     rows,
     restoredItemIds,
+    resettleItemIds: resettleTargets(rows, input),
     summary: {
       restored: rows.filter(r => r.outcome === 'restored').length,
       deleted: rows.filter(r => r.outcome === 'deleted').length,

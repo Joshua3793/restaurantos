@@ -10,6 +10,7 @@ import {
   type ChainItem, type Dimension, type PackLink, type Pricing,
 } from '@/lib/item-model'
 import { normItemCode } from '@/lib/invoice/line-format'
+import { unitMeasure } from '@/lib/uom'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 
 /** The item facts a box is judged against — a Prisma item row fits directly. */
@@ -27,11 +28,48 @@ export interface BoxInput {
   supplierItemCode?: string | null
   packChain: PackLink[]
   pricing: Pricing
+  /** The measure the box was built in, when the caller knows it (a box taken
+   *  from an invoice line). Optional: a box typed by hand is in the item's. */
+  dimension?: Dimension
+}
+
+/** A request's optional `dimension`: undefined when absent, null when it is not
+ *  one of the three measures (the routes answer BAD_FIELD). */
+export function statedDimension(v: unknown): Dimension | undefined | null {
+  if (v === undefined || v === null) return undefined
+  return v === 'MASS' || v === 'VOLUME' || v === 'COUNT' ? v : null
+}
+
+const MEASURE_OF: Record<'weight' | 'volume', Dimension> = { weight: 'MASS', volume: 'VOLUME' }
+const MEASURED_AS: Record<Dimension, string> = {
+  MASS: 'measured by weight', VOLUME: 'measured by volume', COUNT: 'counted',
+}
+
+const MISMATCH_PREFIX = 'This box is '
+/** The sentence for a box in another measure than its item. */
+export function measureMismatchError(boxDim: Dimension, itemDim: Dimension): string {
+  return `${MISMATCH_PREFIX}${MEASURED_AS[boxDim]} but the item is ${MEASURED_AS[itemDim]}. Change how the item is measured first.`
+}
+
+/** The measure a box is in, read off its own pack: the first link whose unit is
+ *  a weight or volume unit in ANOTHER measure than the item's, or the measure
+ *  the caller stated. Null when nothing in the box contradicts the item. A
+ *  container ('case', 'bag') or a count unit ('each') is no evidence either way:
+ *  a by-weight item legitimately packs '12 each of 500 g' as [case 12, each 500]. */
+function foreignMeasure(box: BoxInput, itemDim: Dimension): Dimension | null {
+  if (box.dimension && box.dimension !== itemDim) return box.dimension
+  for (const link of Array.isArray(box.packChain) ? box.packChain : []) {
+    const m = unitMeasure(link?.unit)
+    if (m && MEASURE_OF[m] !== itemDim) return MEASURE_OF[m]
+  }
+  return null
 }
 
 /** [] when the box fits the item. A stocked item's box must be priced above $0
  *  ('price must be above $0'); every other entry means the box does not fit how
- *  the item is measured. */
+ *  the item is measured — including a pack in another measure (a weight line's
+ *  [case 4, lb 2267.96] on a counted item), which `validateChainItem` cannot
+ *  see because it never looks at the units inside a chain. */
 export function validateBox(item: ChainRowLike, box: BoxInput): string[] {
   const dimension = item.dimension as Dimension
   const ci: ChainItem = {
@@ -43,6 +81,8 @@ export function validateBox(item: ChainRowLike, box: BoxInput): string[] {
     densityGPerMl: densityOf(item),
   }
   const errs = validateChainItem(ci, { requirePositivePrice: item.isStocked })
+  const foreign = foreignMeasure(box, dimension)
+  if (foreign) errs.push(measureMismatchError(foreign, dimension))
   const mode = (box.pricing as { mode?: unknown } | null | undefined)?.mode
   if (mode !== 'PACK' && mode !== 'RATE') errs.push('pricing must be PACK or RATE')
   return errs
@@ -85,7 +125,9 @@ export function boxRefusal(errors: string[]):
   { error: string; code: 'ZERO_PRICE' | 'INVALID'; details?: string[] } | null {
   if (!errors.length) return null
   if (errors.every(e => e === ZERO)) return { error: "A stocked item's box needs a price above $0.", code: 'ZERO_PRICE' }
-  return { error: "That box doesn't fit how this item is measured.", code: 'INVALID', details: errors }
+  // A box in another measure says so in its own plain sentence.
+  const measure = errors.find(e => e.startsWith(MISMATCH_PREFIX))
+  return { error: measure ?? "That box doesn't fit how this item is measured.", code: 'INVALID', details: errors }
 }
 
 /** Prisma `where` for "this supplier's box with this product code" — the same

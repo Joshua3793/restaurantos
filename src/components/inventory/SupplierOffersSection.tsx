@@ -238,28 +238,32 @@ export function SupplierOffersSection({
     }).then(r => (r.ok ? r.json() : null)).catch(() => null)
     setSaving(false)
     load()
-    onChanged?.()
-    if (res?.repriced) onRepriced?.()
+    // One item refresh: `onChanged` already re-fetches after any box write, so
+    // `onRepriced` is only the fallback for a caller that passes nothing else.
+    if (onChanged) onChanged()
+    else if (res?.repriced) onRepriced?.()
   }
 
   /** Send one box write. Success → the refreshed boxes + the item re-fetched;
    *  refusal → the server's sentence (a clash also reloads the boxes and item). */
-  const write = async (url: string, method: string, body: unknown, showError: (m: string) => void): Promise<boolean> => {
+  const write = async (url: string, method: string, body: unknown, showError: (m: string) => void):
+    Promise<{ ok: boolean; stale: boolean }> => {
     setSaving(true)
     try {
       const res = await fetch(url, {
         method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       }).catch(() => null)
-      if (!res) { showError('Could not reach the server. Try again.'); return false }
+      if (!res) { showError('Could not reach the server. Try again.'); return { ok: false, stale: false } }
       const data = await res.json().catch(() => null)
       if (!res.ok) {
         showError(data?.error ?? `Save failed (${res.status}). Try again.`)
-        if (data?.code === 'STALE') { load(); onChanged?.() }
-        return false
+        const stale = data?.code === 'STALE'
+        if (stale) { load(); onChanged?.() }
+        return { ok: false, stale }
       }
       if (Array.isArray(data)) setOffers(data); else load()
       onChanged?.()
-      return true
+      return { ok: true, stale: false }
     } finally {
       setSaving(false)
     }
@@ -269,7 +273,7 @@ export function SupplierOffersSection({
 
   const saveAdd = async (d: BoxDraft) => {
     setFormError(null)
-    const ok = await write(`/api/inventory/${itemId}/suppliers`, 'POST', {
+    const r = await write(`/api/inventory/${itemId}/suppliers`, 'POST', {
       supplierId: d.supplierId,
       supplierItemCode: d.supplierItemCode.trim() || null,
       packChain: d.packChain,
@@ -277,18 +281,24 @@ export function SupplierOffersSection({
       makePrimary: d.makePrimary,
       expectedLastUpdated: itemLastUpdated,
     }, setFormError)
-    if (ok) setOpen(null)
+    if (r.ok) setOpen(null)
   }
 
   const saveEdit = async (o: SupplierOfferStats, d: BoxDraft) => {
     setFormError(null)
-    const ok = await write(`/api/inventory/${itemId}/suppliers/${o.id}`, 'PATCH', {
+    let msg = ''
+    const r = await write(`/api/inventory/${itemId}/suppliers/${o.id}`, 'PATCH', {
       packChain: d.packChain,
       pricing: d.pricing,
       supplierItemCode: d.supplierItemCode.trim() || null,
       expectedLastUpdated: o.lastUpdated,
-    }, setFormError)
-    if (ok) setOpen(null)
+    }, m => { msg = m })
+    if (r.ok) setOpen(null)
+    // Someone else saved this box meanwhile: close the form so the old draft
+    // cannot be saved over their change (the list now shows the fresh box, and
+    // reopening Edit starts from it). The sentence stays under the list.
+    else if (r.stale) { setOpen(null); setListError(msg) }
+    else setFormError(msg)
   }
 
   const remove = async (o: SupplierOfferStats, count: number) => {
@@ -296,10 +306,10 @@ export function SupplierOffersSection({
     if (!confirm(removeBoxMessage({
       supplierName: o.supplierName, itemName, isPrimary: o.isPrimary, otherBoxes: count - 1,
     }))) return
-    const ok = await write(`/api/inventory/${itemId}/suppliers/${o.id}`, 'DELETE', {
+    const r = await write(`/api/inventory/${itemId}/suppliers/${o.id}`, 'DELETE', {
       expectedLastUpdated: o.lastUpdated,
     }, setListError)
-    if (ok && open === o.id) setOpen(null)
+    if (r.ok && open === o.id) setOpen(null)
   }
 
   if (!offers) return null

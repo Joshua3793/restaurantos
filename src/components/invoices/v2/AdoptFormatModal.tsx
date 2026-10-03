@@ -9,8 +9,11 @@
 //     (otherwise DIMENSION_LOCKED, shown here as its plain sentence);
 //   - an item with boxes → the INVOICE SUPPLIER's box (picked like `pickOffer`),
 //     or a new non-main box for that supplier. The item follows only its main
-//     box. A box must fit the item's measure, so a cross-measure line is refused
-//     (INVALID) until re-measuring an item arrives (Stage 2c).
+//     box. A box must be in the item's measure, and this modal is only reached
+//     when the line's measure differs from the item's — so for an item with
+//     boxes NO request is sent (`adoptBlocked`): the modal says changing how the
+//     item is measured is coming next (Stage 2c) and the button stays off. The
+//     box routes refuse a box in another measure too (INVALID), as a backstop.
 // It never touches stock (that moves only through counts). Re-costs recipes when
 // the item's price moves, so it spells out the impact before the user confirms.
 
@@ -18,7 +21,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { X, AlertTriangle, Loader2, ArrowRight } from 'lucide-react'
 import type { ScanItem } from '@/components/invoices/types'
 import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
-import { adoptTarget, type AdoptBox } from '@/lib/invoice/adopt-target'
+import { adoptTarget, adoptBlocked, type AdoptBox } from '@/lib/invoice/adopt-target'
 import { dimensionOf, type PackLink } from '@/lib/item-model'
 import { canonicalUom } from '@/lib/uom'
 import { ActButton } from './atoms'
@@ -102,6 +105,10 @@ export function AdoptFormatModal({
   const measureChanges = !!fromDim && fromDim !== offer.dimension
   const measurePhrase = (dim: string, unit: string) =>
     dim === 'COUNT' ? `counted by ${unit}` : `measured by ${DIM_LABEL[dim]}`
+  // A box must be in its item's measure: a line in another measure cannot go
+  // onto one until the item itself can be re-measured. Nothing is sent.
+  const blocked = adoptBlocked({ lineDimension: offer.dimension, itemDimension: fromDim, target })
+  const measureWord = (dim: string) => (dim === 'COUNT' ? 'counted' : `by ${DIM_LABEL[dim]}`)
 
   const itemName: string = item?.itemName ?? scanItem.rawDescription
   const boxSupplier = targetBox?.supplierName ?? supplierName ?? 'this supplier'
@@ -109,7 +116,9 @@ export function AdoptFormatModal({
   // box being changed — only then do recipes re-cost.
   const movesItemPrice = target.kind === 'item' || (target.kind === 'box' && target.isPrimary)
   const targetSentence =
-    target.kind === 'item' ? "This changes the item's own pack and price."
+    blocked && fromDim
+      ? `This invoice sells ${itemName} ${measureWord(offer.dimension)}, but the item is ${measureWord(fromDim)}. ${boxSupplier}'s box has to be in the item's measure — changing how the item is measured is coming next.`
+    : target.kind === 'item' ? "This changes the item's own pack and price."
     : target.kind === 'box' && target.isPrimary
       ? `This updates ${boxSupplier}'s box for ${itemName} — and the item's price, since it is the main box.`
     : target.kind === 'box' ? `This updates ${boxSupplier}'s box for ${itemName}; the item keeps its main box's price.`
@@ -123,6 +132,7 @@ export function AdoptFormatModal({
 
   /** The request that writes the invoice's format to the target. */
   function request(): { url: string; method: 'PATCH' | 'POST'; body: Record<string, unknown> } | null {
+    if (blocked) return null
     if (target.kind === 'item') {
       // The item's own pack + price, naming the row version it was loaded at.
       // The invoice's measure rides along so the server can answer DIMENSION_LOCKED; no stock.
@@ -135,7 +145,7 @@ export function AdoptFormatModal({
       return {
         url: `/api/inventory/${itemId}/suppliers/${targetBox.id}`, method: 'PATCH',
         body: {
-          packChain: newChain, pricing: offer.pricing,
+          packChain: newChain, pricing: offer.pricing, dimension: offer.dimension,
           // A line with no SKU leaves the box's code alone — clearing it would
           // stop the supplier's next invoice from finding this box by SKU.
           ...(scanItem.supplierItemCode ? { supplierItemCode: scanItem.supplierItemCode } : {}),
@@ -148,7 +158,7 @@ export function AdoptFormatModal({
         url: `/api/inventory/${itemId}/suppliers`, method: 'POST',
         body: {
           supplierId, supplierItemCode: scanItem.supplierItemCode ?? null,
-          packChain: newChain, pricing: offer.pricing, makePrimary: false,
+          packChain: newChain, pricing: offer.pricing, dimension: offer.dimension, makePrimary: false,
           expectedLastUpdated: item.lastUpdated,
         },
       }
@@ -173,8 +183,8 @@ export function AdoptFormatModal({
         if (res.status === 409 && d.code === 'DIMENSION_LOCKED') {
           setError(msg)
         } else if (res.status === 400 && d.code === 'INVALID') {
-          // A box must fit the item's measure; this line is in another one.
-          setError(`${msg} Changing how the item is measured is coming next.`)
+          // A box that does not fit the item (the server's sentence says why).
+          setError(msg)
         } else {
           alert(msg)
           setError(msg)
@@ -216,7 +226,7 @@ export function AdoptFormatModal({
               <div className="flex items-center gap-2 text-ink-4 py-6 justify-center"><Loader2 size={16} className="animate-spin" /> Loading item…</div>
             ) : (
               <>
-                <div className={target.kind === 'unlinked' ? 'text-[13px] font-medium text-red' : 'text-[13px] text-ink'}>{targetSentence}</div>
+                <div className={target.kind === 'unlinked' || blocked ? 'text-[13px] font-medium text-red' : 'text-[13px] text-ink'}>{targetSentence}</div>
                 {target.kind === 'item' && (
                   <div className="flex items-center gap-3">
                     <div className="flex-1 rounded-lg border border-line bg-bg px-3 py-2">
@@ -236,7 +246,7 @@ export function AdoptFormatModal({
                     <div><span className="text-ink-4">New price basis:</span> <span className="font-medium text-ink">{pricingLabel}</span></div>
                   </div>
                 )}
-                {movesItemPrice && (
+                {movesItemPrice && !blocked && (
                   <div className="flex items-start gap-2 rounded-lg bg-gold-soft/60 border border-gold-soft px-3 py-2.5">
                     <AlertTriangle size={15} className="text-gold-2 mt-0.5 shrink-0" />
                     <div className="text-[12px] text-ink-2 leading-snug">
@@ -256,7 +266,7 @@ export function AdoptFormatModal({
 
           <div className="flex justify-end gap-2 px-6 py-4 border-t border-bg-2">
             <ActButton onClick={onClose} disabled={saving}>Cancel</ActButton>
-            <ActButton variant="primary" onClick={confirm} disabled={loading || saving || !item || target.kind === 'unlinked'}>
+            <ActButton variant="primary" onClick={confirm} disabled={loading || saving || !item || target.kind === 'unlinked' || blocked}>
               {saving ? <><Loader2 size={14} className="animate-spin" /> Applying…</> : confirmLabel}
             </ActButton>
           </div>

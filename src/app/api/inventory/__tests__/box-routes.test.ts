@@ -238,6 +238,31 @@ describe('POST /api/inventory/[id]/suppliers — add a box', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it('a weight pack on a counted item → 400 INVALID with the plain sentence, nothing created', async () => {
+    ITEM = { ...BASE_ITEM, dimension: 'COUNT', baseUnit: 'each' }
+    const res = await list.POST(req({
+      ...NEW_BOX, packChain: [{ unit: 'cs', per: 4 }, { unit: 'lb', per: 2267.96 }], pricing: { mode: 'PACK', purchasePrice: 40 },
+    }), itemCtx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('This box is measured by weight but the item is counted. Change how the item is measured first.')
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it("a stated measure other than the item's → 400 INVALID (a counted invoice pack on a by-weight item)", async () => {
+    const res = await list.POST(req({
+      ...NEW_BOX, packChain: [{ unit: 'cs', per: 12 }, { unit: 'each', per: 1 }], dimension: 'COUNT',
+    }), itemCtx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('This box is counted but the item is measured by weight. Change how the item is measured first.')
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('an unknown stated measure → 400 BAD_FIELD', async () => {
+    const res = await list.POST(req({ ...NEW_BOX, dimension: 'WEIGHT' }), itemCtx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('BAD_FIELD')
+  })
+
   it('a missing field → 400 BAD_FIELD', async () => {
     const res = await list.POST(req({ ...NEW_BOX, supplierId: undefined }), itemCtx)
     expect(res.status).toBe(400)
@@ -263,14 +288,54 @@ describe('PATCH /api/inventory/[id]/suppliers/[offerId] — edit a box', () => {
     expect(propagatePrepCostChanges).toHaveBeenCalledWith(['i1'])
   })
 
-  it('a non-main box → written; the always-run sync changes nothing so nothing re-costs', async () => {
+  it('a non-main box → written; the item row is left alone (no sync), nothing re-costs', async () => {
     BOXES = [PRIMARY, OTHER]
-    syncPrimaryOfferToItem.mockResolvedValueOnce({ changed: false, oldPpb: 0.0182, newPpb: 0.0182 })
     const res = await one.PATCH(req(EDIT), boxCtx('o2'))
     expect(res.status).toBe(200)
     expect(boxUpdateMany).toHaveBeenCalled()
+    // Which box is main is re-read after the write, inside the transaction.
+    expect(findFirst.mock.calls.at(-1)?.[0]).toMatchObject({ where: { id: 'o2', inventoryItemId: 'i1' }, select: { isPrimary: true } })
+    expect(syncPrimaryOfferToItem).not.toHaveBeenCalled()
+    expect(propagatePrepCostChanges).not.toHaveBeenCalled()
+  })
+
+  it("the main box's sync that moves nothing → no re-cost", async () => {
+    BOXES = [PRIMARY, OTHER]
+    syncPrimaryOfferToItem.mockResolvedValueOnce({ changed: false, oldPpb: 0.0182, newPpb: 0.0182 })
+    const res = await one.PATCH(req(EDIT), boxCtx('o1'))
+    expect(res.status).toBe(200)
     expect(syncPrimaryOfferToItem).toHaveBeenCalledWith('i1', expect.anything())
     expect(propagatePrepCostChanges).not.toHaveBeenCalled()
+  })
+
+  it('a new pack clears the legacy pack fields; a price-only edit leaves them alone', async () => {
+    BOXES = [PRIMARY]
+    let res = await one.PATCH(req({
+      packChain: [{ unit: 'case', per: 500 }], expectedLastUpdated: BOX_TIME.toISOString(),
+    }), boxCtx('o1'))
+    expect(res.status).toBe(200)
+    expect(boxUpdateMany.mock.calls[0][0].data).toMatchObject({
+      packChain: [{ unit: 'case', per: 500 }], packQty: null, packSize: null, packUOM: null,
+    })
+    res = await one.PATCH(req(EDIT), boxCtx('o1'))
+    expect(res.status).toBe(200)
+    expect(boxUpdateMany.mock.calls[1][0].data).not.toHaveProperty('packQty')
+    // The same chain sent back unchanged is not a new pack.
+    res = await one.PATCH(req({ ...EDIT, packChain: PRIMARY.packChain }), boxCtx('o1'))
+    expect(res.status).toBe(200)
+    expect(boxUpdateMany.mock.calls[2][0].data).not.toHaveProperty('packQty')
+  })
+
+  it('a pack in another measure (a volume pack on a by-weight item) → 400 INVALID with the plain sentence', async () => {
+    BOXES = [PRIMARY]
+    const res = await one.PATCH(req({
+      packChain: [{ unit: 'case', per: 4 }, { unit: 'l', per: 1000 }], expectedLastUpdated: BOX_TIME.toISOString(),
+    }), boxCtx('o1'))
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.code).toBe('INVALID')
+    expect(body.error).toBe('This box is measured by volume but the item is measured by weight. Change how the item is measured first.')
+    expect(boxUpdateMany).not.toHaveBeenCalled()
   })
 
   it('only a product code → the stored pack and price are kept untouched', async () => {
