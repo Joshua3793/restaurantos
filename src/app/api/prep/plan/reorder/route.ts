@@ -28,7 +28,9 @@ export async function PATCH(req: NextRequest) {
   }
   // Order is written on the item's LIVE log, so re-ordering a job carried over
   // from an earlier list edits that row instead of opening a duplicate.
-  const liveLogs = await ensureLiveLogs(orders.map(o => o.prepItemId), revenueCenterId)
+  // Only draft rows are re-ordered, so a DONE row means the item was added back
+  // for another batch — order that new job, not the finished one.
+  const liveLogs = await ensureLiveLogs(orders.map(o => o.prepItemId), revenueCenterId, { afterDone: true })
   await prisma.$transaction(
     orders.flatMap(o => {
       const id = liveLogs.get(o.prepItemId)

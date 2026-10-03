@@ -26,7 +26,7 @@ import { isLiveLog } from '@/lib/prep-plan'
 type RowValue = string | number | boolean | Date | null | undefined | RowValue[] | Row
 type Row = { [key: string]: RowValue }
 /** The subset of Prisma call args this harness understands. */
-type Args = { where?: Row; data?: Row; select?: Row; orderBy?: Row }
+type Args = { where?: Row; data?: Row; select?: Row; orderBy?: Row | Row[] }
 
 const DAY = 86_400_000
 const TODAY = new Date('2026-09-02T00:00:00.000Z')
@@ -95,7 +95,9 @@ const itemUpdateMany = vi.fn(async (args: Args) => {
 })
 const logFindFirst = vi.fn(async (args: Args) => {
   const rows = db.logs.filter(l => matchWhere(l, args?.where))
-  if (args?.orderBy?.logDate === 'desc') {
+  // NEWEST_FIRST: day, then created-at (a second batch the same day).
+  const order = Array.isArray(args?.orderBy) ? args.orderBy[0] : args?.orderBy
+  if (order?.logDate === 'desc') {
     rows.sort((a, b) => new Date(b.logDate as Date).getTime() - new Date(a.logDate as Date).getTime())
   }
   return rows[0] ? applySelect(rows[0], args.select) : null

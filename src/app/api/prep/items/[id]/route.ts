@@ -5,8 +5,8 @@ import { assertRcWritable } from '@/lib/rc-scope'
 import { computePriority, computeSuggestedQty } from '@/lib/prep-utils'
 import { convertQty } from '@/lib/uom'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { markPlanDirty } from '@/lib/prep-plan-server'
-import { stationLabel } from '@/lib/prep-plan'
+import { markPlanDirty, ensureLiveLogs, prepDayStart, NEWEST_FIRST, LIVE_LOG_SELECT } from '@/lib/prep-plan-server'
+import { stationLabel, isLiveLog, isResolvedPrepStatus } from '@/lib/prep-plan'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -53,7 +53,7 @@ export async function GET(
         },
       },
       linkedInventoryItem: true,
-      logs: { orderBy: { logDate: 'desc' }, take: 30 },
+      logs: { orderBy: NEWEST_FIRST, take: 30 },
     },
   })
 
@@ -114,7 +114,7 @@ export async function GET(
 
   const lastMadeLog = await prisma.prepLog.findFirst({
     where: { prepItemId: params.id, status: { in: ['DONE', 'PARTIAL'] } },
-    orderBy: { logDate: 'desc' },
+    orderBy: NEWEST_FIRST,
     select: { logDate: true },
   })
 
@@ -202,7 +202,23 @@ export async function PUT(
     await markPlanDirty(item.revenueCenterId)
   }
 
-  return NextResponse.json(item)
+  // Added back after it was already made today (a second Sourdough dough): the
+  // new job gets its own row, so the planned qty, note and the To Do act on it
+  // and the morning's finished batch stays exactly as it was recorded.
+  let openLogId: string | null = null
+  if (body.isOnList === true) {
+    const newest = await prisma.prepLog.findFirst({
+      where: { prepItemId: item.id },
+      orderBy: NEWEST_FIRST,
+      select: { ...LIVE_LOG_SELECT, revenueCenterId: true },
+    })
+    if (newest && isResolvedPrepStatus(newest.status) && isLiveLog(newest, prepDayStart().getTime())) {
+      const rcId = item.revenueCenterId ?? newest.revenueCenterId
+      openLogId = (await ensureLiveLogs([item.id], rcId, { afterDone: true })).get(item.id) ?? null
+    }
+  }
+
+  return NextResponse.json({ ...item, openLogId })
 }
 
 export async function DELETE(

@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { prepDayStart, prepDayRange } from '@/lib/prep-day'
-import { OPEN_PREP_STATUSES, pickLiveLogs } from '@/lib/prep-plan'
+import { OPEN_PREP_STATUSES, pickLiveLogs, isResolvedPrepStatus } from '@/lib/prep-plan'
 
 // The day convention lives in src/lib/prep-day.ts (restaurant-local day, stored
 // as UTC midnight) so the client can share it. Re-exported here because the plan
@@ -15,16 +15,23 @@ export { prepDayStart, prepDayRange, prepDayFrom, prepDayKey } from '@/lib/prep-
 // is the rule (and its tests); these are its Prisma shapes.
 
 /**
+ * Newest-first order for an item's logs. An item can have two rows on one day —
+ * a second batch added after the first was done — so the day alone does not
+ * decide; the later row wins. Same rule as `isNewerLog` in src/lib/prep-plan.ts.
+ */
+export const NEWEST_FIRST: Prisma.PrepLogOrderByWithRelationInput[] = [{ logDate: 'desc' }, { createdAt: 'desc' }]
+
+/**
  * Include fragment for an item's NEWEST log. Deliberately unfiltered: the rule
  * (`isLiveLog`) is applied to that newest row afterwards, because a filter would
  * happily reach past a completed row to an older open one and resurrect a job
  * that was already made. Callers must run `isLiveLog` on what comes back.
  */
-export const NEWEST_LOG = { orderBy: { logDate: 'desc' }, take: 1 } as const
+export const NEWEST_LOG = { orderBy: NEWEST_FIRST, take: 1 } as const
 
 /** Fields `isLiveLog` needs — add to any explicit select of a candidate log. */
 export const LIVE_LOG_SELECT = {
-  id: true, prepItemId: true, logDate: true, status: true, postedAt: true,
+  id: true, prepItemId: true, logDate: true, status: true, postedAt: true, createdAt: true,
 } as const
 
 /** `where` for logs that still hold a place on a kitchen's To Do (any day). */
@@ -40,10 +47,18 @@ export const postedOpenWhere: Prisma.PrepLogWhereInput = {
  * row per calendar day instead would leave a carried, still-open row behind it,
  * and that row resurfaces the item on the To Do the moment the newer one is
  * completed — one live log per item is the invariant that prevents it.
+ *
+ * `afterDone`: the caller is putting the item back on the list (the draft, the
+ * post), so a live row that is already DONE / PARTIAL is a finished batch, not
+ * this job — a second Sourdough dough after the morning one was made. That item
+ * gets a NEW row for today and the finished one is left exactly as it was, so
+ * its yield stays in stock and in History. Without this, the new job landed on
+ * the done row and showed up already finished.
  */
 export async function ensureLiveLogs(
   prepItemIds: string[],
   revenueCenterId: string,
+  { afterDone = false }: { afterDone?: boolean } = {},
 ): Promise<Map<string, string>> {
   const byItem = new Map<string, string>()
   if (prepItemIds.length === 0) return byItem
@@ -51,9 +66,10 @@ export async function ensureLiveLogs(
   const day = prepDayRange()
   // Newest row per item, then the live test — see NEWEST_LOG on why the query
   // must not pre-filter by status or date. Done as a DB-side max + an equality
-  // lookup on the (prepItemId, logDate) unique index: Prisma's `distinct` is
-  // applied in memory, so it would drag every historical row of every item
-  // across the wire on each post.
+  // lookup on the (prepItemId, logDate) index: Prisma's `distinct` is applied in
+  // memory, so it would drag every historical row of every item across the wire
+  // on each post. The lookup can return two rows for one item on one day;
+  // pickLiveLogs keeps the later one.
   const maxes = await prisma.prepLog.groupBy({
     by: ['prepItemId'],
     where: { prepItemId: { in: prepItemIds } },
@@ -65,6 +81,7 @@ export async function ensureLiveLogs(
   if (pairs.length > 0) {
     const newest = await prisma.prepLog.findMany({ where: { OR: pairs }, select: LIVE_LOG_SELECT })
     for (const [prepItemId, log] of pickLiveLogs(newest, day.gte.getTime())) {
+      if (afterDone && isResolvedPrepStatus(log.status)) continue
       byItem.set(prepItemId, log.id)
     }
   }
@@ -75,12 +92,13 @@ export async function ensureLiveLogs(
       data: missing.map(prepItemId => ({
         prepItemId, revenueCenterId, logDate: day.gte, status: 'NOT_STARTED',
       })),
-      // A row can already exist for today with a resolved status (done earlier,
-      // then re-added) — skipDuplicates keeps it rather than failing the batch.
+      // At most ONE open row per item per day (the partial unique index
+      // "PrepLog_one_open_per_item_day"): a concurrent call that already opened
+      // today's row wins, and the read below picks it up.
       skipDuplicates: true,
     })
     const created = await prisma.prepLog.findMany({
-      where: { prepItemId: { in: missing }, logDate: day },
+      where: { prepItemId: { in: missing }, logDate: day.gte, status: { in: [...OPEN_PREP_STATUSES] } },
       select: { id: true, prepItemId: true },
     })
     for (const l of created) byItem.set(l.prepItemId, l.id)

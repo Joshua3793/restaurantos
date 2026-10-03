@@ -43,6 +43,7 @@ const prepItemFindUnique = vi.fn(async () => ({
 }))
 const prepItemUpdate = vi.fn(async () => ({}))
 const markPlanDirty = vi.fn(async () => {})
+const ensureLiveLogs = vi.fn(async (ids: string[]) => new Map(ids.map(id => [id, `fresh-${id}`])))
 
 const requireSession = vi.fn(async (_role?: string) => ({ id: 'u1', role: 'STAFF', isActive: true }))
 
@@ -72,7 +73,9 @@ vi.mock('@/lib/auth', () => ({
   AuthError: MockAuthError,
 }))
 vi.mock('@/lib/prep-plan-server', () => ({
-  LIVE_LOG_SELECT: { id: true, prepItemId: true, logDate: true, status: true, postedAt: true },
+  LIVE_LOG_SELECT: { id: true, prepItemId: true, logDate: true, status: true, postedAt: true, createdAt: true },
+  NEWEST_FIRST: [{ logDate: 'desc' }, { createdAt: 'desc' }],
+  ensureLiveLogs: (...a: unknown[]) => ensureLiveLogs(...(a as [string[]])),
   markPlanDirty: (...a: unknown[]) => markPlanDirty(...(a as [])),
 }))
 
@@ -189,5 +192,28 @@ describe('POST /api/prep/logs — the posted list is flagged dirty for a plan ed
   it('does NOT fire markPlanDirty for an assignedTo-only claim', async () => {
     await POST(req({ prepItemId: 'item-1', revenueCenterId: 'rc-1', assignedTo: 'cook-3' }))
     expect(markPlanDirty).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/prep/logs — a second batch after the first was done', () => {
+  const doneToday = async (): Promise<LogRow> => {
+    const { prepDayStart } = await import('@/lib/prep-day')
+    return { ...LIVE_LOG, id: 'log-morning', status: 'DONE', logDate: prepDayStart() }
+  }
+
+  it('puts the planned qty on a NEW job, never on the batch already made', async () => {
+    prepLogFindFirst.mockResolvedValue(await doneToday())
+    const res = await POST(req({ prepItemId: 'item-1', revenueCenterId: 'rc-1', requiredQty: 6 }))
+    expect(res.status).toBe(201)
+    expect(ensureLiveLogs).toHaveBeenCalledWith(['item-1'], 'rc-1', { afterDone: true })
+    expect(prepLogUpdate).toHaveBeenCalledTimes(1)
+    expect(prepLogUpdate.mock.calls[0][0].where).toEqual({ id: 'fresh-item-1' })
+  })
+
+  it('a status change still acts on the finished row (reopen / correct it)', async () => {
+    prepLogFindFirst.mockResolvedValue(await doneToday())
+    await POST(req({ prepItemId: 'item-1', revenueCenterId: 'rc-1', status: 'IN_PROGRESS', completedAt: null }))
+    expect(ensureLiveLogs).not.toHaveBeenCalled()
+    expect(prepLogUpdate.mock.calls[0][0].where).toEqual({ id: 'log-morning' })
   })
 })

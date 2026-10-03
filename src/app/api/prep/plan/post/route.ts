@@ -62,7 +62,9 @@ export async function POST(req: NextRequest) {
   // row (and with it the cook's timer, claim and planned qty). Creating a fresh
   // row per calendar day would leave the carried one open behind it, and that row
   // would put the item back on the To Do as soon as the new one was completed.
-  const liveLogs = await ensureLiveLogs(draftIds, revenueCenterId)
+  // `afterDone`: a draft item whose row is already DONE today was added back for
+  // another batch — it gets a fresh row instead of being posted as finished.
+  const liveLogs = await ensureLiveLogs(draftIds, revenueCenterId, { afterDone: true })
   const draftSet = new Set(draftIds)
   const dueWrites = dues.flatMap(d => {
     const id = draftSet.has(d.prepItemId) ? liveLogs.get(d.prepItemId) : undefined
