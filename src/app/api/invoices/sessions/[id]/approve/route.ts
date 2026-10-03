@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
-import { ensurePrimary, mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
+import { ensurePrimary } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { saveMatchRule } from '@/lib/invoice-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
@@ -14,7 +14,7 @@ import { lastCost, listedPrice } from '@/lib/cost-basis'
 import { offerListedPrice } from '@/lib/offer-price'
 import { dimensionOf, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
-import { shouldRepriceItem } from '@/lib/invoice/reprice'
+import { shouldRepriceItem, primaryBoxWrite } from '@/lib/invoice/reprice'
 import { resolveLineFormat, pickOffer, supplierOffers, type OfferFormat } from '@/lib/invoice/line-format'
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
@@ -765,14 +765,15 @@ async function doApprove(
         // single-supplier item); with any box present it writes nothing — it must
         // never overwrite another supplier's price. An unlinked session also
         // never promotes or touches a primary. Rule: shouldRepriceItem.
-        let primary: { id: string; supplierId: string } | null = null
+        const findPrimary = (itemId: string) => prisma.inventorySupplierPrice.findFirst({
+          where: { inventoryItemId: itemId, isPrimary: true },
+          select: { id: true, ...OFFER_SELECT },
+        })
+        let primary: Awaited<ReturnType<typeof findPrimary>> = null
         let supplierRowCount = 0
         if (session.supplierId) {
           await ensurePrimary(scanItem.matchedItemId, prisma, undo)
-          primary = await prisma.inventorySupplierPrice.findFirst({
-            where: { inventoryItemId: scanItem.matchedItemId, isPrimary: true },
-            select: { id: true, supplierId: true },
-          })
+          primary = await findPrimary(scanItem.matchedItemId)
           // A failed offer write leaves only the supplier to go on — trusted
           // only while that supplier sells this item as a single product.
           supplierRowCount = supplierOffers(offersByItem.get(scanItem.matchedItemId) ?? [], {
@@ -835,6 +836,34 @@ async function doApprove(
               },
             }),
           )
+          // The PRIMARY box must equal the item: same chain (the item's own,
+          // preserved by the spine write above), same pricing. Without this the
+          // box keeps the chain built from the invoice's printed pack — which may
+          // be OCR noise inside packFormatsDisagree's tolerance — and a later
+          // setPrimaryOffer would copy that drift onto the item. Undo for this box
+          // was already captured at the upsert (offerCaptureFor → undo.before /
+          // undo.created); flushUndo reads its `next` after this transaction.
+          // If the box upsert failed but the item is still being re-priced from its
+          // primary supplier, the primary box must still end equal to the item.
+          // (Undo for that box is captured here — the upsert never touched it.)
+          const { boxId } = primaryBoxWrite({ shouldReprice, writtenOfferId, primaryId: primary?.id ?? null })
+          if (!writtenOfferId && primary && boxId === primary.id) {
+            undo.before('OFFER', primary.id, offerState(primary))
+          }
+          if (boxId) {
+            itemOps.push(
+              prisma.inventorySupplierPrice.update({
+                where: { id: boxId },
+                data: {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  packChain:   (item.packChain ?? []) as any,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  pricing:     newPricing as any,
+                  lastUpdated: new Date(),
+                },
+              }),
+            )
+          }
           // PriceAlert on the SPINE ($/base) basis — old ppb → new ppb — so the
           // stored previousPrice/newPrice/changePct stay consistent and every inbox
           // renderer agrees (see the oldPpb/changePct computation above).
@@ -862,12 +891,7 @@ async function doApprove(
 
         await prisma.$transaction(itemOps)
         if (shouldReprice) updatedItemIds.push(scanItem.matchedItemId)
-        // Keep the PRIMARY offer's chain == the item's chain so their per-base
-        // prices never diverge (non-primary offers keep their own invoice chain
-        // for accurate cross-supplier comparison).
-        if (shouldReprice && session.supplierId) {
-          await mirrorItemToPrimaryOffer(scanItem.matchedItemId, prisma, undo)
-        }
+        // The item re-priced from this line; its PRIMARY box must equal the item (same chain, same pricing) — written in itemOps above. A non-primary supplier's box keeps its own invoice pack.
         // Every write this line makes has landed — read each touched row's `next`.
         await flushUndo()
         registerLineAllocs(scanItem.matchedItemId, scanItem)

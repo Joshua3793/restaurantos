@@ -1,3 +1,4 @@
+// DEAD: one-off repair from PR #78 (2026-06); relied on the retired item→box mirror. Do not run.
 /**
  * Repair plan for the inventory price audit.
  *
@@ -123,6 +124,7 @@ function declashChain(chain: PackLink[], baseUnit: string, prefer?: string): Pac
 }
 
 async function main() {
+  throw new Error('DEAD — do not run (see header)')
   const items = await prisma.inventoryItem.findMany({
     where: { isActive: true },
     include: { supplierPrices: { where: { isPrimary: true } }, recipe: { select: { type: true } } },

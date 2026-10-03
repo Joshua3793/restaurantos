@@ -22,3 +22,20 @@ export function shouldRepriceItem(a: {
   if (a.writtenOfferId) return a.primary?.id === a.writtenOfferId
   return a.supplierRowCount <= 1 && a.primary?.supplierId === a.sessionSupplierId
 }
+
+/**
+ * Which box must be written equal to the item on this approve? When the item is
+ * re-priced, its primary box must end with the item's chain + pricing:
+ *  • the box this approve wrote, when the offer write succeeded
+ *  • otherwise the primary box (the offer write failed but the item is still
+ *    re-priced from its primary supplier)
+ *  • nothing when the item is not re-priced.
+ */
+export function primaryBoxWrite(a: {
+  shouldReprice: boolean
+  writtenOfferId: string | null
+  primaryId: string | null
+}): { boxId: string | null } {
+  if (!a.shouldReprice) return { boxId: null }
+  return { boxId: a.writtenOfferId ?? a.primaryId ?? null }
+}

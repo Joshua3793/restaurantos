@@ -1,5 +1,5 @@
 /**
- * Signals engine — 5 starter rules.
+ * Signals engine — starter rules.
  *
  * Each rule produces zero or more `SignalCandidate` records. The /api/signals/refresh
  * endpoint runs all rules, upserts results into the Signal table (keyed by
@@ -12,6 +12,8 @@
 
 import { prisma } from '@/lib/prisma'
 import { fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { dimensionallyCostable } from '@/lib/uom'
+import { dimensionOf, eachMeasureOf } from '@/lib/item-model'
 
 export interface SignalCandidate {
   fingerprint: string
@@ -192,6 +194,50 @@ async function ruleMenuPuzzle(): Promise<SignalCandidate[]> {
 }
 
 // ── Runner ─────────────────────────────────────────────────────────────────
+// ── Rule 6: A recipe line that can no longer be costed against its item ───
+// e.g. a recipe uses Eggs by `g` but the item is per-each with no "1 each = ? g".
+export async function ruleRecipeConflict(): Promise<SignalCandidate[]> {
+  const recipes = await prisma.recipe.findMany({
+    where: { isActive: true },
+    select: {
+      id: true, name: true,
+      ingredients: {
+        select: {
+          unit: true,
+          inventoryItem: {
+            select: { id: true, itemName: true, baseUnit: true, dimension: true, eachMeasureQty: true, eachMeasureUnit: true },
+          },
+        },
+      },
+    },
+  })
+
+  const out: SignalCandidate[] = []
+  for (const recipe of recipes) {
+    const seen = new Set<string>()
+    for (const ing of recipe.ingredients) {
+      const item = ing.inventoryItem
+      if (!item || seen.has(item.id)) continue
+      if (dimensionallyCostable(ing.unit, item.baseUnit, eachMeasureOf(item))) continue
+      seen.add(item.id)
+      const d = dimensionOf(ing.unit)
+      const unitWord = d === 'MASS' ? 'weight' : d === 'VOLUME' ? 'volume' : 'count'
+      out.push({
+        fingerprint: `recipe-conflict:${recipe.id}:${item.id}`,
+        rule: 'RECIPE_CONFLICT',
+        severity: 'warn',
+        title: `${recipe.name} can't cost ${item.itemName}`,
+        body: `It uses ${item.itemName} by ${unitWord}, but the item has no "1 each = ? g". Set it on the item.`,
+        verbLabel: 'Fix item',
+        verbHref: `/inventory?item=${item.id}`,
+        recipeId: recipe.id,
+        itemId: item.id,
+      })
+    }
+  }
+  return out
+}
+
 export async function evaluateAllRules(): Promise<SignalCandidate[]> {
   const results = await Promise.allSettled([
     ruleIngredientPriceSpike(),
@@ -199,6 +245,7 @@ export async function evaluateAllRules(): Promise<SignalCandidate[]> {
     ruleCountOverdue(),
     ruleWastageSpike(),
     ruleMenuPuzzle(),
+    ruleRecipeConflict(),
   ])
   return results.flatMap(r => r.status === 'fulfilled' ? r.value : [])
 }

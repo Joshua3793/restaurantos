@@ -1,10 +1,15 @@
 'use client'
 // Confirmation modal for resolving a dimension conflict by changing the matched
-// inventory item to match the invoice line's dimension/format (the "item is the
-// wrong side" path). Derives the new chain from the SAME buildOffer the conflict
-// detector uses, then writes it via the existing inventory PUT — which validates
-// the chain and cascades recipe re-costing. High blast radius (re-costs recipes,
-// resets on-hand stock), so it spells out the impact before the user confirms.
+// inventory item to match the invoice line's format (the "item is the wrong
+// side" path). Derives the new chain from the SAME buildOffer the conflict
+// detector uses, then writes it via the item's pricing route — which validates
+// the chain and cascades recipe re-costing. It changes only the pack, price and
+// count unit, and — when the invoice is in another measure — the measure itself.
+// The route allows that only while the item has no history (otherwise it answers
+// DIMENSION_LOCKED with a plain sentence, shown here). It never touches stock
+// (that moves only through counts). An item with a supplier box is priced on the
+// box, so the route refuses it (HAS_OFFERS). Re-costs recipes, so it spells out
+// the impact before the user confirms.
 
 import { useEffect, useState } from 'react'
 import { X, AlertTriangle, Loader2, ArrowRight } from 'lucide-react'
@@ -63,32 +68,50 @@ export function AdoptFormatModal({
     : `$${Number(offer.pricing.purchasePrice).toFixed(2)} / ${countUnit}`
 
   const recipeCount = item?.recipeIngredients?.length ?? 0
-  const stock = item ? Number(item.stockOnHand ?? 0) : 0
   const fromDim = item ? (item.dimension ?? dimensionOf(item.baseUnit ?? 'each')) : null
   const fromUnit = item ? (item.countUnit || item.baseUnit) : ''
+  // This modal is only reached when the invoice's measure differs from the
+  // item's, so the measure changes along with the pack (the server refuses it
+  // when the item has history).
+  const measureChanges = !!fromDim && fromDim !== offer.dimension
+  const measurePhrase = (dim: string, unit: string) =>
+    dim === 'COUNT' ? `counted by ${unit}` : `measured by ${DIM_LABEL[dim]}`
 
   async function confirm() {
     if (!item || !itemId) return
     setSaving(true); setError(null)
     try {
-      // Minimal PUT body: the change + the scalar PUT force-writes (it nulls
-      // storageAreaId when absent). Omitted columns stay untouched. No supplierId:
-      // PUT strips it — an item's supplier is its primary box's supplier.
-      const res = await fetch(`/api/inventory/${itemId}`, {
-        method: 'PUT',
+      // The item's own pack + price, naming the row version it was loaded at.
+      // The invoice's measure rides along; no stock.
+      const res = await fetch(`/api/inventory/${itemId}/pricing`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          dimension: offer.dimension,
           packChain: newChain,
           pricing:   offer.pricing,
           countUnit,
-          stockOnHand:   0,
-          storageAreaId: item.storageAreaId ?? null,
+          dimension: offer.dimension,
+          expectedLastUpdated: item.lastUpdated,
         }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || 'Failed to update item')
+        const msg: string = d.error || 'Failed to update item'
+        if (res.status === 409 && d.code === 'HAS_OFFERS') {
+          setError(`${msg} (Editing a box arrives in the next update.)`)
+        } else if (res.status === 409 && d.code === 'DIMENSION_LOCKED') {
+          setError(msg)
+        } else {
+          alert(msg)
+          setError(msg)
+          // Someone saved the item meanwhile — load the fresh row so a retry names it.
+          if (res.status === 409 && d.code === 'STALE') {
+            const fresh = await fetch(`/api/inventory/${itemId}`).then(r => (r.ok ? r.json() : null)).catch(() => null)
+            if (fresh) setItem(fresh)
+          }
+        }
+        setSaving(false)
+        return
       }
       onSaved()
     } catch (e) {
@@ -135,10 +158,14 @@ export function AdoptFormatModal({
                 <div className="flex items-start gap-2 rounded-lg bg-gold-soft/60 border border-gold-soft px-3 py-2.5">
                   <AlertTriangle size={15} className="text-gold-2 mt-0.5 shrink-0" />
                   <div className="text-[12px] text-ink-2 leading-snug">
-                    This re-costs <b>{recipeCount} recipe{recipeCount === 1 ? '' : 's'}</b> that use this item
-                    {stock > 0 && <> and resets on-hand stock (<b>{stock}</b>) to 0 — recount after</>}.
+                    This re-costs <b>{recipeCount} recipe{recipeCount === 1 ? '' : 's'}</b> that use this item.
                   </div>
                 </div>
+                {measureChanges && fromDim && (
+                  <div className="text-[12px] text-ink-3">
+                    This changes {item?.itemName ?? 'this item'} from {measurePhrase(fromDim, fromUnit)} to {measurePhrase(offer.dimension, offer.baseUnit)}.
+                  </div>
+                )}
                 {error && <div className="text-[12px] text-red">{error}</div>}
               </>
             )}

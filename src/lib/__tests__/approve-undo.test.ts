@@ -320,28 +320,6 @@ describe('capture hooks', () => {
     expect(touched).toEqual([])
   })
 
-  it('mirrorItemToPrimaryOffer captures the primary offer before overwriting it', async () => {
-    const { touched, prevs, order, undo } = recorder()
-    const db = {
-      inventorySupplierPrice: {
-        findFirst: async () => ({ id: 'p1', isPrimary: true, ...OFFER_ROW }),
-        update: async () => {
-          order.push('update')
-          return {}
-        },
-      },
-      inventoryItem: {
-        findUnique: async () => ({ packChain: [{ unit: 'case', per: 6 }], pricing: { mode: 'PACK' } }),
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any
-    const { mirrorItemToPrimaryOffer } = await import('@/lib/primary-offer')
-    await mirrorItemToPrimaryOffer('item', db, undo)
-    expect(touched).toEqual(['OFFER:p1'])
-    expect(order).toEqual(['before:OFFER:p1', 'update'])
-    expect(prevs[0]).toMatchObject({ isPrimary: true, packQty: 10 })
-  })
-
   it('saveMatchRule touches the sibling rules it strips a code from and the rule it upserts; a new rule is created()', async () => {
     const { touched, prevs, createdIds, order, undo } = recorder()
     prismaMock.invoiceMatchRule = {

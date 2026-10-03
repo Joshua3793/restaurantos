@@ -317,3 +317,10 @@ describe('ratePerBase — a malformed dimension string falls back instead of pri
     expect(ratePerBase(25, 'kg', { dimension: '' as never, baseUnit: 'g', eachMeasure: null, densityGPerMl: null })).toBeCloseTo(0.025)
   })
 })
+
+describe('validateChainItem — requirePositivePrice', () => {
+  const base: ChainItem = { dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 0 } }
+  it('is lenient by default (unchanged behaviour)', () => expect(validateChainItem(base)).toEqual([]))
+  it('refuses $0 when required', () => expect(validateChainItem(base, { requirePositivePrice: true })).toContain('price must be above $0'))
+  it('accepts a positive rate', () => expect(validateChainItem({ ...base, pricing: { mode: 'RATE', rate: 2, rateUnit: 'kg' } }, { requirePositivePrice: true })).toEqual([]))
+})

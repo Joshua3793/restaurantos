@@ -1179,6 +1179,32 @@ export function InvoiceReviewDrawer({
     else setSaveStatus('error')
   }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem, updateLine])
 
+  // ── Bridge write onto the matched item ───────────────────────────────────────
+  // The item edit takes the bridge fields plus the row version the save was made
+  // from. A match staged from search has no version, so it is read fresh. A clash
+  // (someone saved the item meanwhile) reloads the session and asks for a retry.
+  const saveItemBridge = useCallback(async (
+    md: { id: string; lastUpdated?: string },
+    fields: { eachMeasureQty: number; eachMeasureUnit: string } | { densityGPerMl: number },
+  ) => {
+    const expectedLastUpdated = md.lastUpdated
+      ?? (await fetch(`/api/inventory/${md.id}`).then(r => (r.ok ? r.json() : null)).catch(() => null))?.lastUpdated
+    const res = await fetch(`/api/inventory/${md.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...fields, expectedLastUpdated }),
+    })
+    if (res.ok) return
+    const err = await res.json().catch(() => null)
+    if (res.status === 409 && err?.code === 'STALE') {
+      alert('Someone saved this item a moment ago. Reloading…')
+      if (session) await refreshSession(session.id)
+      throw new Error('The item was reloaded — check it and save again.')
+    }
+    if (res.status === 409 && err?.code === 'PREP_OWNED') alert(err.error)
+    throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
+  }, [session, refreshSession])
+
   // ── Non-destructive dimension-conflict resolver ──────────────────────────────
   // Sets the item's eachMeasure bridge so 1 each = N unit (e.g. 1100 g), without
   // changing the item's dimension, packChain, stock, or recipes. After the write
@@ -1200,22 +1226,9 @@ export function InvoiceReviewDrawer({
       throw new Error(`"${rawUnit}" can't measure the bridge — pick a weight or volume unit.`)
     }
 
-    const res = await fetch(`/api/inventory/${md.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dimension:  md.dimension ?? 'COUNT',   // unchanged
-        packChain:  md.packChain,              // unchanged — route 400s if missing
-        pricing:    md.pricing,               // unchanged
-        countUnit:  md.countUnit ?? null,     // unchanged
-        eachMeasureQty:  rawQty,
-        eachMeasureUnit: rawUnit,
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
-    }
+    // Only the bridge — the item edit refuses any other key (dimension, chain,
+    // price and stock are not edited from here).
+    await saveItemBridge(md, { eachMeasureQty: rawQty, eachMeasureUnit: rawUnit })
     await flushPendingEdits()
     // Refresh BEFORE dropping the staged matchedItem (not after — the reverse
     // order rendered one frame of the stale/no-bridge server row between the
@@ -1226,7 +1239,7 @@ export function InvoiceReviewDrawer({
       if (refreshed) dropStagedMatchedItem(item.id)
       else setSaveStatus('error')
     }
-  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem])
+  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem, saveItemBridge])
 
   // ── Non-destructive weight↔volume resolver ──────────────────────────────────
   // Sets the item's densityGPerMl so a measured invoice in the other dimension
@@ -1236,21 +1249,7 @@ export function InvoiceReviewDrawer({
     const md = item.matchedItem
     if (!md?.id) return
     if (!(gPerMl > 0)) throw new Error('Enter a density greater than zero.')
-    const res = await fetch(`/api/inventory/${md.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dimension:  md.dimension,        // unchanged
-        packChain:  md.packChain,        // unchanged
-        pricing:    md.pricing,          // unchanged
-        countUnit:  md.countUnit ?? null,// unchanged
-        densityGPerMl: gPerMl,           // ← the only meaningful write
-      }),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => null)
-      throw new Error(err?.error ?? `Could not save the bridge (${res.status}).`)
-    }
+    await saveItemBridge(md, { densityGPerMl: gPerMl })
     await flushPendingEdits()
     // Refresh BEFORE dropping the staged matchedItem — see bridgeAndReceiveAsCount.
     if (session) {
@@ -1258,7 +1257,7 @@ export function InvoiceReviewDrawer({
       if (refreshed) dropStagedMatchedItem(item.id)
       else setSaveStatus('error')
     }
-  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem])
+  }, [session, refreshSession, flushPendingEdits, dropStagedMatchedItem, saveItemBridge])
 
   // ── Context value ────────────────────────────────────────────────────────────
   const ctxValue = useMemo<DrawerContextValue>(() => ({

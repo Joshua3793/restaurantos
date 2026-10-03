@@ -1,8 +1,10 @@
 // src/lib/primary-offer.ts
 //
-// The primary-offer invariant: an InventoryItem with ≥1 InventorySupplierPrice
-// row has EXACTLY ONE row with isPrimary=true, and the item's packChain/pricing
-// (the $ spine) equal that primary offer's. The item's dimension/baseUnit (its
+// The primary-offer invariant: an item with ≥1 box has exactly one primary, and
+// the item's packChain/pricing EQUAL the primary box's. Kept by: approve (writes
+// the primary box = item on the line that re-prices), setPrimaryOffer/
+// syncPrimaryOfferToItem (copies the box onto the item). Nothing flows item→box
+// from a manual edit any more (Stage 2a). The item's dimension/baseUnit (its
 // physical identity) never change with supplier; only the pack FORMAT + price do.
 //
 // Items with NO offers (PREP-linked, manual, non-stocked) keep authoring their
@@ -118,34 +120,4 @@ export async function setPrimaryOffer(itemId: string, offerId: string, db: Db = 
   })
   await db.inventorySupplierPrice.update({ where: { id: offerId }, data: { isPrimary: true } })
   return syncPrimaryOfferToItem(itemId, db)
-}
-
-/**
- * After a manual item edit, mirror the item's chain+pricing onto the primary
- * offer so the invariant (item == primary offer) holds. No-op when no primary.
- */
-export async function mirrorItemToPrimaryOffer(itemId: string, db: Db = prisma, undo?: UndoCollector): Promise<void> {
-  const primary = await db.inventorySupplierPrice.findFirst({
-    where: { inventoryItemId: itemId, isPrimary: true },
-    // Widened to the undo selector so `undo.before` below sees the whole row;
-    // nothing but `primary.id` is used by the write itself.
-    select: { id: true, ...OFFER_SELECT },
-  })
-  if (!primary) return
-  const item = await db.inventoryItem.findUnique({
-    where: { id: itemId },
-    select: { packChain: true, pricing: true },
-  })
-  if (!item) return
-  undo?.before('OFFER', primary.id, offerState(primary))
-  await db.inventorySupplierPrice.update({
-    where: { id: primary.id },
-    data: {
-      // Chain + pricing only: every reader derives the box's price from them
-      // (offerPricePerBase / offerListedPrice) — no stored price copy.
-      packChain: item.packChain as unknown as object,
-      pricing: item.pricing as unknown as object,
-      lastUpdated: new Date(),
-    },
-  })
 }

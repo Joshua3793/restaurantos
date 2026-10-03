@@ -226,8 +226,9 @@ export const countQty = (item: ChainItem, countUnit = item.countUnit ?? 'each') 
 export const lineCost = (item: ChainItem, qty: number, unit: string) =>
   qty * getUnitConv(unit) * pricePerBaseUnit(item)
 
-/** Invariants. Returns [] when valid. */
-export function validateChainItem(item: ChainItem): string[] {
+/** Invariants. Returns [] when valid. `requirePositivePrice` (a stocked item's
+ *  own price edit) also refuses a $0 / missing price. */
+export function validateChainItem(item: ChainItem, opts: { requirePositivePrice?: boolean } = {}): string[] {
   const errs: string[] = []
   const chain = item.packChain ?? []
   if (chain.length < 1) errs.push('chain must have at least one link')
@@ -241,6 +242,11 @@ export function validateChainItem(item: ChainItem): string[] {
   }
   if (item.pricing?.mode === 'RATE' && !rateIsCostable(item.pricing.rateUnit, item))
     errs.push('RATE.rateUnit must share the item dimension (or be bridged by the item’s each-measure / density)')
+  if (opts.requirePositivePrice) {
+    const p = item.pricing
+    const price = p?.mode === 'RATE' ? Number(p.rate) : Number((p as { purchasePrice?: unknown } | undefined)?.purchasePrice)
+    if (!(price > 0)) errs.push('price must be above $0')
+  }
   return errs
 }
 

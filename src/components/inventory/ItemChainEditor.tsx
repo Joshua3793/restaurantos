@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { DIMENSION_BASE, type Dimension, type PackLink, type Pricing } from '@/lib/item-model'
 import { getUnitConv } from '@/lib/utils'
+import { carryPricingMode } from '@/lib/pricing-mode'
 
 // ─── Shared pack-chain item editor ───────────────────────────────────────────
 // Single source of truth for the dimension / pack-chain / pricing controls used
@@ -209,13 +210,10 @@ export function PricingEditor({ dimension, pricing, onChange }: {
   pricing: Pricing
   onChange: (p: Pricing) => void
 }) {
+  // the number carries across the switch (PACK $50 → RATE 50/kg (everyday unit); RATE $3.49/lb → PACK $3.49)
   const setMode = (mode: 'PACK' | 'RATE') => {
     if (mode === pricing.mode) return
-    onChange(
-      mode === 'PACK'
-        ? { mode: 'PACK', purchasePrice: 0 }
-        : { mode: 'RATE', rate: 0, rateUnit: DIM_UNITS[dimension][0] },
-    )
+    onChange(carryPricingMode(pricing, mode, dimension))
   }
   return (
     <div className="space-y-3">

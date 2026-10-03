@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import {
-  DIMENSION_BASE, validateChainItem, dimensionOf, eachMeasureOf, densityOf,
-  type ChainItem, type Pricing,
-} from '@/lib/item-model'
-import { keepBridgedRate } from '@/lib/item-model-form'
-import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { validateChainItem, dimensionOf, eachMeasureOf, densityOf, asChainItem } from '@/lib/item-model'
 import { listedPrice, windowedAvgCost, withLastCost } from '@/lib/cost-basis'
 import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
-import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
+import { postUpdate } from '@/lib/inventory-post-update'
+import { itemHistory, hasHistory, bridgeUsedBy } from '@/lib/item-history'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -41,53 +38,95 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // null for a PREP-linked item — windowedAvgCost never averages those (its cost
   // comes from the recipe, not invoice receipts).
   const costBasis = item.recipe ? null : (await windowedAvgCost([item.id])).get(item.id) ?? null
-  const body = { ...withLastCost(withSupplier(item)), purchasePrice: listedPrice(item), costBasis }
+  // The edit rules the drawer needs up front: whether a measure change would
+  // rewrite history, how many supplier boxes there are, and which recipes cost
+  // only through the each-measure bridge.
+  const [h, usedBy] = await Promise.all([itemHistory(item.id), bridgeUsedBy(item.id)])
+  const body = {
+    ...withLastCost(withSupplier(item)), purchasePrice: listedPrice(item), costBasis,
+    hasHistory: hasHistory(h), offerCount: h.offers, bridgeUsedBy: usedBy,
+  }
   // STAFF opens this drawer from the count page — quantities and units only.
   return NextResponse.json(seesItemMoney(user.role) ? body : redactInventoryItem(body))
 }
 
+/** R1 — the only keys an item edit may carry. What the item IS (dimension,
+ *  chain) and what it costs (pricing) are not edited here; stock moves only
+ *  through counts, receipts, wastage and transfers. */
+const EDITABLE = [
+  'itemName', 'category', 'storageAreaId', 'isActive', 'isStocked', 'allergens', 'barcode',
+  'countUnit', 'eachMeasureQty', 'eachMeasureUnit', 'densityGPerMl', 'expectedLastUpdated',
+] as const
+
 async function handlePUT(req: NextRequest, { params }: { params: { id: string } }) {
-  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems).
+  // Item edits are MANAGER+ (src/lib/inventory-redact.ts canEditItems). The
+  // role gate runs before the body is read, so a STAFF/LEAD save is always 403.
   try { await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
   }
 
-  const body = await req.json()
+  const dryRun = new URL(req.url).searchParams.get('dryRun') === '1'
+  const body = (await req.json()) ?? {}
 
-  // The chain columns (dimension/baseUnit/packChain/pricing/countUnit) are the
-  // single source of truth. Every edit form sends a chain body — there is no
-  // legacy-field update path.
-  const {
-    dimension, packChain, pricing, countUnit, storageAreaId,
-    eachMeasureQty, eachMeasureUnit, densityGPerMl,
-    supplier, storageArea, invoiceLineItems, recipeIngredients, recipe,
-    // Retired copies — never written. The supplier is the item's primary box
-    // (changed only by making another box primary), the location is its storage
-    // area, the price is its pricing; `needsReview` is unused.
-    supplierId: _supplierId, location: _location, purchasePrice: _purchasePrice, needsReview: _needsReview,
-    ...rest
-  } = body
-  if (!packChain) {
-    return NextResponse.json({ error: 'packChain is required' }, { status: 400 })
+  // R1 — an allow-list, never a spread. Any other key is refused, not ignored.
+  const bad = Object.keys(body).filter(k => !(EDITABLE as readonly string[]).includes(k))
+  if (bad.length) {
+    return NextResponse.json({ error: "That field can't be changed here.", code: 'BAD_FIELD', fields: bad }, { status: 400 })
   }
-  delete rest.pricePerBaseUnit; delete rest.baseUnit
-  delete rest.dimension; delete rest.pricing; delete rest.countUnit
+  if (!body.expectedLastUpdated || Number.isNaN(new Date(body.expectedLastUpdated).getTime())) {
+    return NextResponse.json({ error: 'Reload the item and try again.', code: 'BAD_FIELD', fields: ['expectedLastUpdated'] }, { status: 400 })
+  }
+  // Input hygiene — a present-but-unusable value is refused, never stored.
+  if ('countUnit' in body && (typeof body.countUnit !== 'string' || !body.countUnit.trim())) {
+    return NextResponse.json({ error: 'Pick a count unit.', code: 'BAD_FIELD', fields: ['countUnit'] }, { status: 400 })
+  }
+  if ('itemName' in body && (typeof body.itemName !== 'string' || !body.itemName.trim())) {
+    return NextResponse.json({ error: 'The item needs a name.', code: 'BAD_FIELD', fields: ['itemName'] }, { status: 400 })
+  }
+  if ('allergens' in body && !Array.isArray(body.allergens)) {
+    return NextResponse.json({ error: 'Allergens must be a list.', code: 'BAD_FIELD', fields: ['allergens'] }, { status: 400 })
+  }
+  const { countUnit, eachMeasureQty, eachMeasureUnit, densityGPerMl } = body
 
   const before = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
     select: {
-      id: true, allergens: true, mergedIntoId: true,
-      dimension: true, pricing: true,
+      id: true, itemName: true, allergens: true, countUnit: true, mergedIntoId: true, lastUpdated: true,
+      dimension: true, baseUnit: true, packChain: true, pricing: true,
       eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
+      recipe: { select: { id: true, name: true } },
     },
   })
   if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   // A merge tombstone is off-limits to the ordinary edit path: an edit here can
   // set isActive true, which is exactly the state undo refuses to replay onto.
   if (tombstonedRows([before]).length)
-    return NextResponse.json({ error: TOMBSTONE_EDIT_ERROR }, { status: 409 })
+    return NextResponse.json({ error: TOMBSTONE_EDIT_ERROR, code: 'TOMBSTONE' }, { status: 409 })
+
+  // R8 — two people editing: the save names the version it was made from.
+  if (new Date(body.expectedLastUpdated).getTime() !== before.lastUpdated.getTime()) {
+    return NextResponse.json({
+      error: 'Someone saved this item a moment ago. Reload to see their change before saving yours.',
+      code: 'STALE',
+    }, { status: 409 })
+  }
+
+  // R6 — a recipe-made item is named, allergened and count-united by its recipe
+  // (recipe sync would overwrite the edit anyway). Sending the same value back
+  // is not a change.
+  if (before.recipe) {
+    const changed = (k: 'itemName' | 'countUnit') => k in body && body[k] !== before[k]
+    const allergensChanged = 'allergens' in body
+      && JSON.stringify([...(body.allergens ?? [])].sort()) !== JSON.stringify([...(before.allergens ?? [])].sort())
+    if (changed('itemName') || changed('countUnit') || allergensChanged) {
+      return NextResponse.json({
+        error: `This item is made from the recipe "${before.recipe.name}". Change its name, allergens or count unit in the recipe.`,
+        code: 'PREP_OWNED',
+      }, { status: 409 })
+    }
+  }
 
   // ── Bridge fields ───────────────────────────────────────────────────────────
   // Both bridges are PATCH-shaped: a key that isn't in the body is left alone
@@ -100,7 +139,8 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   const emUnit = eachMeasureUnit ? String(eachMeasureUnit).trim().toLowerCase() : ''
   if (hasEachMeasure && emQty > 0 && (!emUnit || dimensionOf(emUnit) === 'COUNT')) {
     return NextResponse.json({
-      error: `"${emUnit || eachMeasureUnit}" can't measure the bridge — use a weight or volume unit.`,
+      error: 'Use a weight or volume unit for how much one each measures.',
+      code: 'INVALID',
     }, { status: 400 })
   }
   const emValid = emQty > 0 && !!emUnit && dimensionOf(emUnit) !== 'COUNT'
@@ -109,125 +149,64 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
     ? (Number(densityGPerMl) > 0 ? Number(densityGPerMl) : null)
     : densityOf(before)
 
-  // Step 6: a bridged RATE (rateUnit in another dimension than the item, e.g.
-  // $/lb on an `each` item) can be loaded into the edit form untouched, but the
-  // form's rate-unit dropdown only offers units in the item's OWN dimension, so
-  // it can never faithfully redisplay it. If the incoming pricing looks like an
-  // unmodified round-trip (same mode + rate number — see keepBridgedRate), keep
-  // the stored pricing verbatim rather than let the dropdown silently swap in a
-  // same-dimension unit. A genuine price change always wins.
-  const storedPricing = before.pricing as Pricing | null
-  const finalPricing: Pricing =
-    dimension === before.dimension // a deliberate dimension change is always a deliberate re-price
-      && storedPricing?.mode === 'RATE'
-      && dimensionOf(storedPricing.rateUnit) !== before.dimension
-      && keepBridgedRate(storedPricing, pricing as Pricing)
-      ? storedPricing
-      : pricing
-
-  // The bridges passed to validateChainItem/ci are the EFFECTIVE ones this save
-  // will end up with (incoming when the payload sets them, else the stored
-  // values) — without them a genuinely bridged RATE 400s here even though it
-  // prices fine once saved (see rateIsCostable in item-model.ts).
-  const ci: ChainItem = {
-    dimension,
-    baseUnit: DIMENSION_BASE[dimension as keyof typeof DIMENSION_BASE],
-    packChain,
-    pricing: finalPricing,
-    countUnit,
-    eachMeasure: hasEachMeasure ? (emValid ? { qty: emQty, unit: emUnit } : null) : eachMeasureOf(before),
+  // Validate against the STORED chain/pricing/dimension (this route never
+  // changes them) with the incoming count unit and the EFFECTIVE bridges this
+  // save ends up with — a bridged RATE prices only through its bridge, so
+  // clearing that bridge 400s here (see rateIsCostable in item-model.ts).
+  const ci = asChainItem({
+    ...before,
+    countUnit: countUnit ?? before.countUnit,
+    eachMeasureQty: hasEachMeasure ? (emValid ? emQty : null) : before.eachMeasureQty,
+    eachMeasureUnit: hasEachMeasure ? (emValid ? emUnit : null) : before.eachMeasureUnit,
     densityGPerMl: nextDensity,
-  }
-  const errors = validateChainItem(ci)
-  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
-
-  await prisma.inventoryItem.update({
-    where: { id: params.id },
-    data: {
-      ...rest,
-      dimension,
-      packChain: packChain as any,
-      pricing: finalPricing as any,
-      countUnit,
-      baseUnit: ci.baseUnit,
-      lastUpdated: new Date(),
-      storageAreaId: storageAreaId || null,
-      // Count↔weight bridge ("1 each = N g/ml"). Valid in EITHER direction — a
-      // per-each weight on a COUNT item, or how much one each weighs on a
-      // measured item — so it is NOT gated on dimension. The unit must be a
-      // measured one (the bridge always spans count↔measured); an invalid one
-      // already 400'd above.
-      ...(hasEachMeasure ? {
-        eachMeasureQty:  emValid ? emQty : null,
-        eachMeasureUnit: emValid ? emUnit : null,
-      } : {}),
-      // Weight↔volume density bridge. Non-destructive: allows a measured invoice
-      // in the other dimension to cost correctly without changing the item's
-      // dimension, chain, or stock.
-      ...(hasDensity ? { densityGPerMl: nextDensity } : {}),
-    },
   })
-
-  return await postUpdate(params.id, before.allergens ?? [], (rest as any).allergens)
-}
-
-/**
- * Shared post-update side-effects for the inventory PUT route. After any spine
- * write we must: re-sync the item's own PREP recipe,
- * propagate the price change to dependent PREP recipes, cascade allergen changes,
- * and return the final (possibly recipe-overridden) state.
- */
-async function postUpdate(
-  id: string,
-  prevAllergens: string[],
-  newAllergensInput: string[] | undefined,
-): Promise<NextResponse> {
-  // If this item is the output of a PREP recipe, re-sync to override the
-  // purchase-formula values with recipe-derived costs (preserves count unit).
-  const linkedRecipe = await prisma.recipe.findFirst({
-    where: { inventoryItemId: id, type: 'PREP' },
-    select: { id: true },
-  })
-  if (linkedRecipe) {
-    await syncPrepToInventory(linkedRecipe.id)
+  // Only the errors THIS save introduces: an item whose stored chain is already
+  // invalid (writers like invoice approve / prep sync never ran the validator)
+  // must still be able to save a name, an allergen or a deactivation. A stored
+  // count-unit error is excused only while the count unit is left alone —
+  // changing it to another invalid unit is a new error.
+  const stored = new Set(validateChainItem(asChainItem(before)))
+  const cuChanged = 'countUnit' in body && body.countUnit !== before.countUnit
+  const errors = validateChainItem(ci).filter(e => !stored.has(e) || (cuChanged && e.startsWith('countUnit')))
+  if (errors.length) {
+    return NextResponse.json({
+      error: "That change doesn't fit the item's pack format.",
+      code: 'INVALID',
+      details: errors,
+    }, { status: 400 })
   }
 
-  // A manual edit to an item that has supplier offers also updates its PRIMARY
-  // offer, so the offer table doesn't silently disagree with the item spine.
-  // No-op when the item has no primary offer (PREP-linked / manual-only items).
-  await mirrorItemToPrimaryOffer(id)
-
-  // A manual price edit is a spine write: propagate it to every PREP recipe that
-  // uses this item (directly or transitively) so their costs don't go stale —
-  // same reason the invoice-approve path does. Runs after the own-prep sync above
-  // so a prep item's freshly-derived price also propagates to its parents.
-  await propagatePrepCostChanges([id])
-
-  // If allergens changed, cascade-sync every PREP recipe that uses this item
-  // as an ingredient so their linked PREPD items stay up to date.
-  const newAllergens: string[] = newAllergensInput ?? prevAllergens ?? []
-  const allergensChanged =
-    JSON.stringify([...(prevAllergens ?? [])].sort()) !==
-    JSON.stringify([...newAllergens].sort())
-
-  if (allergensChanged) {
-    const affectedRecipes = await prisma.recipe.findMany({
-      where: {
-        type: 'PREP',
-        inventoryItemId: { not: null },
-        ingredients: { some: { inventoryItemId: id } },
-      },
-      select: { id: true },
-    })
-    await Promise.all(affectedRecipes.map(r => syncPrepToInventory(r.id)))
+  // R7 — before the drawer clears an each-measure it asks which recipes cost
+  // through it (they read $0 the moment it goes). Nothing is written.
+  if (dryRun) {
+    const clearingBridge = hasEachMeasure && !emValid && eachMeasureOf(before) !== null
+    return NextResponse.json({ ok: true, bridgeUsedBy: clearingBridge ? await bridgeUsedBy(params.id) : [] })
   }
 
-  // Return the final state (may have been updated by recipe sync)
-  const updated = await prisma.inventoryItem.findUnique({
-    where: { id },
-    include: { ...PRIMARY_SUPPLIER_INCLUDE, storageArea: true },
-  })
-  return NextResponse.json(updated ? { ...withLastCost(withSupplier(updated)), purchasePrice: listedPrice(updated) } : updated)
+  const data: Prisma.InventoryItemUncheckedUpdateInput = { lastUpdated: new Date() }
+  for (const k of ['itemName', 'category', 'isActive', 'isStocked', 'allergens', 'barcode', 'countUnit'] as const) {
+    if (k in body) (data as Record<string, unknown>)[k] = body[k]
+  }
+  if ('storageAreaId' in body) data.storageAreaId = body.storageAreaId || null
+  // Count↔weight bridge ("1 each = N g/ml", valid in either direction) and the
+  // weight↔volume density bridge. Neither changes the item's dimension, chain
+  // or stock.
+  if (hasEachMeasure) {
+    data.eachMeasureQty = emValid ? emQty : null
+    data.eachMeasureUnit = emValid ? emUnit : null
+  }
+  if (hasDensity) data.densityGPerMl = nextDensity
+  // The write itself re-checks the version it read, closing the window between
+  // the read-time STALE check and this update.
+  const { count } = await prisma.inventoryItem.updateMany({ where: { id: params.id, lastUpdated: before.lastUpdated }, data })
+  if (count === 0) {
+    return NextResponse.json({
+      error: 'Someone saved this item a moment ago. Reload to see their change before saving yours.',
+      code: 'STALE',
+    }, { status: 409 })
+  }
+
+  return await postUpdate(params.id, before.allergens ?? [], body.allergens)
 }
 
 async function handleDELETE(_req: NextRequest, { params }: { params: { id: string } }) {

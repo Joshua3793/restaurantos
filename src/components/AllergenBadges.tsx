@@ -38,9 +38,11 @@ export function AllergenBadges({ allergens, size = 'xs' }: BadgeProps) {
 interface AllergenTogglesProps {
   active: Set<string>
   onToggle: (key: string) => void
+  /** Read-only (e.g. a recipe-made item — its allergens come from the recipe). */
+  disabled?: boolean
 }
 
-export function AllergenToggles({ active, onToggle }: AllergenTogglesProps) {
+export function AllergenToggles({ active, onToggle, disabled = false }: AllergenTogglesProps) {
   return (
     <div className="grid grid-cols-3 gap-2">
       {ALLERGENS.map(a => {
@@ -49,11 +51,12 @@ export function AllergenToggles({ active, onToggle }: AllergenTogglesProps) {
           <button
             key={a.key}
             type="button"
+            disabled={disabled}
             onClick={() => onToggle(a.key)}
             style={on ? { borderColor: a.hex, backgroundColor: `${a.hex}18`, color: a.hex } : undefined}
             className={`flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl border-2 transition-all select-none ${
               on ? 'shadow-sm' : 'border-line hover:border-line-2 bg-white text-ink-4'
-            }`}
+            } disabled:opacity-60 disabled:cursor-not-allowed`}
           >
             <span className="text-[10px] font-bold tracking-wide">{a.abbr}</span>
             <span className="text-[9px] leading-tight text-center opacity-75">{a.label}</span>
