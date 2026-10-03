@@ -5,7 +5,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { withLastCost } from '@/lib/cost-basis'
 import { offerPricePerBase } from '@/lib/supplier-offers'
-import { resolvePurchaseDate } from '@/lib/purchase-date'
+import { resolvePurchaseDate, parseInvoiceDate } from '@/lib/purchase-date'
 import { deleteSession, RollbackRefused } from '@/lib/invoice/rollback-load'
 
 // `deleteSession`'s rollback transaction is given 30s of headroom
@@ -166,6 +166,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
 
     return NextResponse.json(updated)
+  }
+
+  // The reviewer can correct a misread invoice number / date (e.g. 02/09 read as
+  // 9 Feb instead of 2 Sep). The date must stay the OCR's "YYYY-MM-DD" shape —
+  // purchaseDate, count-expected and every spend window parse it that way.
+  if (body.invoiceDate !== undefined && body.invoiceDate !== null) {
+    const s = String(body.invoiceDate).trim()
+    // Round-trip check: JS rolls "2026-02-30" over to 2 Mar instead of failing.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || parseInvoiceDate(s)?.toISOString().slice(0, 10) !== s) {
+      return NextResponse.json({ error: 'Invoice date must be a real date (YYYY-MM-DD)' }, { status: 400 })
+    }
+    body.invoiceDate = s
+  }
+  if (body.invoiceNumber !== undefined && body.invoiceNumber !== null) {
+    body.invoiceNumber = String(body.invoiceNumber).trim() || null
   }
 
   // Correcting the invoice date must also re-resolve `purchaseDate`.

@@ -148,10 +148,82 @@ function HeaderSupplierPicker({
   )
 }
 
+// ─── InvoiceIdentityFields ─────────────────────────────────────────────────────
+// The OCR'd invoice # and date, correctable before approve. The date is the day
+// the goods land on for stock and spend (purchaseDate is resolved from it at
+// approve), so a 02/09 read the wrong way round shifts the theoretical stock by
+// months. The picker stores "YYYY-MM-DD"; the spelled-out month beside it makes
+// a day/month swap obvious, and a future or months-old date is flagged.
+
+function formatInvoiceDay(ymd: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null
+  const d = new Date(`${ymd}T00:00:00Z`)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+function InvoiceIdentityFields({
+  invoiceNumber,
+  invoiceDate,
+  onChange,
+}: {
+  invoiceNumber: string | null
+  invoiceDate: string | null
+  onChange: (patch: { invoiceNumber?: string | null; invoiceDate?: string | null }) => void
+}) {
+  const [numDraft, setNumDraft] = useState(invoiceNumber ?? '')
+  useEffect(() => { setNumDraft(invoiceNumber ?? '') }, [invoiceNumber])
+
+  const commitNumber = () => {
+    const next = numDraft.trim() || null
+    if (next !== (invoiceNumber ?? null)) onChange({ invoiceNumber: next })
+  }
+
+  const dayLabel = invoiceDate ? formatInvoiceDay(invoiceDate) : null
+  // Today in Pacific, as YYYY-MM-DD (en-CA formats that way).
+  const todayPacific = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Vancouver' })
+  const isFuture = !!invoiceDate && invoiceDate > todayPacific
+  // A swapped day/month lands months off, so flag a date well behind today too.
+  const oldCutoff = new Date(Date.parse(`${todayPacific}T00:00:00Z`) - 45 * 86_400_000).toISOString().slice(0, 10)
+  const isOld = !!invoiceDate && invoiceDate < oldCutoff
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-[5px] font-mono text-[11px] text-ink-3">
+      <label className="flex items-center gap-1">
+        <span className="text-ink-4">#</span>
+        <input
+          type="text"
+          value={numDraft}
+          onChange={e => setNumDraft(e.target.value)}
+          onBlur={commitNumber}
+          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          placeholder="Invoice #"
+          aria-label="Invoice number"
+          className="w-[110px] bg-bg border border-line rounded px-1.5 py-[3px] text-ink-2 placeholder:text-ink-4 hover:bg-bg-2 focus:outline-none focus:ring-1 focus:ring-gold/40"
+        />
+      </label>
+      <input
+        type="date"
+        value={invoiceDate ?? ''}
+        onChange={e => { if (e.target.value) onChange({ invoiceDate: e.target.value }) }}
+        aria-label="Invoice date"
+        className={`bg-bg border rounded px-1.5 py-[2px] text-ink-2 hover:bg-bg-2 focus:outline-none focus:ring-1 focus:ring-gold/40 ${
+          isFuture || isOld || !invoiceDate ? 'border-gold' : 'border-line'
+        }`}
+      />
+      {dayLabel && <span className="text-ink-3 whitespace-nowrap">{dayLabel}</span>}
+      {!invoiceDate && <span className="text-gold-2 whitespace-nowrap">No date, pick one</span>}
+      {isFuture && <span className="text-gold-2 whitespace-nowrap">Future date?</span>}
+      {isOld && <span className="text-gold-2 whitespace-nowrap">Over 45 days old?</span>}
+    </div>
+  )
+}
+
 function InvoiceHeader({
   session,
   revenueCenters,
   onRcChange,
+  onIdentityChange,
   onClose,
   queuePos,
   onPrev,
@@ -169,6 +241,7 @@ function InvoiceHeader({
   session: Session
   revenueCenters: RevenueCenter[]
   onRcChange: (rcId: string) => void
+  onIdentityChange: (patch: { invoiceNumber?: string | null; invoiceDate?: string | null }) => void
   onClose: () => void
   queuePos: { idx: number; total: number }
   onPrev?: () => void
@@ -189,8 +262,6 @@ function InvoiceHeader({
   const itemCount = session.scanItems.filter(i => i.action !== 'SKIP').length
 
   const metaParts: string[] = []
-  if (session.invoiceNumber) metaParts.push(`#${session.invoiceNumber}`)
-  if (session.invoiceDate)   metaParts.push(session.invoiceDate)
   metaParts.push(`${itemCount} line${itemCount !== 1 ? 's' : ''}`)
 
   // Prefer the linked directory supplier's real name over the raw OCR text
@@ -234,6 +305,11 @@ function InvoiceHeader({
           <div className="font-mono text-[11px] text-ink-4 mt-[3px] truncate" title={metaParts.join('  ·  ')}>
             {metaParts.join('  ·  ')}
           </div>
+          <InvoiceIdentityFields
+            invoiceNumber={session.invoiceNumber}
+            invoiceDate={session.invoiceDate}
+            onChange={onIdentityChange}
+          />
           <div className="mt-2">
             <select
               value={session.revenueCenterId ?? ''}
@@ -455,6 +531,28 @@ export function InvoiceReviewDrawer({
       }
     } catch {
       setSession(prev => (prev ? { ...prev, revenueCenterId: prevRcId } : prev))
+    }
+  }, [session])
+
+  // Correct the OCR'd invoice # / date. Optimistic, reverted if the server says no.
+  // Approve reads both straight off the session, so the corrected values are what
+  // the purchase date, duplicate check and invoice record use.
+  const handleIdentityChange = useCallback(async (patch: { invoiceNumber?: string | null; invoiceDate?: string | null }) => {
+    if (!session) return
+    const prev = { invoiceNumber: session.invoiceNumber, invoiceDate: session.invoiceDate }
+    setSession(s => (s ? { ...s, ...patch } : s))
+    setSaveStatus('saving')
+    try {
+      const res = await fetch(`/api/invoices/sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!res.ok) throw new Error()
+      setSaveStatus('idle')
+    } catch {
+      setSession(s => (s ? { ...s, ...prev } : s))
+      setSaveStatus('error')
     }
   }, [session])
 
@@ -1252,6 +1350,7 @@ export function InvoiceReviewDrawer({
               session={session}
               revenueCenters={revenueCenters}
               onRcChange={handleSessionRcChange}
+              onIdentityChange={handleIdentityChange}
               onClose={onClose}
               queuePos={queuePos}
               onPrev={navPrev}
