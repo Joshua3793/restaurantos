@@ -191,7 +191,7 @@ describe('previousPriceFor — the "was" price on a matched line', () => {
   it("is this supplier's own last offer price when the offer exists", () => {
     expect(previousPriceFor({ lastPrice: '139.9' }, BUTTER)).toBe(139.9)
   })
-  it('falls back to the primary chain purchase-unit price, never a stored column', () => {
+  it("falls back to the primary chain's listed price (box price), never a stored column", () => {
     expect(previousPriceFor(null, BUTTER)).toBeCloseTo(142.5, 9)
     expect(previousPriceFor({ lastPrice: null }, BUTTER)).toBeCloseTo(142.5, 9)
   })

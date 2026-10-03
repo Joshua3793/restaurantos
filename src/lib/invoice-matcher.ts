@@ -340,7 +340,7 @@ function buildMatchResult(
   offer?: any | null   // InventorySupplierPrice row for (bestItem, session supplier)
 ): OcrLineItem & MatchResult {
   // "was" price = what THIS supplier charged last time, when known; else the
-  // primary chain's purchase-unit price (see previousPriceFor).
+  // primary chain's listed price (box price or rate — what the legacy column held; see previousPriceFor).
   const previousPrice = previousPriceFor(offer, { ...bestItem, countUnit: bestItem.countUnit ?? undefined })
   // For per_weight items, the rate ($/kg) is the meaningful price to carry forward —
   // rawUnitPrice is the line total per container (e.g. $292/case) which changes each

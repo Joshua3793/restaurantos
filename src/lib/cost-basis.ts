@@ -104,8 +104,13 @@ export async function windowedAvgCost(itemIds: string[], asOf: Date = new Date()
   return out
 }
 
-/** A Prisma row loaded with `...PRICING_SELECT` (plus whatever else the caller selected). */
-export type ChainRow = Parameters<typeof asChainItem>[0]
+/**
+ * A Prisma row loaded with `...PRICING_SELECT` (plus whatever else the caller
+ * selected). NOT a `ChainItem`: that carries `eachMeasure` (already resolved),
+ * and running it back through `asChainItem` drops the bridge — a bridged
+ * $/lb item would then price at 0. The `never` guard makes that a type error.
+ */
+export type ChainRow = Parameters<typeof asChainItem>[0] & { eachMeasure?: never }
 
 /** LAST basis, synchronous: the primary chain's $/base for a row already in hand. */
 export function lastCost(row: ChainRow): number {
@@ -120,8 +125,10 @@ export function withLastCost<T extends ChainRow>(row: T): T & { pricePerBaseUnit
 /**
  * LAST basis price of ONE top-of-chain (purchase) unit — the box price for a
  * PACK item; for a RATE item the rate × the base units one purchase unit holds
- * (a pound of $28.60/kg salmon is $12.97). Replaces every read of the legacy
- * `purchasePrice` column, which held the RATE itself for weight-priced items.
+ * (a pound of $28.60/kg salmon is $12.97). Use it for reads that mean ONE
+ * PURCHASE UNIT (the order guide). Reads that mean the LISTED price — the number
+ * the legacy `purchasePrice` column held (box price or rate: matcher 'was'
+ * price, invoice rollback) — use `listedPrice` instead.
  */
 export function purchaseUnitCost(row: ChainRow): number {
   const chain = asChainItem(row)
