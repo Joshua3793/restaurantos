@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { offerPricePerBase, primaryOfferPpb } from '@/lib/offer-price'
+import { offerPricePerBase, primaryOfferPpb, offerListedPrice } from '@/lib/offer-price'
 
 // COUNT item ('each') with a count↔weight bridge: 1 each ⟷ 0.4 lb.
 const eggplant = { dimension: 'COUNT', baseUnit: 'each', eachMeasureQty: '0.4', eachMeasureUnit: 'lb', densityGPerMl: null }
@@ -60,4 +60,10 @@ describe('primaryOfferPpb — the spine a primary offer would write', () => {
     expect(primaryOfferPpb({ packChain: [], pricing: { mode: 'PACK', purchasePrice: 70.3 } }, eggplant)).toBeCloseTo(70.3)
     expect(primaryOfferPpb({ packChain: [], pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } }, eggplant)).toBeCloseTo(1.396, 3)
   })
+})
+
+describe('offerListedPrice - the number the legacy lastPrice column held', () => {
+  it('PACK: the box price', () => expect(offerListedPrice({ pricing: { mode: 'PACK', purchasePrice: 81.18 } })).toBe(81.18))
+  it('RATE: the rate itself', () => expect(offerListedPrice({ pricing: { mode: 'RATE', rate: 28.6, rateUnit: 'kg' } })).toBe(28.6))
+  it('no pricing - 0', () => expect(offerListedPrice({ pricing: null })).toBe(0))
 })

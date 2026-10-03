@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { PRICING_SELECT, asChainItem, basePerUnit } from '@/lib/item-model'
-import { lastCost } from '@/lib/cost-basis'
+import { lastCost, listedPrice } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
@@ -26,23 +27,22 @@ export async function GET(req: NextRequest) {
     return stockInHandWorkbook(user, searchParams)
   }
 
-  const items = await prisma.inventoryItem.findMany({
+  const rawItems = await prisma.inventoryItem.findMany({
     select: {
       itemName: true,
       category: true,
-      supplier: { select: { name: true } },
+      ...PRIMARY_SUPPLIER_INCLUDE,
       storageArea: { select: { name: true } },
-      purchasePrice: true,
       ...PRICING_SELECT,
       stockOnHand: true,
       barcode: true,
       isActive: true,
       lastCountDate: true,
       lastCountQty: true,
-      location: true,
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
+  const items = rawItems.map(withSupplier)
 
   const totalValue = items.filter(i => i.isActive).reduce((sum, i) =>
     sum + parseFloat(i.stockOnHand.toString()) * lastCost(i), 0)
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
   XLSX.utils.book_append_sheet(wb, kpiSheet, 'KPI Summary')
 
   // Inventory sheet
-  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Pack Format', 'Purchase Unit', 'Pricing Mode', 'Count Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
+  const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Pack Format', 'Purchase Unit', 'Pricing Mode', 'Count Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty']
   const rows = items.map(item => {
     const ci = asChainItem(item)
     const ppb = lastCost(item)
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
       ci.packChain[0]?.unit || ci.baseUnit,              // top-level purchase unit
       ci.pricing.mode,                                   // PACK | RATE
       countUnit,
-      parseFloat(item.purchasePrice.toString()),
+      listedPrice(item),                                 // derived from pricing, not a column
       item.baseUnit,
       basePerUnit(ci, countUnit),
       ppb,
@@ -97,7 +97,6 @@ export async function GET(req: NextRequest) {
       item.isActive ? 'Yes' : 'No',
       item.lastCountDate ? new Date(item.lastCountDate).toLocaleDateString() : '',
       item.lastCountQty ? parseFloat(item.lastCountQty.toString()) : '',
-      item.location || '',
     ]
   })
   const invSheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
@@ -155,7 +154,6 @@ async function resolveFilterLabels(searchParams: URLSearchParams) {
       ['Revenue centre', rc?.name ?? (rcId ? `(unknown: ${rcId})` : locationId ? 'all in the location below' : 'all')],
       ['Location',       location?.name ?? (locationId ? `(unknown: ${locationId})` : 'all')],
       ['Status filter',  PILL_LABELS[pill]],
-      ['Needs review',   searchParams.get('needsReview') === 'true' ? 'flagged items only' : 'all'],
       ['Item status',    activeLabel],
       ['Non-stocked items', searchParams.get('includeNonStocked') === 'true' ? 'included' : 'excluded'],
     ] as (string | number)[][],

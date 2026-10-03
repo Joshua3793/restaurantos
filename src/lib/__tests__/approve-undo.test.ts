@@ -12,9 +12,9 @@ describe('state selectors', () => {
   it('offerState keeps only approve-written fields, numbers Decimals, nulls undefined, sorts keys', () => {
     const s = offerState({
       id: 'o1',
-      lastPrice: new Prisma.Decimal('46.40'),
+      lastPrice: new Prisma.Decimal('46.40'), // retired column: never part of the state
       packQty: undefined,
-      packSize: null,
+      packSize: new Prisma.Decimal('4.50'),
       packUOM: 'each',
       packChain: [{ unit: 'case', per: 24 }],
       pricing: { mode: 'PACK', purchasePrice: 46.4 },
@@ -26,13 +26,13 @@ describe('state selectors', () => {
       inventoryItemId: 'i1',
       supplierName: 'Sysco',
     } as any)
-    expect(Object.keys(s)).toEqual(['isPrimary', 'lastInvoiceSessionId', 'lastPrice', 'packChain', 'packQty', 'packSize', 'packUOM', 'pricing', 'supplierId', 'supplierItemCode'])
-    expect(s.lastPrice).toBe(46.4)
+    expect(Object.keys(s)).toEqual(['isPrimary', 'lastInvoiceSessionId', 'packChain', 'packQty', 'packSize', 'packUOM', 'pricing', 'supplierId', 'supplierItemCode'])
+    expect(s.packSize).toBe(4.5)
     expect(s.packQty).toBeNull()
   })
 
   it('itemState / ruleState field sets', () => {
-    expect(Object.keys(itemState({ packChain: [], pricing: {}, purchasePrice: '1', densityGPerMl: null } as any))).toEqual(['densityGPerMl', 'packChain', 'pricing', 'purchasePrice'])
+    expect(Object.keys(itemState({ packChain: [], pricing: {}, purchasePrice: '1', densityGPerMl: null } as any))).toEqual(['densityGPerMl', 'packChain', 'pricing'])
     expect(
       Object.keys(
         ruleState({
@@ -52,8 +52,7 @@ describe('state selectors', () => {
 
   it('canonEqual ignores key order and Decimal-vs-number, distinguishes null from missing-as-null consistently', () => {
     const a = offerState({
-      lastPrice: '5',
-      packQty: null,
+      packQty: '5',
       packSize: null,
       packUOM: null,
       packChain: [{ per: 24, unit: 'case' }],
@@ -64,9 +63,8 @@ describe('state selectors', () => {
       lastInvoiceSessionId: null,
     } as any)
     const b = offerState({
-      lastPrice: new Prisma.Decimal(5),
-      packQty: undefined,
-      packSize: null,
+      packQty: new Prisma.Decimal(5),
+      packSize: undefined,
       packUOM: null,
       packChain: [{ unit: 'case', per: 24 }],
       pricing: { mode: 'PACK', purchasePrice: 5 },
@@ -76,7 +74,7 @@ describe('state selectors', () => {
       lastInvoiceSessionId: null,
     } as any)
     expect(canonEqual(a, b)).toBe(true)
-    expect(canonEqual(a, { ...b, lastPrice: 5.01 })).toBe(false)
+    expect(canonEqual(a, { ...b, packQty: 5.01 })).toBe(false)
     expect(canonEqual(null, null)).toBe(true)
     expect(canonEqual(a, null)).toBe(false)
   })
@@ -88,8 +86,7 @@ describe('UndoCollector', () => {
     const offers: Record<string, any> = {
       o1: {
         id: 'o1',
-        lastPrice: '46.4',
-        packQty: null,
+        packQty: '46.4',
         packSize: null,
         packUOM: null,
         packChain: [],
@@ -119,11 +116,11 @@ describe('UndoCollector', () => {
   it('first touch wins; flush reads next and writes prev+next once; a second flush writes nothing new', async () => {
     const { created, db: d } = db()
     const c = new UndoCollector('s1', d)
-    c.before('OFFER', 'o1', { lastPrice: 40 } as any)
-    c.before('OFFER', 'o1', { lastPrice: 41 } as any) // ignored
+    c.before('OFFER', 'o1', { packQty: 40 } as any)
+    c.before('OFFER', 'o1', { packQty: 41 } as any) // ignored
     expect(await c.flush()).toBe(1)
-    expect(created[0]).toMatchObject({ sessionId: 's1', kind: 'OFFER', targetId: 'o1', prev: { lastPrice: 40 } })
-    expect(created[0].next.lastPrice).toBe(46.4)
+    expect(created[0]).toMatchObject({ sessionId: 's1', kind: 'OFFER', targetId: 'o1', prev: { packQty: 40 } })
+    expect(created[0].next.packQty).toBe(46.4)
     expect(await c.flush()).toBe(0)
   })
 
@@ -150,8 +147,7 @@ describe('UndoCollector', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const row: any = {
       id: 'o1',
-      lastPrice: '1',
-      packQty: null,
+      packQty: '1',
       packSize: null,
       packUOM: null,
       packChain: [],
@@ -181,22 +177,22 @@ describe('UndoCollector', () => {
     } as any
     const c = new UndoCollector('s1', d)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    c.before('OFFER', 'o1', { lastPrice: 0 } as any)
+    c.before('OFFER', 'o1', { packQty: 0 } as any)
 
     expect(await c.flush()).toBe(1)
     expect(created).toHaveLength(1)
-    expect(created[0].next.lastPrice).toBe(1)
+    expect(created[0].next.packQty).toBe(1)
     expect(updated).toHaveLength(0)
 
     // Line 2 rewrites the row after line 1's flush already ran.
-    row.lastPrice = '2'
+    row.packQty = '2'
     expect(await c.flush()).toBe(1)
     expect(created).toHaveLength(1) // no duplicate create — the row already has one
     expect(updated).toHaveLength(1)
     expect(updated[0]).toMatchObject({
       where: { sessionId: 's1', kind: 'OFFER', targetId: 'o1' },
     })
-    expect(updated[0].data.next.lastPrice).toBe(2)
+    expect(updated[0].data.next.packQty).toBe(2)
     // prev is never part of the update payload.
     expect(updated[0].data.prev).toBeUndefined()
 
@@ -209,14 +205,14 @@ describe('UndoCollector', () => {
 
 describe('offerCaptureFor', () => {
   const existing = { id: 'o1', ...{
-    lastPrice: '10', packQty: null, packSize: null, packUOM: null, packChain: [],
+    packQty: '10', packSize: null, packUOM: null, packChain: [],
     pricing: {}, supplierId: null, supplierItemCode: null, isPrimary: true, lastInvoiceSessionId: null,
   } }
 
   it('records "before" the existing row when the pre-upsert read succeeded and found one', () => {
     const action = offerCaptureFor(true, existing, { id: 'o1' })
     expect(action).toMatchObject({ kind: 'before', id: 'o1' })
-    if (action.kind === 'before') expect(action.prev.lastPrice).toBe(10)
+    if (action.kind === 'before') expect(action.prev.packQty).toBe(10)
   })
 
   it('records "created" when the read succeeded and found nothing, but the upsert produced a row', () => {
@@ -241,8 +237,7 @@ describe('offerCaptureFor', () => {
 describe('capture hooks', () => {
   // The non-key half of an offer row — enough for offerState() to be complete.
   const OFFER_ROW = {
-    lastPrice: '10',
-    packQty: null,
+    packQty: '10',
     packSize: null,
     packUOM: null,
     packChain: [],
@@ -300,7 +295,7 @@ describe('capture hooks', () => {
     expect(touched.sort()).toEqual(['OFFER:a', 'OFFER:b'])
     // captured BEFORE the writes, and through the canonical selector
     expect(order).toEqual(['before:OFFER:a', 'before:OFFER:b', 'updateMany', 'update'])
-    expect(prevs[0]).toMatchObject({ isPrimary: false, lastPrice: 10 })
+    expect(prevs[0]).toMatchObject({ isPrimary: false, packQty: 10 })
   })
 
   it('ensurePrimary captures nothing when the invariant already holds (it writes nothing)', async () => {
@@ -336,7 +331,7 @@ describe('capture hooks', () => {
         },
       },
       inventoryItem: {
-        findUnique: async () => ({ packChain: [{ unit: 'case', per: 6 }], pricing: { mode: 'PACK' }, purchasePrice: '12' }),
+        findUnique: async () => ({ packChain: [{ unit: 'case', per: 6 }], pricing: { mode: 'PACK' } }),
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any
@@ -344,7 +339,7 @@ describe('capture hooks', () => {
     await mirrorItemToPrimaryOffer('item', db, undo)
     expect(touched).toEqual(['OFFER:p1'])
     expect(order).toEqual(['before:OFFER:p1', 'update'])
-    expect(prevs[0]).toMatchObject({ isPrimary: true, lastPrice: 10 })
+    expect(prevs[0]).toMatchObject({ isPrimary: true, packQty: 10 })
   })
 
   it('saveMatchRule touches the sibling rules it strips a code from and the rule it upserts; a new rule is created()', async () => {

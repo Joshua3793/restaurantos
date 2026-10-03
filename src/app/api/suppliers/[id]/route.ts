@@ -36,6 +36,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (boxes > 0) {
     return NextResponse.json({ error: `${supplier.name} still has ${boxes} supplier boxes. Merge or remove those items' boxes first.` }, { status: 409 })
   }
+  // The retired InventoryItem.supplierId copy still carries a foreign key until
+  // Stage 1e drops it: clear any old value so the delete is not refused.
   await prisma.inventoryItem.updateMany({ where: { supplierId: params.id }, data: { supplierId: null } })
   await prisma.supplier.delete({ where: { id: params.id } })
   return NextResponse.json({ success: true })

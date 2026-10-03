@@ -4,8 +4,8 @@
 // so the dry-run script and its tests never touch Prisma or the DB.
 //
 // The plan never touches `packChain` or the provenance triple (packQty/packSize/
-// packUOM) — only `pricing` + `lastPrice` move, exactly like the PRIMARY-offer
-// spine write in src/lib/primary-offer.ts.
+// packUOM) — only `pricing` moves, exactly like the PRIMARY-offer spine write
+// in src/lib/primary-offer.ts.
 
 import { canonicalUom } from '@/lib/uom'
 import { type ChainItem, type Pricing, rateIsCostable } from '@/lib/item-model'
@@ -15,7 +15,6 @@ import { weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 /** The fields of the offer under repair this module needs. */
 export interface RepairOffer {
   pricing: unknown
-  lastPrice: number
   isPrimary: boolean
 }
 
@@ -38,7 +37,7 @@ export interface RepairInput {
 }
 
 export type RepairPlan =
-  | { action: 'rewrite'; pricing: Pricing; lastPrice: number }
+  | { action: 'rewrite'; pricing: Pricing }
   | { action: 'skip'; reason: string }
   | { action: 'human'; reason: string }
 
@@ -116,5 +115,5 @@ export function planOfferRepair(a: RepairInput): RepairPlan {
   if (!Number.isFinite(rate) || !(rate > 0)) {
     return { action: 'skip', reason: 'no per-weight rate could be read or derived from the line' }
   }
-  return { action: 'rewrite', pricing: { mode: 'RATE', rate, rateUnit }, lastPrice: rate }
+  return { action: 'rewrite', pricing: { mode: 'RATE', rate, rateUnit } }
 }

@@ -79,3 +79,14 @@ export function offerPricePerBase(offer: { packChain?: unknown; pricing?: unknow
 export function primaryOfferPpb(primary: { packChain?: unknown; pricing?: unknown }, item: OfferItem): number {
   return pricedWithItem(primary, item)
 }
+
+/**
+ * The price a supplier box lists, in its pricing's own mode: the box price for
+ * PACK, the rate itself for RATE. This is the number the legacy `lastPrice`
+ * column held (it only ever differed by float noise); derive it, never store it.
+ */
+export function offerListedPrice(offer: { pricing?: unknown }): number {
+  const p = offer.pricing as { mode?: string; purchasePrice?: unknown; rate?: unknown } | null | undefined
+  if (!p) return 0
+  return p.mode === 'RATE' ? Number(p.rate || 0) : Number(p.purchasePrice || 0)
+}

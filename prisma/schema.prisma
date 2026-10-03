@@ -109,11 +109,11 @@ model InventoryItem {
   id                 String                   @id @default(cuid())
   itemName           String
   category           String                   @default("DRY")
-  supplierId         String?
+  supplierId         String? // DEPRECATED (Stage 1d, 2026-10-03): not read or written by the app — dropped by Stage 1e
   storageAreaId      String?
-  purchasePrice      Decimal                  @default(0)
+  purchasePrice      Decimal                  @default(0) // DEPRECATED (Stage 1d, 2026-10-03): not read or written by the app — dropped by Stage 1e
   baseUnit           String                   @default("each")
-  needsReview        Boolean                  @default(false) // flagged by migration script for manual review
+  needsReview        Boolean                  @default(false) // DEPRECATED (Stage 1d, 2026-10-03): not read or written by the app — dropped by Stage 1e
   // REMOVED (computed on-read / replaced by the pack chain):
   //   pricePerBaseUnit, conversionFactor — derived from packChain/pricing
   //   purchaseUnit, qtyPerPurchaseUnit, packSize, packUOM, qtyUOM, innerQty,
@@ -126,7 +126,7 @@ model InventoryItem {
   stockOnHand        Decimal                  @default(0)
   createdAt          DateTime                 @default(now())
   lastUpdated        DateTime                 @default(now()) @updatedAt
-  location           String?
+  location           String? // DEPRECATED (Stage 1d, 2026-10-03): not read or written by the app — dropped by Stage 1e
   isActive           Boolean                  @default(true)
   isStocked          Boolean                  @default(true) // false = recipe-only utility ingredient (e.g. tap water); excluded from counts/valuation/purchasing/theoretical stock
   lastCountDate      DateTime?
@@ -535,7 +535,7 @@ model InventorySupplierPrice {
   inventoryItemId      String
   supplierName         String
   supplierId           String
-  lastPrice            Decimal
+  lastPrice            Decimal // DEPRECATED (Stage 1d, 2026-10-03): not read or written by the app — dropped by Stage 1e; box creates still fill it until the drop (NOT NULL)
   // pricePerBaseUnit removed — offer ppb derives from packChain/pricing via offerPricePerBase()
   lastUpdated          DateTime      @default(now())
   isPrimary            Boolean       @default(false)

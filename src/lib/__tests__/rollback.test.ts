@@ -23,14 +23,12 @@ const itemCanon = (o: Partial<Canon> = {}): Canon => ({
   densityGPerMl: null,
   packChain: [{ unit: 'case', per: 24 }],
   pricing: { mode: 'PACK', purchasePrice: 10 },
-  purchasePrice: 10,
   ...o,
 })
 
 const offerCanon = (o: Partial<Canon> = {}): Canon => ({
   isPrimary: false,
   lastInvoiceSessionId: null,
-  lastPrice: 10,
   packChain: null,
   packQty: null,
   packSize: null,
@@ -40,6 +38,9 @@ const offerCanon = (o: Partial<Canon> = {}): Canon => ({
   supplierItemCode: null,
   ...o,
 })
+
+/** A box / item priced at `n` per pack — the field a test varies to tell two states apart. */
+const pp = (n: number): Partial<Canon> => ({ pricing: { mode: 'PACK', purchasePrice: n } })
 
 const ruleCanon = (o: Partial<Canon> = {}): Canon => ({
   inventoryItemId: 'i1',
@@ -66,8 +67,8 @@ const noRefs: ItemRefs = { referencedBy: [] }
 
 describe('planRollback — the one restore rule', () => {
   it('restores prev when the row still equals what the approval wrote', () => {
-    const prev = itemCanon({ purchasePrice: 4.99, pricing: { mode: 'PACK', purchasePrice: 4.99 } })
-    const next = itemCanon({ purchasePrice: 15.98, pricing: { mode: 'PACK', purchasePrice: 15.98 } })
+    const prev = itemCanon(pp(4.99))
+    const next = itemCanon(pp(15.98))
     const plan = planRollback(
       input({
         records: [{ kind: 'ITEM', targetId: 'i1', prev, next }],
@@ -83,8 +84,8 @@ describe('planRollback — the one restore rule', () => {
   })
 
   it('the display fields on `current` never make a row look changed', () => {
-    const prev = itemCanon({ purchasePrice: 1 })
-    const next = itemCanon({ purchasePrice: 2 })
+    const prev = itemCanon(pp(1))
+    const next = itemCanon(pp(2))
     const plan = planRollback(
       input({
         records: [{ kind: 'ITEM', targetId: 'i1', prev, next }],
@@ -99,8 +100,8 @@ describe('planRollback — the one restore rule', () => {
   it('skips a row that changed since the approval — never overwrite a value the session did not write', () => {
     const plan = planRollback(
       input({
-        records: [{ kind: 'ITEM', targetId: 'i1', prev: itemCanon({ purchasePrice: 1 }), next: itemCanon({ purchasePrice: 2 }) }],
-        current: { offers: new Map(), items: new Map([['i1', item(itemCanon({ purchasePrice: 3 }))]]), rules: new Map() },
+        records: [{ kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(1)), next: itemCanon(pp(2)) }],
+        current: { offers: new Map(), items: new Map([['i1', item(itemCanon(pp(3)))]]), rules: new Map() },
       })
     )
     expect(plan.rows[0]).toMatchObject({ outcome: 'skipped', reason: 'changed-since' })
@@ -109,7 +110,7 @@ describe('planRollback — the one restore rule', () => {
   })
 
   it('deletes a row the approval created (prev = null)', () => {
-    const next = offerCanon({ lastPrice: 46.4 })
+    const next = offerCanon(pp(46.4))
     const plan = planRollback(
       input({
         records: [{ kind: 'OFFER', targetId: 'o1', prev: null, next }],
@@ -212,7 +213,7 @@ describe('planRollback — ITEM_CREATED', () => {
   })
 
   it('skips a created item that changed since the approval, before any reference check', () => {
-    const changed = { offers: new Map<string, CurrentOffer>(), items: new Map([['new-item', item(itemCanon({ purchasePrice: 99 }))]]), rules: new Map<string, Canon>() }
+    const changed = { offers: new Map<string, CurrentOffer>(), items: new Map([['new-item', item(itemCanon(pp(99)))]]), rules: new Map<string, Canon>() }
     const plan = planRollback(input({ records: [rec], current: changed, refs: new Map([['new-item', noRefs]]) }))
     expect(plan.rows[0]).toMatchObject({ outcome: 'skipped', reason: 'changed-since' })
   })
@@ -222,7 +223,7 @@ describe('planRollback — ITEM_CREATED', () => {
   // refused to touch. A kept offer therefore protects its item, whatever `refs`
   // (loaded before the plan existed) says.
   it('keeps a created item when an offer on it was kept: the cascade would eat it', () => {
-    const offerNext = offerCanon({ lastPrice: 46.4 })
+    const offerNext = offerCanon(pp(46.4))
     const plan = planRollback(
       input({
         records: [
@@ -231,7 +232,7 @@ describe('planRollback — ITEM_CREATED', () => {
         ],
         current: {
           // the offer was re-priced after the approval ⇒ skipped 'changed-since'
-          offers: new Map([['o1', offer(offerCanon({ lastPrice: 99 }), 'new-item', 'Sysco')]]),
+          offers: new Map([['o1', offer(offerCanon(pp(99)), 'new-item', 'Sysco')]]),
           items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
           rules: new Map(),
         },
@@ -245,7 +246,7 @@ describe('planRollback — ITEM_CREATED', () => {
   })
 
   it('still deletes a created item whose offers are all being deleted with it', () => {
-    const offerNext = offerCanon({ lastPrice: 46.4 })
+    const offerNext = offerCanon(pp(46.4))
     const plan = planRollback(
       input({
         records: [
@@ -451,7 +452,7 @@ describe('planRollback — apply order', () => {
     const records: UndoRecord[] = [
       { kind: 'ITEM_CREATED', targetId: 'new-item', prev: null, next: itemCanon() },
       { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleCanon() },
-      { kind: 'ITEM', targetId: 'i1', prev: itemCanon({ purchasePrice: 1 }), next: itemCanon() },
+      { kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(1)), next: itemCanon() },
       { kind: 'OFFER', targetId: 'o1', prev: null, next: offerCanon() },
     ]
     const plan = planRollback(
@@ -479,13 +480,11 @@ describe('planRollback — the Cilantro shape', () => {
     const packChain = [{ unit: 'each', per: 1 }]
     const prev: Canon = {
       pricing: { mode: 'PACK', purchasePrice: 4.99 },
-      purchasePrice: 4.99,
       packChain,
       densityGPerMl: null,
     }
     const next: Canon = {
       pricing: { mode: 'RATE', rate: 15.98, rateUnit: 'lb' },
-      purchasePrice: 15.98,
       packChain,
       densityGPerMl: null,
     }
@@ -497,7 +496,6 @@ describe('planRollback — the Cilantro shape', () => {
     )
     expect(plan.rows[0].outcome).toBe('restored')
     expect(plan.rows[0].write?.data?.pricing).toEqual({ mode: 'PACK', purchasePrice: 4.99 })
-    expect(plan.rows[0].write?.data?.purchasePrice).toBe(4.99)
     expect(plan.restoredItemIds).toEqual(['cilantro'])
   })
 })
@@ -540,7 +538,7 @@ describe('planRollback — the legacy path', () => {
     expect(plan.rows[0].write).toEqual({
       table: 'item',
       op: 'update',
-      data: { purchasePrice: 15, pricing: { mode: 'PACK', purchasePrice: 15 } },
+      data: { pricing: { mode: 'PACK', purchasePrice: 15 } },
     })
     expect(plan.restoredItemIds).toEqual(['i1'])
     expect(plan.summary).toEqual({ restored: 0, deleted: 0, skipped: 0, bestEffort: 1 })
@@ -602,7 +600,10 @@ describe('planRollback — the legacy path', () => {
       })
     )
     expect(plan.rows).toHaveLength(2)
-    expect(plan.rows.map(r => r.write?.data?.purchasePrice)).toEqual([15, 17])
+    expect(plan.rows.map(r => r.write?.data?.pricing)).toEqual([
+      { mode: 'PACK', purchasePrice: 15 },
+      { mode: 'PACK', purchasePrice: 17 },
+    ])
     expect(plan.restoredItemIds).toEqual(['i1']) // deduplicated for the re-cost
   })
 
@@ -642,7 +643,10 @@ describe('planRollback — the legacy path', () => {
       })
     )
     expect(plan.rows.map(r => r.targetId)).toEqual(['i1', 'i2'])
-    expect(plan.rows.map(r => r.write?.data?.purchasePrice)).toEqual([15.5, 12.25])
+    expect(plan.rows.map(r => r.write?.data?.pricing)).toEqual([
+      { mode: 'PACK', purchasePrice: 15.5 },
+      { mode: 'PACK', purchasePrice: 12.25 },
+    ])
   })
 
   it('does not take the legacy path for a session that was never approved', () => {
@@ -663,7 +667,7 @@ describe('planRollback — the legacy path', () => {
     const next = itemCanon()
     const plan = planRollback(
       input({
-        records: [{ kind: 'ITEM', targetId: 'i1', prev: itemCanon({ purchasePrice: 1 }), next }],
+        records: [{ kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(1)), next }],
         current: { offers: new Map(), items: new Map([['i1', item(next)]]), rules: new Map() },
         legacy: {
           status: 'APPROVED',
@@ -738,7 +742,7 @@ describe('executeRollback', () => {
           targetId: 'o1',
           name: 'Sysco',
           outcome: 'restored',
-          write: { table: 'offer', op: 'update', data: offerCanon({ packChain: null, pricing: null, lastPrice: 46.4, packUOM: null }) },
+          write: { table: 'offer', op: 'update', data: offerCanon({ packChain: null, pricing: null, packQty: 4, packUOM: null }) },
         },
       ],
     })
@@ -747,8 +751,41 @@ describe('executeRollback', () => {
     // `{ packChain: null }` no longer finds.
     expect(calls[0].data?.packChain).toBe(Prisma.DbNull)
     expect(calls[0].data?.pricing).toBe(Prisma.DbNull)
-    expect(calls[0].data?.lastPrice).toBe(46.4)
+    expect(calls[0].data?.packQty).toBe(4)
     expect(calls[0].data?.packUOM).toBeNull() // not a Json column — stays a plain null
+  })
+
+  // Undo rows written before the stale copies were retired still carry
+  // `purchasePrice` (item) and `lastPrice` (offer) in prev/next. Those columns
+  // are no longer read or written: the row must still plan as unchanged and
+  // restore, and the write must never name a retired column.
+  it('an OLD undo row carrying purchasePrice / lastPrice restores cleanly without them', async () => {
+    const itemNow = itemCanon(pp(15))
+    const offerNow = offerCanon(pp(15))
+    const itemPrev = { ...itemNow, pricing: { mode: 'PACK', purchasePrice: 12 }, purchasePrice: 12 }
+    const offerPrev = { ...offerNow, pricing: { mode: 'PACK', purchasePrice: 3 }, lastPrice: 3 }
+    const plan = planRollback(
+      input({
+        records: [
+          { kind: 'OFFER', targetId: 'o1', prev: offerPrev, next: { ...offerNow, lastPrice: 15 } },
+          { kind: 'ITEM', targetId: 'i1', prev: itemPrev, next: { ...itemNow, purchasePrice: 15 } },
+        ],
+        current: {
+          offers: new Map([['o1', offer(offerNow)]]),
+          items: new Map([['i1', item(itemNow)]]),
+          rules: new Map(),
+        },
+      })
+    )
+    expect(plan.rows.map(r => r.outcome)).toEqual(['restored', 'restored'])
+
+    const { calls, tx } = fakeTx()
+    await executeRollback(tx, plan)
+    expect(calls.map(c => `${c.table}:${c.op}:${c.id}`)).toEqual(['offer:update:o1', 'item:update:i1'])
+    expect(calls[0].data).not.toHaveProperty('lastPrice')
+    expect(calls[1].data).not.toHaveProperty('purchasePrice')
+    expect(calls[0].data?.pricing).toEqual({ mode: 'PACK', purchasePrice: 3 })
+    expect(calls[1].data?.pricing).toEqual({ mode: 'PACK', purchasePrice: 12 })
   })
 })
 

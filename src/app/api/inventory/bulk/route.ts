@@ -45,9 +45,6 @@ async function handlePOST(req: NextRequest) {
       case 'deactivate':
         await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { isActive: false } })
         break
-      case 'setSupplier':
-        await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { supplierId: value } })
-        break
       case 'setStorageArea':
         await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { storageAreaId: value } })
         break

@@ -22,14 +22,12 @@
  *   1. ITEM     → `{ MASS|VOLUME, g|ml, [{unit: <measure>, per: conv}],
  *                   RATE <unchanged rate>/<measure>, countUnit <measure> }` —
  *                 field for field what `formToChain` produces from the by-weight
- *                 seed today, plus the legacy `purchasePrice` column that
- *                 `syncPrimaryOfferToItem` keeps in step with `pricing`. The rate
- *                 NUMBER never moves: $1.99 was always $1.99 per lb; only its
+ *                 seed today. The rate NUMBER never moves: $1.99 was always $1.99 per lb; only its
  *                 label was wrong.
  *   2. OFFERS   → EVERY `InventorySupplierPrice` of the item gets the corrected
  *                 chain, a `$rate/<measure>` pricing and the matching human
  *                 format (`packQty/packSize/packUOM` = 1 / 1 / measure).
- *                 `lastPrice` is never written. This is not tidying: the primary
+ *                 This is not tidying: the primary
  *                 offer's chain+pricing is copied STRAIGHT back onto the item by
  *                 `syncPrimaryOfferToItem` on the next invoice from that
  *                 supplier, so an untouched offer re-breaks the repaired item on
@@ -169,7 +167,7 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 async function fetchItems(ids: string[]) {
   return prisma.inventoryItem.findMany({
     where: { id: { in: ids } },
-    select: { id: true, itemName: true, stockOnHand: true, purchasePrice: true, lastCountQty: true, ...PRICING_SELECT },
+    select: { id: true, itemName: true, stockOnHand: true, lastCountQty: true, ...PRICING_SELECT },
   })
 }
 type ItemRow = Awaited<ReturnType<typeof fetchItems>>[number]
@@ -178,7 +176,7 @@ async function fetchOffers(ids: string[]) {
   return prisma.inventorySupplierPrice.findMany({
     where: { inventoryItemId: { in: ids } },
     select: {
-      id: true, inventoryItemId: true, supplierName: true, isPrimary: true, lastPrice: true,
+      id: true, inventoryItemId: true, supplierName: true, isPrimary: true,
       packChain: true, pricing: true, packQty: true, packSize: true, packUOM: true,
     },
     orderBy: [{ isPrimary: 'desc' }, { supplierName: 'asc' }],
@@ -430,7 +428,6 @@ function printPlan(p: ItemPlan, untouched: UntouchedCounts) {
   console.log(`  shape flags: ${isSelfContradictory(i).join(' · ') || '(none — evidence-only finding)'}`)
   console.log(`  before: ${i.dimension}/${i.baseUnit}  chain ${JSON.stringify(i.packChain)}  pricing ${JSON.stringify(i.pricing)}  count ${i.countUnit}  →  $${p.ppbBefore.toFixed(6)}/${i.baseUnit}`)
   console.log(`  after : ${p.rewrite.dimension}/${p.rewrite.baseUnit}  chain ${JSON.stringify(p.rewrite.packChain)}  pricing ${JSON.stringify(p.rewrite.pricing)}  count ${p.rewrite.countUnit}  →  $${p.ppb.toFixed(6)}/${p.rewrite.baseUnit}`)
-  console.log(`  purchasePrice (legacy column): ${fmt(p.stock.purchasePrice.old)} → ${fmt(p.stock.purchasePrice.next)}`)
 
   console.log(`\n  SUPPLIER OFFERS (${p.offers.length})` +
     `   — the primary offer's chain+pricing is copied back onto the item by syncPrimaryOfferToItem on the next invoice`)
@@ -445,7 +442,6 @@ function printPlan(p: ItemPlan, untouched: UntouchedCounts) {
     'format before': `${o.before.packQty ?? '—'} × ${o.before.packSize ?? '—'} ${o.before.packUOM ?? '—'}`,
     'format after': `${o.packQty} × ${o.packSize} ${o.packUOM}`,
     rate: `${fmt(o.rate)} [${o.rateFrom}]`,
-    'lastPrice (untouched)': fmt(n(o.offer.lastPrice)),
     change: offerMoved(o) ? 'WRITE' : '—',
     id: o.id,
   })))
@@ -527,13 +523,12 @@ const closeEnough = (a: number | null, b: number | null) => {
 async function applyItem(p: ItemPlan): Promise<{ applied: boolean; reason?: string }> {
   const fresh = await prisma.inventoryItem.findUnique({
     where: { id: p.item.id },
-    select: { dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true, stockOnHand: true, purchasePrice: true, lastCountQty: true },
+    select: { dimension: true, baseUnit: true, packChain: true, pricing: true, countUnit: true, stockOnHand: true, lastCountQty: true },
   })
   if (
     !fresh || fresh.dimension !== p.item.dimension || fresh.baseUnit !== p.item.baseUnit ||
     fresh.countUnit !== p.item.countUnit || !same(fresh.packChain, p.item.packChain) || !same(fresh.pricing, p.item.pricing) ||
     !closeEnough(Number(fresh.stockOnHand), p.stock.stockOnHand.old) ||
-    !closeEnough(Number(fresh.purchasePrice), p.stock.purchasePrice.old) ||
     !closeEnough(Number(fresh.lastCountQty), p.stock.lastCountQty.old)
   ) {
     return { applied: false, reason: 'item shape changed since planning' }
@@ -642,7 +637,6 @@ async function applyItem(p: ItemPlan): Promise<{ applied: boolean; reason?: stri
         packChain: p.rewrite.packChain as unknown as object,
         pricing: p.rewrite.pricing as unknown as object,
         countUnit: p.rewrite.countUnit,
-        purchasePrice: p.rewrite.purchasePrice,
         ...(stockOnHandWrite != null ? { stockOnHand: stockOnHandWrite } : {}),
         ...(lastCountQtyWrite != null ? { lastCountQty: lastCountQtyWrite } : {}),
       },
@@ -754,7 +748,7 @@ async function main() {
     stamp,
     items: plans.map((p) => ({
       itemId: p.item.id, itemName: p.item.itemName, measure: p.measure, measureFrom: p.measureFrom,
-      before: { dimension: p.item.dimension, baseUnit: p.item.baseUnit, packChain: p.item.packChain, pricing: p.item.pricing, countUnit: p.item.countUnit, purchasePrice: p.stock.purchasePrice.old, pricePerBaseUnit: p.ppbBefore },
+      before: { dimension: p.item.dimension, baseUnit: p.item.baseUnit, packChain: p.item.packChain, pricing: p.item.pricing, countUnit: p.item.countUnit, pricePerBaseUnit: p.ppbBefore },
       after: { ...p.rewrite, pricePerBaseUnit: p.ppb },
       stock: p.stock,
       varianceNotRewritten: 'variancePct / varianceCost / expectedQty left as-is: expectedQty is frozen in the old base unit',
@@ -764,7 +758,7 @@ async function main() {
         id: o.id, supplier: o.offer.supplierName, isPrimary: o.offer.isPrimary,
         before: o.before,
         after: { packChain: o.packChain, pricing: o.pricing, packQty: o.packQty, packSize: o.packSize, packUOM: o.packUOM },
-        rate: o.rate, rateFrom: o.rateFrom, lastPrice: Number(o.offer.lastPrice),
+        rate: o.rate, rateFrom: o.rateFrom,
         write: offerMoved(o),
       })),
       receipts: p.receipts.map((r) => ({ id: r.id, invoice: r.line.session.invoiceNumber, description: r.line.rawDescription, old: r.old, next: r.next, via: r.via, write: isMaterial(r.old, r.next) })),
@@ -809,7 +803,7 @@ async function main() {
       prev: {
         dimension: p.item.dimension, baseUnit: p.item.baseUnit, packChain: p.item.packChain,
         pricing: p.item.pricing, countUnit: p.item.countUnit,
-        purchasePrice: p.stock.purchasePrice.old, stockOnHand: p.stock.stockOnHand.old,
+        stockOnHand: p.stock.stockOnHand.old,
         lastCountQty: p.stock.lastCountQty.old,
       },
     })),

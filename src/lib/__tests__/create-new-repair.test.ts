@@ -119,12 +119,8 @@ describe('planItemRewrite', () => {
     expect(next.countUnit).toBe('lb')
   })
 
-  it('carries the rate number onto the legacy purchasePrice column', () => {
-    // `syncPrimaryOfferToItem` maintains `purchasePrice` from the pricing mode
-    // (purchasePriceFromPricing) — the repair writes the same number so the two
-    // paths agree.
-    expect(planItemRewrite({ item: KENNEBEC, measure: 'lb' }).purchasePrice).toBe(1.99)
-    expect(planItemRewrite({ item: KOHLRABI, measure: 'lb' }).purchasePrice).toBe(3.99)
+  it('plans no headline purchasePrice copy — the item\'s price is its pricing', () => {
+    expect(planItemRewrite({ item: KENNEBEC, measure: 'lb' })).not.toHaveProperty('purchasePrice')
   })
 
   it('keeps the rate number unchanged and canonicalises the measure token', () => {
@@ -395,7 +391,6 @@ describe('planOfferRewrite', () => {
    *  chain, a $/lb rate, and no human pack format at all. */
   const KOHLRABI_OFFER: OfferRow = {
     id: 'off-kohlrabi', supplierName: 'North Arm Farms', isPrimary: true,
-    lastPrice: 3.99,
     packChain: [{ per: 1, unit: 'lb' }],
     pricing: { mode: 'RATE', rate: 3.99, rateUnit: 'lb' },
     packQty: null, packSize: null, packUOM: null,
@@ -456,7 +451,7 @@ describe('planOfferRewrite', () => {
       eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null,
     }
     const eachOffer: OfferRow = {
-      id: 'off-each', lastPrice: 22.08,
+      id: 'off-each',
       packChain: [{ per: 1, unit: 'each' }],
       pricing: { mode: 'RATE', rate: 22.08, rateUnit: 'each' },
       packQty: null, packSize: null, packUOM: null,
@@ -467,18 +462,18 @@ describe('planOfferRewrite', () => {
       .toBeCloseTo(pricePerBaseUnit(salamiItem), 12)
   })
 
-  it('falls back to lastPrice when the offer is PACK-priced or has no pricing', () => {
-    for (const pricing of [{ mode: 'PACK', purchasePrice: 12 }, null, undefined]) {
-      const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing, lastPrice: 4.25 }, rewrite)
-      expect(next.pricing).toEqual({ mode: 'RATE', rate: 4.25, rateUnit: 'lb' })
-      expect(next.rateFrom).toBe('lastPrice')
-    }
+  it('falls back to the box price its pricing lists when the offer is PACK-priced', () => {
+    const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing: { mode: 'PACK', purchasePrice: 4.25 } }, rewrite)
+    expect(next.pricing).toEqual({ mode: 'RATE', rate: 4.25, rateUnit: 'lb' })
+    expect(next.rateFrom).toBe('offer listed price')
   })
 
-  it('falls back to lastPrice when a RATE offer carries no usable rate', () => {
-    const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing: { mode: 'RATE', rateUnit: 'each' }, lastPrice: 9 }, rewrite)
-    expect(next.pricing).toEqual({ mode: 'RATE', rate: 9, rateUnit: 'lb' })
-    expect(next.rateFrom).toBe('lastPrice')
+  it('an offer with no pricing, or a RATE with no usable rate, lists nothing — rate 0', () => {
+    for (const pricing of [null, undefined, { mode: 'RATE', rateUnit: 'each' }]) {
+      const next = planOfferRewrite({ ...KOHLRABI_OFFER, pricing }, rewrite)
+      expect(next.pricing).toEqual({ mode: 'RATE', rate: 0, rateUnit: 'lb' })
+      expect(next.rateFrom).toBe('offer listed price')
+    }
   })
 
   it('uses the corrected measure even when the offer was priced per each', () => {
@@ -488,7 +483,7 @@ describe('planOfferRewrite', () => {
   })
 })
 
-// ── stockOnHand / StockAllocation / purchasePrice ───────────────────────────
+// ── stockOnHand / StockAllocation ───────────────────────────────────────────
 
 describe('planStockRewrite', () => {
   const rewrite = planItemRewrite({ item: SALAMI, measure: 'lb' })
@@ -499,7 +494,7 @@ describe('planStockRewrite', () => {
 
   it('takes each allocation from the latest observed count of THAT revenue centre', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 3.135, purchasePrice: 22.08 },
+      item: { stockOnHand: 3.135 },
       allocations: [{ revenueCenterId: RC, quantity: 3.135 }],
       countLines: [
         countRow({ id: 'a', next: 907.184, sessionDate: '2026-08-01', revenueCenterId: RC }),
@@ -514,7 +509,7 @@ describe('planStockRewrite', () => {
 
   it('leaves an allocation alone when that RC has no observed count', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 3.99 },
+      item: { stockOnHand: 0 },
       allocations: [{ revenueCenterId: RC, quantity: 10 }],
       countLines: [
         countRow({ id: 'skip', next: 4535.92, revenueCenterId: RC, skipped: true }),
@@ -532,7 +527,7 @@ describe('planStockRewrite', () => {
     // count-finalize writes global stockOnHand only when the session has no RC,
     // or its RC is the default one.
     const out = planStockRewrite({
-      item: { stockOnHand: 3.135, purchasePrice: 22.08 },
+      item: { stockOnHand: 3.135 },
       allocations: [],
       countLines: [
         countRow({ id: 'u1', next: 453.592, sessionDate: '2026-07-01' }),
@@ -546,7 +541,7 @@ describe('planStockRewrite', () => {
 
   it('leaves stockOnHand alone when nothing unscoped was ever observed', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 10, purchasePrice: 3.99 },
+      item: { stockOnHand: 10 },
       allocations: [],
       countLines: [countRow({ id: 'x', next: 4535.92, revenueCenterId: RC })],
       rewrite,
@@ -556,7 +551,7 @@ describe('planStockRewrite', () => {
 
   it('carries a zero count through as a zero (Kennebec: 0 → 0)', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 1.99 },
+      item: { stockOnHand: 0 },
       allocations: [{ revenueCenterId: RC, quantity: 0 }],
       countLines: [countRow({ id: 'z', next: 0, countedQty: 0, revenueCenterId: RC })],
       rewrite: planItemRewrite({ item: KENNEBEC, measure: 'lb' }),
@@ -564,11 +559,11 @@ describe('planStockRewrite', () => {
     expect(out.allocations[0].next).toBe(0)
   })
 
-  it('rewrites the legacy purchasePrice to the corrected rate number', () => {
+  it('plans no purchasePrice rewrite — the item has no headline price copy', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 0 }, allocations: [], countLines: [], rewrite,
+      item: { stockOnHand: 0 }, allocations: [], countLines: [], rewrite,
     })
-    expect(out.purchasePrice).toEqual({ old: 0, next: 22.08 })
+    expect(out).not.toHaveProperty('purchasePrice')
   })
 
   // ── lastCountQty — a fourth baseline, written from EVERY observed count ────
@@ -577,7 +572,7 @@ describe('planStockRewrite', () => {
 
   it('takes lastCountQty from the latest observed count across ALL RCs — scoped counts included', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 22.08, lastCountQty: 3.135 },
+      item: { stockOnHand: 0, lastCountQty: 3.135 },
       allocations: [],
       countLines: [
         countRow({ id: 'u1', next: 907.184, sessionDate: '2026-07-01' }),
@@ -593,7 +588,7 @@ describe('planStockRewrite', () => {
 
   it('takes lastCountQty for Kohlrabi from its latest observed (scoped) count', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 10, purchasePrice: 3.99, lastCountQty: 10 },
+      item: { stockOnHand: 10, lastCountQty: 10 },
       allocations: [{ revenueCenterId: RC, quantity: 10 }],
       countLines: [countRow({ id: 'k1', next: 4535.92, revenueCenterId: RC })],
       rewrite: planItemRewrite({ item: KOHLRABI, measure: 'lb' }),
@@ -603,7 +598,7 @@ describe('planStockRewrite', () => {
 
   it('leaves lastCountQty alone when the item has never had an observed count', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 3.99, lastCountQty: 0 },
+      item: { stockOnHand: 0, lastCountQty: 0 },
       allocations: [],
       countLines: [countRow({ id: 'skip', next: 4535.92, skipped: true })],
       rewrite,
@@ -613,7 +608,7 @@ describe('planStockRewrite', () => {
 
   it('carries a zero count through to lastCountQty as zero (Kennebec: 0 → 0)', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 1.99, lastCountQty: 0 },
+      item: { stockOnHand: 0, lastCountQty: 0 },
       allocations: [{ revenueCenterId: RC, quantity: 0 }],
       countLines: [countRow({ id: 'z', next: 0, countedQty: 0, revenueCenterId: RC })],
       rewrite: planItemRewrite({ item: KENNEBEC, measure: 'lb' }),
@@ -625,7 +620,7 @@ describe('planStockRewrite', () => {
 
   it('breaks a same-date tie by input order — the later row wins, not the earlier', () => {
     const out = planStockRewrite({
-      item: { stockOnHand: 0, purchasePrice: 22.08, lastCountQty: 0 },
+      item: { stockOnHand: 0, lastCountQty: 0 },
       allocations: [],
       countLines: [
         countRow({ id: 'first', next: 100, sessionDate: '2026-09-01' }),

@@ -32,9 +32,6 @@ export interface RawRow {
 export interface InventoryCreatePayload {
   itemName: string
   category: string                 // always 'UNASSIGNED'
-  purchasePrice: number
-  /** Derived from the chain — surfaced for the import preview only, NOT a column. */
-  pricePerBaseUnit: number
   baseUnit: string
   stockOnHand: number              // stored in base units
   barcode: string | null
@@ -156,7 +153,6 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
     innerQty, packSize, packUOM, priceType, countUOM,
   })
   const chainItem = asChainItem({ ...chain })
-  const ppb = pricePerBaseUnit(chainItem)
   const conversionFactor = basePerUnit(chainItem, countUOM)
   const baseUnit = chain.baseUnit
 
@@ -169,8 +165,6 @@ export function mapRowToPayload(row: RawRow): InventoryCreatePayload {
   return {
     itemName: row.itemName.trim(),
     category: 'UNASSIGNED',
-    purchasePrice: price,
-    pricePerBaseUnit: ppb,
     baseUnit,
     stockOnHand,
     barcode: row.barcode.trim() || null,
@@ -291,7 +285,8 @@ export function validateRows(rows: RawRow[], existingNamesLower: Set<string>): I
         status: 'valid',
         errors: [],
         payload,
-        computed: { pricePerBaseUnit: payload.pricePerBaseUnit, baseUnit: payload.baseUnit },
+        // The preview's $/base derives from the chain — the payload carries no price copy.
+        computed: { pricePerBaseUnit: pricePerBaseUnit(asChainItem(payload)), baseUnit: payload.baseUnit },
       })
     } catch (e) {
       reports.push({

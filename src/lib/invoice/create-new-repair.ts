@@ -23,6 +23,7 @@ import {
 } from '@/lib/item-model'
 import { lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { cloneShare } from '@/lib/invoice/refreeze'
+import { offerListedPrice } from '@/lib/offer-price'
 import { lineCountedBase, countUomFactor, type ItemDims } from '@/lib/count-uom'
 import { isObservedSource } from '@/lib/count-snapshot-source'
 
@@ -108,12 +109,6 @@ export interface ItemRewrite {
   packChain: PackLink[]
   pricing: Pricing
   countUnit: string
-  /** The legacy `InventoryItem.purchasePrice` column. Not part of the spine —
-   *  but `syncPrimaryOfferToItem` keeps it in step with `pricing` on every
-   *  invoice (`purchasePriceFromPricing`, src/lib/primary-offer.ts), so leaving
-   *  it holding the old number just means the next sync corrects it and the
-   *  repair looks like it moved a price it did not. */
-  purchasePrice: number
 }
 
 /**
@@ -140,7 +135,6 @@ export function planItemRewrite(a: { item: ChainItemRow; measure: string }): Ite
     packChain: [{ unit: measure, per: f.toBase }],
     pricing: { mode: 'RATE', rate, rateUnit: measure },
     countUnit: measure,
-    purchasePrice: rate,
   }
 }
 
@@ -155,7 +149,6 @@ export interface OfferRow {
   isPrimary?: boolean
   // `unknown` on the numerics: a Prisma `Decimal` is neither a number nor a
   // string, and every read here goes through `num()` anyway.
-  lastPrice?: unknown
   packChain?: unknown
   pricing?: unknown
   packQty?: unknown
@@ -174,7 +167,7 @@ export interface OfferRewriteRow {
   packSize: number
   packUOM: string
   rate: number
-  rateFrom: 'offer rate' | 'lastPrice'
+  rateFrom: 'offer rate' | 'offer listed price'
 }
 
 /**
@@ -192,16 +185,15 @@ export interface OfferRewriteRow {
  * and one priced $/each against a now-MASS item reads $0 (`offerPricePerBase`,
  * cross-dimension RATE with no bridge).
  *
- * The RATE NUMBER comes from the offer itself — its own `pricing.rate`, or its
- * `lastPrice` when it was PACK-priced or carries no usable rate. `lastPrice` is
- * never written: it is this supplier's last invoiced price, a fact about an
- * invoice, not a shape.
+ * The RATE NUMBER comes from the offer itself — its own `pricing.rate`, or the
+ * price its pricing lists (`offerListedPrice`: the box price) when it was
+ * PACK-priced or carries no usable rate.
  */
 export function planOfferRewrite(offer: OfferRow, rewrite: ItemRewrite): OfferRewriteRow {
   const measure = rewrite.countUnit
   const pricing = offer.pricing && typeof offer.pricing === 'object' ? (offer.pricing as Pricing) : null
   const own = pricing?.mode === 'RATE' ? num(pricing.rate) : 0
-  const rate = own !== 0 ? own : num(offer.lastPrice)
+  const rate = own !== 0 ? own : num(offerListedPrice(offer))
 
   return {
     id: offer.id,
@@ -218,7 +210,7 @@ export function planOfferRewrite(offer: OfferRow, rewrite: ItemRewrite): OfferRe
     packSize: 1,
     packUOM: measure,
     rate,
-    rateFrom: own !== 0 ? 'offer rate' : 'lastPrice',
+    rateFrom: own !== 0 ? 'offer rate' : 'offer listed price',
   }
 }
 
@@ -421,7 +413,7 @@ export function planCountRefreeze(lines: CountLineRow[], corrected: ChainItem, p
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Stock baselines — stockOnHand, StockAllocation.quantity, purchasePrice
+// 5. Stock baselines — stockOnHand, StockAllocation.quantity, lastCountQty
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** A planned count row with the session facts that decide WHERE finalize put it. */
@@ -456,7 +448,6 @@ export interface StockRewrite {
    *  observed line across ALL of the item's sessions, scoped or unscoped. */
   lastCountQty: StockTarget
   allocations: (StockTarget & { revenueCenterId: string })[]
-  purchasePrice: { old: number; next: number }
 }
 
 const LEFT_RC = 'left (no observed count for this RC)'
@@ -505,7 +496,7 @@ function latestObserved(rows: StockCountRow[]): StockCountRow | null {
  * receipt would be a different number with a different meaning.
  */
 export function planStockRewrite(a: {
-  item: { stockOnHand?: unknown; purchasePrice?: unknown; lastCountQty?: unknown }
+  item: { stockOnHand?: unknown; lastCountQty?: unknown }
   allocations: { revenueCenterId: string; quantity: unknown }[]
   countLines: StockCountRow[]
   rewrite: ItemRewrite
@@ -530,7 +521,6 @@ export function planStockRewrite(a: {
         ? { revenueCenterId: al.revenueCenterId, old: num(al.quantity), next: best.next, via: `count line ${best.id}`, fromLineId: best.id }
         : { revenueCenterId: al.revenueCenterId, old: num(al.quantity), next: null, via: LEFT_RC }
     }),
-    purchasePrice: { old: num(a.item.purchasePrice), next: a.rewrite.purchasePrice },
   }
 }
 

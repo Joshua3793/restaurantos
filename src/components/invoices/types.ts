@@ -16,7 +16,7 @@ export interface InventoryMatch {
   id: string
   itemName: string
   pricePerBaseUnit: string
-  purchasePrice: string
+  purchasePrice: string               // computed from pricing (listed price)
   baseUnit: string
   // Chain pricing facts (PRICING_SELECT). The card derives pack display + the
   // "use invoice format" prefill + pricing mode from these.
@@ -32,7 +32,7 @@ export interface InventoryMatch {
     id: string
     supplierName: string
     supplierId: string | null
-    lastPrice: string | number          // Prisma Decimal serialises as string
+    lastPrice: string | number          // computed from pricing (listed price)
     pricePerBaseUnit: string | number
     packQty: string | number | null
     packSize: string | number | null

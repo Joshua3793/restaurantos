@@ -25,11 +25,6 @@ export interface SyncResult {
   newPpb: number
 }
 
-/** The price implied by an offer's pricing, for the legacy item.purchasePrice column. */
-function purchasePriceFromPricing(pricing: Pricing): number {
-  return pricing.mode === 'RATE' ? Number(pricing.rate || 0) : Number(pricing.purchasePrice || 0)
-}
-
 /**
  * Guarantee the item has exactly one primary offer when it has offers.
  * If none (or >1) is primary, promote the most-recently-updated offer.
@@ -108,7 +103,6 @@ export async function syncPrimaryOfferToItem(itemId: string, db: Db = prisma): P
     data: {
       packChain: newChain as unknown as object,
       pricing: newPricing as unknown as object,
-      purchasePrice: purchasePriceFromPricing(newPricing),
       countUnit,
       lastUpdated: new Date(),
     },
@@ -140,19 +134,17 @@ export async function mirrorItemToPrimaryOffer(itemId: string, db: Db = prisma, 
   if (!primary) return
   const item = await db.inventoryItem.findUnique({
     where: { id: itemId },
-    select: { packChain: true, pricing: true, purchasePrice: true },
+    select: { packChain: true, pricing: true },
   })
   if (!item) return
   undo?.before('OFFER', primary.id, offerState(primary))
   await db.inventorySupplierPrice.update({
     where: { id: primary.id },
     data: {
-      // The legacy `pricePerBaseUnit` column is intentionally NOT maintained here:
-      // every reader derives ppb from packChain+pricing (offerPricePerBase), so the
-      // chain/pricing we write below is the source of truth and the column is fallback-only.
+      // Chain + pricing only: every reader derives the box's price from them
+      // (offerPricePerBase / offerListedPrice) — no stored price copy.
       packChain: item.packChain as unknown as object,
       pricing: item.pricing as unknown as object,
-      lastPrice: item.purchasePrice,
       lastUpdated: new Date(),
     },
   })

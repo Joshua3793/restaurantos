@@ -13,6 +13,7 @@ import { dimensionOf } from '@/lib/item-model'
 import { canonicalUom, convertQty } from '@/lib/uom'
 import { countUomFactor, lineCountedBase, type ItemDims } from '@/lib/count-uom'
 import { normItemCode } from '@/lib/invoice/line-format'
+import { offerListedPrice } from '@/lib/offer-price'
 
 export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT' | 'DIFFERENT_BASE_UNIT' | 'BRIDGE_MISMATCH' | 'NEEDS_ON_HAND'
 export type RepointTable =
@@ -394,12 +395,13 @@ export function planMerge(
     movedOffers.push(o)
   }
 
-  const derivedPrice = toNum(absorbed.pricing.mode === 'RATE' ? absorbed.pricing.rate : absorbed.pricing.purchasePrice)
+  // The price the absorbed item's pricing lists (box price for PACK, rate for RATE).
+  const listed = offerListedPrice({ pricing: absorbed.pricing })
   const canSynth = rel.offers.length === 0 && rel.scanItemIds.length > 0
     // a session without a linked supplier cannot synthesize an offer row
     && !!rel.latestPurchaseSupplier?.supplierId
     && !sOffer.has(offerKey(rel.latestPurchaseSupplier.supplierId, null))
-    && Number.isFinite(derivedPrice) && derivedPrice > 0
+    && Number.isFinite(listed) && listed > 0
 
   // I-1: decide the promotion winner BEFORE emitting any isPrimary op, since it
   // depends on the full set of offers actually being moved in.
@@ -450,7 +452,9 @@ export function planMerge(
       inventoryItemId: survivor.id, supplierName: rel.latestPurchaseSupplier!.supplierName,
       supplierId: rel.latestPurchaseSupplier!.supplierId!,
       isPrimary: !survivorHasPrimary, // movedOffers is always empty when canSynth
-      lastPrice: derivedPrice,
+      // `lastPrice` is NOT NULL until Stage 1e drops it: a new box fills it
+      // with its own listed price (nothing reads it — offerListedPrice derives).
+      lastPrice: listed,
       packChain: absorbed.packChain,
       pricing: absorbed.pricing,
     } })

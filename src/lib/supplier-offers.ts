@@ -13,7 +13,7 @@ import { PRICING_SELECT } from '@/lib/item-model'
 // 'use client' review-UI components) can import it directly instead of pulling
 // this module's `@/lib/prisma` import into the browser bundle. Re-exported here
 // so every existing server-side import path keeps working unchanged.
-import { offerPricePerBase, type OfferItem } from '@/lib/offer-price'
+import { offerPricePerBase, offerListedPrice, type OfferItem } from '@/lib/offer-price'
 import { normItemCode } from '@/lib/invoice/line-format'
 export { offerPricePerBase, type OfferItem }
 
@@ -177,7 +177,7 @@ export async function getSupplierOffers(inventoryItemId: string): Promise<Suppli
       supplierName: o.supplierName,
       supplierId: o.supplierId,
       isPrimary: o.isPrimary,
-      lastPrice: Number(o.lastPrice),
+      lastPrice: offerListedPrice(o), // computed from pricing, not the column
       // Chain-derived from the offer's packChain+pricing, priced against the item's
       // base unit + bridges (0 if no chain, or a cross-dimension rate with no bridge).
       pricePerBaseUnit: offerPricePerBase(o, item),

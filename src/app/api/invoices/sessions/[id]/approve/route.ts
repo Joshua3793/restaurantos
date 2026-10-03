@@ -10,7 +10,8 @@ import { getUnitConv } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
 import { invalidateTheoreticalCache } from '@/lib/theoretical-cache'
 import { formToChain } from '@/lib/item-model-form'
-import { lastCost } from '@/lib/cost-basis'
+import { lastCost, listedPrice } from '@/lib/cost-basis'
+import { offerListedPrice } from '@/lib/offer-price'
 import { dimensionOf, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, DIMENSION_BASE, eachMeasureOf, invoicePackBaseTotal, packFormatsDisagree, type PackLink, type Dimension, type Pricing } from '@/lib/item-model'
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { shouldRepriceItem } from '@/lib/invoice/reprice'
@@ -571,11 +572,11 @@ async function doApprove(
         // transaction. Unique (inventoryItemId, supplierId, supplierItemCode)
         // replaced the old findFirst/create dance.
         //
-        // PRICE DENOMINATION: lastPrice must be the supplier's own price over
-        // the pack format stored on this same row — the matcher divides one by
-        // the other next invoice. UOM mode: the rate ($/uom). CASE mode: the
-        // case price as printed (rawUnitPrice), NOT newPrice (which may have
-        // been normalized into the ITEM's purchase format).
+        // PRICE DENOMINATION: the offer's price (its pricing) must be the
+        // supplier's own price over the pack format stored on this same row —
+        // the matcher divides one by the other next invoice. UOM mode: the rate
+        // ($/uom). CASE mode: the case price as printed (rawUnitPrice), NOT
+        // newPrice (which may have been normalized into the ITEM's purchase format).
         let writtenOfferId: string | null = null
         // An offer row needs a linked supplier (supplierId is NOT NULL). An invoice whose supplier is not linked re-prices the item only when it has no boxes (legacy direct spine write below) — link the supplier on the review screen to record its box.
         if (session.supplierId) {
@@ -715,7 +716,9 @@ async function doApprove(
               inventoryItemId:      scanItem.matchedItemId,
               supplierName:         offerSupplierName!, // non-null: set whenever session.supplierId is (this block)
               supplierId:           session.supplierId,
-              lastPrice:            offerLastPrice,
+              // NOT NULL until Stage 1e drops it: a NEW box fills it with its own
+              // listed price. Never updated — readers derive offerListedPrice.
+              lastPrice:            offerListedPrice({ pricing: offerChain.pricing }),
               isPrimary:            false,
               supplierItemCode:     scanItem.supplierItemCode ?? null,
               lastInvoiceSessionId: sessionId,
@@ -732,7 +735,6 @@ async function doApprove(
             ? prisma.inventorySupplierPrice.update({
             where: { id: existingOffer.id },
             data: {
-              lastPrice:            offerLastPrice,
               lastUpdated:          new Date(),
               lastInvoiceSessionId: sessionId,
               supplierId:           session.supplierId,
@@ -820,7 +822,6 @@ async function doApprove(
             prisma.inventoryItem.update({
               where: { id: scanItem.matchedItemId },
               data: {
-                purchasePrice: newPurchasePrice,
                 lastUpdated:   new Date(),
                 // Spine write: pricing only. The item's chain/format is preserved.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -926,22 +927,16 @@ async function doApprove(
           skippedCreateNew.push(`"${scanItem.rawDescription}": ${gate.error}`)
           continue
         }
-        // Headline purchasePrice for the column: PACK price, or RATE rate.
-        const newPurchasePrice = newChain.pricing.mode === 'RATE'
-          ? Number(newChain.pricing.rate) || 0
-          : Number(newChain.pricing.purchasePrice) || 0
         const created = await prisma.inventoryItem.create({
           data: {
             itemName:           newData.itemName || scanItem.rawDescription,
             category:           newData.category || 'DRY',
-            purchasePrice:      newPurchasePrice,
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would
             // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
             baseUnit:           newChain.baseUnit,
-            // Supplier/location chosen in the modal; supplier falls back to the
-            // invoice's supplier when left as the pre-selected default. Location
-            // is a storage area established in the app (storageAreaId).
-            supplierId:         newData.supplierId || session.supplierId || null,
+            // Location chosen in the modal: a storage area established in the
+            // app. The supplier is not an item column — it becomes the item's
+            // first (primary) supplier box, created just below.
             storageAreaId:      newData.storageAreaId || null,
             // Chain columns (authoritative).
             dimension:          newChain.dimension,
@@ -960,6 +955,35 @@ async function doApprove(
         // Undo: an item this approval brought into existence (DELETE removes it,
         // but only when nothing else has come to reference it).
         undo.created('ITEM_CREATED', created.id)
+        // The supplier chosen in the modal (falls back to the invoice's supplier
+        // when left as the pre-selected default) → the new item's first box,
+        // primary, carrying the item's own chain + pricing so item == primary box
+        // from the start. The item's supplier derives from this box. Non-critical
+        // like the offer upsert above: a failure is logged, never fails the approval.
+        const boxSupplierId: string | null = newData.supplierId || session.supplierId || null
+        if (boxSupplierId) {
+          // The invoice's item code and session belong on the box only when the box
+          // is the invoice's own supplier; a different supplier never issued them.
+          const sameSupplier = boxSupplierId === session.supplierId
+          const box = await (async () => prisma.inventorySupplierPrice.create({
+            data: {
+              inventoryItemId:      created.id,
+              supplierId:           boxSupplierId,
+              supplierName:         await canonicalSupplierName(boxSupplierId, ''),
+              isPrimary:            true,
+              // NOT NULL until Stage 1e drops it; nothing reads it (offerListedPrice derives).
+              lastPrice:            listedPrice(newChain),
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              packChain:            newChain.packChain as any,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              pricing:              newChain.pricing as any,
+              supplierItemCode:     sameSupplier ? (scanItem.supplierItemCode ?? null) : null,
+              lastInvoiceSessionId: sameSupplier ? sessionId : null,
+            },
+            select: { id: true },
+          }))().catch((e) => { console.error('[approve] CREATE_NEW supplier box failed:', e); return null })
+          if (box) undo.created('OFFER', box.id)
+        }
         updatedItemIds.push(created.id)
         newItemsCreated++
         registerLineAllocs(created.id, scanItem)

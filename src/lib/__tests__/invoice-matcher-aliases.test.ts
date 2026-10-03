@@ -168,11 +168,11 @@ describe('previousPriceFor — the "was" price on a matched line', () => {
     eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null,
   }
   it("is this supplier's own last offer price when the offer exists", () => {
-    expect(previousPriceFor({ lastPrice: '139.9' }, BUTTER)).toBe(139.9)
+    expect(previousPriceFor({ pricing: { mode: 'PACK', purchasePrice: 139.9 } }, BUTTER)).toBe(139.9)
   })
   it("falls back to the primary chain's listed price (box price), never a stored column", () => {
     expect(previousPriceFor(null, BUTTER)).toBeCloseTo(142.5, 9)
-    expect(previousPriceFor({ lastPrice: null }, BUTTER)).toBeCloseTo(142.5, 9)
+    expect(previousPriceFor({ pricing: null }, BUTTER)).toBeCloseTo(142.5, 9)
   })
   it('falls back to the RATE itself for a weight-priced item (what the line rate is compared with)', () => {
     const SALMON = { dimension: 'MASS', baseUnit: 'g', countUnit: 'lb', packChain: [{ unit: 'lb', per: 453.6 }], pricing: { mode: 'RATE', rate: 28.6, rateUnit: 'kg' }, eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }

@@ -56,7 +56,6 @@ interface InventoryItem {
   allergens?: string[]
   isActive: boolean
   isStocked?: boolean
-  needsReview?: boolean | null
   lastCountDate?: string | null; lastCountQty?: number | null
   // Last PHYSICAL count for the revenue centre(s) this list was fetched under — the
   // Stock in Hand basis. Distinct from lastCountQty/lastCountDate, which are single
@@ -109,7 +108,7 @@ const defaultForm = {
   pricing: { ...DEFAULT_PRICING } as Pricing,
   countUnit: 'each',
   stockOnHand: '0',
-  location: '', allergens: [] as string[],
+  allergens: [] as string[],
   // Count↔weight bridge (COUNT items only)
   eachMeasureQty: null as number | null,
   eachMeasureUnit: 'g' as string,
@@ -283,7 +282,6 @@ function InventoryPageInner() {
     movements: StockMovement[]
   }
   const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
-  const [filterNeedsReview, setFilterNeedsReview] = useState(false)
 
   // The single place the list query is built. Both the list fetch and the export
   // button call it, so the downloaded file always covers exactly the rows the
@@ -326,7 +324,6 @@ function InventoryPageInner() {
     const p = listParams()
     if (stockInHand) p.set('view', 'stock-in-hand')
     if (activePill !== 'all') p.set('pill', activePill)
-    if (filterNeedsReview) p.set('needsReview', 'true')
     return `/api/inventory/export?${p.toString()}`
   }
 
@@ -430,10 +427,9 @@ function InventoryPageInner() {
   // Pill filter. matchesPill is the shared predicate the export also applies, so a
   // filtered export always matches the screen that produced it.
   const pillFiltered = useMemo(() => {
-    const base = filterNeedsReview ? items.filter(i => i.needsReview) : items
-    if (activePill === 'all') return base
-    return base.filter(i => matchesPill(activePill, i))
-  }, [items, activePill, filterNeedsReview])
+    if (activePill === 'all') return items
+    return items.filter(i => matchesPill(activePill, i))
+  }, [items, activePill])
 
   // Stock in Hand KPIs — same function the xlsx export calls, computed over the same
   // pill-filtered set the export builds its KPI sheet from (the route applies the
@@ -648,7 +644,6 @@ function InventoryPageInner() {
         category: form.category,
         supplierId: form.supplierId || null,
         storageAreaId: form.storageAreaId || null,
-        location: form.location,
         allergens: form.allergens,
         // Chain shape (new body) — route derives all legacy fields.
         dimension: form.dimension,
@@ -1396,23 +1391,6 @@ function InventoryPageInner() {
         SHOWING {sortedItems.length} OF {items.length} ITEMS · SORTED BY {sortBy === 'category' ? 'CATEGORY → NAME' : colSort ? `${colSort.col.toUpperCase()} ${colSort.dir === 'asc' ? '↑' : '↓'}` : 'NAME'}
       </div>
 
-      {/* needsReview banner */}
-      {items.some(i => i.needsReview) && (
-        <div className="flex items-start gap-3 rounded-lg border border-gold-soft bg-gold-soft px-4 py-3 text-sm text-gold-2">
-          <span className="text-base">⚠</span>
-          <div className="flex-1">
-            <span className="font-semibold">{items.filter(i => i.needsReview).length} items need purchase structure review</span>
-            {' '}— their data couldn&apos;t be auto-repaired during migration.{' '}
-            <button
-              className="underline font-medium"
-              onClick={() => setFilterNeedsReview(v => !v)}
-            >
-              {filterNeedsReview ? 'Show all' : 'Show items'}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Bulk action bar — fixed at bottom so it's visible no matter how far you scroll */}
       {canEdit && checkedIds.size > 0 && (
         <div className="fixed bottom-16 md:bottom-4 left-0 right-0 z-40 px-3 pointer-events-none">
@@ -1440,22 +1418,6 @@ function InventoryPageInner() {
                     <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-40 max-h-56 overflow-y-auto">
                       {categories.map(c => (
                         <button key={c.id} onClick={() => executeBulk('setCategory', c.name)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{c.name}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {/* Assign Supplier */}
-                <div className="relative">
-                  <button
-                    onClick={() => { setBulkAction('setSupplier'); setShowBulkMenu(v => bulkAction === 'setSupplier' ? !v : true) }}
-                    className="px-3 py-1.5 bg-ink-2 text-paper border border-ink-2 text-xs rounded-[8px] hover:bg-ink-2 flex items-center gap-1"
-                  >
-                    Assign Supplier <ChevronDown size={12} />
-                  </button>
-                  {showBulkMenu && bulkAction === 'setSupplier' && (
-                    <div className="absolute bottom-full left-0 mb-1 bg-white border border-line rounded-lg shadow-lg z-50 min-w-44 max-h-56 overflow-y-auto">
-                      {suppliers.map(s => (
-                        <button key={s.id} onClick={() => executeBulk('setSupplier', s.id)} className="block w-full text-left px-3 py-2 text-xs hover:bg-bg">{s.name}</button>
                       ))}
                     </div>
                   )}
@@ -2002,10 +1964,6 @@ function InventoryPageInner() {
                     <option value="">None</option>
                     {storageAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Location</label>
-                  <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                 </div>
               </div>
 

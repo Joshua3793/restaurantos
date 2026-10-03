@@ -29,6 +29,7 @@ export function canEditItems(role: Role): boolean {
 /** Item money plus the 30-day average recipes are costed on. */
 export const INVENTORY_ITEM_MONEY_KEYS = ['costBasis'] as const
 /** A supplier offer's price, its derived $/base, and the price-volatility stats. */
+// `lastPrice` is computed (offerListedPrice from pricing), not a column.
 export const OFFER_MONEY_KEYS = ['lastPrice', 'pricePerBaseUnit', 'pricing', 'volatility', 'stability'] as const
 
 /**

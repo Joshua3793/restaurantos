@@ -37,6 +37,7 @@ import {
   itemState,
   ruleState,
   canonEqual,
+  currentFieldsOnly,
 } from '@/lib/invoice/approve-undo'
 import {
   planRollback,
@@ -193,10 +194,10 @@ export function plannedRowDeletes(
     if (rec.prev !== null) continue
     if (rec.kind === 'OFFER') {
       const cur = offers.get(rec.targetId)
-      if (cur && canonEqual(offerState(cur), rec.next)) offerIds.add(rec.targetId)
+      if (cur && canonEqual(offerState(cur), currentFieldsOnly('OFFER', rec.next))) offerIds.add(rec.targetId)
     } else if (rec.kind === 'MATCH_RULE') {
       const cur = rules.get(rec.targetId)
-      if (cur && canonEqual(ruleState(cur), rec.next)) ruleIds.add(rec.targetId)
+      if (cur && canonEqual(ruleState(cur), currentFieldsOnly('MATCH_RULE', rec.next))) ruleIds.add(rec.targetId)
     }
   }
   return { offerIds, ruleIds }

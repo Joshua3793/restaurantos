@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { lastCost, withLastCost } from '@/lib/cost-basis'
+import { lastCost, listedPrice, withLastCost } from '@/lib/cost-basis'
 import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
 
 export const dynamic = 'force-dynamic'
@@ -51,14 +51,13 @@ export async function GET(req: NextRequest) {
       select: {
         id: true,
         itemName: true,
-        purchasePrice: true,
         ...PRICING_SELECT,
         category: true,
         barcode: true,
       },
     })
     if (!item) return NextResponse.json([])
-    return out([withLastCost(item)])
+    return out([{ ...withLastCost(item), purchasePrice: listedPrice(item) }])
   }
 
   const words = q.split(/\s+/).filter(w => w.length > 1)
@@ -80,7 +79,6 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       itemName: true,
-      purchasePrice: true,
       ...PRICING_SELECT,
       category: true,
       // Usage counts for the "used in N recipes" banner copy and the item-merge
@@ -107,6 +105,7 @@ export async function GET(req: NextRequest) {
     return {
       ...rest,
       pricePerBaseUnit: lastCost(i),
+      purchasePrice: listedPrice(i),
       ...(withUsage && _count
         ? { recipeCount: _count.recipeIngredients, purchaseCount: _count.invoiceMatches, stockOnHand: Number(stockOnHand) }
         : {}),

@@ -13,7 +13,7 @@ const ITEM = {
   id: 'i1', itemName: 'Butter', category: 'DAIRY', baseUnit: 'g', dimension: 'MASS', countUnit: 'case',
   packChain: [{ unit: 'case', per: 11350 }], pricing: { mode: 'PACK', purchasePrice: 142.5 }, purchasePrice: '142.5',
   eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null, stockOnHand: '20000', barcode: '0123',
-  supplier: { id: 's1', name: 'Gordon' }, storageArea: null, recipe: null,
+  supplierPrices: [{ supplierId: 's1', supplier: { id: 's1', name: 'Gordon' } }], storageArea: null, recipe: null,
   invoiceLineItems: [{ id: 'x', unitPrice: '142.5', lineTotal: '285', invoice: { totalAmount: '1903.22' } }],
   recipeIngredients: [],
 }
@@ -79,6 +79,8 @@ describe('inventory API — money', () => {
     const body = await (await item.GET(getReq(), ctx)).json()
     expect(body.pricePerBaseUnit).toBeGreaterThan(0)
     expect(body.costBasis).not.toBeNull()
+    expect(body.supplier).toEqual({ id: 's1', name: 'Gordon' })
+    expect(body.supplierId).toBe('s1')
   })
 
   it('GET /inventory/[id]/suppliers sends STAFF the suppliers but not what they charge', async () => {

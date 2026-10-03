@@ -338,7 +338,7 @@ export default function CountPage() {
   const [addItemForm,    setAddItemForm]    = useState({
     itemName: '', category: '', supplierId: '', storageAreaId: '',
     purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
-    baseUnit: 'g', conversionFactor: '1', stockOnHand: '0', location: '',
+    baseUnit: 'g', conversionFactor: '1', stockOnHand: '0',
   })
   const [addItemCategories, setAddItemCategories] = useState<{ id: string; name: string }[]>([])
   const [addItemSuppliers,  setAddItemSuppliers]  = useState<{ id: string; name: string }[]>([])
@@ -971,7 +971,7 @@ export default function CountPage() {
     setAddItemForm({
       itemName: '', category: cats[0]?.name ?? '', supplierId: '', storageAreaId: '',
       purchaseUnit: '', qtyPerPurchaseUnit: '1', purchasePrice: '0',
-      baseUnit: 'g', conversionFactor: '1', stockOnHand: '0', location: '',
+      baseUnit: 'g', conversionFactor: '1', stockOnHand: '0',
     })
     setShowAddItem(true)
   }
@@ -1001,7 +1001,6 @@ export default function CountPage() {
       category: addItemForm.category,
       supplierId: addItemForm.supplierId || null,
       storageAreaId: addItemForm.storageAreaId || null,
-      location: addItemForm.location || null,
       stockOnHand: parseFloat(addItemForm.stockOnHand) || 0,
       dimension: chain.dimension,
       packChain: chain.packChain,
@@ -2760,10 +2759,6 @@ export default function CountPage() {
                   <div>
                     <label className="block text-xs font-medium text-ink-3 mb-1">Stock On Hand</label>
                     <input type="number" value={addItemForm.stockOnHand} onChange={e => setAddItemForm(f => ({ ...f, stockOnHand: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" step="any" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-ink-3 mb-1">Location</label>
-                    <input value={addItemForm.location} onChange={e => setAddItemForm(f => ({ ...f, location: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
                   </div>
                 </div>
                 <div className="bg-gold/10 rounded-lg p-3 text-sm">

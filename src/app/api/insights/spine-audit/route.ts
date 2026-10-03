@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { lastCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +29,7 @@ export async function GET(_req: NextRequest) {
     throw e
   }
 
-  const [items, recentInvoices, stalePrepd] = await Promise.all([
+  const [itemRows, recentInvoices, stalePrepd] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true, isStocked: true },
       select: {
@@ -37,7 +38,7 @@ export async function GET(_req: NextRequest) {
         category: true,
         stockOnHand: true,
         lastUpdated: true,
-        supplier: { select: { name: true } },
+        ...PRIMARY_SUPPLIER_INCLUDE,
         ...PRICING_SELECT,
       },
     }),
@@ -70,6 +71,7 @@ export async function GET(_req: NextRequest) {
   ])
 
   // Top by inventory value
+  const items = itemRows.map(withSupplier)
   const ranked = items.map(it => {
     const ppb = lastCost(it)
     return {
