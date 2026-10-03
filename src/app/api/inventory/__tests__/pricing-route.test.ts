@@ -21,10 +21,14 @@ let ITEM = { ...BASE_ITEM }
 let offerCount = 0
 let countLineCount = 0
 
-const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...ITEM, ...data }))
+let writeCount = 1
+const update = vi.fn(async (_a: { where: Record<string, unknown>; data: Record<string, unknown> }) => ({ count: writeCount }))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    inventoryItem: { findUnique: async () => ITEM, update: (a: { data: Record<string, unknown> }) => update(a) },
+    inventoryItem: {
+      findUnique: async () => ITEM,
+      updateMany: (a: { where: Record<string, unknown>; data: Record<string, unknown> }) => update(a),
+    },
     recipe: { findFirst: async () => null, findMany: async () => [] },
     inventorySupplierPrice: { count: async () => offerCount, findFirst: async () => null },
     countLine: { count: async () => countLineCount },
@@ -66,7 +70,7 @@ const VALID = {
 }
 
 beforeEach(() => { update.mockClear(); propagatePrepCostChanges.mockClear() })
-afterEach(() => { ITEM = { ...BASE_ITEM }; offerCount = 0; countLineCount = 0 })
+afterEach(() => { ITEM = { ...BASE_ITEM }; offerCount = 0; countLineCount = 0; writeCount = 1 })
 
 describe('PATCH /api/inventory/[id]/pricing', () => {
   it('writes the chain and pricing of a box-less item', async () => {
@@ -136,6 +140,21 @@ describe('PATCH /api/inventory/[id]/pricing', () => {
     expect(update).toHaveBeenCalled()
   })
 
+  it('R5 — a stored error is NOT excused when the save submits a different chain', async () => {
+    ITEM = { ...BASE_ITEM, countUnit: 'bogus' }
+    const res = await pricing.PATCH(patchReq({ ...VALID, countUnit: undefined }), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('INVALID')
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('refuses an unknown measure (BAD_FIELD)', async () => {
+    const res = await pricing.PATCH(patchReq({ ...VALID, dimension: 'WEIGHT' }), ctx)
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('BAD_FIELD')
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it('R5 — a stored-$0 item still gets 400 on a $0 save', async () => {
     ITEM = { ...BASE_ITEM, pricing: { mode: 'PACK', purchasePrice: 0 } }
     const res = await pricing.PATCH(patchReq({ ...VALID, pricing: { mode: 'PACK', purchasePrice: 0 } }), ctx)
@@ -166,5 +185,14 @@ describe('PATCH /api/inventory/[id]/pricing', () => {
     expect(res.status).toBe(409)
     expect((await res.json()).code).toBe('STALE')
     expect(update).not.toHaveBeenCalled()
+  })
+
+  it('R8 — the write itself names the version read; a clash in between is STALE', async () => {
+    writeCount = 0
+    const res = await pricing.PATCH(patchReq(VALID), ctx)
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('STALE')
+    expect(update.mock.calls[0][0].where).toEqual({ id: 'i1', lastUpdated: NOW })
+    expect(propagatePrepCostChanges).not.toHaveBeenCalled()
   })
 })

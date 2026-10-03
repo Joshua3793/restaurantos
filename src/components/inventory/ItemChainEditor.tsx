@@ -210,7 +210,7 @@ export function PricingEditor({ dimension, pricing, onChange }: {
   pricing: Pricing
   onChange: (p: Pricing) => void
 }) {
-  // the number carries across the switch (PACK $50 → RATE 50/g; RATE $3.49/lb → PACK $3.49)
+  // the number carries across the switch (PACK $50 → RATE 50/kg (everyday unit); RATE $3.49/lb → PACK $3.49)
   const setMode = (mode: 'PACK' | 'RATE') => {
     if (mode === pricing.mode) return
     onChange(carryPricingMode(pricing, mode, dimension))

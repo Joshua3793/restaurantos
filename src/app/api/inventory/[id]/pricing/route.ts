@@ -63,6 +63,10 @@ async function handlePATCH(req: NextRequest, { params }: { params: { id: string 
     }, { status: 409 })
   }
 
+  if (body.dimension !== undefined && !['MASS', 'VOLUME', 'COUNT'].includes(body.dimension)) {
+    return NextResponse.json({ error: 'Reload the item and try again.', code: 'BAD_FIELD' }, { status: 400 })
+  }
+
   // R4 — the measure is locked once anything is recorded in it.
   const dimension = (body.dimension ?? before.dimension) as Dimension
   if (dimension !== before.dimension && hasHistory(h)) {
@@ -79,9 +83,11 @@ async function handlePATCH(req: NextRequest, { params }: { params: { id: string 
     countUnit, eachMeasure: eachMeasureOf(before), densityGPerMl: densityOf(before),
   }
   // Only the errors THIS save introduces: an item whose stored chain is already
-  // invalid can still save a price change. A $0 price is never excused, so an
-  // item that is $0 today cannot stay $0.
-  const stored = new Set(validateChainItem(asChainItem(before)))
+  // invalid can still save a price change — but only while the chain it submits
+  // IS the stored one. A changed chain is judged whole. A $0 price is never
+  // excused, so an item that is $0 today cannot stay $0.
+  const sameChain = JSON.stringify(body.packChain) === JSON.stringify(before.packChain)
+  const stored = new Set(sameChain ? validateChainItem(asChainItem(before)) : [])
   const errors = validateChainItem(ci, { requirePositivePrice: before.isStocked })
     .filter(e => e === 'price must be above $0' || !stored.has(e))
   if (errors.length) {
@@ -92,10 +98,18 @@ async function handlePATCH(req: NextRequest, { params }: { params: { id: string 
     }, { status: 400 })
   }
 
-  await prisma.inventoryItem.update({
-    where: { id: params.id },
+  // The write itself re-checks the version it read, closing the window between
+  // the read-time STALE check and this update.
+  const { count } = await prisma.inventoryItem.updateMany({
+    where: { id: params.id, lastUpdated: before.lastUpdated },
     data: { dimension, baseUnit: ci.baseUnit, packChain: body.packChain, pricing: body.pricing, countUnit, lastUpdated: new Date() },
   })
+  if (count === 0) {
+    return NextResponse.json({
+      error: 'Someone saved this item a moment ago. Reload to see their change before saving yours.',
+      code: 'STALE',
+    }, { status: 409 })
+  }
   return await postUpdate(params.id, before.allergens ?? [], undefined)
 }
 

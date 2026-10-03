@@ -137,6 +137,19 @@ describe('input hygiene and already-invalid items', () => {
     expect(res.status).toBe(200)
     expect(update).toHaveBeenCalled()
   })
+
+  it('a stored count-unit error is excused only while the count unit is left alone', async () => {
+    ITEM = { ...BASE_ITEM, countUnit: 'bogus' }
+    const keep = await item.PUT(putReq({ itemName: 'Butter (block)', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(keep.status).toBe(200)
+    update.mockClear()
+    const change = await item.PUT(putReq({ countUnit: 'tray', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(change.status).toBe(400)
+    const body = await change.json()
+    expect(body).toMatchObject({ error: "That change doesn't fit the item's pack format.", code: 'INVALID' })
+    expect(body.details[0]).toMatch(/^countUnit/)
+    expect(update).not.toHaveBeenCalled()
+  })
 })
 
 describe('R6 — prep-owned fields', () => {

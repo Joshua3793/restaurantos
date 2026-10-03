@@ -139,7 +139,8 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   const emUnit = eachMeasureUnit ? String(eachMeasureUnit).trim().toLowerCase() : ''
   if (hasEachMeasure && emQty > 0 && (!emUnit || dimensionOf(emUnit) === 'COUNT')) {
     return NextResponse.json({
-      error: `"${emUnit || eachMeasureUnit}" can't measure the bridge — use a weight or volume unit.`,
+      error: 'Use a weight or volume unit for how much one each measures.',
+      code: 'INVALID',
     }, { status: 400 })
   }
   const emValid = emQty > 0 && !!emUnit && dimensionOf(emUnit) !== 'COUNT'
@@ -161,10 +162,19 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   })
   // Only the errors THIS save introduces: an item whose stored chain is already
   // invalid (writers like invoice approve / prep sync never ran the validator)
-  // must still be able to save a name, an allergen or a deactivation.
+  // must still be able to save a name, an allergen or a deactivation. A stored
+  // count-unit error is excused only while the count unit is left alone —
+  // changing it to another invalid unit is a new error.
   const stored = new Set(validateChainItem(asChainItem(before)))
-  const errors = validateChainItem(ci).filter(e => !stored.has(e))
-  if (errors.length) return NextResponse.json({ error: errors.join('; ') }, { status: 400 })
+  const cuChanged = 'countUnit' in body && body.countUnit !== before.countUnit
+  const errors = validateChainItem(ci).filter(e => !stored.has(e) || (cuChanged && e.startsWith('countUnit')))
+  if (errors.length) {
+    return NextResponse.json({
+      error: "That change doesn't fit the item's pack format.",
+      code: 'INVALID',
+      details: errors,
+    }, { status: 400 })
+  }
 
   // R7 — before the drawer clears an each-measure it asks which recipes cost
   // through it (they read $0 the moment it goes). Nothing is written.

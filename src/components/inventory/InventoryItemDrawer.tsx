@@ -389,7 +389,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const saveFailed = async (res: Response) => {
     const err = await res.json().catch(() => null)
     if (res.status === 409 && err?.code === 'STALE') {
-      alert('Someone saved this item a moment ago. Reloading…')
+      alert('Someone saved this item a moment ago. Reloading… Your unsaved edits here were replaced by the latest version.')
       await reloadForEdit()
       return
     }

@@ -97,7 +97,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 **Mutators** (the only places that write `InventoryItem.packChain`/`pricing`):
 - [src/app/api/invoices/sessions/[id]/approve/route.ts](src/app/api/invoices/sessions/[id]/approve/route.ts) — **canonical writer**; the only spine-write that fires recipe re-cost / alerts. Also creates new items with a fresh chain.
 - [src/app/api/invoices/sessions/route.ts](src/app/api/invoices/sessions/route.ts) — session DELETE rolls `pricing` back to each line's `previousPrice` (format untouched).
-- [src/app/api/inventory/route.ts](src/app/api/inventory/route.ts) (create) and [src/app/api/inventory/[id]/route.ts](src/app/api/inventory/[id]/route.ts) (edit) — via `formToChain`.
+- [src/app/api/inventory/route.ts](src/app/api/inventory/route.ts) (create) and [src/app/api/inventory/[id]/pricing/route.ts](src/app/api/inventory/[id]/pricing/route.ts) (own price of a box-less item; PUT no longer writes the chain).
 - [src/lib/inventory-import.ts](src/lib/inventory-import.ts) + [src/app/api/inventory/import/route.ts](src/app/api/inventory/import/route.ts) — CSV import / migration.
 - [src/app/api/recipes/route.ts](src/app/api/recipes/route.ts) + [src/app/api/inventory/sync-prepd/route.ts](src/app/api/inventory/sync-prepd/route.ts) — create/backfill the linked `InventoryItem` for PREP recipes.
 - [src/lib/recipeCosts.ts](src/lib/recipeCosts.ts) `syncPrepToInventory` — writes a PREP recipe's computed cost + yield chain back to its linked item.
