@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { lastCost, withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
@@ -58,14 +58,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       inventoryItemId,
       expectedQty: Number(item.stockOnHand),
       selectedUom: item.countUnit ?? item.baseUnit,
-      priceAtCount: pricePerBaseUnit(asChainItem(item)),
+      priceAtCount: lastCost(item),
       sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
     },
     include: { inventoryItem: { include: { storageArea: true } } },
   })
 
   // Re-populate the computed pricePerBaseUnit the count page reads off the line.
-  const out = { ...line, inventoryItem: withPpb(line.inventoryItem) }
+  const out = { ...line, inventoryItem: withLastCost(line.inventoryItem) }
   // Below MANAGER: no price on the line or its item.
   return NextResponse.json(seesCountMoney(user.role) ? out : redactLineMoney(out), { status: 201 })
 }

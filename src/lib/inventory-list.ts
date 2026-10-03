@@ -7,7 +7,7 @@
  */
 import { type User } from '@prisma/client'
 import { prisma } from './prisma'
-import { asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
+import { lastCost } from '@/lib/cost-basis'
 import { getTheoreticalStockMapCached } from './theoretical-cache'
 import { getCountedStockMap, type CountedStock } from './counted-stock'
 import { resolveScopedRcIds } from './rc-scope'
@@ -125,7 +125,7 @@ function attachTheoreticalFields<T extends Record<string, any>>(
       countedQtyScoped:  scopedCount ? scopedCount.qtyBase : null,
       countedDateScoped: scopedCount ? scopedCount.date    : null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      pricePerBaseUnit: chainPricePerBaseUnit(asChainItem(item as any)),
+      pricePerBaseUnit: lastCost(item as any),
     }
   })
 }

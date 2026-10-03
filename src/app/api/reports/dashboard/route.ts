@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { startOfWeek } from '@/lib/dates'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost, withLastCost } from '@/lib/cost-basis'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 import { dedupeSalesEntries } from '@/lib/sales-dedup'
 
@@ -165,7 +166,7 @@ export async function GET(req: NextRequest) {
 
   // Inventory value: stockOnHand (baseUnit) × pricePerBaseUnit
   const totalInventoryValue = inventory.reduce((sum, item) =>
-    sum + item.stockOnHand * pricePerBaseUnit(asChainItem(item)), 0)
+    sum + item.stockOnHand * lastCost(item), 0)
 
   const weeklyWastageCost  = parseFloat(String(weekWastage._sum.costImpact  ?? 0))
   const monthlyWastageCost = parseFloat(String(monthWastage._sum.costImpact ?? 0))
@@ -179,8 +180,8 @@ export async function GET(req: NextRequest) {
   const topByValue = [...inventory]
     // withPpb re-populates the computed pricePerBaseUnit reports/page.tsx reads off topItems.
     .map(item => ({
-      ...withPpb(item),
-      inventoryValue: item.stockOnHand * pricePerBaseUnit(asChainItem(item)),
+      ...withLastCost(item),
+      inventoryValue: item.stockOnHand * lastCost(item),
     }))
     .sort((a, b) => b.inventoryValue - a.inventoryValue)
     .slice(0, 10)
@@ -197,7 +198,7 @@ export async function GET(req: NextRequest) {
     .filter(item => item.stockOnHand <= 0 && item.lastCountDate !== null)
     .map(item => ({
       id: item.id, itemName: item.itemName, category: item.category,
-      lastValue: pricePerBaseUnit(asChainItem(item)),
+      lastValue: lastCost(item),
     }))
     .sort((a, b) => b.lastValue - a.lastValue)
     .slice(0, 5)

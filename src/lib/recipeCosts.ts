@@ -8,8 +8,8 @@ import { prisma } from './prisma'
 import { canonicalUom, convertQty, convertQtyBridged, dimensionallyCostable, isKnownUnit, unitKind } from './uom'
 import { getUnitConv } from './utils'
 import { portionsPerBatch } from './recipe-portions'
-import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem, pricePerBaseUnit as chainPricePerBaseUnit } from './item-model'
-import { windowedAvgCost } from '@/lib/cost-basis'
+import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem } from './item-model'
+import { lastCost, windowedAvgCost } from '@/lib/cost-basis'
 import type { CostBasis, ItemCostBasis } from '@/lib/cost-basis'
 
 export interface IngredientWithCost {
@@ -136,7 +136,7 @@ export function computeRecipeCost(
 
     if (ing.inventoryItem) {
       const mapped       = ing.inventoryItemId ? opts.prices?.get(ing.inventoryItemId) : undefined
-      pricePerBaseUnit    = mapped ? mapped.pricePerBase : chainPricePerBaseUnit(asChainItem(ing.inventoryItem))
+      pricePerBaseUnit    = mapped ? mapped.pricePerBase : lastCost(ing.inventoryItem)
       costBasis           = mapped?.basis ?? 'LAST'
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
@@ -254,7 +254,7 @@ export function linkedRecipeUnitCost(linked: {
 }): { costPerUnit: number; yieldUnit: string } {
   const item = linked.inventoryItem
   return {
-    costPerUnit: item ? chainPricePerBaseUnit(asChainItem(item)) : 0,
+    costPerUnit: item ? lastCost(item) : 0,
     yieldUnit:   item?.baseUnit ?? linked.yieldUnit,
   }
 }
@@ -669,8 +669,8 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
         where: { id: outId }, select: { ...PRICING_SELECT },
       })
 
-      const a = before ? chainPricePerBaseUnit(asChainItem(before)) : 0
-      const b = after ? chainPricePerBaseUnit(asChainItem(after)) : 0
+      const a = before ? lastCost(before) : 0
+      const b = after ? lastCost(after) : 0
       const moved = a === 0 ? b !== 0 : Math.abs(a - b) / Math.abs(a) > 1e-6
       if (moved) { movedOutputs.add(outId); queue.push(outId) }
     }

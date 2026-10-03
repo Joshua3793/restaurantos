@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
     const totalItems = inventoryItems.length
     const outOfStockItems = inventoryItems.filter(i => Number(i.stockOnHand) <= 0)
     const totalValue = inventoryItems.reduce(
-      (sum, i) => sum + Number(i.stockOnHand) * pricePerBaseUnit(asChainItem(i)),
+      (sum, i) => sum + Number(i.stockOnHand) * lastCost(i),
       0,
     )
 
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
     const recipesWithCost = recipes.map(r => {
       const totalCost = r.ingredients.reduce((sum, ing) => {
         if (!ing.inventoryItem) return sum
-        return sum + Number(ing.qtyBase) * pricePerBaseUnit(asChainItem(ing.inventoryItem))
+        return sum + Number(ing.qtyBase) * lastCost(ing.inventoryItem)
       }, 0)
       const menuPrice = r.menuPrice ? Number(r.menuPrice) : null
       const foodCostPct = menuPrice && menuPrice > 0 ? (totalCost / menuPrice) * 100 : null

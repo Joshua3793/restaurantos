@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerUnit } from '@/lib/item-model'
+import { PRICING_SELECT, asChainItem, basePerUnit } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
   })
 
   const totalValue = items.filter(i => i.isActive).reduce((sum, i) =>
-    sum + parseFloat(i.stockOnHand.toString()) * pricePerBaseUnit(asChainItem(i)), 0)
+    sum + parseFloat(i.stockOnHand.toString()) * lastCost(i), 0)
   const activeCount = items.filter(i => i.isActive).length
   const countedThisWeek = items.filter(i => {
     if (!i.lastCountDate) return false
@@ -74,7 +75,7 @@ export async function GET(req: NextRequest) {
   const headers = ['Item Name', 'Category', 'Supplier', 'Storage Area', 'Pack Format', 'Purchase Unit', 'Pricing Mode', 'Count Unit', 'Purchase Price', 'Base Unit', 'Conversion Factor', 'Price/Base Unit', 'Stock On Hand', 'Stock Value', 'Barcode', 'Active', 'Last Count Date', 'Last Count Qty', 'Location']
   const rows = items.map(item => {
     const ci = asChainItem(item)
-    const ppb = pricePerBaseUnit(ci)
+    const ppb = lastCost(item)
     const stockValue = parseFloat(item.stockOnHand.toString()) * ppb
     const countUnit = item.countUnit || ci.baseUnit
     return [

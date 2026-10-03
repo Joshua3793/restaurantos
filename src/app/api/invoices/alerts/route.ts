@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { withLastCost } from '@/lib/cost-basis'
 
 // GET /api/invoices/alerts — get all unacknowledged alerts
 export async function GET() {
@@ -27,7 +28,7 @@ export async function GET() {
   // alert UI by computing it from the chain (survives the legacy column drop).
   const priceAlerts = priceAlertsRaw.map(a =>
     a.inventoryItem
-      ? { ...a, inventoryItem: { ...a.inventoryItem, pricePerBaseUnit: pricePerBaseUnit(asChainItem(a.inventoryItem)) } }
+      ? { ...a, inventoryItem: withLastCost(a.inventoryItem) }
       : a
   )
 

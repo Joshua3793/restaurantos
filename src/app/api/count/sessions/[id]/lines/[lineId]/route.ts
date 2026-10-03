@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { convertCountQtyToBase, countEntriesToBase, countDimsOf, assertCountableUom, CountUomError, type CountEntry } from '@/lib/count-uom'
-import { withPpb } from '@/lib/item-model'
+import { withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactLineMoney } from '@/lib/count-redact'
@@ -180,7 +180,7 @@ export async function PATCH(
   })
 
   // Re-populate the computed pricePerBaseUnit the count page reads off the line.
-  const out = { ...updated, inventoryItem: withPpb(updated.inventoryItem) }
+  const out = { ...updated, inventoryItem: withLastCost(updated.inventoryItem) }
   // Below MANAGER: no price or $ variance on the line or its item.
   return NextResponse.json(money ? out : redactLineMoney(out))
 }

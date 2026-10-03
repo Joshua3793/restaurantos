@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { computePeriodCogs } from '@/lib/cogs'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 
 export const dynamic = 'force-dynamic'
 
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
         + it.stockAllocations.filter(a => a.revenueCenterId != null && rcIdSet.has(a.revenueCenterId))
             .reduce((s, a) => s + Number(a.quantity), 0)
       : Number(it.stockOnHand)
-    return sum + qty * pricePerBaseUnit(asChainItem(it))
+    return sum + qty * lastCost(it)
   }, 0)
 
   const avgInventory = (openingValue + closingValue) / 2

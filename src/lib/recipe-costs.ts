@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { linkedRecipeUnitCost } from '@/lib/recipeCosts'
 import { portionsPerBatch } from '@/lib/recipe-portions'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 
 /**
  * Recalculates totalCost, costPerPortion, and foodCostPct for any recipe
@@ -54,7 +55,7 @@ export async function recalculateRecipeCosts(
       const qty = Number(ing.qtyBase)
 
       if (ing.inventoryItem) {
-        const cur = pricePerBaseUnit(asChainItem(ing.inventoryItem))
+        const cur = lastCost(ing.inventoryItem)
         // Old ppb when the caller captured a pre-approval price for this item;
         // otherwise it didn't move, so old == current and contributes 0 change.
         const old = priorPpbByItem?.get(ing.inventoryItem.id) ?? cur

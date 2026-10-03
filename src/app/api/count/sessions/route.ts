@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { buildConsumptionMap, buildPurchaseMap, buildWastageMap, buildPrepMap, buildCountFinalizedMap, buildTransferMap } from '@/lib/count-expected'
 import { MovementLedger } from '@/lib/ledger-balance'
 import { resolveCountUom, countDimsOf } from '@/lib/count-uom'
-import { asChainItem, pricePerBaseUnit, withPpb } from '@/lib/item-model'
+import { lastCost, withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
             // Derive from the purchase format (self-heals legacy items whose
             // stored countUOM no longer matches their structure).
             selectedUom:     resolveCountUom(countDimsOf(item)) || item.baseUnit,
-            priceAtCount:    pricePerBaseUnit(asChainItem(item)),
+            priceAtCount:    lastCost(item),
             sortOrder:       i,
           }
         }),
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
   const enrichedLines = session.lines.map(l => ({
     ...l,
     // withPpb re-populates the computed pricePerBaseUnit the count page reads.
-    inventoryItem: { ...withPpb(l.inventoryItem), parLevel: parMap2.get(l.inventoryItemId) ?? null },
+    inventoryItem: { ...withLastCost(l.inventoryItem), parLevel: parMap2.get(l.inventoryItemId) ?? null },
   }))
 
   const created = { ...session, lines: enrichedLines, counts: { total: session.lines.length, counted: 0, carried: 0, skipped: 0, uncounted: session.lines.length } }

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { periodPurchases, periodSnapshotBounds, type SnapshotBound } from '@/lib/cogs'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 
 export const dynamic = 'force-dynamic'
@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
     for (const item of inventory) {
       const cat = item.category
       inventoryByCategory[cat] = (inventoryByCategory[cat] || 0) +
-        Number(item.stockOnHand) * pricePerBaseUnit(asChainItem(item))
+        Number(item.stockOnHand) * lastCost(item)
     }
     const wastageByItem: Record<string, { name: string; cost: number }> = {}
     for (const w of wastage) {

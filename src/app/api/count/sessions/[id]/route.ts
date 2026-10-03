@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { withPpb } from '@/lib/item-model'
+import { withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope, assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
@@ -58,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     // withPpb re-populates the computed pricePerBaseUnit the count page reads
     // (page.tsx:2574 `l.inventoryItem.pricePerBaseUnit ?? l.priceAtCount`).
     inventoryItem: {
-      ...withPpb(l.inventoryItem),
+      ...withLastCost(l.inventoryItem),
       parLevel: parMap.get(l.inventoryItemId) ?? null,
     },
   }))

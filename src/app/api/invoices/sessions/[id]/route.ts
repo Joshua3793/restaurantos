@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { learnAlias } from '@/lib/supplier-matcher'
 import { requireSession, AuthError } from '@/lib/auth'
-import { PRICING_SELECT, withPpb } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { withLastCost } from '@/lib/cost-basis'
 import { offerPricePerBase } from '@/lib/supplier-offers'
 import { resolvePurchaseDate } from '@/lib/purchase-date'
 import { deleteSession, RollbackRefused } from '@/lib/invoice/rollback-load'
@@ -54,7 +55,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       ...o,
       pricePerBaseUnit: offerPricePerBase(o, mi),
     }))
-    return { ...si, matchedItem: { ...withPpb(mi), supplierPrices } }
+    return { ...si, matchedItem: { ...withLastCost(mi), supplierPrices } }
   })
   return NextResponse.json({ ...session, scanItems })
 }

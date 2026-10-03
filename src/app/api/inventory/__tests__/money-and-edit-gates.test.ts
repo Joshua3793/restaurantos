@@ -46,7 +46,8 @@ vi.mock('@/lib/auth', () => ({
   requireSession: (...a: unknown[]) => requireSession(...(a as [Role?])),
   AuthError: MockAuthError,
 }))
-vi.mock('@/lib/cost-basis', () => ({
+vi.mock('@/lib/cost-basis', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/cost-basis')>()),
   windowedAvgCost: async () => new Map([['i1', { basis: 'AVG_30D', avg: { pricePerBase: 0.0131 } }]]),
 }))
 vi.mock('@/lib/supplier-offers', () => ({ getSupplierOffers: async () => [OFFER] }))

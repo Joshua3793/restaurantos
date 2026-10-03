@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { lineCountedBase, countDimsOf, countUomFactor, lineConversionUnits } from '@/lib/count-uom'
 import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { lastCost } from '@/lib/cost-basis'
 import { snapshotSourceOf, isObservedSource, type SnapshotSource } from '@/lib/count-snapshot-source'
 import { randomUUID } from 'crypto'
 import {
@@ -116,7 +116,7 @@ export async function finalizeCountSession(sessionId: string): Promise<FinalizeR
     // Always use the current price from the inventory item — ensures that any
     // invoice approvals that happened after the count was created are reflected
     // in the snapshot value and the session's totalCountedValue.
-    const price = pricePerBaseUnit(asChainItem(item))
+    const price = lastCost(item)
 
     if (line.skipped || line.countedQty !== null) {
       // rawQty is in line.selectedUom; convert to baseUnit for stockOnHand
