@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { PRICING_SELECT, asChainItem, basePerPurchase } from '@/lib/item-model'
 import { convertBaseToCountUom } from '@/lib/count-uom'
+import { purchaseUnitCost } from '@/lib/cost-basis'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,7 +46,6 @@ export async function GET(req: NextRequest) {
     id: true,
     supplier: { select: { id: true, name: true } },
     ...PRICING_SELECT,
-    purchasePrice: true,
     stockOnHand: true,
     countUnit: true,
     supplierId: true,
@@ -63,7 +63,6 @@ export async function GET(req: NextRequest) {
     packChain: unknown
     pricing: unknown
     countUnit: string
-    purchasePrice: unknown
     stockOnHand: unknown
     recipe: { id: string } | null
     rcQuantity: number
@@ -170,7 +169,7 @@ export async function GET(req: NextRequest) {
     const suggestedQty = row.reorderQty != null
       ? Number(row.reorderQty)
       : Math.ceil((row.parLevel - onHandCount) / countPerPurchase)
-    const unitPrice = Number(row.purchasePrice) // price per purchase (top-of-chain) unit
+    const unitPrice = purchaseUnitCost(row) // price per purchase (top-of-chain) unit, from the chain
 
     const line: Line = {
       id: row.id,
