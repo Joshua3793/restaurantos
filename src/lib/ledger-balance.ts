@@ -24,6 +24,7 @@
 // and would lose the one ordering that matters most: a base made AFTER the
 // sub-recipe that drew it down today is still on the shelf tonight.
 import { displayDayKey } from './prep-day'
+import type { Unbridged } from './movement-qty'
 
 export type LedgerEventType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
 
@@ -43,6 +44,12 @@ export interface LedgerEvent {
   qtyBase:     number
   description: string
   revenueCenterId: string | null
+  /**
+   * Set when the item's bridges could not convert this movement (count ↔
+   * measured with no each-measure). `qtyBase` is then 0: the movement is
+   * listed, never applied, and the balance counts it so the drawer can say so.
+   */
+  unbridged?: Unbridged
 }
 
 /** Collects events as the maps are built. Array-compatible on purpose. */
@@ -53,6 +60,8 @@ export interface LedgerBalance {
   expected:  number
   /** Recorded use the shelf could not supply, in baseUnit. Zero for a healthy item. */
   shortfall: number
+  /** Movements excluded because the item has no bridge to convert them. */
+  unbridged: number
 }
 
 /** Where a day-dated event sits inside its day: deliveries open it, sales close it. */
@@ -81,13 +90,15 @@ export function ledgerOrder(a: LedgerEvent, b: LedgerEvent): number {
 export function runLedger(baseStock: number, events: readonly LedgerEvent[]): LedgerBalance {
   let running = baseStock
   let shortfall = 0
+  let unbridged = 0
   if (running < 0) { shortfall = -running; running = 0 }
   const ordered = [...events].sort(ledgerOrder)
   for (const e of ordered) {
+    if (e.unbridged) { unbridged++; continue }
     running += e.qtyBase
     if (running < 0) { shortfall += -running; running = 0 }
   }
-  return { expected: running, shortfall }
+  return { expected: running, shortfall, unbridged }
 }
 
 /**

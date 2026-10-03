@@ -554,7 +554,7 @@ export async function computeExpectedForItem(
   // No RC selected → mirror getTheoreticalStockMap(null): sum across RCs.
   if (!rcId) {
     const m = await getTheoreticalBalanceMap(null, [itemId])
-    const b = m.get(itemId) ?? { expected: 0, shortfall: 0 }
+    const b = m.get(itemId) ?? { expected: 0, shortfall: 0, unbridged: 0 }
     return { expectedBase: b.expected, baseStock: b.expected, shortfallBase: b.shortfall }
   }
 
@@ -771,8 +771,8 @@ export async function getTheoreticalBalanceMap(
     const perRc = await Promise.all(rcs.map(rc => getTheoreticalBalanceMap(rc.id, itemIds, null, trace)))
     const sum = new Map<string, LedgerBalance>()
     for (const m of perRc) for (const [id, b] of m) {
-      const cur = sum.get(id) ?? { expected: 0, shortfall: 0 }
-      sum.set(id, { expected: cur.expected + b.expected, shortfall: cur.shortfall + b.shortfall })
+      const cur = sum.get(id) ?? { expected: 0, shortfall: 0, unbridged: 0 }
+      sum.set(id, { expected: cur.expected + b.expected, shortfall: cur.shortfall + b.shortfall, unbridged: cur.unbridged + b.unbridged })
     }
     return sum
   }
