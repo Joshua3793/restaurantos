@@ -351,6 +351,14 @@ describe('the live prep log — work carries over, it never drops at midnight', 
     expect(isLiveLog(row({ id: 'e', status: 'PARTIAL' }), today)).toBe(true)
   })
 
+  it('a second batch the same day wins over the finished one, whichever order the rows arrive in', () => {
+    // Sourdough made this morning (DONE), then added again for an afternoon dough.
+    const morning = row({ id: 'morning', status: 'DONE', createdAt: '2026-08-15T14:00:00.000Z' })
+    const again = row({ id: 'again', postedAt: null, createdAt: '2026-08-15T20:00:00.000Z' })
+    expect(pickLiveLogs([morning, again], today).get('i1')?.id).toBe('again')
+    expect(pickLiveLogs([again, morning], today).get('i1')?.id).toBe('again')
+  })
+
   it('picks exactly one log per item, newest first', () => {
     const picked = pickLiveLogs([
       row({ id: 'old', logDate: '2026-08-13T00:00:00.000Z' }),

@@ -148,20 +148,15 @@ export async function PUT(
   // production lands on the day it was posted for. That is not cosmetic: the
   // theoretical-stock engine windows prep against `logDate` (prepEventCounts in
   // count-expected.ts), so a stale date can push the yield behind a count cutoff
-  // and the stock never gets credited. Skipped when the item already has a row
-  // for today (the unique prepItemId+logDate would collide) — rare, and the
-  // completedAt stamp still records the moment.
+  // and the stock never gets credited. An item can hold more than one row a day
+  // now (a second batch after the first was done), so this never collides.
   if (status !== undefined && COMPLETION_STATUSES.has(status)) {
     const today = prepDayStart()
-    if (existing.logDate.getTime() < today.getTime()) {
-      const clash = await prisma.prepLog.findUnique({
-        where: { prepItemId_logDate: { prepItemId: existing.prepItemId, logDate: today } },
-        select: { id: true },
-      })
-      if (!clash) stamp.logDate = today
-    }
+    if (existing.logDate.getTime() < today.getTime()) stamp.logDate = today
   }
 
+  // Reopening a finished batch while the item already has another open job today
+  // would leave two open rows (PrepLog_one_open_per_item_day) — say so plainly.
   const log = await prisma.prepLog.update({
     where: { id: params.id },
     data: {
@@ -177,7 +172,13 @@ export async function PUT(
       ...stageStamp,
       ...(progressData !== undefined && { progress: progressData }),
     },
+  }).catch(e => {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return null
+    throw e
   })
+  if (!log) {
+    return NextResponse.json({ error: 'This item is already on the list again — finish or remove that job first.' }, { status: 409 })
+  }
 
   // Finishing the job clears any OLDER row still holding this item on the
   // kitchen's list. Those rows are what carry an unfinished job forward; left

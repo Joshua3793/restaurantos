@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { resolveActive } from '@/lib/prep-runsheet'
-import { livePostIds, ensureLiveLogs, postedOpenWhere } from '@/lib/prep-plan-server'
+import { livePostIds, ensureLiveLogs, postedOpenWhere, NEWEST_FIRST } from '@/lib/prep-plan-server'
 import { isOpenPrepStatus } from '@/lib/prep-plan'
 
 export const dynamic = 'force-dynamic'
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     // a row whose postedAt is null — so the pair still round-trips.
     const newest = await prisma.prepLog.findFirst({
       where: logScope,
-      orderBy: { logDate: 'desc' },
+      orderBy: NEWEST_FIRST,
       select: { id: true, status: true },
     })
     let candidate = newest && isOpenPrepStatus(newest.status) ? newest.id : undefined

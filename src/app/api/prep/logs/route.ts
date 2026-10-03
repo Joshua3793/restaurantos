@@ -3,8 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { validatePrepQty } from '@/lib/prep-utils'
 import { prepDayFrom, prepDayRange, prepDayStart, prepDaysAgo } from '@/lib/prep-day'
-import { LIVE_LOG_SELECT, markPlanDirty } from '@/lib/prep-plan-server'
-import { isLiveLog } from '@/lib/prep-plan'
+import { LIVE_LOG_SELECT, NEWEST_FIRST, ensureLiveLogs, markPlanDirty } from '@/lib/prep-plan-server'
+import { isLiveLog, isResolvedPrepStatus } from '@/lib/prep-plan'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
     const logs = await prisma.prepLog.findMany({
       where:   { prepItemId, logDate: { gte: since } },
-      orderBy: { logDate: 'desc' },
+      orderBy: NEWEST_FIRST,
     })
     return NextResponse.json(logs)
   }
@@ -110,18 +110,31 @@ export async function POST(req: NextRequest) {
   // earlier list, so a cook picking up yesterday's unfinished prep keeps its
   // timer and planned qty instead of starting a parallel row. A caller that
   // names a day (a back-dated entry) gets exactly that day.
-  const existing = explicitDay
-    ? await prisma.prepLog.findUnique({
-        where: { prepItemId_logDate: { prepItemId, logDate: explicitDay } },
-        select: { id: true, startedAt: true },
+  //
+  // A statusless call is a planner draft edit or "ensure a log exists". When the
+  // live row is already DONE / PARTIAL, the item was added back for another
+  // batch (a second Sourdough dough): that edit belongs on the NEW job, so open
+  // today's fresh row (ensureLiveLogs, the same rule the add and the post use)
+  // rather than writing the planned qty over the batch already made.
+  const live = explicitDay
+    ? await prisma.prepLog.findFirst({
+        where: { prepItemId, logDate: explicitDay },
+        orderBy: NEWEST_FIRST,
+        select: { id: true, status: true, startedAt: true },
       })
     : await prisma.prepLog
         .findFirst({
           where: { prepItemId },
-          orderBy: { logDate: 'desc' },
+          orderBy: NEWEST_FIRST,
           select: { ...LIVE_LOG_SELECT, startedAt: true },
         })
         .then(log => (log && isLiveLog(log, prepDayStart().getTime()) ? log : null))
+  const freshBatch = !explicitDay && status === undefined && !!live && isResolvedPrepStatus(live.status)
+  const existing = freshBatch
+    ? await ensureLiveLogs([prepItemId], revenueCenterId, { afterDone: true })
+        .then(m => m.get(prepItemId))
+        .then(id => (id ? { id, startedAt: null } : null))
+    : live
   const date = explicitDay ?? prepDayStart()
 
   const now = new Date()

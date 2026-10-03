@@ -51,10 +51,14 @@ export function cadenceStats(
   logs: Array<{ logDate: string | Date; actualPrepQty: number | string | null }>,
   _now: Date,
 ): CadenceStats {
-  const rows = logs
-    .map(l => ({ ms: new Date(l.logDate).getTime(), qty: Number(l.actualPrepQty) }))
-    .filter(r => Number.isFinite(r.ms) && Number.isFinite(r.qty) && r.qty > 0)
-    .sort((a, b) => a.ms - b.ms)
+  // One make per DAY: a second batch the same day (Sourdough twice) adds to that
+  // day's quantity rather than counting as a 0-day interval.
+  const byDay = new Map<number, number>()
+  for (const l of logs) {
+    const ms = new Date(l.logDate).getTime(), qty = Number(l.actualPrepQty)
+    if (Number.isFinite(ms) && Number.isFinite(qty) && qty > 0) byDay.set(ms, (byDay.get(ms) ?? 0) + qty)
+  }
+  const rows = [...byDay].map(([ms, qty]) => ({ ms, qty })).sort((a, b) => a.ms - b.ms)
   if (rows.length === 0) return EMPTY
   const lastMs = rows[rows.length - 1].ms
   const lastMadeAt = new Date(lastMs).toISOString()

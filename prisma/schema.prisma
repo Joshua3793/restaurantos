@@ -688,7 +688,11 @@ model PrepLog {
   prepItem          PrepItem       @relation(fields: [prepItemId], references: [id], onDelete: Cascade)
   revenueCenter     RevenueCenter  @relation("PrepLogRC", fields: [revenueCenterId], references: [id])
 
-  @@unique([prepItemId, logDate])
+  // NOT unique: an item made twice in a day (a second Sourdough dough after the
+  // morning one was done) has two rows. At most ONE of them is open — enforced by
+  // the partial unique index "PrepLog_one_open_per_item_day" (migration
+  // 20261003120000_prep_log_second_batch; Prisma cannot model a partial index).
+  @@index([prepItemId, logDate])
   // Theoretical-stock scans (buildPrepMap) filter DONE/PARTIAL logs by revenueCenterId
   // + logDate range; the unique above leads with prepItemId so it can't serve that scan.
   @@index([revenueCenterId, logDate])

@@ -954,6 +954,8 @@ export interface LiveLogRow {
   logDate: Date | string
   status: string
   postedAt: Date | string | null
+  /** Tiebreak when an item has two rows on one day (a second batch after the first was done). */
+  createdAt?: Date | string
 }
 
 /**
@@ -973,6 +975,20 @@ export function isLiveLog(log: LiveLogRow, dayStartMs: number): boolean {
 }
 
 /**
+ * Newest-first order for an item's logs: by day, then — for a second batch made
+ * the same day after the first was done — by when the row was created. Mirrors
+ * NEWEST_LOG's orderBy in src/lib/prep-plan-server.ts.
+ */
+export function isNewerLog(a: LiveLogRow, b: LiveLogRow): boolean {
+  const d = new Date(a.logDate).getTime() - new Date(b.logDate).getTime()
+  if (d !== 0) return d > 0
+  return new Date(a.createdAt ?? 0).getTime() > new Date(b.createdAt ?? 0).getTime()
+}
+
+/** Done or partly done — a resolved job that a second batch starts a new row after. */
+export const isResolvedPrepStatus = (status: string): boolean => status === 'DONE' || status === 'PARTIAL'
+
+/**
  * The live log per item, from that item's rows — ONLY the newest row can be
  * live, and it is live only if `isLiveLog` says so.
  *
@@ -985,7 +1001,7 @@ export function pickLiveLogs<T extends LiveLogRow>(logs: T[], dayStartMs: number
   const newest = new Map<string, T>()
   for (const log of logs) {
     const held = newest.get(log.prepItemId)
-    if (!held || new Date(log.logDate).getTime() > new Date(held.logDate).getTime()) newest.set(log.prepItemId, log)
+    if (!held || isNewerLog(log, held)) newest.set(log.prepItemId, log)
   }
   for (const [prepItemId, log] of newest) {
     if (!isLiveLog(log, dayStartMs)) newest.delete(prepItemId)

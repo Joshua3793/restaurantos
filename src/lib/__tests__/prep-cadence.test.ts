@@ -27,6 +27,12 @@ describe('cadenceStats — the make history, summarised', () => {
     expect(s.makes).toBe(3)
     expect(s.medianIntervalDays).toBe(3)
   })
+  it('two batches the same day are one make — their quantities add, no 0-day gap', () => {
+    const s = cadenceStats([log(9, 6), log(6, 6), log(3, 4), log(3, 2)], now)
+    expect(s.makes).toBe(3)
+    expect(s.medianIntervalDays).toBe(3)
+    expect(s.medianQty).toBe(6)
+  })
   it('median, not mean — one long gap does not stretch the rhythm', () => {
     const s = cadenceStats([log(30, 5), log(6, 5), log(3, 5), log(0, 5)], now)
     expect(s.medianIntervalDays).toBe(3)

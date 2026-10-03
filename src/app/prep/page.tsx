@@ -26,7 +26,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag } from '@/lib/prep-plan'
+import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
 import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
@@ -977,10 +977,17 @@ export default function PrepPage() {
     // fake a change without a writable revenue center.
     if (!canPlan) { setActionError('Pick a revenue center you can edit to change the list.'); return }
     const before = items.find(i => i.id === itemId)?.isOnList
+    // Added back after it was already made today (a second Sourdough dough): the
+    // new job is a fresh log, not the finished one — the server opens it (see
+    // ensureLiveLogs' afterDone). Seed it here so draft edits and the planner
+    // read the new job, never the batch already done.
+    const againAfterDone = newValue && isResolvedPrepStatus(items.find(i => i.id === itemId)?.todayLog?.status ?? '')
     // Optimistic update
     mutationSeq.current++
     setItems(prev => prev.map(i =>
-      i.id === itemId ? { ...i, isOnList: newValue } : i
+      i.id === itemId
+        ? { ...i, isOnList: newValue, ...(againAfterDone ? { todayLog: seedLog(i, {}) } : {}) }
+        : i
     ))
     markSaving(itemId, true)
 
@@ -1007,6 +1014,14 @@ export default function PrepPage() {
         mutationSeq.current++
         setItems(prev => prev.map(i => (i.id === itemId && before !== undefined ? { ...i, isOnList: before } : i)))
         setActionError(data.error ? `Could not update list — ${data.error}` : 'Could not update list — try again.')
+        if (againAfterDone) load()
+      } else if (againAfterDone) {
+        const { openLogId } = await res.json().catch(() => ({ openLogId: null }))
+        if (openLogId) {
+          setItems(prev => prev.map(i => (
+            i.id === itemId && i.todayLog?.id.startsWith('_opt_') ? { ...i, todayLog: { ...i.todayLog, id: openLogId } } : i
+          )))
+        }
       }
     } catch {
       setActionError('Could not update list — try again.')
