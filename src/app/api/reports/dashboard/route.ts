@@ -5,6 +5,7 @@ import { startOfWeek } from '@/lib/dates'
 import { theoreticalCostForLineItems } from '@/lib/theoretical-cost'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { lastCost, withLastCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 import { dedupeSalesEntries } from '@/lib/sales-dedup'
 
@@ -70,14 +71,14 @@ export async function GET(req: NextRequest) {
     ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
     : rcId ? { revenueCenterId: rcId } : {}
 
-  const [inventoryRaw, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases, salesWTD, purchasesWTD] = await Promise.all([
+  const [inventoryRows, weekWastage, monthWastage, recentInvoices, weeklySales, weeklyPurchases, salesWTD, purchasesWTD] = await Promise.all([
     prisma.inventoryItem.findMany({
       where: { isActive: true, isStocked: true },
       select: {
         id: true, itemName: true, category: true,
         stockOnHand: true, ...PRICING_SELECT, purchasePrice: true,
         lastCountDate: true,
-        supplier: { select: { name: true } },
+        ...PRIMARY_SUPPLIER_INCLUDE,
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },
       },
     }),
@@ -113,6 +114,8 @@ export async function GET(req: NextRequest) {
       _sum: { rawLineTotal: true },
     }),
   ])
+  // An item's supplier is its primary box's supplier — keep the `supplier` shape the page reads.
+  const inventoryRaw = inventoryRows.map(withSupplier)
 
   // Dedupe manual↔Toast overlap before any revenue sum (B3 — see sales-dedup.ts).
   const weeklySalesDeduped = dedupeSalesEntries(weeklySales)

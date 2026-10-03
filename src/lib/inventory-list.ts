@@ -11,6 +11,7 @@ import { lastCost } from '@/lib/cost-basis'
 import { getTheoreticalStockMapCached } from './theoretical-cache'
 import { getCountedStockMap, type CountedStock } from './counted-stock'
 import { resolveScopedRcIds } from './rc-scope'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from './item-supplier'
 
 export interface InventoryListParams {
   search: string
@@ -30,7 +31,7 @@ export interface InventoryListRow {
   id: string
   itemName: string
   category: string
-  supplier?: { name: string } | null
+  supplier?: { id: string; name: string } | null
   storageArea?: { name: string } | null
   baseUnit: string
   countUnit?: string | null
@@ -46,7 +47,8 @@ export interface InventoryListRow {
   pricePerBaseUnit: number
   parLevel?: number | null
   // packChain, pricing, purchasePrice, stockOnHand, lastCountQty and the rest of the
-  // Prisma row ride along untyped, exactly as the route returned them.
+  // Prisma row ride along untyped, exactly as the route returned them. `supplier` and
+  // `supplierId` are derived from the item's primary supplier box (withSupplier).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any
 }
@@ -169,7 +171,8 @@ export async function fetchInventoryList(
     AND: [
       search ? { itemName: { contains: search, mode: 'insensitive' as const } } : {},
       category ? { category } : {},
-      supplierId ? { supplierId } : {},
+      // "items this supplier sells" — a box from that supplier, primary or not
+      supplierId ? { supplierPrices: { some: { supplierId } } } : {},
       storageAreaId ? { storageAreaId } : {},
       isActive !== null && isActive !== '' ? { isActive: isActive === 'true' } : {},
       // Merge tombstones are never listed — not even by "show inactive", which is
@@ -183,7 +186,7 @@ export async function fetchInventoryList(
   }
 
   const itemInclude = {
-    supplier: true,
+    ...PRIMARY_SUPPLIER_INCLUDE,
     storageArea: true,
     recipe: { select: { id: true, name: true } },
   }
@@ -206,7 +209,8 @@ export async function fetchInventoryList(
       }),
     ])
     const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
-    const items = members.map(i => {
+    const items = members.map(m => {
+      const i = withSupplier(m)
       const alloc = allocByItemId[i.id]
       return {
         ...i,
@@ -237,7 +241,8 @@ export async function fetchInventoryList(
       }),
     ])
     const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
-    const result = items.map(i => {
+    const result = items.map(raw => {
+      const i = withSupplier(raw)
       const alloc = allocByItemId[i.id]
       return {
         ...i,
@@ -305,7 +310,8 @@ export async function fetchInventoryList(
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
-  const items = rawItems.map(({ stockAllocations, ...item }) => {
+  const items = rawItems.map(({ stockAllocations, ...rawItem }) => {
+    const item = withSupplier(rawItem)
     // The default RC's stockOnHand pool only counts toward the aggregate when that RC is in
     // scope; otherwise a scoped user (who can't see the default RC) sees only their allocations.
     const rawStockOnHand = defaultRcInScope ? Number(item.stockOnHand) : 0

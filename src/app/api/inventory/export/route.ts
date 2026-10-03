@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 import { PRICING_SELECT, asChainItem, basePerUnit } from '@/lib/item-model'
 import { lastCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { formatPurchaseDisplay, convertBaseToCountUom } from '@/lib/count-uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams, type InventoryListRow } from '@/lib/inventory-list'
@@ -26,11 +27,11 @@ export async function GET(req: NextRequest) {
     return stockInHandWorkbook(user, searchParams)
   }
 
-  const items = await prisma.inventoryItem.findMany({
+  const rawItems = await prisma.inventoryItem.findMany({
     select: {
       itemName: true,
       category: true,
-      supplier: { select: { name: true } },
+      ...PRIMARY_SUPPLIER_INCLUDE,
       storageArea: { select: { name: true } },
       purchasePrice: true,
       ...PRICING_SELECT,
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
+  const items = rawItems.map(withSupplier)
 
   const totalValue = items.filter(i => i.isActive).reduce((sum, i) =>
     sum + parseFloat(i.stockOnHand.toString()) * lastCost(i), 0)

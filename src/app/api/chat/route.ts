@@ -63,8 +63,6 @@ export async function POST(req: NextRequest) {
           purchasePrice: true,
           ...PRICING_SELECT,
           lastCountDate: true,
-          supplierId: true,
-          supplier: { select: { name: true } },
         },
         orderBy: { stockOnHand: 'asc' },
       }),

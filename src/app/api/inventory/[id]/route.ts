@@ -7,6 +7,7 @@ import {
 import { keepBridgedRate } from '@/lib/item-model-form'
 import { syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
 import { windowedAvgCost, withLastCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { mirrorItemToPrimaryOffer } from '@/lib/primary-offer'
 import { tombstonedRows, TOMBSTONE_EDIT_ERROR } from '@/lib/item-merge-rows'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
@@ -27,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const item = await prisma.inventoryItem.findUnique({
     where: { id: params.id },
     include: {
-      supplier: true,
+      ...PRIMARY_SUPPLIER_INCLUDE,
       storageArea: true,
       invoiceLineItems: { include: { invoice: true } },
       recipeIngredients: { include: { recipe: true } },
@@ -40,7 +41,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // null for a PREP-linked item — windowedAvgCost never averages those (its cost
   // comes from the recipe, not invoice receipts).
   const costBasis = item.recipe ? null : (await windowedAvgCost([item.id])).get(item.id) ?? null
-  const body = { ...withLastCost(item), costBasis }
+  const body = { ...withLastCost(withSupplier(item)), costBasis }
   // STAFF opens this drawer from the count page — quantities and units only.
   return NextResponse.json(seesItemMoney(user.role) ? body : redactInventoryItem(body))
 }
@@ -223,9 +224,9 @@ async function postUpdate(
   // Return the final state (may have been updated by recipe sync)
   const updated = await prisma.inventoryItem.findUnique({
     where: { id },
-    include: { supplier: true, storageArea: true },
+    include: { ...PRIMARY_SUPPLIER_INCLUDE, storageArea: true },
   })
-  return NextResponse.json(updated ? withLastCost(updated) : updated)
+  return NextResponse.json(updated ? withLastCost(withSupplier(updated)) : updated)
 }
 
 async function handleDELETE(_req: NextRequest, { params }: { params: { id: string } }) {

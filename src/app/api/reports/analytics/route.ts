@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { volatilityOf, stabilityOf, scanLinePricePerBase, offerPricePerBase } from '@/lib/supplier-offers'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { lastCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
 import { fetchRecipeWithCost, dishServingCost } from '@/lib/recipeCosts'
 import { dedupeSalesEntries } from '@/lib/sales-dedup'
@@ -216,12 +217,12 @@ async function getSales(ctx: Ctx) {
 // ── Inventory ─────────────────────────────────────────────────────────────────
 async function getInventory(ctx: Ctx) {
   const { win, rcId, isDefault, countRc, locRcIds, locOwnsDefault } = ctx
-  const [priceAlerts, items, countSessions] = await Promise.all([
+  const [priceAlertRows, itemRows, countSessions] = await Promise.all([
     // Price changes are GLOBAL — PriceAlert has no RC column (a price change is
     // item-level, not revenue-center-specific). Windowed by the selected range.
     prisma.priceAlert.findMany({
       where: { createdAt: win },
-      include: { inventoryItem: { select: { itemName: true, category: true, supplier: { select: { name: true } } } },
+      include: { inventoryItem: { select: { itemName: true, category: true, ...PRIMARY_SUPPLIER_INCLUDE } },
         session: { select: { supplierName: true, invoiceDate: true } } },
       orderBy: { changePct: 'desc' },
     }),
@@ -231,7 +232,7 @@ async function getInventory(ctx: Ctx) {
         id: true, itemName: true, category: true,
         stockOnHand: true, ...PRICING_SELECT,
         purchasePrice: true, lastCountDate: true,
-        supplier: { select: { name: true } },
+        ...PRIMARY_SUPPLIER_INCLUDE,
         stockAllocations: { select: { quantity: true, revenueCenterId: true } },
       },
       orderBy: { itemName: 'asc' },
@@ -243,6 +244,9 @@ async function getInventory(ctx: Ctx) {
       take: 6,
     }),
   ])
+  // An item's supplier is its primary box's supplier — keep the `.supplier` shape below.
+  const priceAlerts = priceAlertRows.map(a => ({ ...a, inventoryItem: withSupplier(a.inventoryItem) }))
+  const items = itemRows.map(withSupplier)
 
   // RC-aware current stock (point-in-time): default RC = stockOnHand; non-default =
   // its allocation; All = stockOnHand + every allocation. Mirrors the inventory page.

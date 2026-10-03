@@ -5,6 +5,7 @@ import {
   validateChainItem, dimensionOf, type ChainItem,
 } from '@/lib/item-model'
 import { withLastCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
@@ -101,7 +102,7 @@ async function handlePOST(req: NextRequest) {
       eachMeasureQty:  emValid ? emQty : null,
       eachMeasureUnit: emValid ? emUnit : null,
     },
-    include: { supplier: true, storageArea: true },
+    include: { ...PRIMARY_SUPPLIER_INCLUDE, storageArea: true },
   })
 
   // A new item joins exactly the RC chosen at creation (default RC if none) — its first
@@ -116,7 +117,7 @@ async function handlePOST(req: NextRequest) {
       .catch(e => console.error('[inventory POST] membership create', e))
   }
 
-  return NextResponse.json(withLastCost(item), { status: 201 })
+  return NextResponse.json(withLastCost(withSupplier(item)), { status: 201 })
 }
 
 // Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).

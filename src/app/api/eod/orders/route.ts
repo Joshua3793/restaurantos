@@ -5,6 +5,7 @@ import { getTheoreticalStockMap } from '@/lib/count-expected'
 import { PRICING_SELECT, asChainItem, basePerPurchase } from '@/lib/item-model'
 import { convertBaseToCountUom } from '@/lib/count-uom'
 import { purchaseUnitCost } from '@/lib/cost-basis'
+import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,11 +45,10 @@ export async function GET(req: NextRequest) {
   // on Recipe.inventoryItemId, so InventoryItem.recipe: null is the filter).
   const itemInclude = {
     id: true,
-    supplier: { select: { id: true, name: true } },
+    ...PRIMARY_SUPPLIER_INCLUDE,
     ...PRICING_SELECT,
     stockOnHand: true,
     countUnit: true,
-    supplierId: true,
     itemName: true,
     recipe: { select: { id: true } },
   } as const
@@ -85,7 +85,8 @@ export async function GET(req: NextRequest) {
       }),
     ])
     const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
-    rows = items.map(i => {
+    rows = items.map(raw => {
+      const i = withSupplier(raw)
       const alloc = allocByItemId[i.id]
       return {
         ...i,
@@ -107,7 +108,7 @@ export async function GET(req: NextRequest) {
     })
     rows = allocations
       .map(a => ({
-        ...a.inventoryItem,
+        ...withSupplier(a.inventoryItem),
         rcQuantity: Number(a.quantity),
         parLevel: a.parLevel != null ? Number(a.parLevel) : null,
         reorderQty: a.reorderQty != null ? Number(a.reorderQty) : null,
