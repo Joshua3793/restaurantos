@@ -1,11 +1,16 @@
-// The recipe/menu cost basis: what a base unit of an item actually cost us over
-// the last COST_WINDOW_DAYS, pooled across every supplier — Σ line total ÷ Σ
-// frozen received quantity over the approved invoice lines in the window.
-// Derived at read time, never stored (a cached cost is the divergence class the
-// spine was cleaned of). Everything outside the recipe/menu surfaces keeps the
-// last price: `pricePerBaseUnit(item)`.
+// THE reader-facing cost API. Every route and lib that needs "what does a base
+// unit of this item cost" imports from HERE, on an explicit basis:
+//   LAST    — the primary supplier's last price, derived from the item's
+//             packChain + pricing (numerically the engine's pricePerBaseUnit).
+//             Counts, stock value, COGS, variance, theoretical usage, orders.
+//   AVG_30D — Σ line total ÷ Σ frozen receivedQtyBase over the approved invoice
+//             lines of the last COST_WINDOW_DAYS, pooled across every supplier.
+//             Recipes, menu, wastage. Falls back to LAST, labelled.
+// Nothing here is stored (a cached cost is the divergence class the spine was
+// cleaned of). `src/lib/item-model.ts` stays the pure engine; the gate test
+// `src/lib/__tests__/cost-readers-gate.test.ts` keeps readers out of it.
 import { prisma } from '@/lib/prisma'
-import { PRICING_SELECT, asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { PRICING_SELECT, asChainItem, pricePerBaseUnit, basePerPurchase, withPpb } from '@/lib/item-model'
 import { IMPLAUSIBLE_PRICE_RATIO } from '@/lib/invoice/line-format'
 
 export const COST_WINDOW_DAYS = 30
@@ -18,7 +23,7 @@ export interface ItemCostBasis {
   /** The average's evidence — present whenever ≥ 1 line was looked at, even when the guard fell back. */
   avg?: { pricePerBase: number; paid: number; received: number; lines: number; excluded: number }
   /** Why an item is NOT on the average. */
-  fallbackReason?: 'no-purchases' | 'implausible'
+  fallbackReason?: 'no-purchases' | 'implausible' | 'prep-linked'
 }
 
 export interface CostLine { rawLineTotal: unknown; receivedQtyBase: unknown }
@@ -97,4 +102,52 @@ export async function windowedAvgCost(itemIds: string[], asOf: Date = new Date()
     out.set(it.id, foldCostBasis({ lines: byItem.get(it.id) ?? [], lastPricePerBase: pricePerBaseUnit(asChainItem(it)) }))
   }
   return out
+}
+
+/** A Prisma row loaded with `...PRICING_SELECT` (plus whatever else the caller selected). */
+export type ChainRow = Parameters<typeof asChainItem>[0]
+
+/** LAST basis, synchronous: the primary chain's $/base for a row already in hand. */
+export function lastCost(row: ChainRow): number {
+  return pricePerBaseUnit(asChainItem(row))
+}
+
+/** Attach a computed `pricePerBaseUnit` (LAST) for API responses that still expose the field. */
+export function withLastCost<T extends ChainRow>(row: T): T & { pricePerBaseUnit: number } {
+  return withPpb(row)
+}
+
+/**
+ * LAST basis price of ONE top-of-chain (purchase) unit — the box price for a
+ * PACK item; for a RATE item the rate × the base units one purchase unit holds
+ * (a pound of $28.60/kg salmon is $12.97). Replaces every read of the legacy
+ * `purchasePrice` column, which held the RATE itself for weight-priced items.
+ */
+export function purchaseUnitCost(row: ChainRow): number {
+  const chain = asChainItem(row)
+  return lastCost(row) * basePerPurchase(chain.packChain)
+}
+
+/** Batched: one cost per id on `basis`. Unknown ids are simply absent. */
+export async function itemCosts(itemIds: string[], basis: CostBasis, asOf: Date = new Date()): Promise<Map<string, ItemCostBasis>> {
+  const ids = Array.from(new Set(itemIds))
+  if (ids.length === 0) return new Map()
+  if (basis === 'LAST') {
+    const rows = await prisma.inventoryItem.findMany({ where: { id: { in: ids } }, select: { id: true, ...PRICING_SELECT } })
+    return new Map(rows.map((r) => [r.id, { basis: 'LAST' as const, pricePerBase: lastCost(r) }]))
+  }
+  const out = await windowedAvgCost(ids, asOf)
+  // windowedAvgCost never averages a PREP output (its cost is the recipe's);
+  // those ids come back on LAST, labelled, so a caller always gets an entry.
+  const missing = ids.filter((id) => !out.has(id))
+  if (missing.length > 0) {
+    const rows = await prisma.inventoryItem.findMany({ where: { id: { in: missing } }, select: { id: true, ...PRICING_SELECT } })
+    for (const r of rows) out.set(r.id, { basis: 'LAST', pricePerBase: lastCost(r), fallbackReason: 'prep-linked' })
+  }
+  return out
+}
+
+/** One item on `basis`; null when the id does not exist. */
+export async function itemCost(itemId: string, basis: CostBasis, asOf: Date = new Date()): Promise<ItemCostBasis | null> {
+  return (await itemCosts([itemId], basis, asOf)).get(itemId) ?? null
 }
