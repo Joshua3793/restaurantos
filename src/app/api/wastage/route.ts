@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { convertQty } from '@/lib/uom'
-import { asChainItem, pricePerBaseUnit } from '@/lib/item-model'
+import { itemCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
@@ -60,7 +60,9 @@ async function handlePOST(req: NextRequest) {
   }
 
   const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
-  const ppbu = item ? pricePerBaseUnit(asChainItem(item)) : 0
+  // Wastage is an expense, costed like a recipe line: what a base unit actually
+  // cost us lately (30-day average across suppliers), LAST when nothing was bought.
+  const ppbu = item ? (await itemCost(item.id, 'AVG_30D'))?.pricePerBase ?? 0 : 0
   const qtyBase = item ? convertQty(parseFloat(qtyWasted), unit, item.baseUnit) : parseFloat(qtyWasted)
   const costImpact = qtyBase * ppbu
 
