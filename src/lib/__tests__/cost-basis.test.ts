@@ -5,7 +5,7 @@ const { db } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/prisma', () => ({ prisma: db }))
-import { foldCostBasis, costWindow, COST_WINDOW_DAYS } from '@/lib/cost-basis'
+import { foldCostBasis, costWindow, COST_WINDOW_DAYS, listedPrice } from '@/lib/cost-basis'
 
 const L = (rawLineTotal: unknown, receivedQtyBase: unknown) => ({ rawLineTotal, receivedQtyBase })
 
@@ -129,4 +129,9 @@ describe('itemCosts / itemCost', () => {
     db.inventoryItem.findMany.mockResolvedValueOnce([])
     expect(await itemCost('nope', 'LAST')).toBeNull()
   })
+})
+
+describe('listedPrice — the number the legacy purchasePrice column held', () => {
+  it('PACK: the box price', () => { expect(listedPrice(BUTTER)).toBe(142.5) })
+  it('RATE: the rate itself, not the purchase-unit cost', () => { expect(listedPrice(SALMON)).toBe(28.6) })
 })

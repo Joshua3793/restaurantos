@@ -128,6 +128,17 @@ export function purchaseUnitCost(row: ChainRow): number {
   return lastCost(row) * basePerPurchase(chain.packChain)
 }
 
+/**
+ * The price as the primary supplier lists it, in the pricing's own mode: the
+ * box price for PACK, the rate itself (e.g. $/kg) for RATE. This is the number
+ * the legacy `purchasePrice` column held; use it wherever that column was read
+ * as "the listed price" rather than "the price of one purchase unit".
+ */
+export function listedPrice(row: ChainRow): number {
+  const p = asChainItem(row).pricing
+  return p.mode === 'RATE' ? Number(p.rate || 0) : Number(p.purchasePrice || 0)
+}
+
 /** Batched: one cost per id on `basis`. Unknown ids are simply absent. */
 export async function itemCosts(itemIds: string[], basis: CostBasis, asOf: Date = new Date()): Promise<Map<string, ItemCostBasis>> {
   const ids = Array.from(new Set(itemIds))

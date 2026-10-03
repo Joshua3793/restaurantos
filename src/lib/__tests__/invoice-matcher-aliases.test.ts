@@ -195,4 +195,8 @@ describe('previousPriceFor — the "was" price on a matched line', () => {
     expect(previousPriceFor(null, BUTTER)).toBeCloseTo(142.5, 9)
     expect(previousPriceFor({ lastPrice: null }, BUTTER)).toBeCloseTo(142.5, 9)
   })
+  it('falls back to the RATE itself for a weight-priced item (what the line rate is compared with)', () => {
+    const SALMON = { dimension: 'MASS', baseUnit: 'g', countUnit: 'lb', packChain: [{ unit: 'lb', per: 453.6 }], pricing: { mode: 'RATE', rate: 28.6, rateUnit: 'kg' }, eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+    expect(previousPriceFor(null, SALMON)).toBe(28.6)
+  })
 })

@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { OcrLineItem } from '@/lib/invoice-ocr'
 import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoice-format'
 import { PRICING_SELECT } from '@/lib/item-model'
-import { purchaseUnitCost, type ChainRow } from '@/lib/cost-basis'
+import { listedPrice, type ChainRow } from '@/lib/cost-basis'
 import { RULE_SELECT, ruleState, type UndoCollector } from '@/lib/invoice/approve-undo'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
@@ -321,12 +321,13 @@ export function buildOfferSkuIndex(
 
 /**
  * The "was" price shown on a matched line: what THIS supplier charged last time
- * (its offer's lastPrice), else the item's primary chain priced per purchase
- * unit. Never the legacy `purchasePrice` column — it drifts from `pricing`.
+ * (its offer's lastPrice), else the primary chain's listed price — box price or
+ * rate — the number the legacy column held. Derived from `pricing`, never the
+ * `purchasePrice` column itself (it drifts).
  */
 export function previousPriceFor(offer: { lastPrice?: unknown } | null | undefined, item: ChainRow): number {
   const offerLast = offer?.lastPrice != null ? Number(offer.lastPrice) : NaN
-  return Number.isFinite(offerLast) ? offerLast : purchaseUnitCost(item)
+  return Number.isFinite(offerLast) ? offerLast : listedPrice(item)
 }
 
 function buildMatchResult(
