@@ -11,7 +11,7 @@ import {
 // cost-basis.ts imports Prisma at runtime — type-only import so it isn't bundled client-side.
 import type { ItemCostBasis } from '@/lib/cost-basis'
 import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
-import { canonicalUom } from '@/lib/uom'
+import { canonicalUom, getUnitGroup } from '@/lib/uom'
 import {
   DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
 } from '@/components/inventory/ItemChainEditor'
@@ -247,6 +247,17 @@ function displayStock(item: InventoryItem): number {
 // Shows the 30-day weighted-average cost recipes are actually priced on, next to the
 // item's last (stored) price — so a chef can see why a recipe's cost moved without
 // this item's own price block having changed. `last` is the item's pricePerBaseUnit.
+/** What the manager should do about a movement the item could not convert. */
+function unbridgedAdvice(unit: string, baseUnit: string): string {
+  const movement = getUnitGroup(unit)
+  const base = getUnitGroup(baseUnit)
+  if (base === 'Count' && (movement === 'Weight' || movement === 'Volume')) {
+    return 'tell it how much one each weighs (1 each = ? g) in Edit so they count'
+  }
+  const ownUnits = base === 'Weight' ? 'g or kg' : base === 'Volume' ? 'ml or l' : 'each'
+  return `they were logged in ${unit}, which this item cannot convert — log them in ${ownUnits}`
+}
+
 function CostBasisRow({ cb, baseUnit, last }: { cb: ItemCostBasis; baseUnit: string; last: number }) {
   const label = <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">30-day average</div>
   if (cb.fallbackReason === 'implausible' && cb.avg) {
@@ -977,7 +988,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                             </div>
                             <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
                               {m.unbridged ? (
-                                <span className="font-semibold text-gold-2" title="Not counted — this item has no weight set for one each">
+                                <span className="font-semibold text-gold-2" title={`Not counted — ${unbridgedAdvice(m.unbridged.unit, item.baseUnit ?? 'each')}`}>
                                   {m.unbridged.qty.toFixed(2)} {m.unbridged.unit} · not counted
                                 </span>
                               ) : (
@@ -999,7 +1010,12 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       )}
                       {(stockMovements.reconciliation?.unbridgedCount ?? 0) > 0 && (
                         <div className="font-mono text-[10.5px] text-gold-2 text-center pt-1">
-                          {stockMovements.reconciliation!.unbridgedCount} movement{stockMovements.reconciliation!.unbridgedCount === 1 ? '' : 's'} not counted — tell it how much one each weighs (1 each = ? g) in Edit so they count
+                          {stockMovements.reconciliation!.unbridgedCount} movement{stockMovements.reconciliation!.unbridgedCount === 1 ? '' : 's'} not counted — {(() => {
+                            const firstUnbridged = stockMovements.movements.find(m => m.unbridged)
+                            return firstUnbridged?.unbridged
+                              ? unbridgedAdvice(firstUnbridged.unbridged.unit, item.baseUnit ?? 'each')
+                              : 'tell it how much one each weighs (1 each = ? g) in Edit so they count'
+                          })()}
                         </div>
                       )}
                     </div>

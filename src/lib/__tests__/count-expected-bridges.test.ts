@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { LedgerEvent } from '@/lib/ledger-balance'
 
-// buildWastageMap is the smallest builder that converts a movement; the sale and
-// prep builders go through the same movementQtyBase call (Task 3 of the plan).
+// buildWastageMap is the smallest builder that converts a movement; the prep builder
+// is covered below; the sale builder (expandRecipeIngredients) goes through the same
+// movementQtyBase call and the same MOVEMENT_ITEM_SELECT and is not separately tested.
 const BUN = { id: 'bun', baseUnit: 'each', dimension: 'COUNT', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
 const BUN_85 = { ...BUN, eachMeasureQty: '85', eachMeasureUnit: 'g' }
 const D = new Date('2026-09-20T00:00:00.000Z')

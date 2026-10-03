@@ -22,10 +22,10 @@ export const MOVEMENT_ITEM_SELECT = {
 
 export interface MovementItem {
   baseUnit: string
-  dimension?: string | null
-  eachMeasureQty?: unknown
-  eachMeasureUnit?: string | null
-  densityGPerMl?: unknown
+  dimension: string | null
+  eachMeasureQty: unknown
+  eachMeasureUnit: string | null
+  densityGPerMl: unknown
 }
 
 /** A movement the item's bridges cannot convert, kept in its own unit for display. */

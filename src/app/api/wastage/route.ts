@@ -63,7 +63,12 @@ async function handlePOST(req: NextRequest) {
   // Wastage is an expense, costed like a recipe line: what a base unit actually
   // cost us lately (30-day average across suppliers), LAST when nothing was bought.
   const ppbu = item ? (await itemCost(item.id, 'AVG_30D'))?.pricePerBase ?? 0 : 0
-  const qtyBase = item ? movementQtyBase(parseFloat(qtyWasted), unit, item).qtyBase : parseFloat(qtyWasted)
+  const conv = item ? movementQtyBase(parseFloat(qtyWasted), unit, item) : null
+  if (conv?.unbridged) {
+    const own = item!.dimension === 'MASS' ? 'g or kg' : item!.dimension === 'VOLUME' ? 'ml or l' : 'each'
+    return NextResponse.json({ error: `${item!.itemName} can't be logged in ${unit} — log it in ${own}` }, { status: 400 })
+  }
+  const qtyBase = conv ? conv.qtyBase : parseFloat(qtyWasted)
   const costImpact = qtyBase * ppbu
 
   const log = await prisma.wastageLog.create({

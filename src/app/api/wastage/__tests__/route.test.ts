@@ -47,13 +47,14 @@ describe('POST /api/wastage', () => {
     expect(Number(data.costImpact)).toBeCloseTo(5.0, 6)
   })
 
-  it('a weight wastage of a per-each item with no bridge costs $0 (not applied, same as the stock engine)', async () => {
+  it('refuses a weight wastage of a per-each item with no bridge instead of costing it $0', async () => {
     current = BUN as unknown as typeof ITEM
     const req = { url: 'http://x/api/wastage', json: async () => ({
       inventoryItemId: 'bun', qtyWasted: '200', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1',
     }) } as unknown as NextRequest
     const res = await route.POST(req)
-    expect(res.status).toBe(201)
-    expect(Number(create.mock.calls.at(-1)![0].data.costImpact)).toBe(0)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/log it in each/)
+    expect(create).not.toHaveBeenCalled()
   })
 })
