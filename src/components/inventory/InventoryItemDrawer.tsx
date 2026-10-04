@@ -1147,7 +1147,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 )}
 
                 {/* How each supplier writes this item on its invoices (W7) — MANAGER+. */}
-                {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} />}
+                {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} refreshKey={mergeTick} />}
 
                 {/* Merges into this item, each with its Undo (the Merge button is in the header). */}
                 {canMerge && !item.recipe && (

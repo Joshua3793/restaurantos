@@ -39,4 +39,10 @@ export function isShoutyName(name: string): boolean {
   return upper / letters.length >= 0.7
 }
 
+/** The invoice path's hint: there, the wording really is kept (as the
+ *  supplier's own wording, learned at approve). */
 export const SHOUTY_HINT = 'That looks like an invoice wording, not a plain name. Give it a plain name (for example "Red Grapes") — the invoice wording is kept as the supplier\'s own.'
+
+/** Every other create path (Add Item, count quick-add): no invoice is in hand,
+ *  so nothing is kept — the hint promises nothing about a wording. */
+export const SHOUTY_HINT_PLAIN = 'That looks like an invoice wording, not a plain name. Give it a plain name (for example "Red Grapes").'

@@ -46,19 +46,27 @@ function wordingMeta(w: Wording): string {
   ].filter(Boolean).join(' · ')
 }
 
-export function SupplierWordingsSection({ itemId }: { itemId: string }) {
+/** `refreshKey` — the drawer's merge counter: a merge moves the absorbed
+ *  item's wordings onto this one, so the list reloads when it changes. */
+export function SupplierWordingsSection({ itemId, refreshKey = 0 }: { itemId: string; refreshKey?: number }) {
   const [wordings, setWordings] = useState<Wording[] | null>(null)
+  // A failed load is NOT "nothing learned" — it gets its own sentence.
+  const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     fetch(`/api/inventory/${itemId}/aliases`)
-      .then(r => (r.ok ? r.json() : { aliases: [] }))
-      .then(d => setWordings(Array.isArray(d?.aliases) ? d.aliases : []))
-      .catch(() => setWordings([]))
+      .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json() })
+      .then(d => {
+        if (!Array.isArray(d?.aliases)) throw new Error('bad shape')
+        setWordings(d.aliases)
+        setLoadFailed(false)
+      })
+      .catch(() => setLoadFailed(true))
   }, [itemId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, refreshKey])
 
   const forget = async (w: Wording) => {
     setError(null)
@@ -75,6 +83,22 @@ export function SupplierWordingsSection({ itemId }: { itemId: string }) {
     } finally {
       setBusy(null)
     }
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="space-y-2">
+        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">
+          Supplier wordings
+        </div>
+        <p className="text-[12px] text-red-text">
+          Couldn&apos;t load the supplier wordings.{' '}
+          <button type="button" onClick={load} className="font-semibold underline underline-offset-2">
+            Try again.
+          </button>
+        </p>
+      </div>
+    )
   }
 
   if (!wordings) return null

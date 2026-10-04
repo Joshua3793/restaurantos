@@ -97,14 +97,21 @@ export const CREATE_NEW_NEEDS_NAME = 'Give the product a name.'
 /** W1 on the create-new path: the name the product is created with. A blank
  *  name falls back to the invoice wording (sessions configured before the name
  *  box started empty); an invoice wording is refused with the hint unless the
- *  reviewer explicitly kept it (`allowShouty === true` — nothing else counts).
- *  The panel passes `rawDescription: null` so a blank name is refused there. */
+ *  reviewer explicitly kept it (`allowShouty === true`), or the line was saved
+ *  by the OLD panel — it pre-filled the name with the invoice wording and never
+ *  sent `allowShouty`, so `allowShouty === undefined` with a name equal to the
+ *  wording (trimmed) is an older save and goes through as it always did. A new
+ *  save that declined the wording sends nothing or `false`; `false` never passes.
+ *  The panel passes `rawDescription: null` so a blank name — and the older-save
+ *  pass — never apply there. */
 export function createNewName(a: { itemName: unknown; rawDescription: string | null | undefined; allowShouty: unknown }):
   { ok: true; itemName: string } | { ok: false; error: string } {
   const typed = typeof a.itemName === 'string' ? a.itemName.trim() : ''
   const itemName = typed || (a.rawDescription ?? '').trim()
   if (!itemName) return { ok: false, error: CREATE_NEW_NEEDS_NAME }
-  if (a.allowShouty !== true && isShoutyName(itemName)) return { ok: false, error: SHOUTY_HINT }
+  const raw = (a.rawDescription ?? '').trim()
+  const olderSave = a.allowShouty === undefined && !!typed && !!raw && typed === raw
+  if (a.allowShouty !== true && !olderSave && isShoutyName(itemName)) return { ok: false, error: SHOUTY_HINT }
   return { ok: true, itemName }
 }
 

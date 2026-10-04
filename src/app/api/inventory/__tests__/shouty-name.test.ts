@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
-import { SHOUTY_HINT } from '@/lib/alias-text'
+import { SHOUTY_HINT_PLAIN } from '@/lib/alias-text'
 
 // W1: POST /api/inventory refuses an invoice wording typed in as an item name,
 // unless the person explicitly keeps it (`allowShouty: true`).
@@ -41,10 +41,10 @@ describe('POST /api/inventory — plain names', () => {
     expect(create).toHaveBeenCalledOnce()
   })
 
-  it('refuses an invoice wording with the hint and code SHOUTY_NAME, creating nothing', async () => {
+  it('refuses an invoice wording with the plain hint and code SHOUTY_NAME, creating nothing', async () => {
     const res = await post(body({ itemName: 'GRAPE RED FRSH SEEDLS CLAM' }))
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: SHOUTY_HINT, code: 'SHOUTY_NAME' })
+    expect(await res.json()).toEqual({ error: SHOUTY_HINT_PLAIN, code: 'SHOUTY_NAME' })
     expect(create).not.toHaveBeenCalled()
   })
 

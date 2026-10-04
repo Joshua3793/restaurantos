@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normaliseAliasText, isShoutyName, SHOUTY_HINT } from '@/lib/alias-text'
+import { normaliseAliasText, isShoutyName, SHOUTY_HINT, SHOUTY_HINT_PLAIN } from '@/lib/alias-text'
 
 describe('normaliseAliasText', () => {
   it('lower-cases, turns punctuation into spaces and collapses whitespace', () => {
@@ -63,5 +63,15 @@ describe('isShoutyName', () => {
   })
   it('has a plain-English hint', () => {
     expect(SHOUTY_HINT).toContain('Red Grapes')
+  })
+})
+
+describe('the two hints', () => {
+  it('the invoice hint says the wording is kept as the supplier\'s own', () => {
+    expect(SHOUTY_HINT).toContain("the invoice wording is kept as the supplier's own")
+  })
+  it('the plain hint (Add Item, count quick-add) makes no promise about a wording', () => {
+    expect(SHOUTY_HINT_PLAIN).toBe('That looks like an invoice wording, not a plain name. Give it a plain name (for example "Red Grapes").')
+    expect(SHOUTY_HINT_PLAIN).not.toContain('supplier')
   })
 })

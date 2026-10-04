@@ -116,7 +116,7 @@ describe('createNewName', () => {
       .toEqual({ ok: true, itemName: 'Red Grapes' })
   })
   it('an invoice wording typed as the name is refused with the hint', () => {
-    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: undefined }))
+    expect(createNewName({ itemName: 'BUN BRIOCHE 12 PK', rawDescription: RAW, allowShouty: undefined }))
       .toEqual({ ok: false, error: SHOUTY_HINT })
   })
   it('a blank name falls back to the wording (older sessions) — and that wording is refused too', () => {
@@ -131,6 +131,23 @@ describe('createNewName', () => {
   })
   it('only a real true overrides — a string "true" does not', () => {
     expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: 'true' }).ok).toBe(false)
+  })
+  it('an older save (no allowShouty, name = the invoice wording the old panel pre-filled) still goes through', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: true, itemName: RAW })
+    expect(createNewName({ itemName: ` ${RAW} `, rawDescription: `${RAW}  `, allowShouty: undefined }))
+      .toEqual({ ok: true, itemName: RAW })
+  })
+  it('a new save that said no to the wording (allowShouty: false) is refused even when it equals the wording', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: false }))
+      .toEqual({ ok: false, error: SHOUTY_HINT })
+  })
+  it('a shouty name that differs from the wording is refused without an override', () => {
+    expect(createNewName({ itemName: 'GRAPES RED SEEDLESS CLAMSHELL', rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: false, error: SHOUTY_HINT })
+  })
+  it('the panel (rawDescription: null) never gets the older-save pass', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: null, allowShouty: undefined }).ok).toBe(false)
   })
   it('no name and no wording is refused', () => {
     expect(createNewName({ itemName: ' ', rawDescription: null, allowShouty: undefined }))

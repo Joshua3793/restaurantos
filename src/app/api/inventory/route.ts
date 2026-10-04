@@ -11,7 +11,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
-import { isShoutyName, SHOUTY_HINT } from '@/lib/alias-text'
+import { isShoutyName, SHOUTY_HINT_PLAIN } from '@/lib/alias-text'
 
 export async function GET(req: NextRequest) {
   let user
@@ -57,7 +57,7 @@ async function handlePOST(req: NextRequest) {
   // refused with a hint, unless the person explicitly keeps it — the Add Item
   // form resends with `allowShouty: true` from its "Use it anyway" link.
   if (allowShouty !== true && typeof rest.itemName === 'string' && isShoutyName(rest.itemName.trim())) {
-    return NextResponse.json({ error: SHOUTY_HINT, code: 'SHOUTY_NAME' }, { status: 400 })
+    return NextResponse.json({ error: SHOUTY_HINT_PLAIN, code: 'SHOUTY_NAME' }, { status: 400 })
   }
   // Strip any stray non-column keys the client may have sent.
   delete rest.pricePerBaseUnit; delete rest.baseUnit

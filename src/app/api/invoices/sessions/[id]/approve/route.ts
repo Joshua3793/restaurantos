@@ -58,6 +58,9 @@ async function doApprove(
   // product was created at all, so "price not updated" would describe a row that
   // does not exist. Collected separately so the session message can say which.
   const skippedCreateNew: string[] = []
+  // A create-new refused for its name (an invoice wording, or blank) — the
+  // session's note then says to scan it again with a plain name.
+  let createNewNameRefused = false
   try {
     // ── Undo records ────────────────────────────────────────────────────────
     // What this approval overwrites, captured per row BEFORE its first write and
@@ -930,6 +933,7 @@ async function doApprove(
           console.error(`[approve] Not creating a product for "${scanItem.rawDescription}" — ${name.error}`)
           skippedLines++
           skippedCreateNew.push(`"${scanItem.rawDescription}": ${name.error}`)
+          createNewNameRefused = true
           continue
         }
         // The drawer's AddNewItemModal now writes a chain-shaped newItemData
@@ -1116,9 +1120,17 @@ async function doApprove(
       )
     }
     if (skippedCreateNew.length > 0) {
+      // Each reason may end in its own full stop (the hints do) — strip it so
+      // the joined sentence ends in exactly one. The session is APPROVED below
+      // and nothing returns an approved invoice to review, so the only way to
+      // create the product is to delete the invoice and scan it again.
+      const n = skippedCreateNew.length
+      const reasons = skippedCreateNew.map(r => r.replace(/[.\s]+$/, ''))
       skipParts.push(
-        `${skippedCreateNew.length} new product${plural(skippedCreateNew.length)} not created — ` +
-        `${skippedCreateNew.join('; ')}.`,
+        `${n} new product${plural(n)} ${n === 1 ? 'was' : 'were'} not created — ${reasons.join('; ')}. ` +
+        (createNewNameRefused
+          ? 'Delete this invoice and scan it again with a plain name.'
+          : `Delete this invoice and scan it again to create ${n === 1 ? 'it' : 'them'}.`),
       )
     }
     const approvedNow = new Date()
@@ -1133,7 +1145,7 @@ async function doApprove(
         purchaseDate: resolvePurchaseDate(session.invoiceDate, approvedNow),
         revenueCenterId: effectiveSessionRcId,
         ...(skipParts.length > 0
-          ? { errorMessage: `${skipParts.join(' ')} Re-open the invoice to review.` }
+          ? { errorMessage: skipParts.join(' ') }
           : {}),
       },
     })

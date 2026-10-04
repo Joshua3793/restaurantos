@@ -1012,7 +1012,14 @@ export default function CountPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(chainBody),
     })
-    const newItem = await res.json()
+    const newItem = await res.json().catch(() => null)
+    if (!res.ok || !newItem?.id) {
+      // Refused (e.g. an invoice wording as the name — 400 SHOUTY_NAME): say why
+      // and stop. No count line, no "added" message; the form stays open to fix.
+      setAddItemSaving(false)
+      setToast(newItem?.error ?? `Couldn't add "${addItemForm.itemName}". Try again.`)
+      return
+    }
     // Add the new item as a count line in the active session
     const lineRes = await fetch(`/api/count/sessions/${active.id}/lines`, {
       method: 'POST',

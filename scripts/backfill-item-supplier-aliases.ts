@@ -15,6 +15,9 @@
 // those updates are only counted. Every --apply backs up first (the rules AND
 // the existing alias rows). Writes docs/audits/2026-10-aliases/backfill-report.md
 // on every run.
+// WHEN: run the CATCH-UP (dry run first, then --apply --update) right after the
+// Stage 3 deploy reaches production, so invoices approved under the old matcher
+// up to that moment are carried over before anyone relies on the wordings.
 import fs from 'fs'
 import path from 'path'
 import { prisma } from '../src/lib/prisma'

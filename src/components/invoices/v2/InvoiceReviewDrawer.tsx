@@ -1900,11 +1900,18 @@ function CreateNewProductPanel({
             />
             {nameIsShouty && (
               <p className="text-[11.5px] text-red-text mt-1 leading-[1.45]">
-                {SHOUTY_HINT}{' '}
-                <button type="button" onClick={() => setAllowShouty(true)}
-                  className="font-semibold underline underline-offset-2">
-                  Use it anyway
-                </button>
+                {SHOUTY_HINT}
+                {/* One override link: when the box holds the invoice wording
+                    itself, the "Use this wording anyway" link above is it. */}
+                {itemName.trim() !== (item.rawDescription ?? '').trim() && (
+                  <>
+                    {' '}
+                    <button type="button" onClick={() => setAllowShouty(true)}
+                      className="font-semibold underline underline-offset-2">
+                      Use it anyway
+                    </button>
+                  </>
+                )}
               </p>
             )}
           </div>
