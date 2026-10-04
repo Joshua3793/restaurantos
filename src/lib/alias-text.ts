@@ -3,14 +3,25 @@
 // two spellings that differ only in case, accents or punctuation are one alias.
 // Pure — no imports — so client and server share it.
 
-/** NFKD → drop accents → lower → everything but [a-z0-9 ] becomes a space →
- *  collapse whitespace → trim. '' when blank. */
+/** Letters NFKD leaves whole (no base letter + mark), so the strip below would
+ *  turn them into a space ("Weißwurst" → "wei wurst"). Folded explicitly,
+ *  after lower-casing (ẞ → ß, Æ → æ, …), before the strip. */
+const NO_DECOMPOSITION: Record<string, string> = {
+  'ß': 'ss', 'æ': 'ae', 'ø': 'o', 'œ': 'oe', 'ð': 'd', 'þ': 'th', 'ł': 'l',
+}
+
+/** NFKD → drop accents → lower → fold ß/æ/ø/œ/ð/þ/ł → everything but
+ *  [a-z0-9 ] becomes a space → collapse whitespace → trim. '' when blank.
+ *  Digits and letters are never split apart: "10LB" and "10 LB" are
+ *  deliberately DIFFERENT keys (splitting would also merge codes like
+ *  "A10B" / "A 10 B"); a supplier printing both spellings gets two aliases. */
 export function normaliseAliasText(s: string | null | undefined): string {
   if (!s) return ''
   return s
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '') // combining marks: "é" → "e", never "e "
     .toLowerCase()
+    .replace(/[ßæøœðþł]/g, ch => NO_DECOMPOSITION[ch])
     .replace(/[^a-z0-9 ]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

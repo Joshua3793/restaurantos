@@ -5,14 +5,23 @@
 // supplier fold into one alias (highest useCount kept, counts summed).
 //   DRY RUN (default):  npx tsx scripts/backfill-item-supplier-aliases.ts
 //   APPLY:              npx tsx scripts/backfill-item-supplier-aliases.ts --apply
-// Re-runnable: keys that already exist are skipped (createMany skipDuplicates).
-// Writes docs/audits/2026-10-aliases/backfill-report.md on every run.
+//   CATCH-UP:           npx tsx scripts/backfill-item-supplier-aliases.ts --apply --update
+// Re-runnable: keys that already exist are never re-created (createMany skipDuplicates).
+// --update (catch-up for invoices approved between the backfill and the matcher
+// switch, which still wrote InvoiceMatchRule): an alias whose key has a rule
+// used AFTER it takes that rule's item, wording, code, pack and date (useCount
+// = the key's summed count when larger), and a NULL code / empty pack is filled
+// from a rule on the alias's own item — see planAliasUpdates. Without --update
+// those updates are only counted. Every --apply backs up first (the rules AND
+// the existing alias rows). Writes docs/audits/2026-10-aliases/backfill-report.md
+// on every run.
 import fs from 'fs'
 import path from 'path'
 import { prisma } from '../src/lib/prisma'
-import { planAliasBackfill, type BackfillRule } from '../src/lib/alias-backfill'
+import { planAliasBackfill, planAliasUpdates, type BackfillRule, type AliasUpdate } from '../src/lib/alias-backfill'
 
 const APPLY = process.argv.includes('--apply')
+const UPDATE = process.argv.includes('--update')
 const REPORT = 'docs/audits/2026-10-aliases/backfill-report.md'
 const CHUNK = 200
 
@@ -39,9 +48,15 @@ async function main() {
   }))
   const plan = planAliasBackfill(rules, suppliers, supplierAliases)
 
-  const existing = await prisma.itemSupplierAlias.findMany({ select: { supplierId: true, text: true } })
-  const existingKeys = new Set(existing.map(e => `${e.supplierId}\u0000${e.text}`))
-  const toCreate = plan.rows.filter(r => !existingKeys.has(`${r.supplierId}\u0000${r.text}`))
+  const existing = await prisma.itemSupplierAlias.findMany({
+    select: {
+      id: true, supplierId: true, text: true, inventoryItemId: true, rawText: true, supplierItemCode: true,
+      packQty: true, packSize: true, packUOM: true, useCount: true, lastUsed: true,
+    },
+  })
+  const { creates: toCreate, updates } = planAliasUpdates(plan.groups, existing)
+  const newer = updates.filter(u => u.reason === 'newer rule')
+  const updateSummary = `${updates.length} (newer rule: ${newer.length}, of which re-pointed to another item: ${updates.filter(u => u.itemChanged).length}; code/pack fill only: ${updates.length - newer.length}; codes filled: ${updates.filter(u => u.data.supplierItemCode && !existing.find(e => e.id === u.id)?.supplierItemCode).length})`
   const inactive = plan.rows.filter(r => rules.find(x => x.inventoryItemId === r.inventoryItemId)?.item.isActive === false).length
   const reasons = (xs: { reason: string }[]) =>
     Object.entries(xs.reduce<Record<string, number>>((m, x) => { m[x.reason] = (m[x.reason] ?? 0) + 1; return m }, {}))
@@ -52,6 +67,7 @@ async function main() {
 
   console.log(`InvoiceMatchRule rows read: ${rules.length}`)
   console.log(`Alias rows planned: ${plan.rows.length} (already present: ${plan.rows.length - toCreate.length}; to create: ${toCreate.length}; on inactive items: ${inactive})`)
+  console.log(`Alias rows to update: ${updateSummary}${UPDATE ? '' : ' — counted only; pass --update to write them'}`)
   for (const [s, c] of bySupplier) console.log(`  ${s}: ${c}`)
   console.log(`Collisions (several rules → one alias): ${plan.collisions.length} (joining different items: ${plan.collisions.filter(c => c.differentItems).length}; rules folded: ${plan.collisions.reduce((s, c) => s + c.folded.length, 0)})`)
   console.log(`Skipped: ${plan.skipped.length} (${reasons(plan.skipped)})`)
@@ -59,17 +75,31 @@ async function main() {
   console.log(`Supplier codes on more than one item (information only): ${plan.sharedCodes.length}`)
 
   let created: number | null = null
+  let updated: number | null = null
   let backup: string | null = null
   if (APPLY) {
     backup = `item-supplier-aliases-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
-    fs.writeFileSync(backup, JSON.stringify({ invoiceMatchRules: raw.map(({ inventoryItem: _i, ...r }) => r) }, null, 2))
-    console.log(`backup written: ${backup} (${raw.length} InvoiceMatchRule rows)`)
+    fs.writeFileSync(backup, JSON.stringify({
+      invoiceMatchRules: raw.map(({ inventoryItem: _i, ...r }) => r),
+      itemSupplierAliases: existing,
+    }, null, 2))
+    console.log(`backup written: ${backup} (${raw.length} InvoiceMatchRule rows, ${existing.length} ItemSupplierAlias rows)`)
     created = 0
     for (let i = 0; i < toCreate.length; i += CHUNK) {
       const res = await prisma.itemSupplierAlias.createMany({ data: toCreate.slice(i, i + CHUNK), skipDuplicates: true })
       created += res.count
     }
     console.log(`${created} alias row(s) created`)
+    if (UPDATE) {
+      // ORM updates (no raw SQL) batched per chunk — pooler-safe.
+      updated = 0
+      for (let i = 0; i < updates.length; i += CHUNK) {
+        const res = await prisma.$transaction(updates.slice(i, i + CHUNK).map(u =>
+          prisma.itemSupplierAlias.update({ where: { id: u.id }, data: u.data, select: { id: true } })))
+        updated += res.length
+      }
+      console.log(`${updated} alias row(s) updated`)
+    }
   } else {
     console.log('DRY RUN — re-run with --apply to write')
   }
@@ -77,17 +107,26 @@ async function main() {
   // ── Report ────────────────────────────────────────────────────────────────
   const L: string[] = []
   L.push('# Supplier wordings backfill (InvoiceMatchRule → ItemSupplierAlias)', '')
-  L.push(`Run: ${new Date().toISOString()} · mode: **${APPLY ? 'APPLY' : 'DRY RUN'}** · script: \`scripts/backfill-item-supplier-aliases.ts\``, '')
+  L.push(`Run: ${new Date().toISOString()} · mode: **${APPLY ? 'APPLY' : 'DRY RUN'}${UPDATE ? ' --update' : ''}** · script: \`scripts/backfill-item-supplier-aliases.ts\``, '')
   L.push('## Counts', '')
   L.push(`- InvoiceMatchRule rows read: ${rules.length}`)
   L.push(`- Alias rows planned: ${plan.rows.length} (already present: ${plan.rows.length - toCreate.length}; to create: ${toCreate.length}; on inactive items: ${inactive})`)
+  L.push(`- Alias rows to update: ${updateSummary}${UPDATE ? '' : ' — counted only (no --update)'}`)
   if (created != null) L.push(`- **Alias rows created: ${created}**${backup ? ` · backup \`${backup}\`` : ''}`)
+  if (updated != null) L.push(`- **Alias rows updated: ${updated}**`)
   L.push(`- Collisions: ${plan.collisions.length} (joining different items: ${plan.collisions.filter(c => c.differentItems).length}; rules folded: ${plan.collisions.reduce((s, c) => s + c.folded.length, 0)})`)
   L.push(`- Skipped: ${plan.skipped.length} (${reasons(plan.skipped)})`)
   L.push(`- Unresolved: ${plan.unresolved.length} (${reasons(plan.unresolved)})`)
   L.push(`- Supplier codes on more than one item: ${plan.sharedCodes.length}`, '')
   L.push('Aliases per supplier:', '')
   for (const [s, c] of bySupplier) L.push(`- ${cell(s)}: ${c}`)
+  L.push('', '## Alias updates (rules learned since the backfill; code/pack fills)', '')
+  L.push('| supplier | normalised text | reason | changes |', '|---|---|---|---|')
+  const itemNameOf = new Map(rules.map(r => [r.inventoryItemId, r.item.itemName]))
+  const change = (u: AliasUpdate) => Object.entries(u.data).map(([k, v]) =>
+    k === 'inventoryItemId' ? `item → ${cell(itemNameOf.get(String(v)) ?? String(v))}`
+      : `${k} → ${cell(v instanceof Date ? v.toISOString() : v == null ? 'null' : String(v))}`).join('<br>')
+  for (const u of updates) L.push(`| ${cell(supplierName.get(u.supplierId))} | ${cell(u.text)} | ${u.reason}${u.itemChanged ? ' **(item changed)**' : ''} | ${change(u)} |`)
   L.push('', '## Unresolved rules (not copied)', '')
   L.push('| rawDescription | supplierName | item | reason |', '|---|---|---|---|')
   for (const u of plan.unresolved) L.push(`| ${cell(u.rule.rawDescription)} | ${cell(u.rule.supplierName)} | ${cell(u.rule.item.itemName)} | ${u.reason} |`)

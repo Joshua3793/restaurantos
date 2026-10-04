@@ -1,5 +1,8 @@
 -- Stage 3: one supplier's own wording (and code) for one item. Additive only —
--- InvoiceMatchRule stays (unread) until the Stage 1e drop PR.
+-- InvoiceMatchRule is still read AND written (matcher, approve, undo) until the
+-- matcher switch to ItemSupplierAlias lands; rules learned in between are caught
+-- up with `scripts/backfill-item-supplier-aliases.ts --apply --update`. The old
+-- table is dropped in a later PR, after the switch.
 -- Uniqueness is (supplierId, text) on the NORMALISED text (normaliseAliasText).
 CREATE TABLE "ItemSupplierAlias" (
     "id" TEXT NOT NULL,

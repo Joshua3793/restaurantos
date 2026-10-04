@@ -23,6 +23,21 @@ describe('normaliseAliasText', () => {
   it('gives the same key for two spellings that differ only in punctuation and case', () => {
     expect(normaliseAliasText('Butter, Unsalted 454g')).toBe(normaliseAliasText('BUTTER UNSALTED 454G'))
   })
+  it('folds letters NFKD cannot decompose (ß Æ Ø Œ Ð Þ Ł) instead of dropping them', () => {
+    expect(normaliseAliasText('Weißwurst')).toBe('weisswurst')
+    expect(normaliseAliasText('WEISSWURST')).toBe(normaliseAliasText('WEIẞWURST'))
+    expect(normaliseAliasText('Smørrebrød')).toBe('smorrebrod')
+    expect(normaliseAliasText('SMØRREBRØD')).toBe('smorrebrod')
+    expect(normaliseAliasText('Æbleskiver')).toBe('aebleskiver')
+    expect(normaliseAliasText('bœuf, Œuf')).toBe('boeuf oeuf')
+    expect(normaliseAliasText('Ðað Þorn')).toBe('dad thorn')
+    expect(normaliseAliasText('Łosoś')).toBe('losos')
+  })
+  it('keeps "10LB" and "10 LB" as different keys on purpose (no digit/letter splitting)', () => {
+    expect(normaliseAliasText('POTATO 10LB')).toBe('potato 10lb')
+    expect(normaliseAliasText('POTATO 10 LB')).toBe('potato 10 lb')
+    expect(normaliseAliasText('POTATO 10LB')).not.toBe(normaliseAliasText('POTATO 10 LB'))
+  })
 })
 
 describe('isShoutyName', () => {
