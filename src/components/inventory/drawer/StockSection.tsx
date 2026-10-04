@@ -14,7 +14,7 @@ import {
  *  theoretical stock now, "Count now", then the reconciliation strip and the
  *  movement track (with the tally of movements that could not be counted). */
 export function StockSection({
-  item, showRcPanel, defaultRcId, canEdit, onPulled, stockMovements, activeRc, onCount,
+  item, showRcPanel, defaultRcId, canEdit, onPulled, stockMovements, stockLoading = false, activeRc, onCount,
 }: {
   item: InventoryItem
   /** More than one revenue center exists. */
@@ -23,6 +23,8 @@ export function StockSection({
   canEdit: boolean
   onPulled: () => void
   stockMovements: StockMovementsResponse | null
+  /** The ledger is still on its way — say so instead of "Never counted". */
+  stockLoading?: boolean
   /** The revenue center a count is taken in — none picked, no count. */
   activeRc: RevenueCenter | null
   /** Opens the quick count (the same sheet as the header's Count). */
@@ -53,7 +55,7 @@ export function StockSection({
             {last ? `${last.qty.toFixed(2)} ${last.unit}` : '—'}
           </div>
           <div className="text-[11px] text-ink-4 mt-0.5">
-            {lastDay ? `Counted ${shortDay(lastDay)}` : 'Never counted — count it to start its stock'}
+            {stockLoading ? 'Loading…' : lastDay ? `Counted ${shortDay(lastDay)}` : 'Never counted — count it to start its stock'}
           </div>
         </div>
         <div className="bg-bg-2 border border-line rounded-[10px] p-3">
