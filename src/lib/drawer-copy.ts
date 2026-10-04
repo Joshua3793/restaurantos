@@ -17,45 +17,80 @@ export function shortDay(day: string): string {
   return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}`
 }
 
-/** A $/base price the way the drawer says it: "$0.42 / each", "$12.50 / kg". */
+/** Money per a unit, the one way the drawer writes it: "$29.82/kg". */
+export function moneyPerUnit(amount: number, unit: string): string {
+  return `${formatCurrency(amount)}/${unit}`
+}
+
+/** A $/base price the way the drawer says it: "$0.42/each", "$12.50/kg". */
 export function priceEach(pricePerBase: number, baseUnit: string): string {
   const { factor, rateUnit } = priceDisplayScale(baseUnit)
-  return `${formatCurrency(pricePerBase * factor)} / ${rateUnit}`
+  return moneyPerUnit(pricePerBase * factor, rateUnit)
 }
 
 const NO_PRICE = 'it has no price yet. Add a supplier box, or set its price in Edit.'
 
-/** What recipes cost this item at — the 30-day average, or the last price and why. */
-export function recipeCostSentence(cb: ItemCostBasis, baseUnit: string): string {
-  if (cb.fallbackReason === 'prep-linked') return 'Cost comes from the recipe.'
-  if (cb.basis === 'AVG_30D' && cb.avg) {
-    const n = cb.avg.lines
-    return `Recipes cost this at ${priceEach(cb.pricePerBase, baseUnit)} (30-day average, ${n} ${n === 1 ? 'delivery' : 'deliveries'}).`
-  }
-  const price = priceEach(cb.pricePerBase, baseUnit)
-  if (!(cb.pricePerBase > 0)) return `Recipes cost this at ${price} — ${NO_PRICE}`
-  if (cb.fallbackReason === 'implausible') {
-    return `Recipes cost this at ${price} (the recent deliveries looked wrong, so the last price is used).`
-  }
-  return `Recipes cost this at ${price} (no deliveries in 30 days — using the last price).`
+/** A drawer sentence and how loudly to say it: 'warn' is shown in red. */
+export interface DrawerSentence { text: string; tone: 'warn' | 'plain' }
+
+/** How many times off one price is from another, the bigger way up: 1000 or
+ *  0.001 both read 1000. Null when either is not a real price. */
+function timesOff(a: number, b: number): number | null {
+  if (!(a > 0) || !(b > 0)) return null
+  return Math.round(Math.max(a / b, b / a))
 }
 
-/** What counts value this item at — the last price, who it was paid to and when.
- *  `lastDelivery` is a day key or ISO date (shown as "28 Sep"); null leaves it out.
- *  A recipe-made item names its recipe instead of a supplier. */
+/** What recipes cost this item at — the 30-day average, or the last price and
+ *  why. An average ignored for being far off the last price is a warning: it
+ *  says how far off, and what to do. */
+export function recipeCostSentence(cb: ItemCostBasis, baseUnit: string): DrawerSentence {
+  const plain = (text: string): DrawerSentence => ({ text, tone: 'plain' })
+  if (cb.fallbackReason === 'prep-linked') return plain('Cost comes from the recipe.')
+  const price = priceEach(cb.pricePerBase, baseUnit)
+  if (cb.basis === 'AVG_30D' && cb.avg) {
+    const n = cb.avg.lines
+    return plain(`Recipes cost this at ${price} (30-day average, ${n} ${n === 1 ? 'delivery' : 'deliveries'}).`)
+  }
+  if (!(cb.pricePerBase > 0)) return plain(`Recipes cost this at ${price} — ${NO_PRICE}`)
+  if (cb.fallbackReason === 'implausible') {
+    const n = cb.avg ? timesOff(cb.avg.pricePerBase, cb.pricePerBase) : null
+    const howFar = n ? `${n.toLocaleString('en-CA')}× off` : 'far off'
+    return {
+      text: `Recipes cost this at ${price} — the 30-day average was ignored: it is ${howFar} the last price. Check this item's receipts.`,
+      tone: 'warn',
+    }
+  }
+  return plain(`Recipes cost this at ${price} (no deliveries in 30 days — using the last price).`)
+}
+
+/** What counts value this item at — the main box's price, its supplier and the
+ *  day it last came; "(set by hand)" with no box; "(from the recipe)" for a
+ *  recipe-made item. `lastDelivery` is a day key or ISO date (shown as
+ *  "28 Sep"); null leaves it out. `boxes` is the item's box count — when it is
+ *  not known, a supplier on the item stands for a box. */
 export function countValueSentence(
   last: number,
   baseUnit: string,
   supplierName: string | null,
   lastDelivery: string | null,
-  opts: { recipeName?: string | null } = {},
+  opts: { fromRecipe?: boolean; boxes?: number | null } = {},
 ): string {
   const price = priceEach(last, baseUnit)
-  if (opts.recipeName) return `Counts value it at ${price} (the cost of the recipe ${opts.recipeName}).`
+  if (opts.fromRecipe) return `Counts value it at ${price} (from the recipe).`
   if (!(last > 0)) return `Counts value it at ${price} — ${NO_PRICE}`
-  if (!supplierName) return `Counts value it at ${price} (last price set by hand).`
+  const hasBox = opts.boxes != null ? opts.boxes > 0 : !!supplierName
+  if (!hasBox) return `Counts value it at ${price} (set by hand).`
+  const who = supplierName ? `, ${supplierName}` : ''
   const when = lastDelivery ? `, ${shortDay(lastDelivery)}` : ''
-  return `Counts value it at ${price} (last paid, ${supplierName}${when}).`
+  return `Counts value it at ${price} (main box price${who}${when}).`
+}
+
+/** One "Price paid" row's amount. The price-history read carries no pricing
+ *  mode or rate unit, so the amount can't name its unit honestly — it names
+ *  the invoice instead: "$18.65 (invoice 444158797)". */
+export function pricePaidText(row: { unitPrice: number; invoiceNumber: string | null }): string {
+  const money = formatCurrency(row.unitPrice)
+  return row.invoiceNumber ? `${money} (invoice ${row.invoiceNumber})` : money
 }
 
 /** The header's exception badges, in a fixed order. An ordinary item has none. */
@@ -112,14 +147,14 @@ export function lastDeliveryDay(
 const unitWord = (u: string | null | undefined) => (u ? canonicalUom(u) : '')
 
 /** A box's (or a box-less item's) own price as written on the invoice:
- *  "$59.63 per case" for a pack price, "$3.49 / lb" for a rate. */
+ *  "$59.63 per case" for a pack price, "$3.49/lb" for a rate. */
 export function boxPriceText(pricing: unknown, chain: PackLink[] | null | undefined): string {
   // offerListedPrice reads the rate or the pack price off the pricing JSON.
-  const listed = formatCurrency(offerListedPrice({ pricing }))
+  const amount = offerListedPrice({ pricing })
   const rate = pricing as { mode?: string; rateUnit?: string } | null
-  if (rate?.mode === 'RATE') return `${listed} / ${unitWord(rate.rateUnit)}`
+  if (rate?.mode === 'RATE') return moneyPerUnit(amount, unitWord(rate.rateUnit))
   const top = Array.isArray(chain) && chain.length ? chain[0].unit : 'case'
-  return `${listed} per ${top}`
+  return `${formatCurrency(amount)} per ${top}`
 }
 
 /** The price line of an item with no supplier box: its own price and what one

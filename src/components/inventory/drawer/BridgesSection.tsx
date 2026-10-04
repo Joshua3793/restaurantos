@@ -33,7 +33,8 @@ function PackLines({ chain, baseUnit }: { chain: PackLink[]; baseUnit: string })
 /** How the item converts: its pack, its bridges ("1 each = 85 g · used by 3
  *  recipes", "1 ml weighs 1.03 g"), and the way into "Change how it's
  *  measured" (MANAGER+; a recipe-made item is measured by its recipe). No
- *  bridge → says when one is needed, and a manager can jump to it in Edit. */
+ *  bridge → a manager is told when one is needed and can jump to it in Edit;
+ *  anyone else sees nothing about it. */
 export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, onEditBridge }: {
   item: InventoryItem
   chain: PackLink[]
@@ -53,8 +54,9 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
     item.bridgeUsedBy?.length ?? 0,
   )
   const rule = packWorthSaying(chain, baseUnit) ? 'border-t border-line pt-2 ' : ''
-  // A recipe-made item with a plain unit and no bridge has nothing to say here.
-  if (isRecipe && !rule && bridges.length === 0) return null
+  // A plain unit and no bridge has nothing to say here — unless a manager can
+  // add the missing weight (never on a recipe-made item).
+  if (!rule && bridges.length === 0 && (isRecipe || !canEdit)) return null
   return (
     <CollapsibleSection name="converts" title="How it converts">
       <div className="bg-paper border border-line rounded-[10px] p-3 space-y-2">
@@ -63,20 +65,16 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
           <div className={`${rule}space-y-1`}>
             {bridges.map(b => <div key={b} className="text-[12.5px] text-ink">{b}</div>)}
           </div>
-        ) : !isRecipe && (
+        ) : !isRecipe && canEdit && (
+          // Only someone who can add the weight is told it is missing.
           <div className={`${rule}text-[12px] text-ink-3 leading-snug`}>
-            No bridge — add one if this item is bought by weight but counted.
-            {canEdit && (
-              <>
-                {' '}
-                <button
-                  type="button" onClick={onEditBridge}
-                  className="text-gold-2 font-medium hover:text-gold underline underline-offset-2"
-                >
-                  Add it in Edit
-                </button>
-              </>
-            )}
+            No weight per each yet — add it in Edit if this item is bought by weight but counted.{' '}
+            <button
+              type="button" onClick={onEditBridge}
+              className="text-gold-2 font-medium hover:text-gold underline underline-offset-2"
+            >
+              Add it in Edit
+            </button>
           </div>
         )}
       </div>

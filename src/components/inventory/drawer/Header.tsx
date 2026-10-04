@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { X, Pencil, Loader2, ClipboardCheck, GitMerge } from 'lucide-react'
 import { canonicalUom } from '@/lib/uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -8,6 +9,8 @@ import { badgeList } from '@/lib/drawer-copy'
 import { displayStock, type InventoryItem, type ItemChainForm } from './types'
 
 // ─── Sticky header: name, storage area, actions ──────────────────────────────
+
+const EDIT_BUTTON = 'flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors'
 
 export function Header({
   item, editMode, nameValue, onNameChange, saving, onSave, onCancel,
@@ -85,13 +88,18 @@ export function Header({
                 <GitMerge size={12} /> Merge
               </button>
             )}
-            {canEdit && (
-              <button
-                onClick={onEdit}
+            {/* A recipe-made item is edited where it is made — its recipe. */}
+            {canEdit && item.recipe ? (
+              <Link
+                href={`/recipes?item=${item.recipe.id}`}
                 aria-label="Edit"
-                title="Edit"
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
+                title={`Edit the recipe ${item.recipe.name}`}
+                className={EDIT_BUTTON}
               >
+                <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
+              </Link>
+            ) : canEdit && (
+              <button onClick={onEdit} aria-label="Edit" title="Edit" className={EDIT_BUTTON}>
                 <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
               </button>
             )}
@@ -143,7 +151,7 @@ export function HeaderBadges({ item }: { item: InventoryItem }) {
 
 // ─── Fact tiles (the first cells of the view grid) ───────────────────────────
 
-/** Supplier, storage area, recipe, dimension, pricing mode, count unit, barcode —
+/** Supplier, recipe, dimension, pricing mode, count unit, barcode —
  *  rendered as bare grid cells (a fragment) inside the shell's two-column grid. */
 export function HeaderFacts({ item, c, baseUnit, seesMoney }: {
   item: InventoryItem
@@ -152,15 +160,14 @@ export function HeaderFacts({ item, c, baseUnit, seesMoney }: {
   seesMoney: boolean
 }) {
   const dimLabel = c.dimension === 'MASS' ? 'Weight' : c.dimension === 'VOLUME' ? 'Volume' : 'Count'
+  // No storage-area tile: the header already says it under the name.
   const rows: [string, string][] = item.recipe ? [
     ['Supplier',      item.supplier?.name || '—'],
-    ['Storage area',  item.storageArea?.name || '—'],
     ['Linked recipe', item.recipe.name],
     ['Dimension',     `${dimLabel} · ${baseUnit}`],
     ['Count unit',    c.countUnit],
   ] : [
     ['Supplier',       item.supplier?.name || '—'],
-    ['Storage area',   item.storageArea?.name || '—'],
     ['Dimension',      `${dimLabel} · ${baseUnit}`],
     ...(seesMoney ? [['Pricing', c.pricing.mode === 'RATE' ? `Rate · per ${canonicalUom(c.pricing.rateUnit)}` : 'Per pack'] as [string, string]] : []),
     ['Count unit',     c.countUnit],

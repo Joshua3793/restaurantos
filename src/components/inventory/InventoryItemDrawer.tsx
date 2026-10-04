@@ -348,6 +348,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                         last={ppb}
                         lastDelivery={lastDeliveryDay(priceHistory, item.supplier?.name ?? null)}
                         seesMoney={seesMoney}
+                        // BoxesSection renders exactly when the viewer sees money.
+                        boxesShown={seesMoney}
                       />
                       <div className="grid grid-cols-2 gap-3 text-[13px]">
                         <HeaderFacts item={item} c={c} baseUnit={ci.baseUnit} seesMoney={seesMoney} />

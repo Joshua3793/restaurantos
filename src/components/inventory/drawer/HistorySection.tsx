@@ -1,24 +1,23 @@
 'use client'
-import { formatCurrency } from '@/lib/utils'
-import { shortDay } from '@/lib/drawer-copy'
+import { useState } from 'react'
+import { pricePaidText, shortDay } from '@/lib/drawer-copy'
 import { MergedItemsRow } from '../MergeItemSheet'
 import { RemeasuredRow } from '../RemeasureSheet'
 import { CollapsibleSection } from './CollapsibleSection'
 import type { InventoryItem, PriceHistoryRow } from './types'
 
-/** How many invoice lines "Recent invoice lines" lists. */
-const RECENT_LINES = 5
+/** How many "Price paid" rows show before "Show more". */
+const PRICE_ROWS = 12
 
 const dayOf = (h: PriceHistoryRow) => {
   const d = h.dayKey ?? h.invoiceDate
   return d ? shortDay(d) : 'Undated'
 }
 
-/** History, in this order: the price paid on each recent delivery, items merged
- *  into this one and measure changes on it (each with its Undo), then the most
- *  recent invoice lines. Prices are LEAD+; merges and measure changes MANAGER+.
- *  Both price lists come from the one price-history read (the item's last 12
- *  approved invoice lines). */
+/** History, in this order: the price paid on each recent delivery (one list,
+ *  newest first, with the invoice it was on), then items merged into this one
+ *  and measure changes on it (each with its Undo). Prices are LEAD+; merges
+ *  and measure changes MANAGER+. */
 export function HistorySection({
   item, canMerge, canEdit, seesMoney, mergeTick, measureTick,
   onMergesChanged, onRemeasureChanged, priceHistory,
@@ -33,10 +32,12 @@ export function HistorySection({
   onRemeasureChanged: () => void
   priceHistory: PriceHistoryRow[]
 }) {
+  const [showAll, setShowAll] = useState(false)
   const isRecipe = !!item.recipe
   // The read is newest-APPROVED first; list by the invoice's own day, newest
   // first (undated last; ties keep the read's order).
   const rows = [...priceHistory].sort((a, b) => (b.dayKey ?? '').localeCompare(a.dayKey ?? ''))
+  const shown = showAll ? rows : rows.slice(0, PRICE_ROWS)
   const showPrices = seesMoney && (priceHistory.length > 0 || !isRecipe)
   const showMerges = canMerge && !isRecipe
   const showMeasures = canEdit && !isRecipe
@@ -53,15 +54,23 @@ export function HistorySection({
           <div className="space-y-1">
             <div className="text-[11.5px] font-medium text-ink-3">Price paid</div>
             <div className="bg-paper border border-line rounded-[10px] divide-y divide-line">
-              {rows.map((h, i) => (
+              {shown.map((h, i) => (
                 <div key={i} className="flex items-center justify-between gap-3 px-3 py-1.5 text-[12px]">
                   <span className="min-w-0 truncate text-ink-2">
                     <span className="font-mono text-ink-4 tabular-nums">{dayOf(h)}</span> · {h.supplierName}
                   </span>
-                  <span className="font-mono font-semibold text-ink tabular-nums shrink-0">{formatCurrency(h.unitPrice)}</span>
+                  <span className="font-mono font-semibold text-ink tabular-nums shrink-0">{pricePaidText(h)}</span>
                 </div>
               ))}
             </div>
+            {rows.length > PRICE_ROWS && (
+              <button
+                type="button" onClick={() => setShowAll(v => !v)}
+                className="text-[12px] text-ink-3 underline underline-offset-2 hover:text-ink-2"
+              >
+                {showAll ? 'Show less' : `Show more (${rows.length - PRICE_ROWS})`}
+              </button>
+            )}
           </div>
         )
       )}
@@ -74,31 +83,6 @@ export function HistorySection({
       {/* Measure changes on this item, each with its Undo. */}
       {showMeasures && (
         <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={onRemeasureChanged} />
-      )}
-
-      {/* The last few invoice lines: which invoice, how many, what it came to. */}
-      {seesMoney && priceHistory.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-[11.5px] font-medium text-ink-3">Recent invoice lines</div>
-          <div className="space-y-1.5">
-            {rows.slice(0, RECENT_LINES).map((h, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 bg-paper border border-line rounded-[10px] px-3 py-2 text-[12px]">
-                <div className="min-w-0">
-                  <div className="font-medium text-ink truncate">{h.supplierName}</div>
-                  <div className="text-[11px] text-ink-4 mt-0.5">
-                    {dayOf(h)}{h.invoiceNumber ? ` · invoice ${h.invoiceNumber}` : ''}
-                  </div>
-                </div>
-                <div className="text-right shrink-0 font-mono tabular-nums">
-                  <div className="font-semibold text-ink">{h.lineTotal != null ? formatCurrency(h.lineTotal) : '—'}</div>
-                  <div className="text-ink-4 text-[10.5px]">
-                    {h.qtyPurchased != null ? `${(+h.qtyPurchased.toFixed(3)).toLocaleString()} bought` : 'quantity not read'}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
     </CollapsibleSection>
   )

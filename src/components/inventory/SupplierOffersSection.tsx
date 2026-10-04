@@ -186,7 +186,6 @@ function BoxForm({
   )
 }
 
-
 // ─── One box as a card (the item drawer's library layout) ────────────────────
 
 /** One supplier box as a card: supplier, code, what the box holds, its price,
