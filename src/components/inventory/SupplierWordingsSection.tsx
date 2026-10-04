@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { CollapsibleSection } from './drawer/CollapsibleSection'
 
 interface Wording {
   id: string
@@ -87,27 +88,38 @@ export function SupplierWordingsSection({ itemId, refreshKey = 0 }: { itemId: st
 
   if (loadFailed) {
     return (
-      <div className="space-y-2">
-        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">
-          Supplier wordings
-        </div>
+      <CollapsibleSection
+        name="wordings"
+        title="Supplier wordings"
+        heading={
+          <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">
+            Supplier wordings
+          </div>
+        }
+      >
         <p className="text-[12px] text-red-text">
           Couldn&apos;t load the supplier wordings.{' '}
           <button type="button" onClick={load} className="font-semibold underline underline-offset-2">
             Try again.
           </button>
         </p>
-      </div>
+      </CollapsibleSection>
     )
   }
 
   if (!wordings) return null
 
   return (
-    <div className="space-y-2">
-      <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">
-        Supplier wordings · {wordings.length}
-      </div>
+    <CollapsibleSection
+      name="wordings"
+      title="Supplier wordings"
+      aside={wordings.length}
+      heading={
+        <div className="font-mono text-[10px] uppercase tracking-[0.06em] text-ink-4 font-semibold">
+          Supplier wordings · {wordings.length}
+        </div>
+      }
+    >
       {wordings.length === 0 ? (
         <p className="text-[12px] text-ink-4">No wordings learned yet — they are learned from approved invoices.</p>
       ) : (
@@ -138,6 +150,6 @@ export function SupplierWordingsSection({ itemId, refreshKey = 0 }: { itemId: st
         </div>
       )}
       {error && <p className="text-xs text-red-text">{error}</p>}
-    </div>
+    </CollapsibleSection>
   )
 }

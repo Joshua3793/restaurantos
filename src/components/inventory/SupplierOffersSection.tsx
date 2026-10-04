@@ -14,6 +14,8 @@ import { DIMENSION_BASE, type Dimension, type PackLink, type Pricing } from '@/l
 import type { SupplierOfferStats } from '@/lib/supplier-offers'
 import { offerPriceLabel, offerDerivation } from '@/lib/invoice/offer-copy'
 import { removeBoxMessage } from '@/lib/box-copy'
+import { formatPurchaseDisplay } from '@/lib/count-uom'
+import { boxPriceText, packPriceLine, shortDay, sortBoxes } from '@/lib/drawer-copy'
 import { PackChainEditor, PricingEditor } from './ItemChainEditor'
 import { Combobox } from './Combobox'
 
@@ -184,11 +186,98 @@ function BoxForm({
   )
 }
 
+// ─── One box as a card (the item drawer's library layout) ────────────────────
+
+/** One supplier box as a card: supplier, code, what the box holds, its price,
+ *  its price per base unit, when it was last delivered, and whether it is the
+ *  main box. Rendering only — every action is the section's own handler. */
+function BoxCard({
+  o, baseUnit, dimension, itemChain, item, isCheapest, lastDelivery,
+  canEdit, canSetPrimary, saving, onEdit, onRemove, onMakeMain,
+}: {
+  o: SupplierOfferStats
+  baseUnit: string | null
+  dimension: Dimension
+  itemChain: PackLink[]
+  item: { baseUnit: string | null; eachMeasureQty?: number | string | null; eachMeasureUnit?: string | null }
+  isCheapest: boolean
+  lastDelivery: string | null
+  canEdit: boolean
+  canSetPrimary: boolean
+  saving: boolean
+  onEdit: () => void
+  onRemove: () => void
+  onMakeMain: () => void
+}) {
+  const chain = boxChain(o, itemChain)
+  const holds = formatPurchaseDisplay({ dimension, baseUnit: baseUnit ?? DIMENSION_BASE[dimension], packChain: chain })
+  const badge = o.stability ? STABILITY_BADGE[o.stability] : null
+  const derivation = offerDerivation(o, item, o.pricePerBaseUnit)
+  return (
+    <div className={`px-3 py-2.5 ${isCheapest ? 'bg-green-soft/40' : 'bg-paper'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[13.5px] font-medium text-ink">{o.supplierName}</span>
+            {o.isPrimary && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gold-soft text-gold-2 text-[10.5px] font-medium">
+                <Star size={10} className="text-gold fill-gold" /> Main
+              </span>
+            )}
+            {isCheapest && <span className="text-[10.5px] font-medium text-green-text">Cheapest</span>}
+          </div>
+          <div className="text-[12px] text-ink-3 mt-0.5">
+            {holds}{o.supplierItemCode ? ` · code ${o.supplierItemCode}` : ''}
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="font-mono text-[13.5px] font-semibold text-ink tabular-nums">
+            {fmtPpb(o.pricePerBaseUnit, baseUnit)}
+          </div>
+          <div className="font-mono text-[11px] text-ink-3 tabular-nums">{boxPriceText(o.pricing, chain)}</div>
+        </div>
+      </div>
+      {derivation && (
+        <div className={`font-mono text-[10.5px] mt-1 ${derivation.startsWith('Unpriced') ? 'text-red-text' : 'text-ink-3'}`}>
+          {derivation}
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-wrap mt-1.5 text-[11.5px]">
+        <span className="text-ink-4">
+          {lastDelivery ? `Last delivered ${shortDay(lastDelivery)}` : 'No delivery on recent invoices'}
+        </span>
+        {badge && (
+          <span className={`font-mono text-[9.5px] font-semibold uppercase px-2 py-[2px] rounded-full ${badge.cls}`}>
+            {badge.label}{o.volatility !== null ? ` ±${Math.round(o.volatility * 100)}%` : ''}
+          </span>
+        )}
+        {(canEdit || (canSetPrimary && !o.isPrimary)) && (
+          <span className="ml-auto flex items-center gap-3">
+            {canSetPrimary && !o.isPrimary && (
+              <button type="button" disabled={saving} onClick={onMakeMain}
+                className="font-medium text-gold-2 hover:text-gold disabled:opacity-50">Make main</button>
+            )}
+            {canEdit && (
+              <>
+                <button type="button" disabled={saving} onClick={onEdit}
+                  className="font-medium text-ink-3 hover:text-ink disabled:opacity-50">Edit</button>
+                <button type="button" disabled={saving} onClick={onRemove}
+                  className="font-medium text-ink-3 hover:text-red-text disabled:opacity-50">Remove</button>
+              </>
+            )}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── The section ─────────────────────────────────────────────────────────────
 
 export function SupplierOffersSection({
   itemId, itemName, baseUnit, dimension, itemChain, itemPricing, itemLastUpdated,
   eachMeasureQty, eachMeasureUnit, onRepriced, canSetPrimary = true, canEdit = false, onChanged,
+  variant = 'list', lastDeliveryOf,
 }: {
   itemId: string
   itemName: string
@@ -211,6 +300,12 @@ export function SupplierOffersSection({
   canEdit?: boolean
   /** After any box write: the item's version and price may have moved. */
   onChanged?: () => void
+  /** 'cards' — the item drawer's library layout: one card per box, main box
+   *  first then cheapest, and a box-less item's own price in the empty state.
+   *  Rendering only: every request is the same as the list's. */
+  variant?: 'list' | 'cards'
+  /** Cards: the day a supplier last delivered this item (a day key), or null. */
+  lastDeliveryOf?: (supplierName: string) => string | null
 }) {
   const [offers, setOffers] = useState<SupplierOfferStats[] | null>(null)
   const [saving, setSaving] = useState(false)
@@ -313,14 +408,110 @@ export function SupplierOffersSection({
   }
 
   if (!offers) return null
-  // Below MANAGER a box-less item shows nothing (as before).
-  if (offers.length === 0 && !canEdit) return null
+  // Below MANAGER a box-less item shows nothing (as before) — except in the
+  // drawer's cards, which still say what the item's own price is.
+  if (offers.length === 0 && !canEdit && variant !== 'cards') return null
 
   const item = { baseUnit, eachMeasureQty, eachMeasureUnit }
   const cheapest = Math.min(...offers.map(o => o.pricePerBaseUnit).filter(p => p > 0))
   const primaryOffer = offers.find(o => o.isPrimary)
   const cheaperThanPrimary =
     !!primaryOffer && Number.isFinite(cheapest) && primaryOffer.pricePerBaseUnit > cheapest
+
+  const addForm = (
+    <BoxForm
+      mode="add"
+      dimension={dimension}
+      initial={{
+        supplierId: '',
+        supplierItemCode: '',
+        packChain: itemChain.map(l => ({ ...l })),
+        pricing: { ...itemPricing },
+        makePrimary: offers.length === 0,
+      }}
+      mainLocked={offers.length === 0}
+      saving={saving}
+      error={formError}
+      onSave={saveAdd}
+      onCancel={() => setOpen(null)}
+    />
+  )
+
+  if (variant === 'cards') {
+    return (
+      <div className="space-y-2">
+        {offers.length === 0 ? (
+          <div className="bg-paper border border-line rounded-[10px] px-3 py-2.5 text-[12.5px] leading-snug">
+            <div className="font-mono text-ink tabular-nums">{packPriceLine(itemPricing, itemChain, baseUnit ?? DIMENSION_BASE[dimension])}</div>
+            <div className="text-ink-4 mt-0.5">
+              {canEdit
+                ? 'No supplier box yet — this is the item’s own price. Add a box to price it from a supplier.'
+                : 'No supplier box yet — this is the item’s own price. A manager can add a supplier box.'}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sortBoxes(offers).map(o => (
+              <div key={o.id} className="border border-line rounded-[10px] overflow-hidden">
+                <BoxCard
+                  o={o}
+                  baseUnit={baseUnit}
+                  dimension={dimension}
+                  itemChain={itemChain}
+                  item={item}
+                  isCheapest={offers.length > 1 && o.pricePerBaseUnit > 0 && o.pricePerBaseUnit === cheapest}
+                  lastDelivery={lastDeliveryOf ? lastDeliveryOf(o.supplierName) : null}
+                  canEdit={canEdit && open !== o.id}
+                  canSetPrimary={canSetPrimary && open !== o.id}
+                  saving={saving}
+                  onEdit={() => openForm(o.id)}
+                  onRemove={() => remove(o, offers.length)}
+                  onMakeMain={() => setPrimary(o.id)}
+                />
+                {canEdit && open === o.id && (
+                  <BoxForm
+                    mode="edit"
+                    dimension={dimension}
+                    supplierName={o.supplierName}
+                    initial={{
+                      supplierId: o.supplierId ?? '',
+                      supplierItemCode: o.supplierItemCode ?? '',
+                      packChain: boxChain(o, itemChain),
+                      pricing: boxPricing(o, itemPricing),
+                      makePrimary: o.isPrimary,
+                    }}
+                    mainLocked={false}
+                    saving={saving}
+                    error={formError}
+                    onSave={d => saveEdit(o, d)}
+                    onCancel={() => setOpen(null)}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {listError && <p className="text-xs text-red-text">{listError}</p>}
+        {cheaperThanPrimary && (
+          <div className="text-[11.5px] text-gold-2">
+            A cheaper supplier is available — {fmtPpb(cheapest, baseUnit)} against the main box&rsquo;s {fmtPpb(primaryOffer!.pricePerBaseUnit, baseUnit)}.
+          </div>
+        )}
+        {canEdit && (open === 'add' ? (
+          <div className="border border-line rounded-[10px] overflow-hidden">{addForm}</div>
+        ) : (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => openForm('add')}
+            className="text-xs font-medium text-gold-2 hover:text-gold transition-colors disabled:opacity-50"
+          >
+            + Add supplier box
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-2">
@@ -408,22 +599,7 @@ export function SupplierOffersSection({
       )}
       {canEdit && (open === 'add' ? (
         <div className="border border-line rounded-lg overflow-hidden">
-          <BoxForm
-            mode="add"
-            dimension={dimension}
-            initial={{
-              supplierId: '',
-              supplierItemCode: '',
-              packChain: itemChain.map(l => ({ ...l })),
-              pricing: { ...itemPricing },
-              makePrimary: offers.length === 0,
-            }}
-            mainLocked={offers.length === 0}
-            saving={saving}
-            error={formError}
-            onSave={saveAdd}
-            onCancel={() => setOpen(null)}
-          />
+          {addForm}
         </div>
       ) : (
         <button
