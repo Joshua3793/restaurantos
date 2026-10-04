@@ -80,6 +80,33 @@ describe('saveAlias — what it learns', () => {
     expect(calls.updateMany).toHaveLength(0)
   })
 
+  it('a wording moved to ANOTHER item restarts its count at 1 (it never earned the old count for the new item)', async () => {
+    mock({ findUnique: () => ({ id: 'a1', ...ROW, text: 'grape red' }) })
+    await saveAlias({ rawDescription: 'GRAPE RED', inventoryItemId: 'grapes', supplierId: 'sup', source: 'APPROVE' })
+    expect(calls.upsert[0].update.inventoryItemId).toBe('grapes')
+    expect(calls.upsert[0].update.useCount).toBe(1)
+  })
+
+  it('a wording confirmed again for the SAME item keeps counting', async () => {
+    mock({ findUnique: () => ({ id: 'a1', ...ROW, inventoryItemId: 'grapes', text: 'grape red' }) })
+    await saveAlias({ rawDescription: 'GRAPE RED', inventoryItemId: 'grapes', supplierId: 'sup', source: 'APPROVE' })
+    expect(calls.upsert[0].update.useCount).toEqual({ increment: 1 })
+  })
+
+  it('a re-point restarts the count with an undo collector too, and the prev still carries the old count', async () => {
+    const { prevs, undo } = recorder()
+    mock({ findUnique: () => ({ id: 'a1', ...ROW, text: 'grape red' }), upsert: () => ({ id: 'a1' }) })
+    await saveAlias({ rawDescription: 'GRAPE RED', inventoryItemId: 'grapes', supplierId: 'sup', source: 'APPROVE', undo })
+    expect(calls.upsert[0].update.useCount).toBe(1)
+    expect(prevs[0]).toMatchObject({ inventoryItemId: 'other-item', useCount: 3 })
+  })
+
+  it('an unreadable existing row keeps the increment (unknown is not "moved")', async () => {
+    mock({ findUnique: () => { throw new Error('transient read failure') } })
+    await saveAlias({ rawDescription: 'GRAPE RED', inventoryItemId: 'grapes', supplierId: 'sup', source: 'APPROVE' })
+    expect(calls.upsert[0].update.useCount).toEqual({ increment: 1 })
+  })
+
   it('records the source it was given (CREATE_NEW)', async () => {
     mock({})
     await saveAlias({ rawDescription: 'NEW THING', inventoryItemId: 'n1', supplierId: 'sup', source: 'CREATE_NEW' })
@@ -128,11 +155,11 @@ describe('saveAlias — undo capture', () => {
     expect(createdIds).toEqual([])
   })
 
-  it('without an undo collector it reads nothing before writing', async () => {
+  it('without an undo collector it reads no siblings, only the target row (to know whether the wording moved)', async () => {
     mock({})
     await saveAlias({ rawDescription: 'NEW DESC', inventoryItemId: 'item1', supplierId: 'sup', supplierItemCode: 'C', source: 'APPROVE' })
     expect(calls.findMany).toHaveLength(0)
-    expect(calls.findUnique).toHaveLength(0)
+    expect(calls.findUnique).toHaveLength(1)
   })
 
   it('a failed siblings read does not abort the code-strip write, and records nothing for the siblings it could not see', async () => {

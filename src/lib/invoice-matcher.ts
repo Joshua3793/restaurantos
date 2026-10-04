@@ -481,7 +481,9 @@ function aliasFormat(a: AliasPack, description: string) {
  * scoped to `supplierId` (the session's linked supplier) and never borrows
  * another supplier's wording:
  *   0  this supplier's alias by item code        → HIGH 100
+ *      (a code live aliases give to 2+ items is ambiguous → skipped)
  *   0b this supplier's OFFER SKU (box library)   → HIGH 100
+ *      (stands down when tier 1's alias names a different item)
  *   1  this supplier's alias by wording          → HIGH 100
  *   2  fuzzy against item names                  → confidenceFromScore
  *   3  fuzzy against this supplier's wordings    → capped MEDIUM (capAliasConfidence)
@@ -542,20 +544,31 @@ export async function matchLineItems(
   }
   // First (most used) live alias per code / per wording. An alias whose item
   // fails W4 is skipped here, so the line falls through to the next tier.
+  // A code that live aliases of this supplier give to more than one distinct
+  // item is ambiguous — no signal says which is current — so it is omitted from
+  // tier 0 entirely, exactly as buildOfferSkuIndex treats a shared offer SKU.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const aliasByCode = new Map<string, any>()
+  const ambiguousCodes = new Set<string>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const aliasByText = new Map<string, any>()
   for (const a of exactAliases) {
     if (!isMatchable(a.inventoryItem)) continue
-    if (a.supplierItemCode && !aliasByCode.has(a.supplierItemCode)) aliasByCode.set(a.supplierItemCode, a)
+    if (a.supplierItemCode) {
+      const held = aliasByCode.get(a.supplierItemCode)
+      if (!held) aliasByCode.set(a.supplierItemCode, a)
+      else if (held.inventoryItem.id !== a.inventoryItem.id) ambiguousCodes.add(a.supplierItemCode)
+    }
     if (!aliasByText.has(a.text)) aliasByText.set(a.text, a)
   }
+  for (const c of ambiguousCodes) aliasByCode.delete(c)
 
   // ── This supplier's wordings for the items in play (tier 3) ────────────────
   // Scoped to the W4 items above and ordered by usefulness so the per-item cap
   // keeps the strongest; grouped + pre-normalised once so the per-line hot loop
-  // never re-tokenizes a string.
+  // never re-tokenizes a string. No row cap on the query: a global cap would
+  // drop whole items' wordings once one supplier passed it, and the per-item
+  // cap (ALIAS_CAP_PER_ITEM, applied in groupAliases) is the real bound.
   let fuzzyAliasRows: { inventoryItemId: string; rawText: string }[] = []
   if (supplierId && inventoryItems.length > 0) {
     try {
@@ -563,7 +576,6 @@ export async function matchLineItems(
         where: { supplierId, inventoryItemId: { in: inventoryItems.map(i => i.id) } },
         select: { inventoryItemId: true, rawText: true },
         orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
-        take: 2000,
       })
     } catch {
       // stale client / missing table — names only
@@ -626,10 +638,15 @@ export async function matchLineItems(
     }
 
     // ── 0b. This supplier's offer SKU (the box library) ────────────────────
+    // Stands down when this supplier's taught wording for this exact line (a
+    // live alias, tier 1's own lookup) names a DIFFERENT item: a code left on an
+    // old item's box is stale, and the human-taught wording is the fresher fact.
+    // An alias that agrees with the SKU, or none at all, leaves 0b in charge.
+    const byText = aliasByText.get(normaliseAliasText(ocrItem.description))
     const skuItem = ocrItem.supplierItemCode
       ? itemById.get(offerBySku.get(ocrItem.supplierItemCode) ?? '')
       : undefined
-    if (skuItem) {
+    if (skuItem && !(byText && byText.inventoryItem.id !== skuItem.id)) {
       const ocrPack = (ocrItem.packQty || ocrItem.packSize)
         ? { packQty: ocrItem.packQty ?? 1, packSize: ocrItem.packSize ?? 1, packUOM: ocrItem.packUOM ?? 'each' }
         : parseFormatFromDescription(ocrItem.description)
@@ -637,7 +654,6 @@ export async function matchLineItems(
     }
 
     // ── 1. This supplier's alias by wording ────────────────────────────────
-    const byText = aliasByText.get(normaliseAliasText(ocrItem.description))
     if (byText) {
       return buildMatchResult(
         ocrItem,
@@ -768,17 +784,20 @@ export async function saveAlias(a: {
   // as `prev`, a fresh one is recorded as created (so undo deletes it). A failed
   // read must NOT be treated as "not found" — that would `created()` an alias
   // that may have existed all along, and a rollback would delete it.
+  // Read with or without an undo collector: it also tells whether this wording
+  // is MOVING to another item, whose count then restarts (below).
   const where = { supplierId_text: { supplierId, text } }
   let existingReadFailed = false
-  const existing = undo
-    ? await prisma.itemSupplierAlias
-        .findUnique({ where, select: { id: true, ...ALIAS_SELECT } })
-        .catch(() => {
-          existingReadFailed = true
-          return null
-        })
-    : null
+  const existing = await prisma.itemSupplierAlias
+    .findUnique({ where, select: { id: true, ...ALIAS_SELECT } })
+    .catch(() => {
+      existingReadFailed = true
+      return null
+    })
   if (existing) undo?.before('ALIAS', existing.id, aliasState(existing))
+  // A wording re-pointed at another item never earned its old count there:
+  // restart at 1. Same item, or an unreadable row (unknown ≠ moved) → +1.
+  const moved = !!existing && existing.inventoryItemId !== inventoryItemId
 
   const row = await prisma.itemSupplierAlias.upsert({
     where,
@@ -797,7 +816,7 @@ export async function saveAlias(a: {
     update: {
       inventoryItemId,
       rawText: a.rawDescription,
-      useCount: { increment: 1 },
+      useCount: moved ? 1 : { increment: 1 },
       lastUsed: new Date(),
       ...(code ? { supplierItemCode: code } : {}),
       ...(a.format ? { packQty: a.format.packQty, packSize: a.format.packSize, packUOM: a.format.packUOM } : {}),
