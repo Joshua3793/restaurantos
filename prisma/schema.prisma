@@ -578,6 +578,20 @@ model ItemMerge {
   @@index([absorbedId])
 }
 
+model ItemRemeasure {
+  id        String    @id @default(cuid())
+  // NO foreign key, on purpose: a manifest is history and outlives a merge or a
+  // delete of its item — so it is NOT on the item-merge planner's re-point list.
+  itemId    String
+  changedBy String
+  changedAt DateTime  @default(now())
+  undoneAt  DateTime?
+  // RemeasureManifest (src/lib/remeasure-exec.ts): before-values of every row restated.
+  manifest  Json
+
+  @@index([itemId])
+}
+
 model PriceAlert {
   id              String         @id @default(uuid())
   sessionId       String

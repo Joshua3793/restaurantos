@@ -547,10 +547,17 @@ export async function undoBlocker(db: MergeDb, merge: UndoableMerge): Promise<st
   const later = await db.itemMerge.count({
     where: { survivorId: merge.survivorId, undoneAt: null, mergedAt: { gt: merge.mergedAt } },
   })
+  // A measure change since the merge restated every row the merge re-pointed
+  // into the survivor's NEW base; replaying the merge's before-values would put
+  // old-base numbers back beside new-base ones. Undo the measure change first.
+  const remeasured = await db.itemRemeasure.count({
+    where: { itemId: merge.survivorId, undoneAt: null, changedAt: since },
+  })
 
   // The combined-on-hand Quick Count the merge route records is NOT in the
   // manifest and cannot be inverted — this is the check that catches it.
   if (later) return 'Another item was merged in after this one — undo that one first.'
+  if (remeasured) return 'Its measure was changed since the merge — undo that first.'
   if (cnt) return 'This item has been counted since the merge.'
   if (inv) return 'An invoice has been approved on this item since the merge.'
   if (rec) return 'A recipe using this item has been edited since the merge.'

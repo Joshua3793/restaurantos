@@ -11,13 +11,13 @@
 //     or a new non-main box for that supplier. The item follows only its main
 //     box. A box must be in the item's measure, and this modal is only reached
 //     when the line's measure differs from the item's — so for an item with
-//     boxes NO request is sent (`adoptBlocked`): the modal says changing how the
-//     item is measured is coming next (Stage 2c) and the button stays off. The
+//     boxes NO request is sent (`adoptBlocked`): the modal links to the item's
+//     drawer, where "Change how it's measured" lives, and the button stays off. The
 //     box routes refuse a box in another measure too (INVALID), as a backstop.
 // It never touches stock (that moves only through counts). Re-costs recipes when
 // the item's price moves, so it spells out the impact before the user confirms.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { X, AlertTriangle, Loader2, ArrowRight } from 'lucide-react'
 import type { ScanItem } from '@/components/invoices/types'
 import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
@@ -115,9 +115,14 @@ export function AdoptFormatModal({
   // The item's own price moves only when the item is priced on itself or on the
   // box being changed — only then do recipes re-cost.
   const movesItemPrice = target.kind === 'item' || (target.kind === 'box' && target.isPrimary)
-  const targetSentence =
+  const targetSentence: ReactNode =
     blocked && fromDim
-      ? `This invoice sells ${itemName} ${measureWord(offer.dimension)}, but the item is ${measureWord(fromDim)}. ${boxSupplier}'s box has to be in the item's measure — changing how the item is measured is coming next.`
+      ? <>
+          This invoice sells {itemName} {measureWord(offer.dimension)}, but the item is {measureWord(fromDim)}. {boxSupplier}&rsquo;s box has to be in the item&rsquo;s measure.{' '}
+          <a href={`/inventory?item=${itemId}`} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+            Change how the item is measured from its drawer first.
+          </a>
+        </>
     : target.kind === 'item' ? "This changes the item's own pack and price."
     : target.kind === 'box' && target.isPrimary
       ? `This updates ${boxSupplier}'s box for ${itemName} — and the item's price, since it is the main box.`
