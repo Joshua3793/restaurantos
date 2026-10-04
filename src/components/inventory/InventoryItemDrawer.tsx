@@ -10,9 +10,10 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { seesItemMoney, canEditItems } from '@/lib/inventory-redact'
+import { lastDeliveryDay } from '@/lib/drawer-copy'
 import {
-  Header, HeaderBadges, HeaderFacts, PackChainReadout, PriceBlock, BridgesSection,
-  CostBasisBlock, StockSection, BoxesSection, HistorySection, ItemEditForm,
+  Header, HeaderBadges, HeaderFacts, PackChainReadout, BridgesSection,
+  CostLine, StockSection, BoxesSection, HistorySection, ItemEditForm,
   DEFAULT_CHAIN, DEFAULT_PRICING, buildEditForm, chainChanged, chainFromItem, normalizeItem,
   type EditForm, type InventoryItem, type PriceHistoryRow, type StockMovementsResponse,
 } from './drawer'
@@ -321,13 +322,20 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   }
                   const ppb = pricePerBaseUnit(ci)
                   return (
-                    <div className="grid grid-cols-2 gap-3 text-[13px]">
-                      <HeaderFacts item={item} c={c} baseUnit={ci.baseUnit} seesMoney={seesMoney} />
-                      <PackChainReadout chain={c.chain} baseUnit={ci.baseUnit} />
-                      <PriceBlock item={item} c={c} ci={ci} ppb={ppb} seesMoney={seesMoney} />
-                      <BridgesSection canEdit={canEdit} isRecipe={!!item.recipe} onRemeasure={() => setRemeasureOpen(true)} />
-                      <CostBasisBlock item={item} baseUnit={ci.baseUnit} last={ppb} seesMoney={seesMoney} />
-                    </div>
+                    <>
+                      <CostLine
+                        item={item}
+                        baseUnit={ci.baseUnit}
+                        last={ppb}
+                        lastDelivery={lastDeliveryDay(priceHistory, item.supplier?.name ?? null)}
+                        seesMoney={seesMoney}
+                      />
+                      <div className="grid grid-cols-2 gap-3 text-[13px]">
+                        <HeaderFacts item={item} c={c} baseUnit={ci.baseUnit} seesMoney={seesMoney} />
+                        <PackChainReadout chain={c.chain} baseUnit={ci.baseUnit} />
+                        <BridgesSection canEdit={canEdit} isRecipe={!!item.recipe} onRemeasure={() => setRemeasureOpen(true)} />
+                      </div>
+                    </>
                   )
                 })()}
 

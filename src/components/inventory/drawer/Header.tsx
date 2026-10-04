@@ -4,6 +4,7 @@ import { canonicalUom } from '@/lib/uom'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
+import { badgeList } from '@/lib/drawer-copy'
 import { displayStock, type InventoryItem, type ItemChainForm } from './types'
 
 // ─── Sticky header: name, storage area, actions ──────────────────────────────
@@ -45,7 +46,7 @@ export function Header({
         ) : (
           <h2 className="font-medium text-ink text-[19px] leading-[1.15] tracking-[-0.02em] truncate">{item.itemName}</h2>
         )}
-        {item.storageArea && !editMode && <p className="font-mono text-[10.5px] text-ink-4 uppercase tracking-[0.02em] mt-0.5">{item.storageArea.name}</p>}
+        {!editMode && <HeaderIdentity item={item} />}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {editMode ? (
@@ -102,20 +103,40 @@ export function Header({
   )
 }
 
-// ─── Badges row: category, stock status, allergens, active ───────────────────
+// ─── Under the name: category · storage area · exception badges ──────────────
+
+const BADGE_TONE: Record<string, string> = {
+  'Inactive':    'bg-bg-2 text-ink-4',
+  'Not stocked': 'bg-bg-2 text-ink-3',
+  'Recipe-made': 'bg-blue-soft text-blue-text',
+}
+
+/** Category pill, storage area and the badges an item only carries when it is
+ *  out of the ordinary (Inactive / Not stocked / Recipe-made). */
+function HeaderIdentity({ item }: { item: InventoryItem }) {
+  const badges = badgeList({ isActive: item.isActive, isStocked: item.isStocked ?? true, recipe: item.recipe })
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+      <CategoryBadge category={item.category} />
+      {item.storageArea && (
+        <span className="font-mono text-[10.5px] text-ink-4 uppercase tracking-[0.02em]">{item.storageArea.name}</span>
+      )}
+      {badges.map(b => (
+        <span key={b} className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${BADGE_TONE[b] ?? 'bg-bg-2 text-ink-3'}`}>{b}</span>
+      ))}
+    </div>
+  )
+}
+
+// ─── Badges row: stock status, allergens ─────────────────────────────────────
 
 export function HeaderBadges({ item }: { item: InventoryItem }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <CategoryBadge category={item.category} />
       <StockStatus stock={displayStock(item)} />
       {item.allergens && item.allergens.length > 0 && item.allergens.map(a => (
         <span key={a} className="px-2 py-0.5 rounded-full text-[11px] bg-gold-soft text-gold-2 font-medium">⚠ {a}</span>
       ))}
-      {item.isActive
-        ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-soft text-green-text font-medium">Active</span>
-        : <span className="px-2 py-0.5 rounded-full text-[11px] bg-bg-2 text-ink-4 font-medium">Inactive</span>
-      }
     </div>
   )
 }
