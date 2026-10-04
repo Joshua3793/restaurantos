@@ -96,10 +96,15 @@ export async function buildItemLedger(itemId: string, rcId?: string | null): Pro
   const events: LedgerEvent[] = []
   let openingFromEngine = 0
 
-  const theoreticalMap = await getTheoreticalStockMap(rcId ?? null, [itemId], null, {
-    sink: { push: e => { if (e.itemId === itemId) events.push(e) } },
-    onRcResult: (_rc, id, baseStock) => { if (id === itemId) openingFromEngine += baseStock },
-  })
+  // The engine and the physical counts are independent reads — run them together.
+  const [theoreticalMap, countedMap, rcCounted] = await Promise.all([
+    getTheoreticalStockMap(rcId ?? null, [itemId], null, {
+      sink: { push: e => { if (e.itemId === itemId) events.push(e) } },
+      onRcResult: (_rc, id, baseStock) => { if (id === itemId) openingFromEngine += baseStock },
+    }),
+    getCountedStockMap(null, [itemId]),
+    rcId ? getCountedStockMap([rcId], [itemId]) : Promise.resolve(null),
+  ])
 
   // An inactive or non-stocked item is outside the engine's scope entirely and
   // comes back absent, not zero — fall back to its own pool figure, as the
@@ -112,8 +117,7 @@ export async function buildItemLedger(itemId: string, rcId?: string | null): Pro
   // engine's per-RC opening balances for all but a handful of items carrying a
   // stale StockAllocation; where it doesn't, the difference lands in `residual`
   // instead of being papered over.
-  const countedMap = await getCountedStockMap(null, [itemId])
-  const counted = rcId ? (await getCountedStockMap([rcId], [itemId])).get(itemId) : countedMap.get(itemId)
+  const counted = rcCounted ? rcCounted.get(itemId) : countedMap.get(itemId)
   const openingIsCount = counted != null
   const openingBase = openingIsCount ? counted!.qtyBase : (inScope ? openingFromEngine : Number(item.stockOnHand))
   const openingDate = openingIsCount ? new Date(counted!.date) : null
