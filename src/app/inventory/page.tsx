@@ -212,6 +212,39 @@ export default function InventoryPage() {
   )
 }
 
+// The list is drawn a screenful at a time. Every row is ~40 elements; all ~460
+// items drawn at once (twice — table and phone list) put ~28,000 elements on the
+// page, and every small change anywhere (the item drawer filling in, a hover,
+// typing) then cost the browser ~25× more work — the drawer felt sluggish.
+// Filters, search, totals and export all still work on the full list.
+const ROW_BATCH = 60
+
+/** true = desktop table, false = phone list, null = not measured yet (first render draws both). */
+function useIsDesktop(): boolean | null {
+  const [desktop, setDesktop] = useState<boolean | null>(null)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 640px)')   // Tailwind `sm`
+    const sync = () => setDesktop(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return desktop
+}
+
+/** Category groups trimmed to `budget` rows; a collapsed group costs nothing. */
+function budgetGroups(groups: [string, InventoryItem[]][], collapsed: Set<string>, budget: number) {
+  const out: { cat: string; rows: InventoryItem[]; shown: InventoryItem[] }[] = []
+  let left = budget
+  for (const [cat, rows] of groups) {
+    if (left <= 0) break
+    const shown = collapsed.has(cat) ? [] : rows.slice(0, left)
+    left -= shown.length
+    out.push({ cat, rows, shown })
+  }
+  return out
+}
+
 type ItemDrawerApi = { open: (id: string) => void; closeIf: (id: string) => void }
 type DrawerUpdated = NonNullable<React.ComponentProps<typeof InventoryItemDrawer>['onUpdated']>
 
@@ -503,6 +536,24 @@ function InventoryPageInner() {
     if (colSort) return copy.sort(byCol(colSort.col))
     return copy.sort((a, b) => a.itemName.localeCompare(b.itemName))
   }, [pillFiltered, sortBy, colSort, catNames, stockInHand])
+
+  // How many rows are drawn — grows as the list scrolls into view, and starts over
+  // when the filters or sort change (not on a refetch, which would jump the scroll).
+  const isDesktop = useIsDesktop()
+  const [rowBudget, setRowBudget] = useState(ROW_BATCH)
+  useEffect(() => { setRowBudget(ROW_BATCH) },
+    [search, catFilter, supplierFilter, areaFilter, sortBy, colSort, activePill, showNonStocked, showInactive, stockInHand, activeRcId])
+  const moreRef = useRef<HTMLDivElement>(null)
+  const totalRows = sortedItems.length
+  useEffect(() => {
+    const el = moreRef.current
+    if (!el || rowBudget >= totalRows) return
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) setRowBudget(b => b + ROW_BATCH)
+    }, { rootMargin: '1500px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [rowBudget, totalRows, isDesktop])
 
   // Category groups (only in 'category' mode)
   const categoryGroups = useMemo(() => {
@@ -1775,9 +1826,10 @@ function InventoryPageInner() {
 
       {!loaded ? <ListSkeleton rows={10} label="Loading inventory…" /> : (<>
       {/* Mobile list */}
+      {isDesktop !== true && (
       <div className="block sm:hidden bg-paper rounded-[12px] border border-line overflow-hidden">
         {categoryGroups ? (
-          categoryGroups.map(([cat, rows]) => {
+          budgetGroups(categoryGroups, collapsedCats, rowBudget).map(({ cat, rows, shown }) => {
             const catValue = rows.reduce((s, i) => s + basisValue(i), 0)
             const collapsed = collapsedCats.has(cat)
             const belowPar = rows.filter(r => r.parLevel != null && displayStock(r) < (r.parLevel ?? 0)).length
@@ -1796,19 +1848,21 @@ function InventoryPageInner() {
                   </div>
                   <span className="font-mono text-[12px] font-semibold">{formatCurrency(catValue)}</span>
                 </div>
-                {!collapsed && rows.map(item => renderMobileRow(item))}
+                {!collapsed && shown.map(item => renderMobileRow(item))}
               </React.Fragment>
             )
           })
         ) : (
-          sortedItems.map(item => renderMobileRow(item))
+          sortedItems.slice(0, rowBudget).map(item => renderMobileRow(item))
         )}
         {sortedItems.length === 0 && (
           <div className="text-center py-12 font-mono text-[11px] uppercase tracking-[0.04em] text-ink-3">No items found</div>
         )}
       </div>
+      )}
 
       {/* Desktop table */}
+      {isDesktop !== false && (
       <div className="hidden sm:block bg-paper border border-line rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -1838,7 +1892,7 @@ function InventoryPageInner() {
             </thead>
             <tbody>
               {categoryGroups ? (
-                categoryGroups.map(([cat, rows]) => {
+                budgetGroups(categoryGroups, collapsedCats, rowBudget).map(({ cat, rows, shown }) => {
                   const catValue  = rows.reduce((s, i) => s + basisValue(i), 0)
                   const allChecked = rows.length > 0 && rows.every(r => checkedIds.has(r.id))
                   const collapsed  = collapsedCats.has(cat)
@@ -1868,18 +1922,21 @@ function InventoryPageInner() {
                           <span className="font-mono text-[12.5px] text-gold-2 font-semibold">{formatCurrency(catValue)}</span>
                         </td>
                       </tr>
-                      {!collapsed && rows.map(item => renderRow(item))}
+                      {!collapsed && shown.map(item => renderRow(item))}
                     </React.Fragment>
                   )
                 })
               ) : (
-                sortedItems.map(item => renderRow(item))
+                sortedItems.slice(0, rowBudget).map(item => renderRow(item))
               )}
             </tbody>
           </table>
           {sortedItems.length === 0 && <div className="text-center py-12 text-ink-4">No items found</div>}
         </div>
       </div>
+      )}
+      {/* Reaching this draws the next batch of rows. */}
+      {rowBudget < totalRows && <div ref={moreRef} className="h-px" aria-hidden />}
       </>)}
 
       {/* Item drawer — single source of truth across Inventory / Count */}
