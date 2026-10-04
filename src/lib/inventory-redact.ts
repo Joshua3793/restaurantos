@@ -51,6 +51,14 @@ export function redactInventoryItem<T extends object>(item: T): T {
   return out as T
 }
 
+/** A wastage log (GET/POST /api/wastage) minus its cost and its item's price. STAFF log
+ *  waste (it's on their home screen) — they see what and how much, never what it cost. */
+export function redactWastageLog<T extends object>(log: T): T {
+  const out = nullKeys(log, ['costImpact']) as Record<string, unknown>
+  if (out.inventoryItem && typeof out.inventoryItem === 'object') out.inventoryItem = redactInventoryItem(out.inventoryItem as object)
+  return out as T
+}
+
 /** A supplier offer (GET /api/inventory/:id/suppliers) minus its price and price history. */
 export function redactOffer<T extends object>(offer: T): T {
   const out = nullKeys(offer, OFFER_MONEY_KEYS) as Record<string, unknown>

@@ -5,6 +5,10 @@ import { itemCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { seesItemMoney, redactWastageLog } from '@/lib/inventory-redact'
+
+// Mutating handlers must never be statically prerendered.
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   let user
@@ -34,7 +38,8 @@ export async function GET(req: NextRequest) {
     include: { inventoryItem: true },
     orderBy: { date: 'desc' },
   })
-  return NextResponse.json(logs)
+  // STAFF logs waste but never sees what it cost (src/lib/inventory-redact.ts).
+  return NextResponse.json(seesItemMoney(user.role) ? logs : logs.map(l => redactWastageLog(l)))
 }
 
 async function handlePOST(req: NextRequest) {
@@ -85,7 +90,7 @@ async function handlePOST(req: NextRequest) {
     },
     include: { inventoryItem: true },
   })
-  return NextResponse.json(log, { status: 201 })
+  return NextResponse.json(seesItemMoney(user.role) ? log : redactWastageLog(log), { status: 201 })
 }
 
 // Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).
