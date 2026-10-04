@@ -174,8 +174,9 @@ export function ItemEditForm({
 
       {/* Count↔weight bridge — "1 each = N g/ml". On a COUNT item it's
           the per-each weight; on a measured item it's how much one
-          countable each weighs (so count invoices/recipes convert). */}
-      <div>
+          countable each weighs (so count invoices/recipes convert).
+          The id is where the view's "Add it in Edit" link lands. */}
+      <div id="item-edit-bridge">
         <label className="block text-xs font-medium text-ink-3 mb-1">
           {editForm.dimension === 'COUNT' ? 'Weight / volume per unit' : 'Weight per each (for count invoices)'}{' '}
           <span className="font-normal text-ink-4">(optional)</span>

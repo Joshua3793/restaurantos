@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   recipeCostSentence, countValueSentence, badgeList, bridgeSentence, shortDay, priceEach, lastDeliveryDay,
+  boxPriceText, packPriceLine, sortBoxes,
 } from '@/lib/drawer-copy'
 
 describe('priceEach', () => {
@@ -144,5 +145,46 @@ describe('lastDeliveryDay', () => {
   it('no supplier or no rows → null', () => {
     expect(lastDeliveryDay(rows, null)).toBeNull()
     expect(lastDeliveryDay([], 'Sysco')).toBeNull()
+  })
+})
+
+describe('boxPriceText', () => {
+  it('a pack price reads per its top pack', () => {
+    expect(boxPriceText({ mode: 'PACK', purchasePrice: 59.63 }, [{ unit: 'case', per: 6 }, { unit: 'bag', per: 1000 }])).toBe('$59.63 per case')
+    expect(boxPriceText({ mode: 'PACK', purchasePrice: '12.5' }, [{ unit: 'bag', per: 2000 }])).toBe('$12.50 per bag')
+  })
+  it('a rate reads per its own unit, tidied', () => {
+    expect(boxPriceText({ mode: 'RATE', rate: 3.49, rateUnit: 'LB' }, [])).toBe('$3.49 / lb')
+  })
+  it('no pack falls back to "case"; no price reads $0.00', () => {
+    expect(boxPriceText(null, null)).toBe('$0.00 per case')
+  })
+})
+
+describe('packPriceLine', () => {
+  it('says the price and what one top pack holds', () => {
+    expect(packPriceLine({ mode: 'PACK', purchasePrice: 59.63 }, [{ unit: 'case', per: 6 }, { unit: 'bag', per: 1000 }], 'g'))
+      .toBe('$59.63 per case · 1 case = 6,000 g')
+  })
+  it('a rate still says what one pack holds', () => {
+    expect(packPriceLine({ mode: 'RATE', rate: 3.49, rateUnit: 'lb' }, [{ unit: 'case', per: 4535.92 }], 'g'))
+      .toBe('$3.49 / lb · 1 case = 4,535.92 g')
+  })
+  it('a pack that is just the base unit leaves the second part off', () => {
+    expect(packPriceLine({ mode: 'PACK', purchasePrice: 0.5 }, [{ unit: 'each', per: 1 }], 'each')).toBe('$0.50 per each')
+    expect(packPriceLine({ mode: 'PACK', purchasePrice: 2 }, [], 'each')).toBe('$2.00 per case')
+  })
+})
+
+describe('sortBoxes', () => {
+  it('main box first, then cheapest per base unit, unpriced last', () => {
+    const boxes = [
+      { id: 'a', isPrimary: false, pricePerBaseUnit: 0 },
+      { id: 'b', isPrimary: false, pricePerBaseUnit: 0.5 },
+      { id: 'c', isPrimary: true, pricePerBaseUnit: 0.9 },
+      { id: 'd', isPrimary: false, pricePerBaseUnit: 0.3 },
+    ]
+    expect(sortBoxes(boxes).map(b => b.id)).toEqual(['c', 'd', 'b', 'a'])
+    expect(boxes.map(b => b.id)).toEqual(['a', 'b', 'c', 'd']) // not mutated
   })
 })

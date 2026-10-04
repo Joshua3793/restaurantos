@@ -1,16 +1,20 @@
 'use client'
+import { ClipboardCheck } from 'lucide-react'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { resolveCountUom } from '@/lib/count-uom'
+import { shortDay } from '@/lib/drawer-copy'
+import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
+import { SectionTitle } from './SectionTitle'
 import {
   baseToDisplay, displayStock, formatDay, itemChainDims, unbridgedAdvice,
   type InventoryItem, type MovementType, type StockMovementsResponse,
 } from './types'
 
-/** Revenue-center distribution, last count, theoretical stock, the
- *  reconciliation strip and the movement log. Renders bare siblings (a fragment)
- *  inside the shell's view body. */
+/** Stock, in this order: on hand per revenue center, the last count, the
+ *  theoretical stock now, "Count now", then the reconciliation strip and the
+ *  movement track (with the tally of movements that could not be counted). */
 export function StockSection({
-  item, showRcPanel, defaultRcId, canEdit, onPulled, stockMovements,
+  item, showRcPanel, defaultRcId, canEdit, onPulled, stockMovements, activeRc, onCount,
 }: {
   item: InventoryItem
   /** More than one revenue center exists. */
@@ -19,12 +23,18 @@ export function StockSection({
   canEdit: boolean
   onPulled: () => void
   stockMovements: StockMovementsResponse | null
+  /** The revenue center a count is taken in — none picked, no count. */
+  activeRc: RevenueCenter | null
+  /** Opens the quick count (the same sheet as the header's Count). */
+  onCount: () => void
 }) {
+  const last = stockMovements?.lastCount
+  const lastDay = last?.date ? (last.dayKey ?? last.date.slice(0, 10)) : null
   return (
-    <>
-      {/* Revenue-center distribution — elevated: assigning stock to an RC
-          is a primary task, so it sits right under the price, above the
-          stock log. */}
+    <div className="space-y-2">
+      <SectionTitle>Stock</SectionTitle>
+
+      {/* On hand per revenue center — assigning stock to an RC is a primary task. */}
       {showRcPanel && (
         <RcAllocationPanel
           itemId={item.id}
@@ -37,33 +47,39 @@ export function StockSection({
         />
       )}
 
-      {/* Stock Overview */}
-      <div className="space-y-2">
-        <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em]">Stock</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-paper border border-line rounded-[10px] p-3">
-            <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Last count</div>
-            <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
-              {stockMovements
-                ? `${stockMovements.lastCount.qty.toFixed(2)} ${stockMovements.lastCount.unit}`
-                : '—'}
-            </div>
-            <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
-              {stockMovements?.lastCount.date
-                ? formatDay(stockMovements.lastCount.dayKey, stockMovements.lastCount.date)
-                : 'Never counted'}
-            </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-paper border border-line rounded-[10px] p-3">
+          <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Last count</div>
+          <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
+            {last ? `${last.qty.toFixed(2)} ${last.unit}` : '—'}
           </div>
-          <div className="bg-bg-2 border border-line rounded-[10px] p-3">
-            <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Theoretical stock</div>
-            <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
-              {stockMovements
-                ? `${stockMovements.theoretical.qty.toFixed(2)} ${stockMovements.theoretical.unit}`
-                : '—'}
-            </div>
-            <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">Estimated current</div>
+          <div className="text-[11px] text-ink-4 mt-0.5">
+            {lastDay ? `Counted ${shortDay(lastDay)}` : 'Never counted — count it to start its stock'}
           </div>
         </div>
+        <div className="bg-bg-2 border border-line rounded-[10px] p-3">
+          <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Expected now</div>
+          <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
+            {stockMovements
+              ? `${stockMovements.theoretical.qty.toFixed(2)} ${stockMovements.theoretical.unit}`
+              : '—'}
+          </div>
+          <div className="text-[11px] text-ink-4 mt-0.5">Last count, plus deliveries, minus what was used</div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onCount}
+        disabled={!activeRc}
+        title={activeRc ? `Count it now (${activeRc.name})` : 'Pick a revenue center to count'}
+        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 border border-line bg-paper text-[12.5px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <ClipboardCheck size={13} /> Count now{activeRc ? ` · ${activeRc.name}` : ''}
+      </button>
+      {!activeRc && (
+        <div className="text-[11px] text-ink-4 text-center">Pick a revenue center at the top of the page to count.</div>
+      )}
 
         {/* Reconciliation strip — the drawer's whole promise on one line:
             last count + additions − consumptions = theoretical. Sent as
@@ -157,9 +173,8 @@ export function StockSection({
           </div>
         )}
         {stockMovements && stockMovements.movements.length === 0 && (
-          <div className="text-[12px] text-ink-4 text-center py-2">No movements recorded</div>
+          <div className="text-[12px] text-ink-4 text-center py-2">Nothing has moved since the last count.</div>
         )}
-      </div>
-    </>
+    </div>
   )
 }

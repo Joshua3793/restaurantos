@@ -3,6 +3,9 @@
 // cost-basis.ts imports Prisma at runtime — type-only import keeps it out of the bundle.
 import type { ItemCostBasis } from '@/lib/cost-basis'
 import { formatCurrency, priceDisplayScale } from '@/lib/utils'
+import { levelBaseUnits, type PackLink } from '@/lib/item-model'
+import { canonicalUom } from '@/lib/uom'
+import { offerListedPrice } from '@/lib/offer-price'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -104,4 +107,39 @@ export function lastDeliveryDay(
     if (best === null || r.dayKey > best) best = r.dayKey
   }
   return best
+}
+
+const unitWord = (u: string | null | undefined) => (u ? canonicalUom(u) : '')
+
+/** A box's (or a box-less item's) own price as written on the invoice:
+ *  "$59.63 per case" for a pack price, "$3.49 / lb" for a rate. */
+export function boxPriceText(pricing: unknown, chain: PackLink[] | null | undefined): string {
+  // offerListedPrice reads the rate or the pack price off the pricing JSON.
+  const listed = formatCurrency(offerListedPrice({ pricing }))
+  const rate = pricing as { mode?: string; rateUnit?: string } | null
+  if (rate?.mode === 'RATE') return `${listed} / ${unitWord(rate.rateUnit)}`
+  const top = Array.isArray(chain) && chain.length ? chain[0].unit : 'case'
+  return `${listed} per ${top}`
+}
+
+/** The price line of an item with no supplier box: its own price and what one
+ *  of its top pack holds — "$59.63 per case · 1 case = 6,000 g". A pack that is
+ *  just the base unit ("1 each = 1 each") leaves the second part off. */
+export function packPriceLine(pricing: unknown, chain: PackLink[] | null | undefined, baseUnit: string): string {
+  const price = boxPriceText(pricing, chain)
+  if (!Array.isArray(chain) || chain.length === 0) return price
+  const top = chain[0]
+  const holds = levelBaseUnits(chain)[top.unit] ?? 0
+  if (!(holds > 0) || (chain.length === 1 && top.unit === baseUnit && holds === 1)) return price
+  return `${price} · 1 ${top.unit} = ${(+holds.toFixed(3)).toLocaleString('en-CA')} ${baseUnit}`
+}
+
+/** Supplier boxes in the order the drawer lists them: the main box first, then
+ *  the cheapest per base unit; a box with no usable price goes last. */
+export function sortBoxes<T extends { isPrimary: boolean; pricePerBaseUnit: number }>(boxes: T[]): T[] {
+  const key = (b: T) => (b.pricePerBaseUnit > 0 ? b.pricePerBaseUnit : Infinity)
+  return [...boxes].sort((a, b) => {
+    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1
+    return key(a) - key(b)
+  })
 }

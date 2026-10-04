@@ -12,7 +12,7 @@ import { atLeast } from '@/lib/roles'
 import { seesItemMoney, canEditItems } from '@/lib/inventory-redact'
 import { lastDeliveryDay } from '@/lib/drawer-copy'
 import {
-  Header, HeaderBadges, HeaderFacts, PackChainReadout, BridgesSection,
+  Header, HeaderBadges, HeaderFacts, BridgesSection,
   CostLine, StockSection, BoxesSection, HistorySection, ItemEditForm,
   DEFAULT_CHAIN, DEFAULT_PRICING, buildEditForm, chainChanged, chainFromItem, normalizeItem,
   type EditForm, type InventoryItem, type PriceHistoryRow, type StockMovementsResponse,
@@ -106,6 +106,24 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     setEditForm(buildEditForm(item))
     setEditMode(true)
   }
+
+  // "Add it in Edit" (the bridges section): open Edit, then bring the
+  // "1 each = ? g" field into view and put the cursor in it.
+  const focusBridgeOnEdit = useRef(false)
+  const openEditAtBridge = () => {
+    focusBridgeOnEdit.current = true
+    openEdit()
+  }
+  useEffect(() => {
+    if (!editMode || !focusBridgeOnEdit.current) return
+    focusBridgeOnEdit.current = false
+    const id = requestAnimationFrame(() => {
+      const field = document.getElementById('item-edit-bridge')
+      field?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      field?.querySelector('input')?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [editMode])
 
   // R8 — someone else saved this item since the form loaded: reload the row and
   // rebuild the form from it, staying in edit mode.
@@ -323,6 +341,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   const ppb = pricePerBaseUnit(ci)
                   return (
                     <>
+                      {/* 2 — what it costs */}
                       <CostLine
                         item={item}
                         baseUnit={ci.baseUnit}
@@ -332,13 +351,35 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                       />
                       <div className="grid grid-cols-2 gap-3 text-[13px]">
                         <HeaderFacts item={item} c={c} baseUnit={ci.baseUnit} seesMoney={seesMoney} />
-                        <PackChainReadout chain={c.chain} baseUnit={ci.baseUnit} />
-                        <BridgesSection canEdit={canEdit} isRecipe={!!item.recipe} onRemeasure={() => setRemeasureOpen(true)} />
                       </div>
+
+                      {/* 3 — who sells it */}
+                      <BoxesSection
+                        item={item}
+                        seesMoney={seesMoney}
+                        canEdit={canEdit}
+                        measureTick={measureTick}
+                        onRefresh={refreshItem}
+                        priceHistory={priceHistory}
+                      />
+
+                      {/* 4 — how it converts */}
+                      <BridgesSection
+                        item={item}
+                        chain={c.chain}
+                        baseUnit={ci.baseUnit}
+                        canEdit={canEdit}
+                        onRemeasure={() => setRemeasureOpen(true)}
+                        onEditBridge={openEditAtBridge}
+                      />
                     </>
                   )
                 })()}
 
+                {/* 5 — how each supplier writes this item on its invoices (W7) — MANAGER+. */}
+                {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} refreshKey={mergeTick} />}
+
+                {/* 6 — what is on hand */}
                 <StockSection
                   item={item}
                   showRcPanel={revenueCenters.length > 1}
@@ -349,19 +390,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     onUpdated?.()
                   }}
                   stockMovements={stockMovements}
+                  activeRc={activeRc}
+                  onCount={() => setShowQuick(true)}
                 />
 
-                <BoxesSection
-                  item={item}
-                  seesMoney={seesMoney}
-                  canEdit={canEdit}
-                  measureTick={measureTick}
-                  onRefresh={refreshItem}
-                />
-
-                {/* How each supplier writes this item on its invoices (W7) — MANAGER+. */}
-                {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} refreshKey={mergeTick} />}
-
+                {/* 7 — what happened */}
                 <HistorySection
                   item={item}
                   canMerge={canMerge}
