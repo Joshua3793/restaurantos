@@ -19,7 +19,7 @@ import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
-import { implausibleMessage, type BlockReason, type BlockedLine } from '@/lib/invoice/approve-outcome'
+import { implausibleParts, type BlockReason, type BlockedLine } from '@/lib/invoice/approve-outcome'
 import { decisionForScanItem, createNewRefusalFor } from '@/lib/invoice/approve-outcome-client'
 
 /** A line's inputs to the receiving rule with any FROZEN receipt cleared —
@@ -85,8 +85,9 @@ export interface ResolveOpts {
 // Read through the SAME decision the approve preflight runs (decideLinePrice via
 // decisionForScanItem), so the screen blocks exactly the lines the 409 would list.
 
-/** Reasons whose stock can still be received with the old price kept. */
-const RECEIVABLE: ReadonlySet<BlockReason> = new Set<BlockReason>(['PACK_DISAGREES', 'RATE_UNCOSTABLE', 'NO_PRICE', 'PRICE_IMPLAUSIBLE'])
+/** Reasons whose stock can still be received with the old price kept. Never a
+ *  price that looks off: that clears only by "The price is right". */
+const RECEIVABLE: ReadonlySet<BlockReason> = new Set<BlockReason>(['PACK_DISAGREES', 'RATE_UNCOSTABLE', 'NO_PRICE'])
 
 export const BLOCK_TITLE: Record<BlockReason, string> = {
   PACK_DISAGREES:        'Case size changed',
@@ -104,6 +105,21 @@ export interface ApproveBlock {
   message: string
   /** "Receive the stock, keep the old price" is on offer (there is stock to receive). */
   canReceiveWithoutPrice: boolean
+  /** What receive-only would put in, in the item's count unit ("0.25 case", "24 each"); null when unknown. */
+  receiveText?: string | null
+}
+
+/** "0.25 case" — the line's received quantity in the item's count unit, read
+ *  through this supplier's box exactly as approve freezes a refused line. */
+function receiveTextOf(item: ScanItem, ref: SupplierRef | null | undefined): string | null {
+  const t = splitTargetOf(item, ref ?? null)
+  if (!t || !(t.qty > 0)) return null
+  return `${(+t.qty.toFixed(3)).toLocaleString('en-CA')} ${t.countUom}`
+}
+
+/** The receive-only button: "Receive 24 case, keep the old price". */
+export function receiveOnlyLabel(block: Pick<ApproveBlock, 'receiveText'>): string {
+  return block.receiveText ? `Receive ${block.receiveText}, keep the old price` : 'Receive the stock, keep the old price'
 }
 
 /**
@@ -116,14 +132,21 @@ export function approveBlockOf(item: ScanItem, opts: Pick<ResolveOpts, 'serverBl
   if (isCharge(item)) return null
   const d = decisionForScanItem(item, ref ?? {})
   if (d && !d.ok) {
-    return { reason: d.reason, message: d.message, canReceiveWithoutPrice: RECEIVABLE.has(d.reason) && d.receivable }
+    const canReceiveWithoutPrice = RECEIVABLE.has(d.reason) && d.receivable
+    return {
+      reason: d.reason, message: d.message, canReceiveWithoutPrice,
+      receiveText: canReceiveWithoutPrice ? receiveTextOf(item, ref) : null,
+    }
   }
   const cn = createNewRefusalFor(item)
   if (cn) return { reason: cn.reason, message: cn.message, canReceiveWithoutPrice: false }
   const sb = opts.serverBlock
   if (!sb || sb.reason === 'PRICE_IMPLAUSIBLE') return null
   if (sb.reason === 'NOT_LINKED' && isUnlinked(item)) return null
-  return { reason: sb.reason, message: sb.message, canReceiveWithoutPrice: sb.canReceiveWithoutPrice }
+  return {
+    reason: sb.reason, message: sb.message, canReceiveWithoutPrice: sb.canReceiveWithoutPrice,
+    receiveText: sb.canReceiveWithoutPrice ? receiveTextOf(item, ref) : null,
+  }
 }
 
 export interface UnitCheck {
@@ -139,7 +162,7 @@ function timesText(ratio: number): string {
   return `${(+up.toPrecision(2)).toLocaleString('en-CA')}×`
 }
 
-/** A per-weight price 20× or more off the box's — the approve preflight's PRICE_IMPLAUSIBLE. */
+/** A per-weight price 20× or more off the box's (3× when the unit was assumed) — the approve preflight's PRICE_IMPLAUSIBLE. */
 export function unitCheckOf(item: ScanItem, opts: Pick<ResolveOpts, 'serverBlock'>, ref?: SupplierRef | null): UnitCheck | null {
   if (isCharge(item)) return null
   const r = ref ?? {}
@@ -147,15 +170,15 @@ export function unitCheckOf(item: ScanItem, opts: Pick<ResolveOpts, 'serverBlock
   if (d?.ok && d.implausible && item.matchedItem) {
     const supplierName = r.canonicalName ?? r.supplierName ?? null
     const offer = offerForSupplier(item, r)
-    const full = implausibleMessage({
+    const { detail } = implausibleParts({
       newPricePerBase: d.newPricePerBase, currentPpb: d.implausible.currentPpb, ratio: d.implausible.ratio,
       baseUnit: item.matchedItem.baseUnit ?? 'each', itemName: item.matchedItem.itemName, supplierName,
-      boxIsSuppliers: !!offer && d.speaks.pricing === offer.pricing,
+      boxIsSuppliers: !!offer && d.speaks.pricing === offer.pricing, assumed: d.implausible.assumed,
     })
-    const rest = full.split(' — check the unit. ')[1]
     return {
       title: `Price looks about ${timesText(d.implausible.ratio)} off`,
-      summary: rest ? `Check the unit. ${rest}` : full,
+      // A line that prints no unit: the unit was a guess (the check fires at 3×).
+      summary: d.implausible.assumed ? `The unit was assumed — confirm it. ${detail}` : `Check the unit. ${detail}`,
     }
   }
   // The server judged it on its own snapshot; show its words until the line changes.

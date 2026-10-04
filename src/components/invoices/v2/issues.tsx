@@ -15,7 +15,7 @@ import { dimensionOf } from '@/lib/item-model'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
 import {
-  offerForSupplier, cheapestOtherOffer, BLOCK_TITLE,
+  offerForSupplier, cheapestOtherOffer, BLOCK_TITLE, receiveOnlyLabel,
   type SupplierRef, type ApproveBlock, type UnitCheck,
 } from '@/lib/invoice/resolution'
 import { isNewSupplierForItem } from '@/lib/invoice/new-supplier'
@@ -539,7 +539,9 @@ export function ApproveBlockIssue({
   const receiveOnly = block.canReceiveWithoutPrice && (
     <ActButton variant={receiving ? 'primary' : 'default'} onClick={() => ctx.toggleReceiveOnly(lineId)}
       title={receiving ? 'Click again to undo' : 'The stock goes in; the price stays as it was'}>
-      {receiving ? <><Check size={12} /> Receiving the stock, keeping the old price</> : 'Receive the stock, keep the old price'}
+      {receiving
+        ? <><Check size={12} /> {block.receiveText ? `Receiving ${block.receiveText}, keeping the old price` : 'Receiving the stock, keeping the old price'}</>
+        : receiveOnlyLabel(block)}
     </ActButton>
   )
 

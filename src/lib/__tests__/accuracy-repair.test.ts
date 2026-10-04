@@ -2,15 +2,28 @@ import { describe, it, expect } from 'vitest'
 import {
   parseRepairArgs, unitFactorBetween, planUnitless, planBlocked, boxRefreshBlockers,
   planSplitCreateNew, compareToReviewed, appendRepairNote, boxRefreshWrite,
+  applySkip, planValue, checkAgainstReviewed,
   type BlockedInput, type BoxFacts, type SplitCloneInput, type ParentLineInput,
 } from '@/lib/invoice/accuracy-repair'
 
 // ─────────────────────────────────────────────────────────────────────────────
 describe('parseRepairArgs', () => {
   it('reads each mode, dry by default', () => {
-    expect(parseRepairArgs(['--mode', 'unitless-weight'])).toEqual({ mode: 'unitless-weight', apply: false, withBoxRefresh: false })
-    expect(parseRepairArgs(['--mode=blocked', '--with-box-refresh'])).toEqual({ mode: 'blocked', apply: false, withBoxRefresh: true })
-    expect(parseRepairArgs(['--mode', 'split-create-new', '--apply'])).toEqual({ mode: 'split-create-new', apply: true, withBoxRefresh: false })
+    expect(parseRepairArgs(['--mode', 'unitless-weight'])).toEqual({ mode: 'unitless-weight', apply: false, withBoxRefresh: false, skip: [] })
+    expect(parseRepairArgs(['--mode=blocked', '--with-box-refresh'])).toEqual({ mode: 'blocked', apply: false, withBoxRefresh: true, skip: [] })
+    expect(parseRepairArgs(['--mode', 'split-create-new', '--apply'])).toEqual({ mode: 'split-create-new', apply: true, withBoxRefresh: false, skip: [] })
+  })
+  it('--skip takes comma-separated line ids, in every mode, dry or apply; repeated, deduplicated, sorted', () => {
+    expect(parseRepairArgs(['--mode', 'blocked', '--skip', 'c,a, b'])).toMatchObject({ mode: 'blocked', apply: false, skip: ['a', 'b', 'c'] })
+    expect(parseRepairArgs(['--mode=blocked', '--apply', '--skip=b', '--skip', 'a,b'])).toMatchObject({ apply: true, skip: ['a', 'b'] })
+    expect(parseRepairArgs(['--mode', 'unitless-weight', '--skip', 'x'])).toMatchObject({ mode: 'unitless-weight', skip: ['x'] })
+    expect(parseRepairArgs(['--mode', 'split-create-new', '--skip', 'y', '--apply'])).toMatchObject({ mode: 'split-create-new', apply: true, skip: ['y'] })
+  })
+  it('--skip with no ids is refused', () => {
+    expect(parseRepairArgs(['--mode', 'blocked', '--skip'])).toHaveProperty('error')
+    expect(parseRepairArgs(['--mode', 'blocked', '--skip', '--apply'])).toHaveProperty('error')
+    expect(parseRepairArgs(['--mode', 'blocked', '--skip=', ])).toHaveProperty('error')
+    expect(parseRepairArgs(['--mode', 'blocked', '--skip', ' , '])).toHaveProperty('error')
   })
   it('refuses a bare --apply, an unknown flag, an unknown mode, and a box refresh outside blocked', () => {
     expect(parseRepairArgs(['--apply'])).toHaveProperty('error')
@@ -113,6 +126,9 @@ describe('planBlocked', () => {
   })
   it('a line that cannot be received is listed', () => {
     expect(planBlocked([line({ receiveBase: 0 })], { withBoxRefresh: false })[0]).toMatchObject({ kind: 'listed', reason: 'cannot-receive' })
+  })
+  it('a weight the item cannot convert (12 lb on an each-item, read as 12 cases) is listed, never received', () => {
+    expect(planBlocked([line({ receiveBase: 288, needsBridge: true })], { withBoxRefresh: false })[0]).toMatchObject({ kind: 'listed', reason: 'needs-weight' })
   })
   it('refreshes a qualifying non-primary box only with the flag', () => {
     const l = line({ box: goodBox, boxWrite: write })
@@ -218,14 +234,65 @@ describe('planSplitCreateNew', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+describe('applySkip — the plan filter', () => {
+  const plan = [{ id: 'a', kind: 'write' }, { id: 'b', kind: 'listed' }, { id: 'c', kind: 'write' }]
+  it('drops the skipped rows from the plan, whatever their kind, and reports them', () => {
+    expect(applySkip(plan, ['c', 'b'])).toEqual({ kept: [plan[0]], skipped: [plan[1], plan[2]], unknown: [] })
+  })
+  it('names a skip id that is not in this run', () => {
+    expect(applySkip(plan, ['a', 'zz'])).toEqual({ kept: [plan[1], plan[2]], skipped: [plan[0]], unknown: ['zz'] })
+  })
+  it('no skip → the plan as it was', () => {
+    expect(applySkip(plan, [])).toEqual({ kept: plan, skipped: [], unknown: [] })
+  })
+})
+
+describe('planValue — what a plan key will write, stably', () => {
+  it('sorts object keys and rounds float noise, so the same write reads the same', () => {
+    expect(planValue({ b: 1, a: 15775.000000000002 })).toBe(planValue({ a: 15775, b: 1 }))
+    expect(planValue({ receipt: 453.592 })).not.toBe(planValue({ receipt: 1814.368 }))
+    expect(planValue({ item: 'i1', receipt: null })).toBe('{"item":"i1","receipt":null}')
+    expect(planValue([{ y: 2, x: 1 }])).toBe('[{"x":1,"y":2}]')
+  })
+})
+
 describe('compareToReviewed', () => {
+  const R = (o: Record<string, string>) => o
   it('passes when the fresh set is the reviewed set minus rows already applied', () => {
-    expect(compareToReviewed({ reviewed: ['a', 'b', 'c'], fresh: ['a', 'b', 'c'], applied: [] }).ok).toBe(true)
-    expect(compareToReviewed({ reviewed: ['a', 'b', 'c'], fresh: ['c'], applied: ['a', 'b'] }).ok).toBe(true)
+    expect(compareToReviewed({ reviewed: R({ a: '1', b: '2', c: '3' }), fresh: R({ a: '1', b: '2', c: '3' }), applied: [] }).ok).toBe(true)
+    expect(compareToReviewed({ reviewed: R({ a: '1', b: '2', c: '3' }), fresh: R({ c: '3' }), applied: ['a', 'b'] }).ok).toBe(true)
   })
   it('refuses a new row, or a reviewed row that vanished without being applied', () => {
-    expect(compareToReviewed({ reviewed: ['a'], fresh: ['a', 'z'], applied: [] })).toEqual({ ok: false, added: ['z'], missing: [] })
-    expect(compareToReviewed({ reviewed: ['a', 'b'], fresh: ['a'], applied: [] })).toEqual({ ok: false, added: [], missing: ['b'] })
+    expect(compareToReviewed({ reviewed: R({ a: '1' }), fresh: R({ a: '1', z: '9' }), applied: [] })).toEqual({ ok: false, added: ['z'], missing: [], changed: [] })
+    expect(compareToReviewed({ reviewed: R({ a: '1', b: '2' }), fresh: R({ a: '1' }), applied: [] })).toEqual({ ok: false, added: [], missing: ['b'], changed: [] })
+  })
+  it('refuses when a row is the same line but would now write a DIFFERENT value', () => {
+    expect(compareToReviewed({ reviewed: R({ a: '{"receipt":453.592}' }), fresh: R({ a: '{"receipt":1814.368}' }), applied: [] }))
+      .toEqual({ ok: false, added: [], missing: [], changed: ['a'] })
+  })
+})
+
+describe('checkAgainstReviewed — the --apply guard', () => {
+  const file = { mode: 'blocked', withBoxRefresh: false, skip: ['s1', 's2'], createdAt: '2026-10-03T00:00:00Z', entries: { a: '1' } }
+  const base = { mode: 'blocked' as const, withBoxRefresh: false, skip: ['s1', 's2'], fresh: { a: '1' }, applied: [] as string[] }
+  it('passes for the same flags, the same --skip and the same values', () => {
+    expect(checkAgainstReviewed({ ...base, file })).toEqual({ ok: true, problems: [] })
+  })
+  it('refuses when --skip differs from the dry run (either way)', () => {
+    const r = checkAgainstReviewed({ ...base, skip: ['s1'], file })
+    expect(r.ok).toBe(false)
+    expect(r.problems.join(' ')).toMatch(/--skip/)
+    expect(checkAgainstReviewed({ ...base, skip: ['s1', 's2', 's3'], file }).ok).toBe(false)
+  })
+  it('refuses a changed value with the plain sentence', () => {
+    const r = checkAgainstReviewed({ ...base, fresh: { a: '2' }, file })
+    expect(r.ok).toBe(false)
+    expect(r.problems[0]).toBe('Rows changed since the dry run — run it again.')
+  })
+  it('refuses a missing dry run, a different mode/flag, and a plan file from before values were recorded', () => {
+    expect(checkAgainstReviewed({ ...base, file: null }).ok).toBe(false)
+    expect(checkAgainstReviewed({ ...base, withBoxRefresh: true, file }).ok).toBe(false)
+    expect(checkAgainstReviewed({ ...base, file: { mode: 'blocked', withBoxRefresh: false, keys: ['a'] } }).ok).toBe(false)
   })
 })
 

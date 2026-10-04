@@ -120,7 +120,8 @@ vi.mock('@/lib/auth', () => ({
 }))
 vi.mock('@/lib/rc-scope', () => ({ assertRcWritable: async () => {} }))
 vi.mock('@/lib/supplier-matcher', () => ({ learnAlias: async () => {} }))
-vi.mock('@/lib/invoice-matcher', () => ({ saveAlias: async () => {} }))
+const saveAliasCalls: Row[] = []
+vi.mock('@/lib/invoice-matcher', () => ({ saveAlias: async (a: Row) => { saveAliasCalls.push(a) } }))
 vi.mock('@/lib/recipeCosts', () => ({ propagatePrepCostChanges: async () => [] }))
 vi.mock('@/lib/recipe-costs', () => ({ recalculateRecipeCosts: async () => [] }))
 vi.mock('@/lib/primary-offer', () => ({ ensurePrimary: async () => {} }))
@@ -146,6 +147,7 @@ beforeEach(() => {
   dup = null
   onClaim = null
   pending = null
+  saveAliasCalls.length = 0
 })
 
 describe('approve preflight — blocked lines answer 409 and the session stays in REVIEW', () => {
@@ -182,6 +184,25 @@ describe('approve preflight — blocked lines answer 409 and the session stays i
     expect(fns.itemUpdate).not.toHaveBeenCalled()
     expect(finalSessionWrite()!.data.errorMessage).toMatch(/received without a price change/)
     expect(finalSessionWrite()!.data.errorMessage).toMatch(/^1 line was received without a price change: Cilantro — /)
+    // The wording is still learned (the match is confirmed) — but NOT with the
+    // disputed 1 × 1 lb case: that pack is exactly what the reviewer did not accept.
+    const alias = saveAliasCalls.find(a => a.rawDescription === 'CILANTRO CLEAN WASH FRES')!
+    expect(alias).toBeDefined()
+    expect(alias.inventoryItemId).toBe('cil')
+    expect(alias.format).toBeNull()
+  })
+
+  it('2b. Eggplant "12 lb @ $3.49/lb" on an each-item with no weight per each: receive-only is refused (409)', async () => {
+    const eggplant = item({ id: 'egg', itemName: 'Eggplant', dimension: 'COUNT', baseUnit: 'each', countUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 } })
+    session = sessionOf([line({
+      id: 'egg-line', rawDescription: 'EGGPLANT', matchedItemId: 'egg', matchedItem: eggplant,
+      rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb', rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88', pricingMode: 'per_weight',
+    })], { supplierId: null })
+    const { status, json } = await post({ receiveWithoutPrice: ['egg-line'] })
+    expect(status).toBe(409)
+    expect(json.blocked[0]).toMatchObject({ reason: 'RATE_UNCOSTABLE', canReceiveWithoutPrice: false })
+    expect(json.blocked[0].message).toMatch(/Can't receive this without knowing how much one weighs — add it in Edit\.$/)
+    expect(fns.sessionUpdateMany).not.toHaveBeenCalled()
   })
 
   it('3. bison with no unit under a $25/kg box → approved at $25/kg, 15,775 g received', async () => {
@@ -209,7 +230,14 @@ describe('approve preflight — blocked lines answer 409 and the session stays i
     const first = await post()
     expect(first.status).toBe(409)
     expect(first.json.blocked).toHaveLength(1)
-    expect(first.json.blocked[0]).toMatchObject({ reason: 'PRICE_IMPLAUSIBLE', canConfirmPrice: true, canReceiveWithoutPrice: true })
+    expect(first.json.blocked[0]).toMatchObject({ reason: 'PRICE_IMPLAUSIBLE', canConfirmPrice: true, canReceiveWithoutPrice: false })
+    expect(fns.sessionUpdateMany).not.toHaveBeenCalled()
+
+    // Receive-only does not clear a price that looks off — only "The price is right" does.
+    const receiveOnly = await post({ receiveWithoutPrice: ['bison-line'] })
+    expect(receiveOnly.status).toBe(409)
+    expect(receiveOnly.json.blocked[0].reason).toBe('PRICE_IMPLAUSIBLE')
+    expect(receiveOnly.json.error).toBe("1 line can't be approved yet. Fix it.")
     expect(fns.sessionUpdateMany).not.toHaveBeenCalled()
 
     const second = await post({ priceConfirmed: ['bison-line'] })
@@ -292,6 +320,44 @@ describe('approve — a new product on a line moved to another revenue center (b
     expect(fns.scanCreateMany).not.toHaveBeenCalled()
     expect(scanUpdateFor('new-line')).toBeUndefined()
     expect(finalSessionWrite()!.data.errorMessage).toMatch(/^1 new product was not created — "OAT MILK BARISTA" was never set up/)
+  })
+})
+
+describe('approve — the write side never receives a weight it cannot convert', () => {
+  it('a line that lost its weight-per-each after the preflight is NOT received as 12 "cases" (288 each)', async () => {
+    const eggplant = item({ id: 'egg', itemName: 'Eggplant', dimension: 'COUNT', baseUnit: 'each', countUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 }, eachMeasureQty: '181.4368', eachMeasureUnit: 'g' })
+    session = sessionOf([line({
+      id: 'egg-line', rawDescription: 'EGGPLANT', matchedItemId: 'egg', matchedItem: eggplant,
+      rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb', rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88', pricingMode: 'per_weight',
+    })], { supplierId: null })
+    onClaim = () => { eggplant.eachMeasureQty = null; eggplant.eachMeasureUnit = null }
+    const { status } = await post()
+    expect(status).toBe(200)
+    await settle()
+    expect(scanUpdateFor('egg-line')).toBeUndefined()
+    expect(finalSessionWrite()!.data.errorMessage).toMatch(/^1 line was not received/)
+  })
+})
+
+describe('approve — an RC copy only carries lines this approval received', () => {
+  it('SKIP / PENDING lines, and a priced line neither received nor priced, are not copied into the Catering clone', async () => {
+    const flour = item({ id: 'flour', itemName: 'Flour' })
+    const limes = item({ id: 'limes', itemName: 'Limes', dimension: 'COUNT', baseUnit: 'each', countUnit: 'case', packChain: [{ unit: 'case', per: 48 }], pricing: { mode: 'PACK', purchasePrice: 30 } })
+    const good = line({ id: 'good', rawDescription: 'FLOUR', matchedItemId: 'flour', matchedItem: flour, rawQty: '1', rawUnit: 'CS', rawUnitPrice: '10', rawLineTotal: '10', pricingMode: 'per_case', revenueCenterId: 'rc-catering' })
+    const skipped = line({ id: 'skipped', action: 'SKIP', rawDescription: 'DELIVERY FEE', rawLineTotal: '5', revenueCenterId: 'rc-catering' })
+    const pendingLine = line({ id: 'pending', action: 'PENDING', rawDescription: 'MYSTERY', rawLineTotal: '7', revenueCenterId: 'rc-catering' })
+    const lime = line({ id: 'lime', rawDescription: 'LIMES 48S', matchedItemId: 'limes', matchedItem: limes, rawQty: '1', rawUnit: 'CS', rawUnitPrice: '30', rawLineTotal: '30', pricingMode: 'per_case', revenueCenterId: 'rc-catering' })
+    session = sessionOf([good, skipped, pendingLine, lime], { supplierId: null })
+    // Passes the preflight; by the time the run reads it, it has no price and no quantity.
+    onClaim = () => { lime.rawUnitPrice = null; lime.rawQty = null; lime.rawLineTotal = null }
+    const { status } = await post()
+    expect(status).toBe(200)
+    await settle()
+    expect(scanUpdateFor('lime')).toBeUndefined()   // never approved
+    expect(fns.scanCreateMany).toHaveBeenCalledTimes(1)
+    const copies = (fns.scanCreateMany.mock.calls[0] as unknown as [Row])[0].data as Row[]
+    expect(copies.map(c => c.rawDescription)).toEqual(['FLOUR'])
+    expect(fns.scanUpdateMany).toHaveBeenCalledWith({ where: { id: { in: ['good'] } }, data: { splitToSessionId: 'clone1' } })
   })
 })
 

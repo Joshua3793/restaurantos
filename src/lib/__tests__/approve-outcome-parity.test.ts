@@ -25,7 +25,9 @@ const eggplant = I({ itemName: 'Eggplant', dimension: 'COUNT', baseUnit: 'each',
 
 type Expected =
   | { newPricing: Pricing; newPricePerBase: number; spineNewPpb: number | null; frozen: number; density: number }
-  | { skipped: 'PACK_DISAGREES' }
+  // The route at 409b1295 skipped these (`skippedLines++`): the pack guard, the
+  // uncostable-rate guard and the never-write-a-$0-price guard.
+  | { skipped: 'PACK_DISAGREES' | 'RATE_UNCOSTABLE' | 'NO_PRICE'; receivable?: boolean }
 
 const CASES: Array<{ name: string; line: ApproveLineInput; item: ApproveItemInput; lineOffer: OfferFormat | null; itemOffers: number; supplierId: string | null; expected: Expected }> = [
   { name: 'Butter 2 CS @ $172.79 with a stray 2.86 kg (and an inflated stored newPrice)', supplierId: 'sup', itemOffers: 0, lineOffer: null,
@@ -55,6 +57,14 @@ const CASES: Array<{ name: string; line: ApproveLineInput; item: ApproveItemInpu
     item: I({ itemName: 'Tamari', dimension: 'VOLUME', baseUnit: 'ml', countUnit: 'case', packChain: [{ unit: 'case', per: 6 }, { unit: 'each', per: 1890 }], pricing: { mode: 'PACK', purchasePrice: 60 } }),
     line: L({ rawQty: '1', rawUnit: 'CS', rawUnitPrice: '61', rawLineTotal: '61', pricingMode: 'per_case', invoicePackQty: '1', invoicePackSize: '1.89', invoicePackUOM: 'l' }),
     expected: { skipped: 'PACK_DISAGREES' } },
+  { name: 'Eggplant 12 lb @ $3.49/lb on an each-item with NO weight per each — refused, and not receivable', supplierId: 'sup', itemOffers: 0, lineOffer: null,
+    item: { ...eggplant, eachMeasureQty: null, eachMeasureUnit: null },
+    line: L({ rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb', rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88', pricingMode: 'per_weight' }),
+    expected: { skipped: 'RATE_UNCOSTABLE', receivable: false } },
+  { name: 'a $0 case price — refused (a zero price is never written)', supplierId: 'sup', itemOffers: 0, lineOffer: null,
+    item: I({ itemName: 'Limes', dimension: 'COUNT', baseUnit: 'each', countUnit: 'case', packChain: [{ unit: 'case', per: 48 }], pricing: { mode: 'PACK', purchasePrice: 30 } }),
+    line: L({ rawQty: '1', rawUnit: 'CS', rawUnitPrice: '0', rawLineTotal: '0', newPrice: '0', pricingMode: 'per_case' }),
+    expected: { skipped: 'NO_PRICE', receivable: true } },
   { name: 'a per-case "rate" (rateUOM CS) 41.88 shipped as 12 LB', supplierId: 'sup', itemOffers: 0, lineOffer: null, item: eggplant,
     line: L({ rawQty: '12', rawUnit: 'LB', rate: '41.88', rateUOM: 'CS', rawUnitPrice: '3.49', rawLineTotal: '41.88', pricingMode: 'per_weight' }),
     expected: { newPricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' }, newPricePerBase: 1.3960000000000001, spineNewPpb: null, frozen: 29.999999999999996, density: 0 } },
@@ -78,6 +88,7 @@ describe('decideLinePrice — parity with the route’s inline decision at 409b1
     if ('skipped' in c.expected) {
       expect(d.ok).toBe(false)
       if (!d.ok) expect(d.reason).toBe(c.expected.skipped)
+      if (!d.ok && c.expected.receivable !== undefined) expect(d.receivable).toBe(c.expected.receivable)
       return
     }
     expect(d.ok).toBe(true)

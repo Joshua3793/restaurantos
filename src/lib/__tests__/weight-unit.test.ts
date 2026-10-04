@@ -103,6 +103,11 @@ describe('assumedUnitNote', () => {
       .toBe("assumed kg — the invoice shows no unit; the supplier's box is priced per kg")
   })
 
+  it("box from the MAIN supplier (this supplier has no box) says so — never this supplier's name", () => {
+    expect(assumedUnitNote(weightUnitFor(bison), { ...ctx, boxIsSuppliers: false }))
+      .toBe("assumed kg — the invoice shows no unit; the main supplier's box is priced per kg")
+  })
+
   it("box: a name not ending in s takes 's", () => {
     expect(assumedUnitNote(weightUnitFor(bison), { ...ctx, supplierName: 'Gordon' }))
       .toBe("assumed kg — the invoice shows no unit; Gordon's box is priced per kg")

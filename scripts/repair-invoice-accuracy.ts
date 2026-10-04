@@ -3,17 +3,23 @@
  * fixes (plan docs/superpowers/plans/2026-10-05-item-backbone-5-invoice-accuracy.md,
  * Task 5; audit docs/audits/2026-10-04-backbone-audit §5). Three explicit modes:
  *
- *   npx tsx scripts/repair-invoice-accuracy.ts --mode unitless-weight [--apply]
- *   npx tsx scripts/repair-invoice-accuracy.ts --mode blocked [--with-box-refresh] [--apply]
- *   npx tsx scripts/repair-invoice-accuracy.ts --mode split-create-new [--apply]
+ *   npx tsx scripts/repair-invoice-accuracy.ts --mode unitless-weight [--skip <ids>] [--apply]
+ *   npx tsx scripts/repair-invoice-accuracy.ts --mode blocked [--with-box-refresh] [--skip <ids>] [--apply]
+ *   npx tsx scripts/repair-invoice-accuracy.ts --mode split-create-new [--skip <ids>] [--apply]
  *
- * DRY RUN is the default: it reads, prints one row per line plus totals, and
- * records the rows it would write in `invoice-accuracy-<mode>-plan.json` (the
+ * `--skip id,id,…` (InvoiceScanItem ids, printed on every row) takes lines the
+ * owner set aside out of the plan — listed as SKIP, never written. It is
+ * recorded with the dry run, and `--apply` must be given the SAME --skip.
+ *
+ * DRY RUN is the default: it reads, prints one row per line (its line id and
+ * invoice number first) plus totals, and records the rows it would write — each
+ * with the VALUE it would write — in `invoice-accuracy-<mode>-plan.json` (the
  * reviewed set). Nothing else is written.
  *
  * `--apply` RECOMPUTES everything from the database (it never replays the plan
  * file) and refuses to run unless the fresh candidate set equals the reviewed
- * one minus rows already applied. It then writes
+ * one minus rows already applied, every remaining row would write exactly the
+ * value that was reviewed, and --skip is the dry run's. It then writes
  * `invoice-accuracy-<mode>-backup-<stamp>.json` (every touched row's previous
  * values) BEFORE the first write, applies each line in its own transaction, and
  * prints the `cp` command that copies the backup to the main checkout.
@@ -32,16 +38,16 @@ import { resolveLineFormat, pickOffer } from '../src/lib/invoice/line-format'
 import { freezeFormat } from '../src/lib/invoice/approve-format'
 import { decideLinePrice, type LineDecision } from '../src/lib/invoice/approve-outcome'
 import {
-  parseRepairArgs, planUnitless, planBlocked, planSplitCreateNew, compareToReviewed,
+  parseRepairArgs, planUnitless, planBlocked, planSplitCreateNew, checkAgainstReviewed, applySkip, planValue,
   appendRepairNote, boxRefreshWrite,
-  type RepairMode, type UnitlessInput, type BlockedInput, type BlockedPlan, type BoxFacts,
+  type RepairMode, type RepairPlanFile, type UnitlessInput, type BlockedInput, type BlockedPlan, type BoxFacts,
 } from '../src/lib/invoice/accuracy-repair'
 
 const USAGE = [
   'Usage:',
-  '  npx tsx scripts/repair-invoice-accuracy.ts --mode unitless-weight [--apply]',
-  '  npx tsx scripts/repair-invoice-accuracy.ts --mode blocked [--with-box-refresh] [--apply]',
-  '  npx tsx scripts/repair-invoice-accuracy.ts --mode split-create-new [--apply]',
+  '  npx tsx scripts/repair-invoice-accuracy.ts --mode unitless-weight [--skip <id,id,…>] [--apply]',
+  '  npx tsx scripts/repair-invoice-accuracy.ts --mode blocked [--with-box-refresh] [--skip <id,id,…>] [--apply]',
+  '  npx tsx scripts/repair-invoice-accuracy.ts --mode split-create-new [--skip <id,id,…>] [--apply]',
 ].join('\n')
 
 const parsed = parseRepairArgs(process.argv.slice(2))
@@ -50,7 +56,8 @@ if ('error' in parsed) {
   console.error(USAGE)
   process.exit(1)
 }
-const { mode: MODE, apply: APPLY, withBoxRefresh: WITH_BOX_REFRESH } = parsed
+const { mode: MODE, apply: APPLY, withBoxRefresh: WITH_BOX_REFRESH, skip: SKIP } = parsed
+const SKIP_FLAG = SKIP.length ? ` --skip ${SKIP.join(',')}` : ''
 const NOW = new Date()
 const STAMP = NOW.toISOString().replace(/[:.]/g, '-')
 const RECENT_SINCE = new Date(NOW.getTime() - 30 * 24 * 3600 * 1000)
@@ -190,35 +197,35 @@ function totalsLine(label: string, rows: Array<{ total: number; recent: boolean 
 // ─────────────────────────────────────────────────────────────────────────────
 
 const planPath = (m: RepairMode) => resolve(process.cwd(), `invoice-accuracy-${m}-plan.json`)
-interface PlanFile { mode: RepairMode; withBoxRefresh: boolean; createdAt: string; keys: string[] }
+const readPlanFile = (): RepairPlanFile | null =>
+  existsSync(planPath(MODE)) ? (JSON.parse(readFileSync(planPath(MODE), 'utf8')) as RepairPlanFile) : null
 
-function recordReviewed(keys: string[]) {
-  const file: PlanFile = { mode: MODE, withBoxRefresh: WITH_BOX_REFRESH, createdAt: NOW.toISOString(), keys }
+/** The dry run's record: every key with the VALUE it would write, and the --skip it ran with. */
+function recordReviewed(entries: Record<string, string>) {
+  const file: RepairPlanFile = { mode: MODE, withBoxRefresh: WITH_BOX_REFRESH, skip: SKIP, createdAt: NOW.toISOString(), entries }
   writeFileSync(planPath(MODE), JSON.stringify(file, null, 2))
-  console.log(`\nDRY RUN — nothing written to the database. Reviewed set (${keys.length} key(s)) → ${planPath(MODE)}`)
-  console.log(`Apply with: npx tsx scripts/repair-invoice-accuracy.ts --mode ${MODE}${WITH_BOX_REFRESH ? ' --with-box-refresh' : ''} --apply`)
+  console.log(`\nDRY RUN — nothing written to the database. Reviewed set (${Object.keys(entries).length} key(s), with values) → ${planPath(MODE)}`)
+  console.log(`Apply with: npx tsx scripts/repair-invoice-accuracy.ts --mode ${MODE}${WITH_BOX_REFRESH ? ' --with-box-refresh' : ''}${SKIP_FLAG} --apply`)
 }
 
-/** Refuse unless the fresh set is the reviewed set minus rows already applied. */
-function guardAgainstReviewed(fresh: string[], applied: string[]): boolean {
-  if (!existsSync(planPath(MODE))) {
-    console.error(`\nREFUSED — no dry run on record (${planPath(MODE)}). Run the dry run first and review it.`)
-    return false
-  }
-  const file = JSON.parse(readFileSync(planPath(MODE), 'utf8')) as PlanFile
-  if (file.mode !== MODE || file.withBoxRefresh !== WITH_BOX_REFRESH) {
-    console.error(`\nREFUSED — the reviewed dry run was for --mode ${file.mode}${file.withBoxRefresh ? ' --with-box-refresh' : ''}. Re-run the dry run with the same flags.`)
-    return false
-  }
-  const cmp = compareToReviewed({ reviewed: file.keys, fresh, applied })
-  if (!cmp.ok) {
-    console.error('\nREFUSED — the lines to repair are not the ones the reviewed dry run listed.')
-    if (cmp.added.length) console.error(`  new since the dry run: ${cmp.added.join(', ')}`)
-    if (cmp.missing.length) console.error(`  gone since the dry run (not by this repair): ${cmp.missing.join(', ')}`)
-    console.error('Re-run the dry run, review it, then apply.')
+/** Refuse unless the fresh set is the reviewed set minus rows already applied,
+ *  every value is the reviewed one, and --skip is the dry run's. */
+function guardAgainstReviewed(fresh: Record<string, string>, applied: string[]): boolean {
+  const r = checkAgainstReviewed({ file: readPlanFile(), mode: MODE, withBoxRefresh: WITH_BOX_REFRESH, skip: SKIP, fresh, applied })
+  if (!r.ok) {
+    console.error('\nREFUSED — nothing was written.')
+    for (const p of r.problems) console.error(p)
     return false
   }
   return true
+}
+
+/** Print the --skip bookkeeping for a run: the rows set aside, and any id this run never saw. */
+function reportSkip(skipped: Array<{ id: string }>, unknown: string[], describe: (id: string) => string) {
+  if (!SKIP.length) return
+  console.log('')
+  for (const s of skipped) console.log(`SKIP   | ${describe(s.id)} | skipped by --skip — not written`)
+  if (unknown.length) console.log(`--skip names ${unknown.length} id(s) this run did not list: ${unknown.join(', ')}`)
 }
 
 function writeBackup(rows: unknown[]) {
@@ -274,10 +281,12 @@ async function runUnitless() {
     inputs.push({ id: l.id, prev: num(l.receivedQtyBase), next, weightPath: true, assumed: !!d.weightUnit?.assumed, clones })
   }
 
-  const plan = planUnitless(inputs)
+  const fullPlan = planUnitless(inputs)
+  const { kept: plan, skipped, unknown } = applySkip(fullPlan, SKIP)
   const writes = plan.filter((p) => p.kind === 'write')
   console.log(`=== Mode unitless-weight — a weight printed with no unit, re-read in the unit its supplier's box is priced in ===`)
-  console.log(`${lines.length} approved priced lines read; ${plan.length} are weight lines whose unit was assumed.\n`)
+  console.log(`${lines.length} approved priced lines read; ${fullPlan.length} are weight lines whose unit was assumed.`)
+  console.log(`Columns: action | line id | invoice # | date | supplier | product | invoice wording | line total | receipt now → after | unit\n`)
   for (const p of plan) {
     const { l, d } = decided.get(p.id)!
     const unit = l.matchedItem!.baseUnit
@@ -292,23 +301,33 @@ async function runUnitless() {
     if (afterCount(l.revenueCenterId ?? l.session.revenueCenterId, lineDate(l.session))) extra.push('DATED AFTER THE LAST COUNT — moves today\'s stock')
     console.log([
       p.kind === 'write' ? 'WRITE ' : p.kind === 'look' ? 'LOOK  ' : 'same  ',
-      l.session.invoiceNumber ?? '(no #)', ymd(lineDate(l.session)), supplierOf(l), l.matchedItem!.itemName,
+      l.id, l.session.invoiceNumber ?? '(no #)', ymd(lineDate(l.session)), supplierOf(l), l.matchedItem!.itemName,
       `"${l.rawDescription}"`, money(Number(l.rawLineTotal ?? 0)),
       `${qty(p.prev, unit)} → ${qty(p.next, unit)}`, `unit ${wu}`, ...extra,
     ].join(' | '))
   }
+  reportSkip(skipped, unknown, (id) => {
+    const { l } = decided.get(id)!
+    return [id, l.session.invoiceNumber ?? '(no #)', ymd(lineDate(l.session)), supplierOf(l), l.matchedItem!.itemName, `"${l.rawDescription}"`, money(Number(l.rawLineTotal ?? 0))].join(' | ')
+  })
   if (merged.length) console.log(`\n${merged.length} line(s) on merged products skipped (listed only): ${merged.map((l) => l.id).join(', ')}`)
   const row = (id: string) => { const { l } = decided.get(id)!; return { total: Number(l.rawLineTotal ?? 0), recent: isRecent(l.session) } }
   console.log('')
   totalsLine('Would change', writes.map((p) => row(p.id)))
   totalsLine('Needs a look (never written)', plan.filter((p) => p.kind === 'look').map((p) => row(p.id)))
   totalsLine('Already right', plan.filter((p) => p.kind === 'unchanged').map((p) => row(p.id)))
+  if (SKIP.length) totalsLine('Skipped by --skip (never written)', skipped.map((p) => row(p.id)))
   console.log('Writes ONLY InvoiceScanItem.receivedQtyBase (the line and its RC copies) — no product, box, price, alert, undo record or invoice.')
 
-  const keys = writes.map((p) => p.id)
-  if (!APPLY) return recordReviewed(keys)
+  // Each key carries the receipt it writes (and its RC copies'), so --apply refuses if any moved.
+  const entries: Record<string, string> = {}
+  for (const p of writes) {
+    if (p.kind !== 'write') continue
+    entries[p.id] = planValue({ receipt: p.next, copies: p.clones.map((c) => [c.id, c.next]) })
+  }
+  if (!APPLY) return recordReviewed(entries)
   const applied = plan.filter((p) => p.kind === 'unchanged').map((p) => p.id)
-  if (!guardAgainstReviewed(keys, applied)) { process.exitCode = 1; return }
+  if (!guardAgainstReviewed(entries, applied)) { process.exitCode = 1; return }
   if (writes.length === 0) { console.log('Nothing to write.'); return }
 
   const backup = writeBackup(writes.flatMap((p) => p.kind === 'write'
@@ -375,7 +394,8 @@ async function runBlocked() {
     const { d, lineOffer } = decide(l, offers)
     const verdict = d.ok ? (d.implausible ? 'PRICE_IMPLAUSIBLE' : 'ok') : d.reason
     // The receiving rule through this supplier's box — the frozen value deliberately not passed.
-    const receiveBase = lineReceived(qtyOf(l), resolveLineFormat(chainOf(item), lineOffer)).base
+    const got = lineReceived(qtyOf(l), resolveLineFormat(chainOf(item), lineOffer))
+    const receiveBase = got.base
     const rcId = l.revenueCenterId ?? l.session.revenueCenterId ?? defaultRc
     const ld = lineDate(l.session)
     const box: BoxFacts | null = lineOffer ? {
@@ -392,28 +412,36 @@ async function runBlocked() {
       id: l.id, action: l.action, approved: l.approved, matchedItemId: l.matchedItemId, sessionStatus: l.session.status,
       isClone: !!l.session.parentSessionId, splitToSessionId: l.splitToSessionId,
       item: { isActive: item.isActive, mergedIntoId: item.mergedIntoId },
-      receiveBase, verdict, rcId, defaultRcId: defaultRc,
+      receiveBase, needsBridge: got.needsBridge, verdict, rcId, defaultRcId: defaultRc,
       hasMembership: !!rcId && memberships.has(`${item.id}|${rcId}`),
       hasAllocation: !!rcId && allocations.has(`${item.id}|${rcId}`),
       box, boxWrite,
     }
   })
 
-  const plan = planBlocked(inputs, { withBoxRefresh: WITH_BOX_REFRESH })
+  const fullPlan = planBlocked(inputs, { withBoxRefresh: WITH_BOX_REFRESH })
+  const { kept: plan, skipped, unknown } = applySkip(fullPlan, SKIP)
   const writes = plan.filter((p): p is Extract<BlockedPlan, { kind: 'write' }> => p.kind === 'write')
   const VERDICT_WORDS: Record<string, string> = {
     ok: 'clear today', PACK_DISAGREES: 'case size differs', RATE_UNCOSTABLE: 'priced by weight, counted by each',
     NO_PRICE: 'no price', PRICE_IMPLAUSIBLE: 'price looks far off', NOT_LINKED: 'not linked',
   }
+  const LISTED_WORDS: Record<string, string> = {
+    'switched-off': 'product is switched off — not written',
+    merged: 'product was merged — not written',
+    'cannot-receive': 'cannot be received — not written',
+    'needs-weight': "can't be received without knowing how much one weighs — not written",
+  }
   console.log(`=== Mode blocked — lines approve refused, left unreceived inside an approved invoice ===`)
-  console.log(`Receives the stock only; prices, boxes and products are left as they are${WITH_BOX_REFRESH ? ' (except the box refreshes listed)' : ''}.\n`)
+  console.log(`Receives the stock only; prices, boxes and products are left as they are${WITH_BOX_REFRESH ? ' (except the box refreshes listed)' : ''}.`)
+  console.log(`Columns: action | line id | invoice # | date | supplier | product | invoice wording | line total | receipt now → after\n`)
   for (const p of plan) {
     const { l, verdict, rcId } = info.get(p.id)!
     const unit = l.matchedItem!.baseUnit
     const extra: string[] = []
     let tag = 'WRITE '
     if (p.kind === 'skip-split-parent') { tag = 'skip  '; extra.push('already counted through its RC copy — skipped') }
-    if (p.kind === 'listed') { tag = 'LIST  '; extra.push(p.reason === 'switched-off' ? 'product is switched off — not written' : p.reason === 'merged' ? 'product was merged — not written' : 'cannot be received — not written') }
+    if (p.kind === 'listed') { tag = 'LIST  '; extra.push(LISTED_WORDS[p.reason] ?? `${p.reason} — not written`) }
     if (p.kind === 'write') {
       extra.push(`today: ${VERDICT_WORDS[verdict] ?? verdict}`)
       if (p.membership) extra.push(`+ on the ${rcName(rcId)} list`)
@@ -423,11 +451,15 @@ async function runBlocked() {
     }
     if (afterCount(rcId, lineDate(l.session))) extra.push('DATED AFTER THE LAST COUNT — moves today\'s stock')
     console.log([
-      tag, l.session.invoiceNumber ?? '(no #)', ymd(lineDate(l.session)), supplierOf(l), l.matchedItem!.itemName,
+      tag, l.id, l.session.invoiceNumber ?? '(no #)', ymd(lineDate(l.session)), supplierOf(l), l.matchedItem!.itemName,
       `"${l.rawDescription}"`, money(Number(l.rawLineTotal ?? 0)),
       `${qty(num(l.receivedQtyBase), unit)} → ${p.kind === 'write' ? qty(p.receivedQtyBase, unit) : '(unchanged)'}`, ...extra,
     ].join(' | '))
   }
+  reportSkip(skipped, unknown, (id) => {
+    const { l } = info.get(id)!
+    return [id, l.session.invoiceNumber ?? '(no #)', ymd(lineDate(l.session)), supplierOf(l), l.matchedItem!.itemName, `"${l.rawDescription}"`, money(Number(l.rawLineTotal ?? 0))].join(' | ')
+  })
   const row = (id: string) => { const { l } = info.get(id)!; return { total: Number(l.rawLineTotal ?? 0), recent: isRecent(l.session) } }
   const tally = new Map<string, number>()
   for (const p of writes) { const v = info.get(p.id)!.verdict; tally.set(v, (tally.get(v) ?? 0) + 1) }
@@ -437,19 +469,33 @@ async function runBlocked() {
   console.log(`  memberships to add: ${writes.filter((p) => p.membership).length}; stock rows to add: ${writes.filter((p) => p.allocation).length}`)
   totalsLine('Split parents skipped (already counted through their RC copy)', plan.filter((p) => p.kind === 'skip-split-parent').map((p) => row(p.id)))
   totalsLine('Listed, not written', plan.filter((p) => p.kind === 'listed').map((p) => row(p.id)))
+  if (SKIP.length) totalsLine('Skipped by --skip (never written)', skipped.map((p) => row(p.id)))
   if (WITH_BOX_REFRESH) console.log(`  boxes to refresh: ${writes.filter((p) => p.boxRefresh).length}`)
   const sessions = new Map<string, number>()
   for (const p of writes) { const s = info.get(p.id)!.l.sessionId; sessions.set(s, (sessions.get(s) ?? 0) + 1) }
   console.log(`  invoices to get a note: ${sessions.size} — "${appendRepairNote(null, 1, TODAY_LABEL)}"`)
 
-  const keys = [...writes.map((p) => p.id), ...writes.filter((p) => p.boxRefresh).map((p) => `box:${p.id}`)]
-  if (!APPLY) return recordReviewed(keys)
+  // Each key carries what it writes: the receipt, product, list membership and
+  // stock row for a line; the full box state for a refresh.
+  const entries: Record<string, string> = {}
+  for (const p of writes) {
+    entries[p.id] = planValue({ receipt: p.receivedQtyBase, item: info.get(p.id)!.l.matchedItemId, membership: p.membership, allocation: p.allocation })
+    if (p.boxRefresh) {
+      // The write AND the box as it stands, so a box edited since the dry run refuses too.
+      const box = info.get(p.id)!.lineOffer
+      entries[`box:${p.id}`] = planValue({
+        ...p.boxRefresh,
+        boxNow: box ? { packChain: box.packChain, pricing: box.pricing, packQty: box.packQty, packSize: box.packSize, packUOM: box.packUOM, lastUpdated: box.lastUpdated } : null,
+      })
+    }
+  }
+  if (!APPLY) return recordReviewed(entries)
 
   // Applied = a reviewed line now approved (no longer a candidate), or a reviewed box now carrying this line's invoice.
-  const planFile = existsSync(planPath(MODE)) ? (JSON.parse(readFileSync(planPath(MODE), 'utf8')) as PlanFile) : null
-  const reviewedLineIds = (planFile?.keys ?? []).filter((k) => !k.startsWith('box:'))
+  const reviewedKeys = Object.keys(readPlanFile()?.entries ?? {})
+  const reviewedLineIds = reviewedKeys.filter((k) => !k.startsWith('box:'))
   const nowApproved = (await prisma.invoiceScanItem.findMany({ where: { id: { in: reviewedLineIds }, approved: true }, select: { id: true } })).map((r) => r.id)
-  const reviewedBoxLines = (planFile?.keys ?? []).filter((k) => k.startsWith('box:')).map((k) => k.slice(4))
+  const reviewedBoxLines = reviewedKeys.filter((k) => k.startsWith('box:')).map((k) => k.slice(4))
   const boxDone: string[] = []
   for (const id of reviewedBoxLines) {
     const l = await prisma.invoiceScanItem.findUnique({ where: { id }, select: { sessionId: true, matchedItemId: true, supplierItemCode: true, session: { select: { supplierId: true } } } })
@@ -457,7 +503,7 @@ async function runBlocked() {
     const hit = await prisma.inventorySupplierPrice.count({ where: { inventoryItemId: l.matchedItemId, supplierId: l.session.supplierId, lastInvoiceSessionId: l.sessionId } })
     if (hit > 0) boxDone.push(`box:${id}`)
   }
-  if (!guardAgainstReviewed(keys, [...nowApproved, ...boxDone])) { process.exitCode = 1; return }
+  if (!guardAgainstReviewed(entries, [...nowApproved, ...boxDone])) { process.exitCode = 1; return }
   if (writes.length === 0) { console.log('Nothing to write.'); return }
 
   // Backup: every row this run touches, as it is now.
@@ -552,7 +598,7 @@ async function runSplitCreateNew() {
   const rcName = await rcNames()
 
   const byId = new Map(clones.map((c) => [c.id, c]))
-  const plan = planSplitCreateNew({
+  const fullPlan = planSplitCreateNew({
     clones: clones.map((c) => ({
       id: c.id, parentSessionId: c.session.parentSessionId!, rawDescription: c.rawDescription, sortOrder: c.sortOrder,
       rawLineTotal: c.rawLineTotal?.toString(), receivedQtyBase: num(c.receivedQtyBase),
@@ -564,10 +610,12 @@ async function runSplitCreateNew() {
     })),
     itemCreatedBySession, items, memberships,
   })
+  const { kept: plan, skipped, unknown } = applySkip(fullPlan, SKIP)
   const writes = plan.filter((p): p is Extract<typeof p, { kind: 'write' }> => p.kind === 'write')
 
   console.log(`=== Mode split-create-new — the RC copy of a new-product line never got the new product ===`)
-  console.log(`${clones.length} RC-copy line(s) with no product.\n`)
+  console.log(`${clones.length} RC-copy line(s) with no product.`)
+  console.log(`Columns: action | line id | invoice # | date | supplier | product | invoice wording | line total | receipt\n`)
   for (const p of plan) {
     const c = byId.get(p.id)!
     const extra: string[] = []
@@ -587,25 +635,31 @@ async function runSplitCreateNew() {
     }
     if (afterCount(c.revenueCenterId ?? c.session.revenueCenterId, lineDate(c.session))) extra.push('DATED AFTER THE LAST COUNT — moves today\'s stock')
     console.log([
-      tag, c.session.invoiceNumber ?? '(no #)', ymd(lineDate(c.session)), supplierOf(c), itemName,
+      tag, c.id, c.session.invoiceNumber ?? '(no #)', ymd(lineDate(c.session)), supplierOf(c), itemName,
       `"${c.rawDescription}"`, money(Number(c.rawLineTotal ?? 0)), receipt, ...extra,
     ].join(' | '))
   }
+  reportSkip(skipped, unknown, (id) => {
+    const c = byId.get(id)!
+    return [id, c.session.invoiceNumber ?? '(no #)', ymd(lineDate(c.session)), supplierOf(c), `"${c.rawDescription}"`, money(Number(c.rawLineTotal ?? 0))].join(' | ')
+  })
   const row = (id: string) => { const c = byId.get(id)!; return { total: Number(c.rawLineTotal ?? 0), recent: isRecent(c.session) } }
   console.log('')
   totalsLine('Would link', writes.map((p) => row(p.id)))
   console.log(`  receipts written: ${writes.filter((p) => p.receivedQtyBase != null).length}; kept: ${writes.filter((p) => p.kept).length} (differing: ${writes.filter((p) => p.kept?.differs).length})`)
   console.log(`  shares other than 1: ${writes.filter((p) => Math.abs(p.share - 1) > 1e-9).length}; memberships to add: ${writes.filter((p) => p.membership).length}; switched-off products: ${writes.filter((p) => p.flags.includes('switched-off')).length}`)
   totalsLine('Needs a look (never written)', plan.filter((p) => p.kind === 'look').map((p) => row(p.id)))
+  if (SKIP.length) totalsLine('Skipped by --skip (never written)', skipped.map((p) => row(p.id)))
   console.log('Writes ONLY the RC copy (product link + receipt) and its RC membership — never the original line, the product, its boxes, prices or wordings.')
 
-  const keys = writes.map((p) => p.id)
-  if (!APPLY) return recordReviewed(keys)
-  const planFile = existsSync(planPath(MODE)) ? (JSON.parse(readFileSync(planPath(MODE), 'utf8')) as PlanFile) : null
+  // Each key carries the product it links and the receipt it writes (or keeps).
+  const entries: Record<string, string> = {}
+  for (const p of writes) entries[p.id] = planValue({ item: p.itemId, receipt: p.receivedQtyBase ?? 'keep', membership: p.membership })
+  if (!APPLY) return recordReviewed(entries)
   const applied = (await prisma.invoiceScanItem.findMany({
-    where: { id: { in: planFile?.keys ?? [] }, matchedItemId: { not: null } }, select: { id: true },
+    where: { id: { in: Object.keys(readPlanFile()?.entries ?? {}) }, matchedItemId: { not: null } }, select: { id: true },
   })).map((r) => r.id)
-  if (!guardAgainstReviewed(keys, applied)) { process.exitCode = 1; return }
+  if (!guardAgainstReviewed(entries, applied)) { process.exitCode = 1; return }
   if (writes.length === 0) { console.log('Nothing to write.'); return }
 
   const backup = writeBackup([

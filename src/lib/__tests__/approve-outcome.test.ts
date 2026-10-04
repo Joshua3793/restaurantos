@@ -96,9 +96,30 @@ describe('decideLinePrice — the guards', () => {
     expect(d.ok).toBe(false)
     if (d.ok) return
     expect(d.reason).toBe('RATE_UNCOSTABLE')
-    expect(d.receivable).toBe(true)
+    // The 12 kg cannot be turned into pineapples, so "1 case = 8" is a guess: no receive-only.
+    expect(d.receivable).toBe(false)
     expect(d.receiveBase).toBe(8)
-    expect(d.message).toBe('This line is priced per kg, but Pineapple is counted in each and has no weight per each. Set how much one weighs, or receive the stock and keep the old price.')
+    expect(d.message).toBe("This line is priced per kg, but Pineapple is counted in each and has no weight per each. Can't receive this without knowing how much one weighs — add it in Edit.")
+  })
+
+  it('Eggplant (each, 24 per case, no weight per each), "12 lb @ $3.49/lb" → refused, and NOT receivable (not 288 each)', () => {
+    const eggplant = item({ itemName: 'Eggplant', dimension: 'COUNT', baseUnit: 'each', countUnit: 'each', packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 } })
+    const l = line({ rawDescription: 'EGGPLANT', rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb', rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88', pricingMode: 'per_weight' })
+    const d = decide(l, eggplant, null, { itemHasOffers: false })
+    expect(d.ok).toBe(false)
+    if (d.ok) return
+    expect(d.reason).toBe('RATE_UNCOSTABLE')
+    expect(d.received?.needsBridge).toBe(true)
+    expect(d.receivable).toBe(false)
+    expect(d.message).toMatch(/Can't receive this without knowing how much one weighs — add it in Edit\.$/)
+    expect(d.message).not.toMatch(/receive the stock and keep the old price/)
+    const b = approveBlocks({
+      lines: [{ ...l, id: 'egg', matchedItemId: 'item', matchedItem: eggplant }], offersByItem: new Map(),
+      supplier: { id: 'sup', supplierId: 'sup', supplierName: 'Sysco', canonicalName: 'Sysco' },
+      receiveWithoutPrice: new Set(['egg']), priceConfirmed: new Set(),
+    })
+    expect(b).toHaveLength(1)
+    expect(b[0]).toMatchObject({ reason: 'RATE_UNCOSTABLE', canReceiveWithoutPrice: false })
   })
 
   it('the same line once one pineapple is known to weigh 400 g → priced per each through the bridge', () => {
@@ -156,8 +177,10 @@ describe('approveBlocks — the preflight list', () => {
       ['l1', 'PACK_DISAGREES'], ['l2', 'PRICE_IMPLAUSIBLE'], ['l3', 'CREATE_NEW_NOT_SET_UP'], ['l4', 'NOT_LINKED'],
     ])
     expect(b[0]).toMatchObject({ itemName: 'Baking Powder', description: 'BAKING POWDER 20KG', canReceiveWithoutPrice: true, canConfirmPrice: false })
-    expect(b[1]).toMatchObject({ canReceiveWithoutPrice: true, canConfirmPrice: true })
-    expect(b[1].message).toBe("Price looks about 1,000× off — check the unit. This line works out at $25,000.00 per kg; Bison burger's box is $25.00 per kg.")
+    // A price that looks off clears only by "The price is right" — never by receive-only.
+    expect(b[1]).toMatchObject({ canReceiveWithoutPrice: false, canConfirmPrice: true })
+    // Bison prints no unit (assumed g), so it reads as an assumed-unit check.
+    expect(b[1].message).toBe("The unit was assumed; the price is 1,000× off the box — confirm the unit. This line works out at $25,000.00 per kg; Bison burger's box is $25.00 per kg.")
     expect(b[2]).toMatchObject({ canReceiveWithoutPrice: false, canConfirmPrice: false, itemName: null })
     expect(b[3]).toMatchObject({ canReceiveWithoutPrice: false, message: "This line isn't linked to a product. Link it, create a product, or skip it." })
   })
@@ -166,9 +189,10 @@ describe('approveBlocks — the preflight list', () => {
     expect(run(['l1']).map(x => x.scanItemId)).toEqual(['l2', 'l3', 'l4'])
   })
 
-  it('drops an implausible price the reviewer confirmed (or chose to receive without it)', () => {
+  it('drops an implausible price only once the reviewer confirmed it — receive-only alone does not clear it', () => {
     expect(run([], ['l2']).map(x => x.scanItemId)).toEqual(['l1', 'l3', 'l4'])
-    expect(run(['l2']).map(x => x.scanItemId)).toEqual(['l1', 'l3', 'l4'])
+    expect(run(['l2']).map(x => x.scanItemId)).toEqual(['l1', 'l2', 'l3', 'l4'])
+    expect(run(['l2'], ['l2']).map(x => x.scanItemId)).toEqual(['l1', 'l3', 'l4'])
   })
 
   it('a confirmation only clears PRICE_IMPLAUSIBLE — never a pack disagreement', () => {
@@ -190,5 +214,53 @@ describe('approveBlocks — the preflight list', () => {
     expect(shape[0].reason).toBe('CREATE_NEW_SHAPE')
     expect(shape[0].message).not.toMatch(/Delete this invoice/)
     expect(one(named({ itemName: 'Red grapes', dimension: 'MASS', packChain: [{ unit: 'case', per: 4000 }], pricing: { mode: 'PACK', purchasePrice: 9 }, countUnit: 'kg' }))).toEqual([])
+  })
+})
+
+describe('decideLinePrice — an ASSUMED unit asks earlier (3×, not 20×)', () => {
+  // Flour: the box is $50 a case of 10 kg ($5/kg). "2 @ $50", per weight, no unit
+  // anywhere: the unit is assumed (kg — the item is counted in kg) → $50/kg, 10× the box.
+  const flour = item({ itemName: 'Flour', countUnit: 'kg', packChain: [{ unit: 'case', per: 10000 }], pricing: { mode: 'PACK', purchasePrice: 50 } })
+  const flourLine = line({ rawDescription: 'FLOUR', rawQty: '2', rate: '50', rawUnitPrice: '50', rawLineTotal: '100', pricingMode: 'per_weight' })
+
+  it('the Flour case: unit assumed, 10× off → flagged, with its own sentence', () => {
+    const d = decide(flourLine, flour, null, { itemHasOffers: false })
+    expect(d.ok).toBe(true)
+    if (!d.ok) return
+    expect(d.weightUnit).toMatchObject({ unit: 'kg', assumed: true })
+    expect(d.implausible).not.toBeNull()
+    expect(d.implausible!.ratio).toBeCloseTo(10, 6)
+    expect(d.implausible!.assumed).toBe(true)
+    const b = approveBlocks({
+      lines: [{ ...flourLine, id: 'f', matchedItemId: 'item', matchedItem: flour }], offersByItem: new Map(),
+      supplier: { id: null, supplierId: null }, receiveWithoutPrice: new Set(), priceConfirmed: new Set(),
+    })
+    expect(b).toHaveLength(1)
+    expect(b[0].reason).toBe('PRICE_IMPLAUSIBLE')
+    expect(b[0].message).toBe("The unit was assumed; the price is 10× off the box — confirm the unit. This line works out at $50.00 per kg; Flour's box is $5.00 per kg.")
+  })
+
+  it('the same 10× with the unit PRINTED on the line is not flagged (20× still applies there)', () => {
+    const d = decide({ ...flourLine, rateUOM: 'kg' }, flour, null, { itemHasOffers: false })
+    expect(d.ok).toBe(true)
+    if (!d.ok) return
+    expect(d.weightUnit).toMatchObject({ unit: 'kg', assumed: false })
+    expect(d.implausible).toBeNull()
+  })
+
+  it('a PRINTED unit 30× off is flagged with the 20× wording', () => {
+    const l = { ...flourLine, rateUOM: 'kg', rate: '150', rawUnitPrice: '150', rawLineTotal: '300' }
+    const b = approveBlocks({
+      lines: [{ ...l, id: 'f', matchedItemId: 'item', matchedItem: flour }], offersByItem: new Map(),
+      supplier: { id: null, supplierId: null }, receiveWithoutPrice: new Set(), priceConfirmed: new Set(),
+    })
+    expect(b[0].message).toBe("Price looks about 30× off — check the unit. This line works out at $150.00 per kg; Flour's box is $5.00 per kg.")
+  })
+
+  it('an assumed unit under 3× off is clear', () => {
+    const d = decide({ ...flourLine, rate: '12', rawUnitPrice: '12', rawLineTotal: '24' }, flour, null, { itemHasOffers: false })
+    expect(d.ok).toBe(true)
+    if (!d.ok) return
+    expect(d.implausible).toBeNull()
   })
 })

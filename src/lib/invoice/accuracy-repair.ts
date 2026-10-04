@@ -31,15 +31,24 @@ export const REPAIR_MODES = ['unitless-weight', 'blocked', 'split-create-new'] a
 export type RepairMode = (typeof REPAIR_MODES)[number]
 
 export type ParsedRepairArgs =
-  | { mode: RepairMode; apply: boolean; withBoxRefresh: boolean }
+  | { mode: RepairMode; apply: boolean; withBoxRefresh: boolean; skip: string[] }
   | { error: string }
 
-/** `--mode <m>` / `--mode=<m>`, `--apply`, `--with-box-refresh` (blocked only).
- *  Anything else — and any run without a mode — is refused. */
+/** `--mode <m>` / `--mode=<m>`, `--apply`, `--with-box-refresh` (blocked only),
+ *  `--skip <id,id,…>` / `--skip=<ids>` (InvoiceScanItem ids the owner set aside;
+ *  any mode, dry run AND apply; repeatable). Anything else — and any run without
+ *  a mode — is refused. `skip` comes back deduplicated and sorted. */
 export function parseRepairArgs(argv: string[]): ParsedRepairArgs {
   let mode: string | null = null
   let apply = false
   let withBoxRefresh = false
+  const skip = new Set<string>()
+  const addSkip = (v: string | undefined): string | null => {
+    const ids = (v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    if (ids.length === 0 || (v ?? '').startsWith('--')) return '--skip needs one or more line ids (comma-separated).'
+    ids.forEach((id) => skip.add(id))
+    return null
+  }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--apply') apply = true
@@ -50,12 +59,30 @@ export function parseRepairArgs(argv: string[]): ParsedRepairArgs {
       mode = v
       i++
     } else if (a.startsWith('--mode=')) mode = a.slice('--mode='.length)
-    else return { error: `Unknown flag: ${a}` }
+    else if (a === '--skip') {
+      const err = addSkip(argv[i + 1])
+      if (err) return { error: err }
+      i++
+    } else if (a.startsWith('--skip=')) {
+      const err = addSkip(a.slice('--skip='.length))
+      if (err) return { error: err }
+    } else return { error: `Unknown flag: ${a}` }
   }
   if (!mode) return { error: apply ? 'A bare --apply names no mode and is refused.' : 'No --mode given.' }
   if (!(REPAIR_MODES as readonly string[]).includes(mode)) return { error: `Unknown mode: ${mode}` }
   if (withBoxRefresh && mode !== 'blocked') return { error: '--with-box-refresh only applies to --mode blocked.' }
-  return { mode: mode as RepairMode, apply, withBoxRefresh }
+  return { mode: mode as RepairMode, apply, withBoxRefresh, skip: [...skip].sort() }
+}
+
+/** The plan filter: rows the owner skipped (`--skip`) leave the plan whatever
+ *  their kind — never written, still listed. `unknown`: skip ids not in this run. */
+export function applySkip<T extends { id: string }>(rows: T[], skip: readonly string[]): { kept: T[]; skipped: T[]; unknown: string[] } {
+  const set = new Set(skip)
+  const kept: T[] = []
+  const skipped: T[] = []
+  for (const r of rows) (set.has(r.id) ? skipped : kept).push(r)
+  const seen = new Set(rows.map((r) => r.id))
+  return { kept, skipped, unknown: skip.filter((id) => !seen.has(id)) }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,6 +186,9 @@ export interface BlockedInput {
   item: { isActive: boolean; mergedIntoId: string | null } | null
   /** `lineReceived(lineQtyOf(line), resolveLineFormat(item, thisSupplier'sBox)).base`. */
   receiveBase: number
+  /** That same reading's `needsBridge`: the line's quantity is a weight the item
+   *  can't convert, so `receiveBase` is a guess (12 lb read as 12 cases). Never received. */
+  needsBridge?: boolean
   /** Today's decision: 'ok', or the reason approve would refuse it. */
   verdict: string
   /** The line's RC, else the session's (else the default). */
@@ -182,7 +212,7 @@ export type BlockedPlan =
       boxRefreshBlocked: string[]
     }
   | { id: string; kind: 'skip-split-parent' }
-  | { id: string; kind: 'listed'; reason: 'switched-off' | 'merged' | 'cannot-receive' }
+  | { id: string; kind: 'listed'; reason: 'switched-off' | 'merged' | 'cannot-receive' | 'needs-weight' }
 
 const PRICED = new Set(['UPDATE_PRICE', 'ADD_SUPPLIER'])
 
@@ -210,6 +240,8 @@ export function planBlocked(rows: BlockedInput[], opts: { withBoxRefresh: boolea
     if (r.item?.mergedIntoId) { out.push({ id: r.id, kind: 'listed', reason: 'merged' }); continue }
     if (r.item && !r.item.isActive) { out.push({ id: r.id, kind: 'listed', reason: 'switched-off' }); continue }
     if (!(r.receiveBase > 0)) { out.push({ id: r.id, kind: 'listed', reason: 'cannot-receive' }); continue }
+    // Approve's receive-only rule: a weight the item can't convert is never received.
+    if (r.needsBridge) { out.push({ id: r.id, kind: 'listed', reason: 'needs-weight' }); continue }
 
     const itemId = r.matchedItemId
     const membership = r.rcId && !r.hasMembership ? { itemId, rcId: r.rcId } : null
@@ -399,12 +431,82 @@ export function planSplitCreateNew(a: {
 // --apply safety
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** `--apply` recomputes; it may only differ from the reviewed dry run by rows already applied. */
-export function compareToReviewed(a: { reviewed: string[]; fresh: string[]; applied: string[] }): { ok: boolean; added: string[]; missing: string[] } {
-  const reviewed = new Set(a.reviewed)
-  const fresh = new Set(a.fresh)
+/** A number as the plan records it: 10 significant figures, so float noise
+ *  between two runs of the same computation never reads as a change. */
+const roundNum = (n: number) => (Number.isFinite(n) ? Number(n.toPrecision(10)) : n)
+function canonical(v: unknown): unknown {
+  if (typeof v === 'number') return roundNum(v)
+  if (Array.isArray(v)) return v.map(canonical)
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(v as Record<string, unknown>).sort()) out[k] = canonical((v as Record<string, unknown>)[k])
+    return out
+  }
+  return v instanceof Date ? v.toISOString() : v
+}
+
+/** What a plan key will write, as one stable string (sorted keys, rounded numbers). */
+export function planValue(v: unknown): string {
+  return JSON.stringify(canonical(v))
+}
+
+/**
+ * `--apply` recomputes; it may only differ from the reviewed dry run by rows
+ * already applied — and every row it would still write must write the SAME
+ * value the owner reviewed (`changed` otherwise).
+ */
+export function compareToReviewed(a: { reviewed: Record<string, string>; fresh: Record<string, string>; applied: string[] }): {
+  ok: boolean; added: string[]; missing: string[]; changed: string[]
+} {
   const applied = new Set(a.applied)
-  const added = a.fresh.filter((k) => !reviewed.has(k))
-  const missing = a.reviewed.filter((k) => !fresh.has(k) && !applied.has(k))
-  return { ok: added.length === 0 && missing.length === 0, added, missing }
+  const added = Object.keys(a.fresh).filter((k) => !(k in a.reviewed))
+  const missing = Object.keys(a.reviewed).filter((k) => !(k in a.fresh) && !applied.has(k))
+  const changed = Object.keys(a.fresh).filter((k) => k in a.reviewed && a.reviewed[k] !== a.fresh[k])
+  return { ok: added.length === 0 && missing.length === 0 && changed.length === 0, added, missing, changed }
+}
+
+/** The reviewed dry run, as written to `invoice-accuracy-<mode>-plan.json`. */
+export interface RepairPlanFile {
+  mode: RepairMode
+  withBoxRefresh: boolean
+  /** The `--skip` ids of that dry run (sorted). */
+  skip: string[]
+  createdAt: string
+  /** plan key → the value it writes (`planValue`). */
+  entries: Record<string, string>
+}
+
+const sameIds = (a: readonly string[], b: readonly string[]) => {
+  const x = [...new Set(a)].sort(), y = [...new Set(b)].sort()
+  return x.length === y.length && x.every((v, i) => v === y[i])
+}
+
+/** The whole `--apply` guard: same mode and flags, same `--skip`, same rows, same values. */
+export function checkAgainstReviewed(a: {
+  file: unknown
+  mode: RepairMode
+  withBoxRefresh: boolean
+  skip: readonly string[]
+  fresh: Record<string, string>
+  applied: string[]
+}): { ok: boolean; problems: string[] } {
+  const f = a.file as Partial<RepairPlanFile> | null
+  if (!f) return { ok: false, problems: ['No dry run on record. Run the dry run first and review it.'] }
+  if (!f.entries || typeof f.entries !== 'object' || !Array.isArray(f.skip)) {
+    return { ok: false, problems: ['The dry run on record is from an older version of this script (it did not record values or --skip). Run the dry run again.'] }
+  }
+  if (f.mode !== a.mode || !!f.withBoxRefresh !== a.withBoxRefresh) {
+    return { ok: false, problems: [`The reviewed dry run was for --mode ${f.mode}${f.withBoxRefresh ? ' --with-box-refresh' : ''}. Re-run the dry run with the same flags.`] }
+  }
+  if (!sameIds(f.skip, a.skip)) {
+    const words = (ids: readonly string[]) => (ids.length ? ids.join(',') : 'nothing')
+    return { ok: false, problems: [`The dry run skipped ${words(f.skip)}; this run skips ${words(a.skip)}. Run the dry run again with the same --skip.`] }
+  }
+  const cmp = compareToReviewed({ reviewed: f.entries, fresh: a.fresh, applied: a.applied })
+  if (cmp.ok) return { ok: true, problems: [] }
+  const problems: string[] = []
+  if (cmp.changed.length) problems.push('Rows changed since the dry run — run it again.', `  changed: ${cmp.changed.join(', ')}`)
+  if (cmp.added.length) problems.push('The lines to repair are not the ones the reviewed dry run listed.', `  new since the dry run: ${cmp.added.join(', ')}`)
+  if (cmp.missing.length) problems.push(...(cmp.added.length ? [] : ['The lines to repair are not the ones the reviewed dry run listed.']), `  gone since the dry run (not by this repair): ${cmp.missing.join(', ')}`)
+  return { ok: false, problems }
 }

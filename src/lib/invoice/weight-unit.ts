@@ -66,12 +66,19 @@ function possessive(name: string | null): string {
   return /s$/i.test(n) ? `${n}'` : `${n}'s`
 }
 
-/** The plain-English line the review card shows under an assumed unit; null when the line states its own. */
-export function assumedUnitNote(w: WeightUnit, ctx: { supplierName: string | null; itemName: string }): string | null {
+/** The plain-English line the review card shows under an assumed unit; null when the line states its own.
+ *  `boxIsSuppliers: false` — the box priced came from the item (its MAIN supplier's box), because this
+ *  invoice's supplier has no usable box of its own; the note must not name this supplier then. */
+export function assumedUnitNote(
+  w: WeightUnit,
+  ctx: { supplierName: string | null; itemName: string; boxIsSuppliers?: boolean },
+): string | null {
   if (!w.assumed) return null
   const head = `assumed ${w.unit} — the invoice shows no unit`
   switch (w.source) {
-    case 'box':        return `${head}; ${possessive(ctx.supplierName)} box is priced per ${w.unit}`
+    case 'box':        return ctx.boxIsSuppliers === false
+      ? `${head}; the main supplier's box is priced per ${w.unit}`
+      : `${head}; ${possessive(ctx.supplierName)} box is priced per ${w.unit}`
     case 'count-unit': return `${head}; ${ctx.itemName} is counted in ${w.unit}`
     case 'base-unit':  return head
     default:           return `${head}. Check it.`

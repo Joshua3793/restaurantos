@@ -4,7 +4,7 @@
 // clears exactly when approve would accept it.
 // (plan 2026-10-05 item-backbone-5-invoice-accuracy, Task 4)
 import { describe, it, expect } from 'vitest'
-import { lineReasons, lineUnresolved, type ResolveOpts } from '@/lib/invoice/resolution'
+import { lineReasons, lineUnresolved, approveBlockOf, receiveOnlyLabel, type ResolveOpts } from '@/lib/invoice/resolution'
 import { decisionForScanItem, unitCheckSuggestion, unitFixPatch, weightUnitForScanItem } from '@/lib/invoice/approve-outcome-client'
 import type { ScanItem } from '@/components/invoices/types'
 
@@ -74,6 +74,30 @@ describe('a line approve would refuse shows as "blocked"', () => {
     expect(reason(clean, opts({ serverBlock, receiveOnly: true }), sysco, 'blocked')?.resolved).toBe(true)
   })
 
+  it('the receive-only button says how much it will receive', () => {
+    const block = approveBlockOf(cilLine, {}, sysco)!
+    expect(block.receiveText).toBe('0.25 case')
+    expect(receiveOnlyLabel(block)).toBe('Receive 0.25 case, keep the old price')
+    expect(receiveOnlyLabel({ ...block, receiveText: null })).toBe('Receive the stock, keep the old price')
+  })
+
+  it('Eggplant "12 lb @ $3.49/lb" on an each-item with no weight per each: blocked, and receive-only is NOT offered', () => {
+    const eggplant = {
+      id: 'i1', itemName: 'Eggplant', pricePerBaseUnit: '2.93', purchasePrice: '70.3',
+      baseUnit: 'each', dimension: 'COUNT', countUnit: 'each',
+      packChain: [{ unit: 'case', per: 24 }], pricing: { mode: 'PACK', purchasePrice: 70.3 },
+      eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null, supplierPrices: [],
+    } as unknown as ScanItem['matchedItem']
+    const egg = base({
+      rawDescription: 'EGGPLANT', matchedItem: eggplant, rawQty: '12', rawUnit: 'lb', totalQty: '12', totalQtyUOM: 'lb',
+      rate: '3.49', rateUOM: 'lb', rawUnitPrice: '3.49', rawLineTotal: '41.88', pricingMode: 'per_weight',
+    })
+    const block = approveBlockOf(egg, {}, sysco)!
+    expect(block).toMatchObject({ reason: 'RATE_UNCOSTABLE', canReceiveWithoutPrice: false })
+    expect(block.message).toMatch(/Can't receive this without knowing how much one weighs — add it in Edit\.$/)
+    expect(reason(egg, opts({ receiveOnly: true }), sysco, 'blocked')?.resolved).toBe(false)
+  })
+
   it('receive-only cannot clear a block that has nothing to receive into', () => {
     const serverBlock = {
       scanItemId: 'l1', description: 'NEW THING', itemName: null, reason: 'CREATE_NEW_NOT_SET_UP' as const,
@@ -108,7 +132,8 @@ describe('a price that works out 1,000× off shows as "unit"', () => {
     expect(r).toBeDefined()
     expect(r!.resolved).toBe(false)
     expect(r!.title).toBe('Price looks about 1,000× off')
-    expect(r!.summary).toMatch(/^Check the unit\. This line works out at \$25,000\.00 per kg; Cleveland Meats' box is \$25\.00 per kg\.$/)
+    // The line prints no unit, so the screen says the unit was assumed.
+    expect(r!.summary).toMatch(/^The unit was assumed — confirm it\. This line works out at \$25,000\.00 per kg; Cleveland Meats' box is \$25\.00 per kg\.$/)
     expect(lineUnresolved(bisonLine, opts(), cleveland)).toBe(true)
   })
 
@@ -144,6 +169,17 @@ describe('the assumed unit', () => {
     expect(w.source).toBe('box')
     expect(w.note).toBe("assumed kg — the invoice shows no unit; Cleveland Meats' box is priced per kg")
     expect(reason(line, opts(), cleveland, 'unit')).toBeUndefined()
+  })
+
+  it("a supplier with no box of its own: the note names the MAIN supplier's box, not this supplier", () => {
+    const rateBison = {
+      ...packBison!, countUnit: 'kg', pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' },
+      supplierPrices: [{ ...packBison!.supplierPrices![0], pricing: { mode: 'RATE', rate: 25, rateUnit: 'kg' } }],
+    } as unknown as ScanItem['matchedItem']
+    const gordon = { supplierId: 'gordon', supplierName: 'Gordon', canonicalName: 'Gordon' }
+    const w = weightUnitForScanItem({ ...bisonLine, matchedItem: rateBison }, gordon)
+    expect(w.source).toBe('box')
+    expect(w.note).toBe("assumed kg — the invoice shows no unit; the main supplier's box is priced per kg")
   })
 
   it('a line that states its unit has no note', () => {

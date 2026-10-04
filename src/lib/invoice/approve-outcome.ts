@@ -91,8 +91,10 @@ export type LineDecision =
       /** Base units approve freezes for this line: the weight the price was derived
        *  over, else the line read through the pricing this approval writes. */
       receiveBase: number
-      /** Non-null ⇒ PRICE_IMPLAUSIBLE unless the reviewer confirmed the price. */
-      implausible: { ratio: number; currentPpb: number } | null }
+      /** Non-null ⇒ PRICE_IMPLAUSIBLE unless the reviewer confirmed the price.
+       *  `assumed`: the weight unit was assumed (the line prints none), so the
+       *  check fires at 3× instead of 20×. */
+      implausible: { ratio: number; currentPpb: number; assumed: boolean } | null }
   | { ok: false; reason: Exclude<BlockReason, 'PRICE_IMPLAUSIBLE'>; message: string
       speaks: ChainItem | null; received: Received | null; receivable: boolean; receiveBase: number }
 
@@ -102,13 +104,18 @@ export interface BlockedLine {
   itemName: string | null
   reason: BlockReason
   message: string
-  /** The stock can be received with the old price kept (PACK_DISAGREES, RATE_UNCOSTABLE, NO_PRICE, PRICE_IMPLAUSIBLE — when there is stock to receive). */
+  /** The stock can be received with the old price kept (PACK_DISAGREES, RATE_UNCOSTABLE, NO_PRICE — when
+   *  there is stock to receive AND the item can convert the line's quantity). Never PRICE_IMPLAUSIBLE:
+   *  a price that looks off usually means the unit is wrong, so the quantity is too. */
   canReceiveWithoutPrice: boolean
-  /** Only PRICE_IMPLAUSIBLE: the reviewer may say "the price is right". */
+  /** Only PRICE_IMPLAUSIBLE: the reviewer may say "the price is right" — the ONLY way it clears. */
   canConfirmPrice: boolean
 }
 
-const RECEIVABLE_REASONS: ReadonlySet<BlockReason> = new Set(['PACK_DISAGREES', 'RATE_UNCOSTABLE', 'NO_PRICE', 'PRICE_IMPLAUSIBLE'])
+const RECEIVABLE_REASONS: ReadonlySet<BlockReason> = new Set(['PACK_DISAGREES', 'RATE_UNCOSTABLE', 'NO_PRICE'])
+
+/** The 20× rule for a unit the line prints; an ASSUMED unit asks at 3×. */
+export const ASSUMED_UNIT_PRICE_RATIO = 3
 
 const str = (v: Num): string | null => (v == null ? null : v.toString())
 
@@ -207,6 +214,8 @@ const RECEIVE_OR = 'or receive the stock and keep the old price.'
 
 export const NO_PRICE_MESSAGE = `This line has no price. Enter the price, ${RECEIVE_OR}`
 export const NOT_LINKED_MESSAGE = "This line isn't linked to a product. Link it, create a product, or skip it."
+/** A refused line whose quantity is a weight the item can't convert: receive-only is not offered. */
+export const NEEDS_WEIGHT_MESSAGE = "Can't receive this without knowing how much one weighs — add it in Edit."
 
 function rateUncostableMessage(rateUnit: string, item: ApproveItemInput): string {
   const dim = String(item.dimension ?? '').toUpperCase() || dimensionOf(item.baseUnit ?? 'each')
@@ -219,20 +228,41 @@ function rateUncostableMessage(rateUnit: string, item: ApproveItemInput): string
     `Set how much one weighs, ${RECEIVE_OR}`
 }
 
+/** The refusal sentence once receive-only is off the table: the advice to set the
+ *  weight (or receive anyway) is replaced by why it can't be received. */
+function withoutReceiveOnly(message: string): string {
+  const cut = message.indexOf('Set how much one weighs, ' + RECEIVE_OR)
+  if (cut >= 0) return `${message.slice(0, cut)}${NEEDS_WEIGHT_MESSAGE}`
+  const tail = message.lastIndexOf(', ' + RECEIVE_OR)
+  return tail >= 0 ? `${message.slice(0, tail)}. ${NEEDS_WEIGHT_MESSAGE}` : `${message} ${NEEDS_WEIGHT_MESSAGE}`
+}
+
 /** "about 1,000×" — the bigger way up, rounded to 2 significant figures. */
 function timesText(ratio: number): string {
   const up = ratio >= 1 ? ratio : 1 / ratio
   return `${(+up.toPrecision(2)).toLocaleString('en-CA')}×`
 }
 
-/** The PRICE_IMPLAUSIBLE sentence. `boxIsSuppliers`: the current price came from this supplier's own box. */
-export function implausibleMessage(a: {
+type ImplausibleArgs = {
   newPricePerBase: number; currentPpb: number; ratio: number
   baseUnit: string; itemName: string; supplierName: string | null; boxIsSuppliers: boolean
-}): string {
+  /** The weight unit was assumed (the line prints none) — the 3× check. */
+  assumed?: boolean
+}
+
+/** The PRICE_IMPLAUSIBLE sentence in two parts: what to do (`head`) and the two prices (`detail`). */
+export function implausibleParts(a: ImplausibleArgs): { head: string; detail: string } {
   const whose = a.boxIsSuppliers && a.supplierName?.trim() ? `${possessive(a.supplierName)} box` : `${possessive(a.itemName)} box`
-  return `Price looks about ${timesText(a.ratio)} off — check the unit. ` +
-    `This line works out at ${pricePerText(a.newPricePerBase, a.baseUnit)}; ${whose} is ${pricePerText(a.currentPpb, a.baseUnit)}.`
+  const head = a.assumed
+    ? `The unit was assumed; the price is ${timesText(a.ratio)} off the box — confirm the unit.`
+    : `Price looks about ${timesText(a.ratio)} off — check the unit.`
+  return { head, detail: `This line works out at ${pricePerText(a.newPricePerBase, a.baseUnit)}; ${whose} is ${pricePerText(a.currentPpb, a.baseUnit)}.` }
+}
+
+/** The PRICE_IMPLAUSIBLE sentence. `boxIsSuppliers`: the current price came from this supplier's own box. */
+export function implausibleMessage(a: ImplausibleArgs): string {
+  const { head, detail } = implausibleParts(a)
+  return `${head} ${detail}`
 }
 
 // ── The decision ─────────────────────────────────────────────────────────────
@@ -269,9 +299,17 @@ export function decideLinePrice(a: {
   }) === 'WEIGHT'
 
   // A refusal writes no price, so the receipt is read through the PRE-write format.
+  // It can be received only when there is stock AND the quantity is real: a weight
+  // the item has no bridge to (`needsBridge` — Eggplant "12 lb" on an each-item
+  // with no weight per each) falls back to counting cases, which is a guess
+  // (12 "cases" = 288 each). Then receive-only is not offered at all.
   const refuse = (reason: Exclude<BlockReason, 'PRICE_IMPLAUSIBLE'>, message: string): LineDecision => {
     const receiveBase = received.base   // === lineReceivedBaseUnits(qtyIn, speaks) on every path
-    return { ok: false, reason, message, speaks, received, receivable: receiveBase > 0, receiveBase }
+    const receivable = receiveBase > 0 && !received.needsBridge
+    return {
+      ok: false, reason, message: received.needsBridge ? withoutReceiveOnly(message) : message,
+      speaks, received, receivable, receiveBase,
+    }
   }
 
   // NEW: a priced line carrying no price at all (Limes). Today it fell through
@@ -390,13 +428,19 @@ export function decideLinePrice(a: {
     ? received.base
     : lineReceivedBaseUnits(qtyIn, freezeFormat(speaks, newPricing))
 
-  // NEW: a per-weight price 20× or more off the box's current $/base.
-  let implausible: { ratio: number; currentPpb: number } | null = null
+  // NEW: a per-weight price 20× or more off the box's current $/base — or 3× when
+  // the unit was ASSUMED (the line prints none): a guessed unit is the likeliest
+  // reason for a price that far off, so the reviewer confirms it sooner.
+  let implausible: { ratio: number; currentPpb: number; assumed: boolean } | null = null
   if (isUomMode) {
     const currentPpb = pricePerBaseUnit(speaks)
     if (currentPpb > 0 && newPricePerBase > 0) {
       const ratio = newPricePerBase / currentPpb
-      if (ratio > IMPLAUSIBLE_PRICE_RATIO || ratio < 1 / IMPLAUSIBLE_PRICE_RATIO) implausible = { ratio, currentPpb }
+      const assumed = !!weightUnit?.assumed
+      const off = assumed
+        ? ratio >= ASSUMED_UNIT_PRICE_RATIO || ratio <= 1 / ASSUMED_UNIT_PRICE_RATIO
+        : ratio > IMPLAUSIBLE_PRICE_RATIO || ratio < 1 / IMPLAUSIBLE_PRICE_RATIO
+      if (off) implausible = { ratio, currentPpb, assumed }
     }
   }
 
@@ -502,12 +546,15 @@ export function approveBlocks(a: {
       block(l, itemName, d.reason, d.message, d.receivable)
       continue
     }
-    if (d.implausible && !a.priceConfirmed.has(l.id) && !a.receiveWithoutPrice.has(l.id)) {
+    // A price that looks off clears ONLY by "The price is right": a wrong unit
+    // makes the quantity wrong too, so receiving it "without the price" would put
+    // a 1,000×-off amount into stock. (receiveWithoutPrice is ignored here.)
+    if (d.implausible && !a.priceConfirmed.has(l.id)) {
       const boxIsSuppliers = !!lineOffer && d.speaks.pricing === lineOffer.pricing
       block(l, itemName, 'PRICE_IMPLAUSIBLE', implausibleMessage({
         newPricePerBase: d.newPricePerBase, currentPpb: d.implausible.currentPpb, ratio: d.implausible.ratio,
-        baseUnit: l.matchedItem.baseUnit ?? 'each', itemName, supplierName, boxIsSuppliers,
-      }), d.received.base > 0)   // receive-only reads the PRE-write format
+        baseUnit: l.matchedItem.baseUnit ?? 'each', itemName, supplierName, boxIsSuppliers, assumed: d.implausible.assumed,
+      }), false)
     }
   }
   return out

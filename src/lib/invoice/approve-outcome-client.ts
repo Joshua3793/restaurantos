@@ -99,8 +99,13 @@ export function weightUnitForScanItem(item: ScanItem, ref: SupplierRef): WeightU
   const m = item.matchedItem
   let speaks = null as ReturnType<typeof resolveLineFormat> | null
   let pricedByWeight = false
+  let boxIsSuppliers = false
   if (m) {
-    speaks = resolveLineFormat(itemChainOf(itemInputOf(m)), lineOfferOf(item, ref))
+    const offer = lineOfferOf(item, ref)
+    speaks = resolveLineFormat(itemChainOf(itemInputOf(m)), offer)
+    // The box priced is this supplier's own only when its pricing was adopted;
+    // otherwise it is the item's — the main supplier's box.
+    boxIsSuppliers = !!offer && speaks.pricing === offer.pricing
     const via = lineReceived(lineQtyOf(lineInputOf(item)), speaks).via
     pricedByWeight = via === 'billed-weight' || via === 'shipped-unit'
   }
@@ -110,7 +115,7 @@ export function weightUnitForScanItem(item: ScanItem, ref: SupplierRef): WeightU
     boxPricing: speaks?.pricing ?? null,
     item: { countUnit: m?.countUnit ?? null, baseUnit: m?.baseUnit ?? null },
   })
-  return { ...w, note: assumedUnitNote(w, { supplierName: supplierNameOf(ref), itemName: m?.itemName ?? item.rawDescription ?? 'this item' }) }
+  return { ...w, note: assumedUnitNote(w, { supplierName: supplierNameOf(ref), itemName: m?.itemName ?? item.rawDescription ?? 'this item', boxIsSuppliers }) }
 }
 
 /** The staged edit "It's per {unit}" makes: the rate's unit, and the billed weight's

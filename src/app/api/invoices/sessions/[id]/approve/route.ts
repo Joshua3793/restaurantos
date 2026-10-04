@@ -120,6 +120,14 @@ async function doApprove(
   const skippedPrice: NoteLine[] = []
   // CREATE_NEW line → the product it created, so its RC copy carries it.
   const createdByLine = new Map<string, string>()
+  // Every line this run marked approved (priced, received without its price,
+  // created, or a plain approve). Only these are copied into an RC clone: a
+  // SKIP/PENDING line, or a priced line that was neither received nor priced,
+  // must never land in a clone as an approved row.
+  const approvedLines = new Set<string>()
+  // Lines received without their price because their printed case disagreed with
+  // the box: the supplier's wording is still learned, but never with that case.
+  const disputedPack = new Set<string>()
   try {
     // ── Undo records ────────────────────────────────────────────────────────
     // What this approval overwrites, captured per row BEFORE its first write and
@@ -296,16 +304,20 @@ async function doApprove(
         const unconfirmed = d.ok && !!d.implausible && !choices.priceConfirmed.has(scanItem.id)
         if (!d.ok || unconfirmed) {
           const receiveBase = d.ok ? d.received.base : d.receiveBase
+          // `d.receivable` (not just "receiveBase > 0"): a weight the item has
+          // no bridge to falls back to counting cases — Eggplant "12 lb" would
+          // go in as 12 cases = 288 each. That is never received.
+          const canReceive = d.ok ? receiveBase > 0 && !d.received.needsBridge : d.receivable
           const message = d.ok
             ? implausibleMessage({
                 newPricePerBase: d.newPricePerBase, currentPpb: d.implausible!.currentPpb, ratio: d.implausible!.ratio,
                 baseUnit: item.baseUnit ?? 'each', itemName: item.itemName, supplierName: offerSupplierName,
-                boxIsSuppliers: !!lineOffer && d.speaks.pricing === lineOffer.pricing,
+                boxIsSuppliers: !!lineOffer && d.speaks.pricing === lineOffer.pricing, assumed: d.implausible!.assumed,
               })
             : d.message
-          if (!(receiveBase > 0)) {
-            // Nothing to receive either: the line stays un-approved, visible.
-            // The preflight refuses this first; only reachable on a race.
+          if (!canReceive) {
+            // Nothing (honest) to receive either: the line stays un-approved,
+            // visible. The preflight refuses this first; only reachable on a race.
             console.error(`[approve] Not approving "${scanItem.rawDescription}" — ${message}`)
             skippedLines++
             skippedPrice.push(noteLine(message))
@@ -318,6 +330,8 @@ async function doApprove(
             where: { id: scanItem.id },
             data:  { approved: true, receivedQtyBase: freezeQty(receiveBase, scanItem.id) },
           })
+          approvedLines.add(scanItem.id)
+          if (!d.ok && d.reason === 'PACK_DISAGREES') disputedPack.add(scanItem.id)
           receivedWithoutPrice.push(noteLine(message))
           registerLineAllocs(scanItem.matchedItemId, scanItem)
           continue
@@ -690,6 +704,7 @@ async function doApprove(
         if (shouldReprice) undo.before('ITEM', item.id, itemState(item))
 
         await prisma.$transaction(itemOps)
+        approvedLines.add(scanItem.id)
         if (shouldReprice) updatedItemIds.push(scanItem.matchedItemId)
         // The item re-priced from this line; its PRIMARY box must equal the item (same chain, same pricing) — written in itemOps above. A non-primary supplier's box keeps its own invoice pack.
         // Every write this line makes has landed — read each touched row's `next`.
@@ -815,6 +830,7 @@ async function doApprove(
             ),
           },
         })
+        approvedLines.add(scanItem.id)
         await flushUndo()
       }
 
@@ -826,6 +842,7 @@ async function doApprove(
           where: { id: scanItem.id },
           data: { approved: true },
         })
+        approvedLines.add(scanItem.id)
       }
     }
 
@@ -911,11 +928,14 @@ async function doApprove(
       const specsByRc = new Map<string, Spec[]>()
       const splitOriginalIds: string[] = []
       for (const item of session.scanItems) {
-        // A create-new line that created nothing (refused) received nothing: it
-        // must not land in a clone as an approved row with no product. One that
-        // did is always a WHOLE move (factor 1): the review screen blocks a
-        // quantity split on an unlinked line (hasInvalidRcSplit) and
+        // Only a line this run approved is copied (every copy is written
+        // `approved: true`): never a SKIP / PENDING line, a priced line that was
+        // neither received nor priced, or a create-new line that created nothing
+        // (refused — no product, nothing received). A create-new that did create
+        // its product is always a WHOLE move (factor 1): the review screen blocks
+        // a quantity split on an unlinked line (hasInvalidRcSplit) and
         // parseValidSplit needs a matched item, which the in-memory row lacks.
+        if (item.action === 'SKIP' || item.action === 'PENDING' || !approvedLines.has(item.id)) continue
         if (item.action === 'CREATE_NEW' && !createdByLine.has(item.id)) continue
         const split = parseValidSplit(item)
         if (split) {
@@ -1040,7 +1060,9 @@ async function doApprove(
             inventoryItemId:  item.matchedItemId!,
             supplierId:       session.supplierId,
             supplierItemCode: item.supplierItemCode,
-            format:           packTripleOf(item),
+            // A line received without its price because its case disagreed with
+            // the box: learn the wording, never the disputed case.
+            format:           disputedPack.has(item.id) ? null : packTripleOf(item),
             source:           'APPROVE',
             undo,
           }).catch((e) => console.error('[approve] supplier wording failed:', e))
@@ -1188,8 +1210,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // written. The reviewer has the invoice open and is the only one who can tell
   // a real case-size change from a misread; each blocked line can be fixed, or
   // (when it has stock to receive) received with its old price kept
-  // (`receiveWithoutPrice`), and a price 20× off can be confirmed
-  // (`priceConfirmed`). The SAME snapshot is handed to the run, so it reads
+  // (`receiveWithoutPrice`) — never a weight the item can't convert. A price
+  // that looks off (20×, or 3× when the unit was assumed) clears ONLY by
+  // `priceConfirmed`; receive-only does not clear it, because a wrong unit makes
+  // the quantity wrong too. The SAME snapshot is handed to the run, so it reads
   // exactly what was judged here. Lines the run will not touch (SKIP/PENDING)
   // are not checked.
   const lineIds = new Set(session.scanItems.map(si => si.id))
