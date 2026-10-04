@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { ensurePrimary } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
-import { saveMatchRule } from '@/lib/invoice-matcher'
+import { saveAlias } from '@/lib/invoice-matcher'
+import { normaliseAliasText } from '@/lib/alias-text'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { getUnitConv } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
@@ -18,7 +19,8 @@ import { shouldRepriceItem, primaryBoxWrite } from '@/lib/invoice/reprice'
 import { resolveLineFormat, pickOffer, supplierOffers, type OfferFormat } from '@/lib/invoice/line-format'
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
-import { seedFromScanLine, validateCreateNew } from '@/lib/invoice/create-new-seed'
+import { seedFromScanLine, validateCreateNew, createNewName } from '@/lib/invoice/create-new-seed'
+import { learnAlias } from '@/lib/supplier-matcher'
 import { lookupDensity } from '@/lib/density'
 import { UndoCollector, OFFER_SELECT, offerState, itemState, offerCaptureFor } from '@/lib/invoice/approve-undo'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -28,6 +30,13 @@ import { resolvePurchaseDate } from '@/lib/purchase-date'
 // Give background work up to 60s after the response is sent
 export const maxDuration = 60
 
+
+/** The pack printed/confirmed on a line, as the alias learns it (display and
+ *  provenance only — costing always reads the chain). None without a qty and size. */
+function packTripleOf(line: { invoicePackQty: unknown; invoicePackSize: unknown; invoicePackUOM: string | null }) {
+  if (!line.invoicePackQty || line.invoicePackSize == null) return null
+  return { packQty: Number(line.invoicePackQty), packSize: Number(line.invoicePackSize), packUOM: line.invoicePackUOM ?? 'each' }
+}
 
 interface ApproveResult {
   itemsUpdated: number
@@ -49,6 +58,9 @@ async function doApprove(
   // product was created at all, so "price not updated" would describe a row that
   // does not exist. Collected separately so the session message can say which.
   const skippedCreateNew: string[] = []
+  // A create-new refused for its name (an invoice wording, or blank) — the
+  // session's note then says to scan it again with a plain name.
+  let createNewNameRefused = false
   try {
     // ── Undo records ────────────────────────────────────────────────────────
     // What this approval overwrites, captured per row BEFORE its first write and
@@ -912,6 +924,18 @@ async function doApprove(
           continue
         }
         const newData = JSON.parse(scanItem.newItemData)
+        // W1: the product is created under a plain name. An invoice wording
+        // (typed in, or the fallback for a blank name) is refused with the hint
+        // unless the reviewer chose "Use this wording anyway" (allowShouty).
+        // The line stays un-approved, like any other skipped CREATE_NEW.
+        const name = createNewName({ itemName: newData.itemName, rawDescription: scanItem.rawDescription, allowShouty: newData.allowShouty })
+        if (!name.ok) {
+          console.error(`[approve] Not creating a product for "${scanItem.rawDescription}" — ${name.error}`)
+          skippedLines++
+          skippedCreateNew.push(`"${scanItem.rawDescription}": ${name.error}`)
+          createNewNameRefused = true
+          continue
+        }
         // The drawer's AddNewItemModal now writes a chain-shaped newItemData
         // ({ dimension, packChain, pricing, countUnit }). Older sessions may
         // still carry the legacy pack-field shape — reconstruct the chain from
@@ -953,7 +977,7 @@ async function doApprove(
         }
         const created = await prisma.inventoryItem.create({
           data: {
-            itemName:           newData.itemName || scanItem.rawDescription,
+            itemName:           name.itemName,
             category:           newData.category || 'DRY',
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would
             // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
@@ -1008,6 +1032,18 @@ async function doApprove(
           }))().catch((e) => { console.error('[approve] CREATE_NEW supplier box failed:', e); return null })
           if (box) undo.created('OFFER', box.id)
         }
+        // The invoice's own wording (and code, and pack) for the product it just
+        // created, under the INVOICE's supplier — whoever the box went to, this
+        // wording came off this supplier's paper. Non-critical, like the box.
+        await saveAlias({
+          rawDescription:   scanItem.rawDescription,
+          inventoryItemId:  created.id,
+          supplierId:       session.supplierId,
+          supplierItemCode: scanItem.supplierItemCode,
+          format:           packTripleOf(scanItem),
+          source:           'CREATE_NEW',
+          undo,
+        }).catch((e) => console.error('[approve] CREATE_NEW supplier wording failed:', e))
         updatedItemIds.push(created.id)
         newItemsCreated++
         registerLineAllocs(created.id, scanItem)
@@ -1084,9 +1120,17 @@ async function doApprove(
       )
     }
     if (skippedCreateNew.length > 0) {
+      // Each reason may end in its own full stop (the hints do) — strip it so
+      // the joined sentence ends in exactly one. The session is APPROVED below
+      // and nothing returns an approved invoice to review, so the only way to
+      // create the product is to delete the invoice and scan it again.
+      const n = skippedCreateNew.length
+      const reasons = skippedCreateNew.map(r => r.replace(/[.\s]+$/, ''))
       skipParts.push(
-        `${skippedCreateNew.length} new product${plural(skippedCreateNew.length)} not created — ` +
-        `${skippedCreateNew.join('; ')}.`,
+        `${n} new product${plural(n)} ${n === 1 ? 'was' : 'were'} not created — ${reasons.join('; ')}. ` +
+        (createNewNameRefused
+          ? 'Delete this invoice and scan it again with a plain name.'
+          : `Delete this invoice and scan it again to create ${n === 1 ? 'it' : 'them'}.`),
       )
     }
     const approvedNow = new Date()
@@ -1101,7 +1145,7 @@ async function doApprove(
         purchaseDate: resolvePurchaseDate(session.invoiceDate, approvedNow),
         revenueCenterId: effectiveSessionRcId,
         ...(skipParts.length > 0
-          ? { errorMessage: `${skipParts.join(' ')} Re-open the invoice to review.` }
+          ? { errorMessage: skipParts.join(' ') }
           : {}),
       },
     })
@@ -1237,28 +1281,35 @@ async function doApprove(
       }
     }
 
-    // ── Save learned match rules (parallel, non-critical) ───────────────
+    // ── Learn this supplier's wordings (non-critical) ───────────────────
+    // Every matched, non-SKIP line upserts (session supplier, normalised wording)
+    // → item, with its code and pack. CREATE_NEW lines learned theirs in the
+    // loop above against the item they created. Lines that normalise to the same
+    // wording write the same alias row, so they run one after another (last line
+    // wins, exactly as sequential approval would); different wordings run in
+    // parallel.
+    const aliasGroups = new Map<string, typeof itemsToProcess>()
+    for (const item of itemsToProcess) {
+      if (!item.matchedItemId || item.action === 'SKIP' || item.action === 'CREATE_NEW') continue
+      const key = normaliseAliasText(item.rawDescription)
+      aliasGroups.set(key, [...(aliasGroups.get(key) ?? []), item])
+    }
     await Promise.all(
-      itemsToProcess
-        .filter(item => item.matchedItemId && item.action !== 'SKIP')
-        .map(item =>
-          saveMatchRule(
-            item.rawDescription,
-            item.matchedItemId!,
-            // Save under the CANONICAL supplier name so the rule applies to every
-            // name variant ("SYSCO Canada, Inc." / "… - Vancouver") next time.
-            offerSupplierName ?? session.supplierName,
-            item.invoicePackQty ? {
-              packQty:  Number(item.invoicePackQty),
-              packSize: Number(item.invoicePackSize),
-              packUOM:  item.invoicePackUOM ?? 'each',
-            } : undefined,
-            item.supplierItemCode,
+      Array.from(aliasGroups.values()).map(async (group) => {
+        for (const item of group) {
+          await saveAlias({
+            rawDescription:   item.rawDescription,
+            inventoryItemId:  item.matchedItemId!,
+            supplierId:       session.supplierId,
+            supplierItemCode: item.supplierItemCode,
+            format:           packTripleOf(item),
+            source:           'APPROVE',
             undo,
-          ).catch(() => {})
-        )
+          }).catch((e) => console.error('[approve] supplier wording failed:', e))
+        }
+      })
     )
-    // Learned rules are the last thing this approval writes.
+    // Learned wordings are the last thing this approval writes.
     await flushUndo()
 
     // ── Re-sync PREP costs + recalculate recipe costs for changed items ──
@@ -1401,6 +1452,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (claimed.count === 0) {
     return NextResponse.json({ error: 'Session is already being approved' }, { status: 409 })
+  }
+
+  // W6: approving with a supplier linked is the reviewer confirming it, so the
+  // invoice's spelling of that supplier is learned now — a fuzzy match at scan
+  // time only suggested the link (src/lib/supplier-matcher.ts). Never fails the
+  // approval.
+  if (session.supplierId && session.supplierName) {
+    await learnAlias(session.supplierId, session.supplierName).catch(() => {})
   }
 
   // waitUntil keeps the Vercel function alive until doApprove finishes,

@@ -14,13 +14,17 @@ import { canonicalUom, convertQty } from '@/lib/uom'
 import { countUomFactor, lineCountedBase, type ItemDims } from '@/lib/count-uom'
 import { normItemCode } from '@/lib/invoice/line-format'
 import { offerListedPrice } from '@/lib/offer-price'
+import { normaliseAliasText } from '@/lib/alias-text'
 
 export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT' | 'DIFFERENT_BASE_UNIT' | 'BRIDGE_MISMATCH' | 'NEEDS_ON_HAND'
 export type RepointTable =
   | 'InvoiceScanItem' | 'InvoiceLineItem' | 'PriceAlert' | 'InvoiceMatchRule' | 'StockTransfer' | 'WastageLog'
   | 'RecipeIngredient' | 'CountLine' | 'InventorySnapshot' | 'InventorySupplierPrice' | 'StockAllocation' | 'ItemRevenueCenter'
+  | 'ItemSupplierAlias'
 export type UpdateTable = RepointTable | 'InventoryItem'
-export type DeleteTable = 'InventorySupplierPrice' | 'InventorySnapshot' | 'StockAllocation' | 'ItemRevenueCenter'
+/** `ItemSupplierAlias` is here only as the undo of the merge's own name wording
+ *  (a `create` swaps to a `delete` in `planUndo`) — a merge never deletes one. */
+export type DeleteTable = 'InventorySupplierPrice' | 'InventorySnapshot' | 'StockAllocation' | 'ItemRevenueCenter' | 'ItemSupplierAlias'
 
 export interface MergeItemRow {
   id: string; itemName: string; baseUnit: string; dimension: Dimension; countUnit: string
@@ -78,6 +82,14 @@ export interface MergeRelations {          // everything that points at the ABSO
   /** rows previously merged INTO the absorbed item (their mergedIntoId === absorbed.id) —
    *  re-pointed onto the survivor so a one-hop resolve never lands on a tombstone. */
   priorAbsorbeeIds: string[]
+  /** The absorbed item's supplier wordings (ItemSupplierAlias). `(supplierId,
+   *  text)` is unique across ALL items, so a re-pointed wording can never
+   *  collide with one the survivor already holds — they move unconditionally. */
+  aliasIds: string[]
+  /** Some alias (on ANY item, the absorbed one included) already holds the key
+   *  {@link mergeNameAlias} would write — the merge then writes none. Looked up
+   *  by the executor, since the planner cannot see the table. */
+  nameAliasTaken: boolean
 }
 export interface SurvivorRelations {       // …and what the SURVIVOR already has that can collide
   offers: Array<{ id: string; supplierName: string; supplierId: string; lastUpdated: string; isPrimary: boolean } & Record<string, unknown>>
@@ -89,7 +101,7 @@ export type MergeOp =
   | { t: 'repoint'; table: RepointTable; ids: string[] }
   | { t: 'update'; table: UpdateTable; id: string; before: Record<string, unknown>; after: Record<string, unknown> }
   | { t: 'delete'; table: DeleteTable; row: Record<string, unknown> }        // full row kept for undo
-  | { t: 'create'; table: DeleteTable | 'InventorySupplierPrice'; row: Record<string, unknown> }
+  | { t: 'create'; table: DeleteTable; row: Record<string, unknown> }
 export interface MergeManifest { survivorId: string; absorbedId: string; ops: MergeOp[] }
 export type MergePlan = { ok: true; manifest: MergeManifest; summary: MergeSummary } | { ok: false; guard: MergeGuard; message: string }
 
@@ -192,6 +204,22 @@ function bridgeValuesDiffer(a: number | null, b: number | null): boolean {
   return Math.abs(toNum(a) - toNum(b)) > 1e-9
 }
 
+/** W9: the wording a merge keeps for the absorbed item's OLD NAME — under the
+ *  supplier of its PRIMARY box, so the next invoice from that supplier that
+ *  still prints the old name finds the survivor. Null with no primary box, or a
+ *  name with nothing left once normalised. The executor looks this key up (to
+ *  set `nameAliasTaken`) and the planner writes it, so both read it from here. */
+export function mergeNameAlias(
+  absorbed: Pick<MergeItemRow, 'itemName'>,
+  offers: ReadonlyArray<{ supplierId: string | null; isPrimary: boolean }>,
+): { supplierId: string; text: string; rawText: string } | null {
+  const primary = offers.find(o => o.isPrimary)
+  if (!primary?.supplierId) return null
+  const text = normaliseAliasText(absorbed.itemName)
+  if (!text) return null
+  return { supplierId: primary.supplierId, text, rawText: absorbed.itemName }
+}
+
 export function planMerge(
   survivor: MergeItemRow, absorbed: MergeItemRow, rel: MergeRelations, sRel: SurvivorRelations,
   opts: { combinedOnHandProvided: boolean; newId: () => string },
@@ -269,6 +297,18 @@ export function planMerge(
   repoint('InvoiceLineItem', rel.invoiceLineItemIds)
   repoint('PriceAlert', rel.priceAlertIds)
   repoint('InvoiceMatchRule', rel.matchRuleIds)
+  // Supplier wordings move like the match rules they replace (W9). No collision
+  // handling: the unique key (supplierId, text) is table-wide, not per item.
+  repoint('ItemSupplierAlias', rel.aliasIds)
+  // …and the absorbed item's old name is kept as a wording on the survivor. A
+  // `create` with its id minted here, so the manifest records exactly which row
+  // to remove on undo (planUndo swaps it to a `delete`).
+  const nameAlias = mergeNameAlias(absorbed, rel.offers)
+  if (nameAlias && !rel.nameAliasTaken)
+    ops.push({ t: 'create', table: 'ItemSupplierAlias', row: {
+      id: opts.newId(), inventoryItemId: survivor.id, supplierId: nameAlias.supplierId,
+      text: nameAlias.text, rawText: nameAlias.rawText, source: 'MERGE', useCount: 1,
+    } })
   repoint('StockTransfer', rel.transferIds)
   repoint('WastageLog', rel.wastageIds)
   repoint('RecipeIngredient', rel.recipeIngredients.map(r => r.id))

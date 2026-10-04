@@ -24,7 +24,7 @@ const STATUS_ORDER: Record<string, number> = {
 
 // ── Delete plan (mirrors GET /api/invoices/sessions/[id]/delete-plan) ───────
 
-type UndoKind = 'OFFER' | 'ITEM' | 'MATCH_RULE' | 'ITEM_CREATED'
+type UndoKind = 'OFFER' | 'ITEM' | 'MATCH_RULE' | 'ALIAS' | 'ITEM_CREATED'
 type PlanOutcome = 'restored' | 'deleted' | 'skipped' | 'best-effort'
 
 interface DeletePlanRow {
@@ -32,7 +32,7 @@ interface DeletePlanRow {
   targetId: string
   name: string
   outcome: PlanOutcome
-  reason?: 'changed-since' | 'gone' | 'referenced' | 'approved before undo records existed'
+  reason?: 'changed-since' | 'gone' | 'referenced' | 'approved before undo records existed' | 'learned wording predates the alias table'
   detail?: string
 }
 
@@ -46,20 +46,20 @@ interface DeletePlan {
 // Verbatim — the clone tooltip and the 409 `deleteSession` throws both read this.
 const CLONE_MESSAGE = 'This is an RC copy — delete the original invoice instead'
 const LEGACY_SENTENCE =
-  'Approved before rollback records existed — price reverts are best-effort (an item with supplier boxes keeps its main box’s price); supplier prices and learned matches are not restored.'
+  'Approved before rollback records existed — price reverts are best-effort (an item with supplier boxes keeps its main box’s price); supplier prices and learned wordings are not restored.'
 
 const plural = (n: number, word: string, pluralWord = `${word}s`) => (n === 1 ? word : pluralWord)
 
 // n/m/k/s/learned come straight from the plan's rows, never the aggregate
 // `summary` — summary sums across every kind, and the copy needs to keep
 // supplier prices (OFFER), item prices (ITEM), new products (ITEM_CREATED) and
-// learned matches (MATCH_RULE) apart.
+// learned supplier wordings (ALIAS) apart. Old MATCH_RULE rows are never undone.
 function planCounts(plan: DeletePlan) {
   const n = plan.rows.filter(r => r.kind === 'OFFER' && r.outcome === 'restored').length
   const m = plan.rows.filter(r => r.kind === 'ITEM' && r.outcome === 'restored').length
   const k = plan.rows.filter(r => r.kind === 'ITEM_CREATED' && r.outcome === 'deleted').length
   const s = plan.rows.filter(r => (r.kind === 'OFFER' || r.kind === 'ITEM') && r.outcome === 'skipped').length
-  const learned = plan.rows.filter(r => r.kind === 'MATCH_RULE' && (r.outcome === 'restored' || r.outcome === 'deleted')).length
+  const learned = plan.rows.filter(r => r.kind === 'ALIAS' && (r.outcome === 'restored' || r.outcome === 'deleted')).length
   return { n, m, k, s, learned }
 }
 
@@ -70,7 +70,7 @@ function planSummaryText(plan: DeletePlan): string {
   const segments = [`Restores ${n} supplier ${plural(n, 'price')} and ${m} item ${plural(m, 'price')}`]
   if (k > 0) segments.push(`removes ${k} new ${plural(k, 'product')}`)
   if (s > 0) segments.push(`${s} ${plural(s, 'price')} ${s === 1 ? 'stays' : 'stay'} (changed since)`)
-  if (learned > 0) segments.push(`${learned} learned ${plural(learned, 'match', 'matches')} removed`)
+  if (learned > 0) segments.push(`${learned} learned ${plural(learned, 'wording')} undone`)
   return segments.join(' · ')
 }
 

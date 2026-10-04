@@ -11,6 +11,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
+import { isShoutyName, SHOUTY_HINT_PLAIN } from '@/lib/alias-text'
 
 export async function GET(req: NextRequest) {
   let user
@@ -46,11 +47,17 @@ async function handlePOST(req: NextRequest) {
   // item's first (primary) supplier box below, and the item's supplier derives
   // from that box.
   const { dimension, packChain, pricing, countUnit, supplierId, storageAreaId, revenueCenterId,
-          eachMeasureQty, eachMeasureUnit,
+          eachMeasureQty, eachMeasureUnit, allowShouty,
           location: _location, purchasePrice: _purchasePrice, needsReview: _needsReview,
           ...rest } = body
   if (!packChain) {
     return NextResponse.json({ error: 'packChain is required' }, { status: 400 })
+  }
+  // W1: one plain name per item. An invoice wording typed in as the name is
+  // refused with a hint, unless the person explicitly keeps it — the Add Item
+  // form resends with `allowShouty: true` from its "Use it anyway" link.
+  if (allowShouty !== true && typeof rest.itemName === 'string' && isShoutyName(rest.itemName.trim())) {
+    return NextResponse.json({ error: SHOUTY_HINT_PLAIN, code: 'SHOUTY_NAME' }, { status: 400 })
   }
   // Strip any stray non-column keys the client may have sent.
   delete rest.pricePerBaseUnit; delete rest.baseUnit

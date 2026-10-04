@@ -4,11 +4,11 @@ import { prisma } from '@/lib/prisma'
 import { asChainItem, PRICING_SELECT } from '@/lib/item-model'
 import { getTheoreticalBalanceMap } from '@/lib/count-expected'
 import {
-  planMerge, planUndo, type MergeItemRow, type MergeManifest, type MergeOp, type MergePlan,
+  mergeNameAlias, planMerge, planUndo, type MergeItemRow, type MergeManifest, type MergeOp, type MergePlan,
   type MergeRelations, type MergeSummary, type SurvivorRelations, type UpdateTable,
 } from '@/lib/item-merge'
 import {
-  asCountEntries, batchUpdateOps, lockItemsSql, mergeOpOrder, parseManifest,
+  asCountEntries, batchUpdateOps, deleteArgs, lockItemsSql, mergeOpOrder, parseManifest,
   recipeIngredientRepointIds, repointTableChecks, REPOINT_FK, TABLE_DELEGATE, toPlainRow,
   undoOpOrder, writeData, type BatchedOp, type CombinedOnHand,
 } from '@/lib/item-merge-rows'
@@ -210,6 +210,17 @@ export async function loadMergeInputs(
   const al = await db.stockAllocation.findMany({ where: w })
   const rc = await db.itemRevenueCenter.findMany({ where: w })
   const prior = await db.inventoryItem.findMany({ where: { mergedIntoId: absorbedId }, select: { id: true } })
+  // Supplier wordings move with the item (W9). The old name is kept as a
+  // wording unless some alias already holds that key — anywhere, since
+  // (supplierId, text) is unique across the whole table.
+  const als = await db.itemSupplierAlias.findMany({ where: w, select: { id: true } })
+  const nameKey = mergeNameAlias(absorbed, of)
+  const nameAliasTaken = nameKey
+    ? (await db.itemSupplierAlias.findUnique({
+        where: { supplierId_text: { supplierId: nameKey.supplierId, text: nameKey.text } },
+        select: { id: true },
+      })) != null
+    : false
   const last = await db.invoiceScanItem.findFirst({
     where: { matchedItemId: absorbedId, approved: true, session: { supplierId: { not: null } } },
     orderBy: { session: { purchaseDate: 'desc' } },
@@ -254,6 +265,8 @@ export async function loadMergeInputs(
       ? { supplierId: last.session.supplierId, supplierName: last.session.supplierName ?? '' }
       : null,
     priorAbsorbeeIds: prior.map(x => x.id),
+    aliasIds: als.map(x => x.id),
+    nameAliasTaken,
   }
 
   const sw = { inventoryItemId: survivorId }
@@ -284,6 +297,7 @@ interface Delegate {
   updateMany(a: { where: object; data: object }): Promise<unknown>
   update(a: { where: object; data: object }): Promise<unknown>
   delete(a: { where: object }): Promise<unknown>
+  deleteMany(a: { where: object }): Promise<unknown>
   create(a: { data: object }): Promise<unknown>
   count(a: { where: object }): Promise<number>
 }
@@ -313,13 +327,13 @@ async function applyOp(tx: Prisma.TransactionClient, op: BatchedOp, repointTo: s
     await d.update({ where: { id: op.id }, data: writeData(op.table, op.after) })
     return
   }
-  const id = op.row.id
   if (op.t === 'delete') {
-    if (typeof id !== 'string') throw new Error(`Manifest ${op.table} delete op has no row id`)
-    await d.delete({ where: { id } })
+    const { many, where } = deleteArgs(op.table, op.row)
+    if (many) await d.deleteMany({ where })
+    else await d.delete({ where })
     return
   }
-  if (typeof id !== 'string') throw new Error(`Manifest ${op.table} create op has no row id`)
+  if (typeof op.row.id !== 'string') throw new Error(`Manifest ${op.table} create op has no row id`)
   await d.create({ data: writeData(op.table, op.row) })
 }
 

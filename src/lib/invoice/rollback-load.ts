@@ -32,10 +32,10 @@ import {
   type UndoKind,
   OFFER_SELECT,
   ITEM_SELECT,
-  RULE_SELECT,
+  ALIAS_SELECT,
   offerState,
   itemState,
-  ruleState,
+  aliasState,
   canonEqual,
   currentFieldsOnly,
 } from '@/lib/invoice/approve-undo'
@@ -114,8 +114,12 @@ export interface RefCounts {
   stockTransfers: number
   /** PriceAlert.inventoryItem — alerts from OTHER sessions (Restrict). */
   priceAlerts: number
-  /** InvoiceMatchRule.inventoryItem — minus the rules this plan deletes (Restrict). */
+  /** InvoiceMatchRule.inventoryItem — legacy learned matches (Restrict). ALL of
+   *  them: rollback never touches that table any more, so none is removed. */
   matchRules: number
+  /** ItemSupplierAlias.inventoryItem — minus the aliases this plan deletes or
+   *  restores away (Cascade: the wording would silently go with the item). */
+  supplierWordings: number
   /** RecipeIngredient.inventoryItem — the ingredient would silently go $0 (SetNull). */
   recipeIngredients: number
   /** Recipe.inventoryItem — a PREP recipe would lose its linked item (SetNull). */
@@ -143,6 +147,7 @@ const OTHER_LABELS: ReadonlyArray<readonly [Exclude<keyof RefCounts, 'invoiceLin
   ['prepItems', 'prep item', 'prep items'],
   ['mergedItems', 'merged item', 'merged items'],
   ['matchRules', 'learned match', 'learned matches'],
+  ['supplierWordings', 'supplier wording', 'supplier wordings'],
 ]
 
 export function emptyRefCounts(): RefCounts {
@@ -172,36 +177,38 @@ export function referencePhrases(counts: RefCounts): string[] {
 }
 
 /**
- * The offer / match-rule rows THIS PLAN will delete — the one exclusion the
- * reference counts need, because a row the deletion removes anyway cannot be
- * the reason the deletion is refused.
+ * The rows THIS PLAN takes off a created item — the one exclusion the reference
+ * counts need, because a row the deletion removes anyway cannot be the reason
+ * the deletion is refused.
  *
- * It re-derives the planner's delete test rather than guessing: an undo record
- * with `prev === null` is a row the approval CREATED, and the planner deletes it
- * only while the row still equals `next`. A created row that has been edited
- * since is SKIPPED by the planner — so it stays, and it must keep counting.
- * (For an offer the planner also re-protects the item itself via `guardCascades`;
- * for a `Restrict` match rule nothing else would catch it, and the item delete
- * would take the whole transaction down.)
+ * It re-derives the planner's own test rather than guessing:
+ *  - an OFFER record with `prev === null` is a box the approval CREATED, and the
+ *    planner deletes it only while the row still equals `next`;
+ *  - an ALIAS record is undone (deleted when created, restored when updated)
+ *    only while the row still equals `next` — and either way it leaves the
+ *    created item, since `prev` cannot name an item that did not exist yet.
+ * A row edited since is SKIPPED by the planner — so it stays, and it must keep
+ * counting (the planner also re-protects the item itself via `guardCascades`).
+ * Legacy MATCH_RULE records plan nothing: those rows always count.
  */
 export function plannedRowDeletes(
   records: UndoRecord[],
   offers: Map<string, CurrentOffer>,
-  rules: Map<string, Canon>,
-): { offerIds: Set<string>; ruleIds: Set<string> } {
+  aliases: Map<string, Canon>,
+): { offerIds: Set<string>; aliasIds: Set<string> } {
   const offerIds = new Set<string>()
-  const ruleIds = new Set<string>()
+  const aliasIds = new Set<string>()
   for (const rec of records) {
-    if (rec.prev !== null) continue
     if (rec.kind === 'OFFER') {
+      if (rec.prev !== null) continue
       const cur = offers.get(rec.targetId)
       if (cur && canonEqual(offerState(cur), currentFieldsOnly('OFFER', rec.next))) offerIds.add(rec.targetId)
-    } else if (rec.kind === 'MATCH_RULE') {
-      const cur = rules.get(rec.targetId)
-      if (cur && canonEqual(ruleState(cur), currentFieldsOnly('MATCH_RULE', rec.next))) ruleIds.add(rec.targetId)
+    } else if (rec.kind === 'ALIAS') {
+      const cur = aliases.get(rec.targetId)
+      if (cur && canonEqual(aliasState(cur), currentFieldsOnly('ALIAS', rec.next))) aliasIds.add(rec.targetId)
     }
   }
-  return { offerIds, ruleIds }
+  return { offerIds, aliasIds }
 }
 
 // ── the loader ───────────────────────────────────────────────────────────────
@@ -295,7 +302,7 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
   const recordedOfferIds = idsOf(['OFFER'])
   const recordedItemIds = idsOf(['ITEM', 'ITEM_CREATED'])
   const createdItemIds = idsOf(['ITEM_CREATED'])
-  const ruleIds = idsOf(['MATCH_RULE'])
+  const aliasIds = idsOf(['ALIAS'])
 
   const OFFER_ROW = { id: true, inventoryItemId: true, supplierName: true, ...OFFER_SELECT }
 
@@ -314,12 +321,12 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
   // Item rows: the ITEM/ITEM_CREATED targets, plus the owners of every offer in
   // play so an offer's plan row can read "<supplier> → <item>".
   const itemIds = [...new Set([...recordedItemIds, ...offerItemIds])]
-  const [itemRows, ruleRows] = await Promise.all([
+  const [itemRows, aliasRows] = await Promise.all([
     none(itemIds, () =>
       db.inventoryItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, itemName: true, ...ITEM_SELECT } }),
     ),
-    none(ruleIds, () =>
-      db.invoiceMatchRule.findMany({ where: { id: { in: ruleIds } }, select: { id: true, ...RULE_SELECT } }),
+    none(aliasIds, () =>
+      db.itemSupplierAlias.findMany({ where: { id: { in: aliasIds } }, select: { id: true, ...ALIAS_SELECT } }),
     ),
   ])
 
@@ -329,10 +336,10 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
   }
   const items = new Map<string, CurrentItem>()
   for (const i of itemRows) items.set(i.id, { ...itemState(i), itemName: i.itemName })
-  const rules = new Map<string, Canon>()
-  for (const r of ruleRows) rules.set(r.id, ruleState(r))
+  const aliases = new Map<string, Canon>()
+  for (const r of aliasRows) aliases.set(r.id, aliasState(r))
 
-  const refs = await loadItemRefs(db, sessionId, createdItemIds, plannedRowDeletes(records, offers, rules))
+  const refs = await loadItemRefs(db, sessionId, createdItemIds, plannedRowDeletes(records, offers, aliases))
 
   return {
     session: {
@@ -344,7 +351,7 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
     },
     input: {
       records,
-      current: { offers, items, rules },
+      current: { offers, items, aliases },
       refs,
       legacy: {
         status: session.status,
@@ -389,16 +396,19 @@ function tallyScanItems(
  *    OTHER session's rows count, approved or not — an unapproved draft's match
  *    suggestion is the same SetNull as an approved one,
  *  • this session's `PriceAlert` rows (same),
- *  • the `InventorySupplierPrice` / `InvoiceMatchRule` rows this plan deletes.
+ *  • the `InventorySupplierPrice` rows this plan deletes, and the
+ *    `ItemSupplierAlias` rows it deletes or restores away.
  *
- * An offer or a learned match added to the item AFTER the approval has no undo
- * record, is not in those exclusions, and correctly keeps the item alive.
+ * An offer or a wording added to the item AFTER the approval has no undo
+ * record, is not in those exclusions, and correctly keeps the item alive. Legacy
+ * `InvoiceMatchRule` rows are counted in full: the FK is Restrict and rollback
+ * no longer removes any of them, so each one would make the delete throw.
  */
 export async function loadItemRefs(
   db: Db,
   sessionId: string,
   createdItemIds: string[],
-  planned: { offerIds: Set<string>; ruleIds: Set<string> },
+  planned: { offerIds: Set<string>; aliasIds: Set<string> },
 ): Promise<Map<string, ItemRefs>> {
   const refs = new Map<string, ItemRefs>()
   if (createdItemIds.length === 0) return refs
@@ -414,7 +424,7 @@ export async function loadItemRefs(
   const [
     receiptLines, scanItems, snapshots, countLines, wastageLogs, stockTransfers,
     priceAlerts, supplierOffers,
-    recipeIngredients, recipes, prepItems, mergedItems, matchRules,
+    recipeIngredients, recipes, prepItems, mergedItems, matchRules, supplierWordings,
   ] = await Promise.all([
     db.invoiceLineItem.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     // ALL scan lines outside this session and its clones — approved or not
@@ -443,9 +453,12 @@ export async function loadItemRefs(
     db.recipe.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     db.prepItem.groupBy({ by: ['linkedInventoryItemId'], where: { linkedInventoryItemId: inItems }, _count: count }),
     db.inventoryItem.groupBy({ by: ['mergedIntoId'], where: { mergedIntoId: inItems }, _count: count }),
-    db.invoiceMatchRule.groupBy({
+    // Legacy learned matches (Restrict) — the table stays until the Stage 1e
+    // drop and rollback never deletes from it, so every row protects the item.
+    db.invoiceMatchRule.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
+    db.itemSupplierAlias.groupBy({
       by: ['inventoryItemId'],
-      where: { inventoryItemId: inItems, id: { notIn: [...planned.ruleIds] } },
+      where: { inventoryItemId: inItems, id: { notIn: Array.from(planned.aliasIds) } },
       _count: count,
     }),
   ])
@@ -465,6 +478,7 @@ export async function loadItemRefs(
     prepItems: tally(prepItems, 'linkedInventoryItemId'),
     mergedItems: tally(mergedItems, 'mergedIntoId'),
     matchRules: tally(matchRules, 'inventoryItemId'),
+    supplierWordings: tally(supplierWordings, 'inventoryItemId'),
   }
 
   for (const itemId of createdItemIds) {
@@ -486,7 +500,7 @@ export interface DeleteSessionResult {
   legacy: boolean
   /** Rows this delete put back: restored records plus legacy best-effort reverts. */
   restored: number
-  /** Rows this delete removed: created offers, learned matches, created items. */
+  /** Rows this delete removed: created offers, learned wordings, created items. */
   deleted: number
   skipped: PlanRow[]
   summary: RollbackPlan['summary']

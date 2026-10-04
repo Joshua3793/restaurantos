@@ -45,6 +45,7 @@
     "scripts/repair-pull-soh.ts",
     "scripts/verify-count-conversion.ts",
     "scripts/repair-weight-priced-offers.ts",
-    "scripts/repair-inventory-formats.ts"
+    "scripts/repair-inventory-formats.ts",
+    "scripts/migrate-match-rules.ts"
   ]
 }

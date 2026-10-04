@@ -4,7 +4,9 @@ import { parseFormatFromDescription, comparePricesNormalized } from '@/lib/invoi
 import { PRICING_SELECT } from '@/lib/item-model'
 import { listedPrice, type ChainRow } from '@/lib/cost-basis'
 import { offerListedPrice } from '@/lib/offer-price'
-import { RULE_SELECT, ruleState, type UndoCollector } from '@/lib/invoice/approve-undo'
+import { ALIAS_SELECT, aliasState, type UndoCollector } from '@/lib/invoice/approve-undo'
+import { normaliseAliasText } from '@/lib/alias-text'
+import { normItemCode } from '@/lib/invoice/line-format'
 
 // Normalises common OCR abbreviations to the canonical purchaseUnit strings used in inventory
 const UOM_ALIASES: Record<string, string> = {
@@ -222,49 +224,13 @@ function confidenceFromScore(score: number): MatchConfidence {
   return 'NONE'
 }
 
-/** A match won ONLY through another wording (never the item's own name) is a hint,
- *  not a fact — same downgrade a generic learned rule gets. A HIGH score is capped
- *  to MEDIUM so a human confirms it; approval then saves a rule under this supplier
- *  and the next invoice reads it back as HIGH via tier 1. Every other confidence is
- *  untouched. */
+/** A fuzzy match won ONLY through one of this supplier's own wordings (never the
+ *  item's own name) is a hint, not a fact. A HIGH score is capped to MEDIUM so a
+ *  human confirms it; approval then upserts that wording as this supplier's alias
+ *  and the next invoice reads it back as HIGH via tier 1. Every other confidence
+ *  is untouched. */
 export function capAliasConfidence(raw: MatchConfidence, viaAlias: boolean): MatchConfidence {
   return viaAlias && raw === 'HIGH' ? 'MEDIUM' : raw
-}
-
-/** Was this learned rule taught under THIS supplier, rather than sitting in the
- *  generic ('') bucket? A rule stored under the raw OCR name OR the canonical
- *  Supplier name counts — they are the same supplier under two spellings (the
- *  name-variant fix). The generic bucket never does: it was saved when the
- *  supplier was unknown, so it says nothing about this supplier. */
-export function isSupplierSpecificRule(
-  ruleSupplierName: string | null | undefined,
-  supplierName: string | null | undefined,
-  canonicalName?: string | null,
-): boolean {
-  if (!ruleSupplierName) return false
-  return ruleSupplierName === supplierName || (!!canonicalName && ruleSupplierName === canonicalName)
-}
-
-/**
- * Must tier 0b (offer SKU) stand down for this line and let tier 1 decide?
- *
- * Tier 0b resolves (supplier, SKU) → item straight off the supplier's OFFER
- * rows, which is deterministic but not always current: a merge or an old
- * purchase can leave a SKU on an item nobody buys under that code any more.
- * A learned rule taught under this same supplier for this exact description is
- * a HUMAN decision about this very line, and it must not lose to a stale SKU —
- * so when one exists, yield to tier 1, which reads it back at HIGH.
- *
- * A generic ('') rule does NOT count: it was not taught about this supplier, and
- * tier 1 itself only treats it as a MEDIUM hint — a unique SKU is stronger.
- */
-export function offerSkuTierYieldsToRule(
-  learned: { supplierName?: string | null; inventoryItem?: unknown } | null | undefined,
-  supplierName: string | null | undefined,
-  canonicalName?: string | null,
-): boolean {
-  if (!learned?.inventoryItem) return false
-  return isSupplierSpecificRule(learned.supplierName, supplierName, canonicalName)
 }
 
 interface FuzzyCandidate {
@@ -298,24 +264,26 @@ export function pickBestFuzzy<T extends FuzzyCandidate>(candidates: T[]): T | nu
   return best
 }
 
-export const MAX_ALIASES_PER_ITEM = 5
+/** Tier 3 reads at most this many of one supplier's wordings per item, the most
+ *  used first — enough to recognise an item, bounded so one noisy item can't
+ *  dominate the fuzzy pass. */
+const ALIAS_CAP_PER_ITEM = 5
 
-/** Groups learned-rule rows into per-item alias lists for the fuzzy tier: capped
- *  at `max` (the caller orders rows by usefulness — useCount desc, lastUsed desc —
- *  so a cap keeps the strongest ones), de-duplicated case-insensitively (via the
- *  same `normalize` tokenization used for scoring), and skipping any alias whose
- *  normalized form is identical to the item's own name — that case is already
- *  covered by the item's own-name score and would only ever tie it, never beat it.
- *  Preserves the input row order; it does not sort. */
+/** Groups one supplier's alias rows into per-item wording lists for the tier-3
+ *  fuzzy pass: capped at `max` (the caller orders rows by usefulness — useCount
+ *  desc, lastUsed desc — so a cap keeps the strongest ones), de-duplicated by the
+ *  same `normalize` tokenization used for scoring, and skipping any wording
+ *  whose normalized form is identical to the item's own name — the own-name
+ *  score already covers it and would only ever tie it. Preserves input order. */
 export function groupAliases(
-  rows: { inventoryItemId: string; rawDescription: string }[],
+  rows: { inventoryItemId: string; rawText: string }[],
   itemNameById: Map<string, string>,
-  max: number = MAX_ALIASES_PER_ITEM
+  max: number = ALIAS_CAP_PER_ITEM
 ): Map<string, string[]> {
   const result = new Map<string, string[]>()
   const seenByItem = new Map<string, Set<string>>()
   for (const r of rows) {
-    const normKey = normalize(r.rawDescription).join(' ')
+    const normKey = normalize(r.rawText).join(' ')
     if (!normKey) continue
     const ownName = itemNameById.get(r.inventoryItemId)
     if (ownName && normKey === normalize(ownName).join(' ')) continue
@@ -325,7 +293,7 @@ export function groupAliases(
     if (list.length >= max) continue
     seen.add(normKey)
     seenByItem.set(r.inventoryItemId, seen)
-    list.push(r.rawDescription)
+    list.push(r.rawText)
     result.set(r.inventoryItemId, list)
   }
   return result
@@ -480,6 +448,50 @@ function buildMatchResult(
   }
 }
 
+/** W4 — the only items any tier may answer with: live, not merged away, and not
+ *  a PREP recipe's output (made in-house, never bought). The items query applies
+ *  it in SQL; an alias's joined item is checked with this, so an alias whose item
+ *  fails it is ignored (never deleted). */
+type MatchableFacts = { isActive: boolean; mergedIntoId: string | null; recipe: { type: string } | null }
+function isMatchable(item: MatchableFacts | null | undefined): boolean {
+  return !!item && item.isActive && item.mergedIntoId == null && item.recipe?.type !== 'PREP'
+}
+
+const ITEM_FOR_MATCH = {
+  id: true,
+  itemName: true,
+  isActive: true,
+  mergedIntoId: true,
+  recipe: { select: { type: true } },
+  ...PRICING_SELECT,
+} as const
+
+type AliasPack = { packQty: unknown; packSize: unknown; packUOM: string | null }
+
+/** The pack an alias learned, when it learned one; else whatever the line's own
+ *  wording says. */
+function aliasFormat(a: AliasPack, description: string) {
+  return a.packQty && a.packSize
+    ? { packQty: Number(a.packQty), packSize: Number(a.packSize), packUOM: a.packUOM ?? 'each' }
+    : parseFormatFromDescription(description)
+}
+
+/**
+ * Match OCR lines to inventory items. Tiers, in order — every alias tier is
+ * scoped to `supplierId` (the session's linked supplier) and never borrows
+ * another supplier's wording:
+ *   0  this supplier's alias by item code        → HIGH 100
+ *      (a code live aliases give to 2+ items is ambiguous → skipped)
+ *   0b this supplier's OFFER SKU (box library)   → HIGH 100
+ *      (stands down when tier 1's alias names a different item)
+ *   1  this supplier's alias by wording          → HIGH 100
+ *   2  fuzzy against item names                  → confidenceFromScore
+ *   3  fuzzy against this supplier's wordings    → capped MEDIUM (capAliasConfidence)
+ * Tiers 2 and 3 run as one pass (pickBestFuzzy; an own name beats an alias on a
+ * tie). With no `supplierId`, tiers 0, 0b, 1 and 3 are skipped: names only.
+ * `supplierName` / `canonicalName` no longer take part in matching — they are
+ * kept in the signature for the callers and used for logging only.
+ */
 export async function matchLineItems(
   ocrItems: OcrLineItem[],
   supplierName?: string | null,
@@ -489,6 +501,7 @@ export async function matchLineItems(
   const inventoryItems = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
+      mergedIntoId: null,
       // Exclude PREP recipe outputs — they're made in-house, not purchasable,
       // so an invoice line must never fuzzy-match to one (e.g. "Adobo Pulled Pork").
       NOT: { recipe: { type: 'PREP' } },
@@ -500,106 +513,82 @@ export async function matchLineItems(
     },
   })
 
-  // ── Aliases: descriptions this item has been taught under ANY supplier ────
-  // Merging duplicate items carries their match rules along, so an item can
-  // now be known by several suppliers' own wordings. The fuzzy tier scores a
-  // line against all of them, not just the item's own name — but only as a
-  // hint (capAliasConfidence downgrades a HIGH win to MEDIUM for a human to
-  // confirm). Scoped to items actually in play (this query's own inventoryItems)
-  // and ordered by usefulness so groupAliases's cap keeps the strongest ones —
-  // otherwise this read grows with the whole InvoiceMatchRule table forever.
-  // Grouped + pre-normalized once, so the per-item/per-line hot loop below never
-  // re-tokenizes a string.
+  if (!supplierId && ocrItems.length > 0) {
+    const who = canonicalName || supplierName
+    console.debug(`[matcher] no linked supplier${who ? ` for "${who}"` : ''} — matching on item names only`)
+  }
+
+  // ── This supplier's own wordings and codes (tiers 0 and 1) ─────────────────
+  // One read: every alias of this supplier whose normalised wording or item code
+  // appears on this invoice. A stale client / missing table degrades to fuzzy.
+  const texts = Array.from(new Set(ocrItems.map(i => normaliseAliasText(i.description)).filter(Boolean)))
+  const codes = Array.from(new Set(ocrItems.map(i => normItemCode(i.supplierItemCode)).filter(Boolean)))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let aliasRows: any[] = []
-  try {
-    aliasRows = await prisma.invoiceMatchRule.findMany({
-      where: { inventoryItemId: { in: inventoryItems.map(i => i.id) } },
-      select: { inventoryItemId: true, rawDescription: true },
-      orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
-    })
-  } catch {
-    // Table may not exist yet — proceed without aliases
+  let exactAliases: any[] = []
+  if (supplierId && (texts.length > 0 || codes.length > 0)) {
+    try {
+      exactAliases = await prisma.itemSupplierAlias.findMany({
+        where: {
+          supplierId,
+          OR: [
+            ...(texts.length ? [{ text: { in: texts } }] : []),
+            ...(codes.length ? [{ supplierItemCode: { in: codes } }] : []),
+          ],
+        },
+        include: { inventoryItem: { select: ITEM_FOR_MATCH } },
+        orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
+      })
+    } catch (e) {
+      console.error('[matcher] supplier wordings unavailable — fuzzy only:', e)
+    }
+  }
+  // First (most used) live alias per code / per wording. An alias whose item
+  // fails W4 is skipped here, so the line falls through to the next tier.
+  // A code that live aliases of this supplier give to more than one distinct
+  // item is ambiguous — no signal says which is current — so it is omitted from
+  // tier 0 entirely, exactly as buildOfferSkuIndex treats a shared offer SKU.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aliasByCode = new Map<string, any>()
+  const ambiguousCodes = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aliasByText = new Map<string, any>()
+  for (const a of exactAliases) {
+    if (!isMatchable(a.inventoryItem)) continue
+    if (a.supplierItemCode) {
+      const held = aliasByCode.get(a.supplierItemCode)
+      if (!held) aliasByCode.set(a.supplierItemCode, a)
+      else if (held.inventoryItem.id !== a.inventoryItem.id) ambiguousCodes.add(a.supplierItemCode)
+    }
+    if (!aliasByText.has(a.text)) aliasByText.set(a.text, a)
+  }
+  for (const c of ambiguousCodes) aliasByCode.delete(c)
+
+  // ── This supplier's wordings for the items in play (tier 3) ────────────────
+  // Scoped to the W4 items above and ordered by usefulness so the per-item cap
+  // keeps the strongest; grouped + pre-normalised once so the per-line hot loop
+  // never re-tokenizes a string. No row cap on the query: a global cap would
+  // drop whole items' wordings once one supplier passed it, and the per-item
+  // cap (ALIAS_CAP_PER_ITEM, applied in groupAliases) is the real bound.
+  let fuzzyAliasRows: { inventoryItemId: string; rawText: string }[] = []
+  if (supplierId && inventoryItems.length > 0) {
+    try {
+      fuzzyAliasRows = await prisma.itemSupplierAlias.findMany({
+        where: { supplierId, inventoryItemId: { in: inventoryItems.map(i => i.id) } },
+        select: { inventoryItemId: true, rawText: true },
+        orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
+      })
+    } catch {
+      // stale client / missing table — names only
+    }
   }
   const itemNameById = new Map(inventoryItems.map(i => [i.id, i.itemName]))
-  const groupedAliases = groupAliases(aliasRows, itemNameById)
   const aliasesByItem = new Map<string, InventoryItem[]>()
-  for (const [itemId, aliases] of groupedAliases) {
+  for (const [itemId, aliases] of groupAliases(fuzzyAliasRows, itemNameById)) {
     aliasesByItem.set(itemId, aliases.map(a => ({
       itemName: a,
       _normName: normalize(a),
       _keyName: keyWords(a),
     } as unknown as InventoryItem)))
-  }
-
-  // Supplier names a learned rule could be stored under: the raw OCR name, the
-  // canonical Supplier name, and the generic '' (supplier-agnostic). Matching by
-  // ALL of them is what makes a rule taught on "Sysco Canada, Inc." apply to an
-  // invoice that arrives as "SYSCO Canada, Inc." or "… - Vancouver" — the
-  // name-variant fix, now applied to match rules (was previously only offers).
-  const ruleSupplierNames = Array.from(new Set([supplierName ?? '', canonicalName ?? '', '']))
-  const codeSupplierNames = Array.from(new Set([supplierName, canonicalName].filter((n): n is string => !!n)))
-
-  // Load learned rules — gracefully fall back to empty if the table doesn't exist yet
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let learnedRules: any[] = []
-  try {
-    learnedRules = await prisma.invoiceMatchRule.findMany({
-      where: {
-        rawDescription: { in: ocrItems.map(i => i.description) },
-        supplierName: { in: ruleSupplierNames },
-      },
-      include: {
-        inventoryItem: {
-          select: {
-            id: true,
-            itemName: true,
-            ...PRICING_SELECT,
-          },
-        },
-      },
-      orderBy: { useCount: 'desc' },
-    })
-  } catch {
-    // Table may not exist yet — proceed with fuzzy matching only
-  }
-
-  // ── Item-code rules: deterministic (supplier, supplierItemCode) → item ────
-  // An item code printed on the invoice is supplier-scoped and unambiguous —
-  // it beats any text matching. Learned at approval time (saveMatchRule).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let codeRules: any[] = []
-  const itemCodes = ocrItems
-    .map(i => i.supplierItemCode)
-    .filter((c): c is string => !!c)
-  if (codeSupplierNames.length > 0 && itemCodes.length > 0) {
-    try {
-      codeRules = await prisma.invoiceMatchRule.findMany({
-        where: {
-          supplierName: { in: codeSupplierNames },
-          supplierItemCode: { in: itemCodes },
-        },
-        include: {
-          inventoryItem: {
-            select: {
-              id: true,
-              itemName: true,
-              ...PRICING_SELECT,
-            },
-          },
-        },
-        orderBy: [{ useCount: 'desc' }, { lastUsed: 'desc' }],
-      })
-    } catch {
-      // Column may not exist yet on stale clients — fall through to text matching
-    }
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const codeRuleMap = new Map<string, any>()
-  for (const rule of codeRules) {
-    if (rule.supplierItemCode && !codeRuleMap.has(rule.supplierItemCode)) {
-      codeRuleMap.set(rule.supplierItemCode, rule) // first = highest useCount
-    }
   }
 
   // ── This supplier's offers: per-supplier last price + pack format ─────────
@@ -617,24 +606,14 @@ export async function matchLineItems(
   for (const o of offerRows) if (!offerByItemId.has(o.inventoryItemId) || o.isPrimary) offerByItemId.set(o.inventoryItemId, o)
 
   // Offer SKUs are the supplier library itself: (supplier, SKU) → item, even
-  // when no match rule was ever saved (e.g. an offer that arrived through a
-  // merge). offerRows is already this supplier's (loaded by supplierId) so a
-  // SKU only ever resolves within the same supplier; ambiguous SKUs (claimed by
-  // more than one distinct item) are omitted by buildOfferSkuIndex, never guessed.
+  // when no alias was ever saved (e.g. an offer that arrived through a merge).
+  // offerRows is already this supplier's (loaded by supplierId) so a SKU only
+  // ever resolves within the same supplier; ambiguous SKUs (claimed by more than
+  // one distinct item) are omitted by buildOfferSkuIndex, never guessed.
   const offerBySku = buildOfferSkuIndex(offerRows)
-  // Built from inventoryItems (already excludes inactive/tombstoned rows and
-  // PREP outputs) so an offer SKU can never resolve to one of those.
+  // Built from inventoryItems (already W4-filtered) so an offer SKU can never
+  // resolve to an inactive, merged or PREP-output item.
   const itemById = new Map(inventoryItems.map(i => [i.id, i]))
-
-  // Build learned map: description → best rule (supplier-specific beats generic)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const learnedMap = new Map<string, any>()
-  for (const rule of learnedRules) {
-    const existing = learnedMap.get(rule.rawDescription)
-    if (!existing || (rule.supplierName !== '' && existing.supplierName === '')) {
-      learnedMap.set(rule.rawDescription, rule)
-    }
-  }
 
   // Pre-normalize all inventory item names once — avoids re-computing per OCR item
   const normalizedItems = inventoryItems.map(item => ({
@@ -644,72 +623,49 @@ export async function matchLineItems(
   })) as unknown as InventoryItem[]
 
   return ocrItems.map((ocrItem) => {
-    // ── 0. Supplier item-code rule (deterministic — beats all text matching) ─
-    const codeRule = ocrItem.supplierItemCode
-      ? codeRuleMap.get(ocrItem.supplierItemCode)
-      : undefined
-    if (codeRule?.inventoryItem) {
-      const hasRuleFormat = !!(codeRule.invoicePackQty && codeRule.invoicePackSize)
-      const ruleFormat = hasRuleFormat ? {
-        packQty:  Number(codeRule.invoicePackQty),
-        packSize: Number(codeRule.invoicePackSize),
-        packUOM:  codeRule.invoicePackUOM ?? 'each',
-      } : parseFormatFromDescription(ocrItem.description)
+    // ── 0. This supplier's alias by item code (deterministic) ──────────────
+    const code = normItemCode(ocrItem.supplierItemCode)
+    const byCode = code ? aliasByCode.get(code) : undefined
+    if (byCode) {
       return buildMatchResult(
         ocrItem,
-        codeRule.inventoryItem as unknown as InventoryItem,
+        byCode.inventoryItem as unknown as InventoryItem,
         'HIGH',
         100,
-        ruleFormat,
-        offerByItemId.get(codeRule.inventoryItem.id) ?? null
+        aliasFormat(byCode, ocrItem.description),
+        offerByItemId.get(byCode.inventoryItem.id) ?? null
       )
     }
 
-    // ── 0b. Supplier offer SKU (deterministic, no rule ever saved) ─────────
-    // …unless a human has already taught THIS supplier what this description
-    // means. A SKU carried along by a merge (or simply never re-used) can be
-    // unique and still stale; the taught rule is the more recent human fact, so
-    // tier 0b stands down and tier 1 answers at HIGH.
-    const learnedForLine = learnedMap.get(ocrItem.description)
-    const skuItem = ocrItem.supplierItemCode && !offerSkuTierYieldsToRule(learnedForLine, supplierName, canonicalName)
+    // ── 0b. This supplier's offer SKU (the box library) ────────────────────
+    // Stands down when this supplier's taught wording for this exact line (a
+    // live alias, tier 1's own lookup) names a DIFFERENT item: a code left on an
+    // old item's box is stale, and the human-taught wording is the fresher fact.
+    // An alias that agrees with the SKU, or none at all, leaves 0b in charge.
+    const byText = aliasByText.get(normaliseAliasText(ocrItem.description))
+    const skuItem = ocrItem.supplierItemCode
       ? itemById.get(offerBySku.get(ocrItem.supplierItemCode) ?? '')
       : undefined
-    if (skuItem) {
+    if (skuItem && !(byText && byText.inventoryItem.id !== skuItem.id)) {
       const ocrPack = (ocrItem.packQty || ocrItem.packSize)
         ? { packQty: ocrItem.packQty ?? 1, packSize: ocrItem.packSize ?? 1, packUOM: ocrItem.packUOM ?? 'each' }
         : parseFormatFromDescription(ocrItem.description)
       return buildMatchResult(ocrItem, skuItem as unknown as InventoryItem, 'HIGH', 100, ocrPack, offerByItemId.get(skuItem.id) ?? null)
     }
 
-    // ── 1. Check learned rules first ───────────────────────────────────────
-    const learned = learnedForLine
-    if (learned?.inventoryItem) {
-      const hasLearnedFormat = !!(learned.invoicePackQty && learned.invoicePackSize)
-      const learnedFormat = hasLearnedFormat ? {
-        packQty: Number(learned.invoicePackQty),
-        packSize: Number(learned.invoicePackSize),
-        packUOM: learned.invoicePackUOM ?? 'each',
-      } : parseFormatFromDescription(ocrItem.description)
-
-      // A rule learned under THIS supplier is authoritative. A generic rule
-      // (saved when the supplier was unknown, supplierName '') applied to a
-      // session with a known supplier is only a hint — surface it as MEDIUM so
-      // the review UI can ask the user to confirm it instead of trusting it outright.
-      // A rule stored under the raw OR canonical supplier name is supplier-specific
-      // (HIGH). Only a generic '' rule on a known supplier is a mere hint (MEDIUM).
-      const supplierSpecific = !supplierName
-        || isSupplierSpecificRule(learned.supplierName, supplierName, canonicalName)
+    // ── 1. This supplier's alias by wording ────────────────────────────────
+    if (byText) {
       return buildMatchResult(
         ocrItem,
-        learned.inventoryItem as unknown as InventoryItem,
-        supplierSpecific ? 'HIGH' : 'MEDIUM',
-        supplierSpecific ? 100 : 60,
-        learnedFormat,
-        offerByItemId.get(learned.inventoryItem.id) ?? null
+        byText.inventoryItem as unknown as InventoryItem,
+        'HIGH',
+        100,
+        aliasFormat(byText, ocrItem.description),
+        offerByItemId.get(byText.inventoryItem.id) ?? null
       )
     }
 
-    // ── 2. Fuzzy score every inventory item (using pre-normalized names) ───
+    // ── 2 + 3. Fuzzy: item names, and this supplier's own wordings ─────────
     const descNorm = normalize(ocrItem.description)
     const descKey  = keyWords(ocrItem.description)
     // Running best under pickBestFuzzy's total order (higher score; on a tie,
@@ -737,9 +693,9 @@ export async function matchLineItems(
     const bestScore = best?.score ?? 0
     const bestViaAlias = best?.viaAlias ?? false
 
-    // A match won through ANOTHER wording is a hint, not a fact — same downgrade
-    // a generic learned rule gets. A human confirms it; approval then saves a
-    // rule under this supplier and the next invoice is HIGH via tier 1.
+    // A match won through one of this supplier's wordings is a hint, not a fact:
+    // a human confirms it; approval then upserts the wording and the next
+    // invoice is HIGH via tier 1.
     const confidence = capAliasConfidence(confidenceFromScore(bestScore), bestViaAlias)
 
     if (!bestItem || confidence === 'NONE') {
@@ -776,95 +732,96 @@ export async function matchLineItems(
   })
 }
 
-// Save a learned match rule. Call this when a user confirms (or overrides) a match.
-export async function saveMatchRule(
-  rawDescription: string,
-  inventoryItemId: string,
-  supplierName?: string | null,
-  format?: { packQty: number; packSize: number; packUOM: string } | null,
-  supplierItemCode?: string | null,
-  // Optional undo collector (invoice approve). Reads only — every write below
-  // keeps its exact `data:` payload and order.
+/**
+ * Learn one supplier's wording (and item code, and pack) for an item — W2:
+ * every approved line with a supplier, CREATE_NEW lines included. Keyed by
+ * `(supplierId, normaliseAliasText(rawDescription))`, so spellings that differ
+ * only in case or punctuation are one alias.
+ *
+ * Learns nothing with no supplier (an unlinked invoice has nobody to attribute
+ * the wording to) or a blank wording.
+ *
+ * Undo (invoice approve): reads only — every write keeps its exact payload and
+ * order. Approve wraps the call in `.catch`, so a failed pre-write read must
+ * never abort the writes, and is never mistaken for "nothing there".
+ */
+export async function saveAlias(a: {
+  rawDescription: string
+  inventoryItemId: string
+  supplierId: string | null | undefined
+  supplierItemCode?: string | null
+  format?: { packQty: number; packSize: number; packUOM: string } | null
+  source: 'APPROVE' | 'CREATE_NEW'
   undo?: UndoCollector
-): Promise<void> {
-  const code = supplierItemCode?.trim() || null
+}): Promise<void> {
+  const text = normaliseAliasText(a.rawDescription)
+  if (!a.supplierId || !text) {
+    console.debug(`[saveAlias] nothing learned for "${a.rawDescription}": ${!a.supplierId ? 'no linked supplier' : 'blank wording'}`)
+    return
+  }
+  const { supplierId, inventoryItemId, undo } = a
+  const code = normItemCode(a.supplierItemCode) || null
 
-  // A code maps to exactly one item per supplier. If sibling rules (different
-  // descriptions) carry this code but point at a different item, the user's
-  // fresh confirmation wins — strip the code from the stale rules so tier-0
+  // A code maps to exactly one item per supplier. If sibling aliases (other
+  // wordings) under this supplier carry this code but point at a different
+  // item, the fresh confirmation wins — strip the code from them so tier 0
   // can't keep resurrecting the old mapping.
-  if (code && supplierName) {
-    const siblingWhere = {
-      supplierName,
-      supplierItemCode: code,
-      inventoryItemId: { not: inventoryItemId },
-    }
+  if (code) {
+    const siblingWhere = { supplierId, supplierItemCode: code, inventoryItemId: { not: inventoryItemId } }
     if (undo) {
-      // Approve wraps the whole `saveMatchRule` call in `.catch(() => {})`, so
-      // a transient failure of THIS read must never propagate and lose a
-      // learned match the upsert below would otherwise still write. But a
-      // caught failure is not "no siblings" either — it is "unknown" — and the
-      // only safe response to "unknown" is to capture nothing for it: the
-      // `.catch` here returns `[]`, so `forEach` records no `before()` for any
-      // sibling this run couldn't actually read. The `updateMany` write itself
-      // is not gated on this read and always runs.
-      const siblings = await prisma.invoiceMatchRule
-        .findMany({ where: siblingWhere, select: { id: true, ...RULE_SELECT } })
+      // A caught failure here is "unknown", not "no siblings": `.catch` returns
+      // [] so nothing is recorded for rows this run could not read. The write
+      // below is not gated on the read and always runs.
+      const siblings = await prisma.itemSupplierAlias
+        .findMany({ where: siblingWhere, select: { id: true, ...ALIAS_SELECT } })
         .catch(() => [])
-      siblings.forEach((r) => undo.before('MATCH_RULE', r.id, ruleState(r)))
+      siblings.forEach((r) => undo.before('ALIAS', r.id, aliasState(r)))
     }
-    await prisma.invoiceMatchRule.updateMany({
-      where: siblingWhere,
-      data: { supplierItemCode: null },
-    })
+    await prisma.itemSupplierAlias.updateMany({ where: siblingWhere, data: { supplierItemCode: null } })
   }
 
   // The upsert's target, read before it is written: an existing row is captured
-  // as `prev`, a fresh one is recorded as created (so undo deletes it). Same
-  // caught-failure hazard as above, but the consequence of guessing wrong is
-  // worse here: treating a failed read as "row not found" would make the
-  // `!existing` check below call `created()` for a rule that may have existed
-  // all along, and a later rollback would DELETE it instead of leaving it
-  // alone. `existingReadFailed` keeps "read failed" distinguishable from "read
-  // succeeded, found nothing" so `created()` only fires on the latter.
+  // as `prev`, a fresh one is recorded as created (so undo deletes it). A failed
+  // read must NOT be treated as "not found" — that would `created()` an alias
+  // that may have existed all along, and a rollback would delete it.
+  // Read with or without an undo collector: it also tells whether this wording
+  // is MOVING to another item, whose count then restarts (below).
+  const where = { supplierId_text: { supplierId, text } }
   let existingReadFailed = false
-  const existing = undo
-    ? await prisma.invoiceMatchRule
-        .findUnique({
-          where: { rawDescription_supplierName: { rawDescription, supplierName: supplierName || '' } },
-          select: { id: true, ...RULE_SELECT },
-        })
-        .catch(() => {
-          existingReadFailed = true
-          return null
-        })
-    : null
-  if (existing) undo?.before('MATCH_RULE', existing.id, ruleState(existing))
+  const existing = await prisma.itemSupplierAlias
+    .findUnique({ where, select: { id: true, ...ALIAS_SELECT } })
+    .catch(() => {
+      existingReadFailed = true
+      return null
+    })
+  if (existing) undo?.before('ALIAS', existing.id, aliasState(existing))
+  // A wording re-pointed at another item never earned its old count there:
+  // restart at 1. Same item, or an unreadable row (unknown ≠ moved) → +1.
+  const moved = !!existing && existing.inventoryItemId !== inventoryItemId
 
-  const row = await prisma.invoiceMatchRule.upsert({
-    where: {
-      rawDescription_supplierName: {
-        rawDescription,
-        supplierName: supplierName || '',
-      },
-    },
+  const row = await prisma.itemSupplierAlias.upsert({
+    where,
     create: {
-      rawDescription,
-      supplierName: supplierName || '',
       inventoryItemId,
+      supplierId,
+      text,
+      rawText: a.rawDescription,
       supplierItemCode: code,
-      invoicePackQty: format?.packQty ?? null,
-      invoicePackSize: format?.packSize ?? null,
-      invoicePackUOM: format?.packUOM ?? null,
+      packQty: a.format?.packQty ?? null,
+      packSize: a.format?.packSize ?? null,
+      packUOM: a.format?.packUOM ?? null,
+      source: a.source,
+      useCount: 1,
     },
     update: {
       inventoryItemId,
-      useCount: { increment: 1 },
+      rawText: a.rawDescription,
+      useCount: moved ? 1 : { increment: 1 },
       lastUsed: new Date(),
       ...(code ? { supplierItemCode: code } : {}),
-      ...(format ? { invoicePackQty: format.packQty, invoicePackSize: format.packSize, invoicePackUOM: format.packUOM } : {}),
+      ...(a.format ? { packQty: a.format.packQty, packSize: a.format.packSize, packUOM: a.format.packUOM } : {}),
     },
     select: { id: true },
   })
-  if (undo && !existing && !existingReadFailed) undo.created('MATCH_RULE', row.id)
+  if (undo && !existing && !existingReadFailed) undo.created('ALIAS', row.id)
 }

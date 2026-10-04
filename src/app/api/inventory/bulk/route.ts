@@ -95,6 +95,8 @@ async function handlePOST(req: NextRequest) {
           prisma.inventorySnapshot.deleteMany({ where: { inventoryItemId: { in: ids } } }),
           prisma.wastageLog.deleteMany({ where: { inventoryItemId: { in: ids } } }),
           prisma.priceAlert.deleteMany({ where: { inventoryItemId: { in: ids } } }),
+          // Retired table, still Restrict until the Stage 1e drop: its rows must
+          // go before the items. Supplier wordings (ItemSupplierAlias) cascade.
           prisma.invoiceMatchRule.deleteMany({ where: { inventoryItemId: { in: ids } } }),
           prisma.inventoryItem.deleteMany({ where: { id: { in: ids } } }),
         ])

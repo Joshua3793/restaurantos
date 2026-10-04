@@ -1,5 +1,6 @@
 // src/lib/supplier-matcher.ts
-// Supplier alias lookup: exact match first, fuzzy fallback, self-learning.
+// Supplier alias lookup: exact match first, fuzzy fallback. Learning a new
+// spelling (`learnAlias`) happens only when a person confirms the supplier.
 
 import { prisma } from '@/lib/prisma'
 
@@ -57,10 +58,15 @@ export function coverageScore(a: string, b: string): number {
  *   3. Fuzzy alias match        (token coverage ≥ 50 %)
  *   4. Fuzzy supplier name      (token coverage ≥ 50 %)
  *
- * When a fuzzy match is found the OCR name is saved as a new alias so the
- * next scan of the same invoice format gets a fast exact hit.
+ * A fuzzy hit (`exact: false`) is only a SUGGESTION (W6): nothing is learned
+ * here. The spelling becomes a `SupplierAlias` when a person confirms it — the
+ * invoice is approved with that supplier linked (approve route), or the
+ * supplier is picked by hand (the session PATCH's re-link). Learning on the
+ * guess itself made one wrong ≥ 50 % match permanent.
  */
-export async function matchSupplierByName(invoiceName: string | null | undefined): Promise<string | null> {
+export async function matchSupplierByName(
+  invoiceName: string | null | undefined,
+): Promise<{ supplierId: string; exact: boolean } | null> {
   if (!invoiceName || !invoiceName.trim()) return null
 
   const normalized = invoiceName.trim()
@@ -70,14 +76,14 @@ export async function matchSupplierByName(invoiceName: string | null | undefined
     where: { name: { equals: normalized, mode: 'insensitive' } },
     select: { supplierId: true },
   })
-  if (alias) return alias.supplierId
+  if (alias) return { supplierId: alias.supplierId, exact: true }
 
   // 2. Exact supplier name match
   const supplier = await prisma.supplier.findFirst({
     where: { name: { equals: normalized, mode: 'insensitive' } },
     select: { id: true },
   })
-  if (supplier) return supplier.id
+  if (supplier) return { supplierId: supplier.id, exact: true }
 
   // 3. Fuzzy alias match — load all aliases (small table, fine in-memory)
   const allAliases = await prisma.supplierAlias.findMany({
@@ -94,10 +100,8 @@ export async function matchSupplierByName(invoiceName: string | null | undefined
     }
   }
   if (bestId) {
-    // Auto-learn so future exact lookups skip this work
-    await learnAlias(bestId, normalized).catch(() => {})
-    console.log(`[supplier-matcher] Fuzzy alias match: "${normalized}" → supplierId ${bestId} (score ${bestScore.toFixed(2)})`)
-    return bestId
+    console.log(`[supplier-matcher] Fuzzy alias match (suggestion): "${normalized}" → supplierId ${bestId} (score ${bestScore.toFixed(2)})`)
+    return { supplierId: bestId, exact: false }
   }
 
   // 4. Fuzzy supplier name match
@@ -114,9 +118,8 @@ export async function matchSupplierByName(invoiceName: string | null | undefined
     }
   }
   if (bestId) {
-    await learnAlias(bestId, normalized).catch(() => {})
-    console.log(`[supplier-matcher] Fuzzy name match: "${normalized}" → supplierId ${bestId} (score ${bestScore.toFixed(2)})`)
-    return bestId
+    console.log(`[supplier-matcher] Fuzzy name match (suggestion): "${normalized}" → supplierId ${bestId} (score ${bestScore.toFixed(2)})`)
+    return { supplierId: bestId, exact: false }
   }
 
   return null

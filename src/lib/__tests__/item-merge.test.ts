@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planMerge, planUndo, type MergeItemRow, type MergeRelations, type SurvivorRelations, type MergeOp } from '@/lib/item-merge'
+import { planMerge, planUndo, mergeNameAlias, type MergeItemRow, type MergeRelations, type SurvivorRelations, type MergeOp } from '@/lib/item-merge'
 import { lineCountedBase, type ItemDims } from '@/lib/count-uom'
 
 const row = (over: Partial<MergeItemRow>): MergeItemRow => ({
@@ -11,7 +11,7 @@ const row = (over: Partial<MergeItemRow>): MergeItemRow => ({
 const noRel: MergeRelations = {
   scanItemIds: [], invoiceLineItemIds: [], priceAlertIds: [], matchRuleIds: [], transferIds: [],
   wastageIds: [], recipeIngredients: [], countLines: [], snapshots: [], offers: [], allocations: [], itemRcs: [],
-  latestPurchaseSupplier: null, priorAbsorbeeIds: [],
+  latestPurchaseSupplier: null, priorAbsorbeeIds: [], aliasIds: [], nameAliasTaken: false,
 }
 const noSRel: SurvivorRelations = { offers: [], allocations: [], itemRcs: [], snapshots: [] }
 const S = row({ id: 'S', itemName: 'kennebec potato' })
@@ -718,5 +718,68 @@ describe('offers — one per supplier PRODUCT (SKU)', () => {
     if (!p.ok) throw new Error(p.message)
     expect(p.summary.offersMoved).toBe(0)
     expect(p.summary.absorbedOffersDroppedStale + p.summary.absorbedOffersDroppedForSurvivorPrimary).toBe(1)
+  })
+})
+
+// W9 — a merge keeps the absorbed item's supplier wordings (re-pointed, like its
+// match rules) and its OLD NAME as a wording under its primary box's supplier,
+// so the next invoice that still prints that name finds the survivor.
+describe('supplier wordings (ItemSupplierAlias)', () => {
+  const primaryOffer = { id: 'oA', supplierName: 'Sysco', supplierId: 'sysco', lastUpdated: '2026-09-01T00:00:00.000Z', isPrimary: true }
+  const otherOffer = { ...primaryOffer, id: 'oB', supplierName: 'Gordon', supplierId: 'gordon', isPrimary: false }
+  const created = (p: ReturnType<typeof plan>) => {
+    if (!p.ok) throw new Error(p.message)
+    return p.manifest.ops.filter(o => o.t === 'create' && o.table === 'ItemSupplierAlias')
+  }
+
+  it('re-points every wording the absorbed item holds onto the survivor', () => {
+    const p = plan(S, A, { ...noRel, aliasIds: ['al1', 'al2'] })
+    if (!p.ok) throw new Error(p.message)
+    expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'ItemSupplierAlias', ids: ['al1', 'al2'] })
+  })
+
+  it('no wordings → no re-point op', () => {
+    const p = plan(S, A)
+    if (!p.ok) throw new Error(p.message)
+    expect(p.manifest.ops.some(o => o.t === 'repoint' && o.table === 'ItemSupplierAlias')).toBe(false)
+  })
+
+  it("keeps the absorbed name as a wording of its PRIMARY box's supplier, on the survivor", () => {
+    const ops = created(plan(S, A, { ...noRel, offers: [otherOffer, primaryOffer] }))
+    expect(ops).toEqual([{
+      t: 'create', table: 'ItemSupplierAlias', row: {
+        id: 'new-1', inventoryItemId: 'S', supplierId: 'sysco',
+        text: 'potatoes kennebec o s', rawText: 'Potatoes, Kennebec O/S', source: 'MERGE', useCount: 1,
+      },
+    }])
+  })
+
+  it('writes no name wording when the absorbed item has no primary box', () => {
+    expect(created(plan(S, A, { ...noRel, offers: [otherOffer] }))).toEqual([])
+    expect(created(plan(S, A))).toEqual([])
+  })
+
+  it('writes no name wording when that supplier already has the wording (on any item)', () => {
+    expect(created(plan(S, A, { ...noRel, offers: [primaryOffer], nameAliasTaken: true }))).toEqual([])
+  })
+
+  it('writes no name wording for a name with nothing left after normalising', () => {
+    expect(created(plan(S, row({ id: 'A', itemName: '—/—' }), { ...noRel, offers: [primaryOffer] }))).toEqual([])
+  })
+
+  it('undo deletes the name wording it wrote (by its recorded id) and re-points the rest back', () => {
+    const p = plan(S, A, { ...noRel, aliasIds: ['al1'], offers: [primaryOffer] })
+    if (!p.ok) throw new Error(p.message)
+    const undo = planUndo(p.manifest)
+    expect(undo).toContainEqual({
+      t: 'delete', table: 'ItemSupplierAlias', row: expect.objectContaining({ id: 'new-1', inventoryItemId: 'S', source: 'MERGE' }),
+    })
+    expect(undo).toContainEqual({ t: 'repoint', table: 'ItemSupplierAlias', ids: ['al1'] })
+  })
+
+  it("mergeNameAlias is the one key both the executor's lookup and the planner use", () => {
+    expect(mergeNameAlias({ itemName: 'GRAPE RED FRSH' }, [primaryOffer]))
+      .toEqual({ supplierId: 'sysco', text: 'grape red frsh', rawText: 'GRAPE RED FRSH' })
+    expect(mergeNameAlias({ itemName: 'Grapes' }, [otherOffer])).toBeNull()
   })
 })

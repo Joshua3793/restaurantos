@@ -54,9 +54,24 @@ const ruleCanon = (o: Partial<Canon> = {}): Canon => ({
   ...o,
 })
 
-const input = (o: Partial<PlanInput> = {}): PlanInput => ({
+const aliasCanon = (o: Partial<Canon> = {}): Canon => ({
+  inventoryItemId: 'i1',
+  packQty: null,
+  packSize: null,
+  packUOM: null,
+  rawText: 'CILANTRO, BUNCH',
+  supplierId: 'sup',
+  supplierItemCode: null,
+  text: 'cilantro bunch',
+  useCount: 1,
+  ...o,
+})
+
+const LEGACY_RULE = 'learned wording predates the alias table'
+
+const input =(o: Partial<PlanInput> = {}): PlanInput => ({
   records: [],
-  current: { offers: new Map<string, CurrentOffer>(), items: new Map<string, CurrentItem>(), rules: new Map<string, Canon>() },
+  current: { offers: new Map<string, CurrentOffer>(), items: new Map<string, CurrentItem>(), aliases: new Map<string, Canon>() },
   refs: new Map<string, ItemRefs>(),
   legacy: null,
   ...o,
@@ -73,7 +88,7 @@ describe('planRollback — the one restore rule', () => {
     const plan = planRollback(
       input({
         records: [{ kind: 'ITEM', targetId: 'i1', prev, next }],
-        current: { offers: new Map(), items: new Map([['i1', item(next)]]), rules: new Map() },
+        current: { offers: new Map(), items: new Map([['i1', item(next)]]), aliases: new Map() },
       })
     )
     expect(plan.rows).toHaveLength(1)
@@ -91,7 +106,7 @@ describe('planRollback — the one restore rule', () => {
       input({
         records: [{ kind: 'ITEM', targetId: 'i1', prev, next }],
         // itemName is NOT a selector field; the same selector strips it both sides
-        current: { offers: new Map(), items: new Map([['i1', item(next, 'Cilantro, bunch')]]), rules: new Map() },
+        current: { offers: new Map(), items: new Map([['i1', item(next, 'Cilantro, bunch')]]), aliases: new Map() },
       })
     )
     expect(plan.rows[0].outcome).toBe('restored')
@@ -102,7 +117,7 @@ describe('planRollback — the one restore rule', () => {
     const plan = planRollback(
       input({
         records: [{ kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(1)), next: itemCanon(pp(2)) }],
-        current: { offers: new Map(), items: new Map([['i1', item(itemCanon(pp(3)))]]), rules: new Map() },
+        current: { offers: new Map(), items: new Map([['i1', item(itemCanon(pp(3)))]]), aliases: new Map() },
       })
     )
     expect(plan.rows[0]).toMatchObject({ outcome: 'skipped', reason: 'changed-since' })
@@ -115,7 +130,7 @@ describe('planRollback — the one restore rule', () => {
     const plan = planRollback(
       input({
         records: [{ kind: 'OFFER', targetId: 'o1', prev: null, next }],
-        current: { offers: new Map([['o1', offer(next)]]), items: new Map(), rules: new Map() },
+        current: { offers: new Map([['o1', offer(next)]]), items: new Map(), aliases: new Map() },
       })
     )
     expect(plan.rows[0]).toMatchObject({ kind: 'OFFER', outcome: 'deleted', name: 'Sysco' })
@@ -131,7 +146,7 @@ describe('planRollback — the one restore rule', () => {
         current: {
           offers: new Map([['o1', offer(next, 'i1', 'GFS')]]),
           items: new Map([['i1', item(itemCanon(), 'Cilantro')]]),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
@@ -143,7 +158,7 @@ describe('planRollback — the one restore rule', () => {
       input({
         records: [
           { kind: 'ITEM', targetId: 'i-missing', prev: itemCanon(), next: itemCanon() },
-          { kind: 'MATCH_RULE', targetId: 'r-missing', prev: ruleCanon(), next: ruleCanon() },
+          { kind: 'ALIAS', targetId: 'a-missing', prev: aliasCanon(), next: aliasCanon() },
         ],
       })
     )
@@ -151,29 +166,65 @@ describe('planRollback — the one restore rule', () => {
       ['skipped', 'gone'],
       ['skipped', 'gone'],
     ])
-    // a gone rule still gets a readable name off the record itself
-    expect(plan.rows[1].name).toBe('CILANTRO BUNCH')
+    // a gone alias still gets a readable name off the record itself
+    expect(plan.rows[1].name).toBe('CILANTRO, BUNCH')
   })
 
-  it('restores a learned match rule to its prev', () => {
-    const prev = ruleCanon({ inventoryItemId: 'other-item', supplierItemCode: 'CODE1' })
-    const next = ruleCanon({ inventoryItemId: 'i1', supplierItemCode: null })
+  it('restores a supplier wording (alias) to its prev', () => {
+    const prev = aliasCanon({ inventoryItemId: 'other-item', supplierItemCode: 'CODE1', useCount: 4 })
+    const next = aliasCanon({ inventoryItemId: 'i1', supplierItemCode: null, useCount: 5 })
     const plan = planRollback(
       input({
-        records: [{ kind: 'MATCH_RULE', targetId: 'r1', prev, next }],
-        current: { offers: new Map(), items: new Map(), rules: new Map([['r1', next]]) },
+        records: [{ kind: 'ALIAS', targetId: 'a1', prev, next }],
+        current: { offers: new Map(), items: new Map(), aliases: new Map([['a1', next]]) },
       })
     )
-    expect(plan.rows[0]).toMatchObject({ kind: 'MATCH_RULE', outcome: 'restored', name: 'CILANTRO BUNCH' })
-    expect(plan.rows[0].write).toEqual({ table: 'rule', op: 'update', data: prev })
-    // a rule is not an item price — it must not trigger a re-cost
+    expect(plan.rows[0]).toMatchObject({ kind: 'ALIAS', outcome: 'restored', name: 'CILANTRO, BUNCH' })
+    expect(plan.rows[0].write).toEqual({ table: 'alias', op: 'update', data: prev })
+    // a wording is not an item price — it must not trigger a re-cost
     expect(plan.restoredItemIds).toEqual([])
+  })
+
+  it('deletes an alias the approval created, while it still equals next', () => {
+    const next = aliasCanon()
+    const plan = planRollback(
+      input({
+        records: [{ kind: 'ALIAS', targetId: 'a1', prev: null, next }],
+        current: { offers: new Map(), items: new Map(), aliases: new Map([['a1', next]]) },
+      })
+    )
+    expect(plan.rows[0]).toMatchObject({ kind: 'ALIAS', outcome: 'deleted' })
+    expect(plan.rows[0].write).toEqual({ table: 'alias', op: 'delete' })
+  })
+
+  it('skips an alias a later invoice used again (useCount moved)', () => {
+    const plan = planRollback(
+      input({
+        records: [{ kind: 'ALIAS', targetId: 'a1', prev: null, next: aliasCanon() }],
+        current: { offers: new Map(), items: new Map(), aliases: new Map([['a1', aliasCanon({ useCount: 2 })]]) },
+      })
+    )
+    expect(plan.rows[0]).toMatchObject({ outcome: 'skipped', reason: 'changed-since' })
+  })
+
+  // Records written before the alias table: the old learned-match table is no
+  // longer read or written, so they are a labelled no-op — never a write.
+  it.each([
+    ['created', null],
+    ['updated', ruleCanon({ inventoryItemId: 'other-item' })],
+  ])('a legacy MATCH_RULE record (%s) is skipped with its reason and never written', (_l, prev) => {
+    const plan = planRollback(
+      input({ records: [{ kind: 'MATCH_RULE', targetId: 'r1', prev, next: ruleCanon() }] })
+    )
+    expect(plan.rows[0]).toMatchObject({ kind: 'MATCH_RULE', outcome: 'skipped', reason: LEGACY_RULE, name: 'CILANTRO BUNCH' })
+    expect(plan.rows[0].write).toBeUndefined()
+    expect(plan.summary).toEqual({ restored: 0, deleted: 0, skipped: 1, bestEffort: 0 })
   })
 })
 
 describe('planRollback — ITEM_CREATED', () => {
   const rec: UndoRecord = { kind: 'ITEM_CREATED', targetId: 'new-item', prev: null, next: itemCanon() }
-  const current = { offers: new Map<string, CurrentOffer>(), items: new Map([['new-item', item(itemCanon(), 'New Product')]]), rules: new Map<string, Canon>() }
+  const current = { offers: new Map<string, CurrentOffer>(), items: new Map([['new-item', item(itemCanon(), 'New Product')]]), aliases: new Map<string, Canon>() }
 
   it('deletes an unreferenced created item', () => {
     const plan = planRollback(input({ records: [rec], current, refs: new Map([['new-item', noRefs]]) }))
@@ -214,7 +265,7 @@ describe('planRollback — ITEM_CREATED', () => {
   })
 
   it('skips a created item that changed since the approval, before any reference check', () => {
-    const changed = { offers: new Map<string, CurrentOffer>(), items: new Map([['new-item', item(itemCanon(pp(99)))]]), rules: new Map<string, Canon>() }
+    const changed = { offers: new Map<string, CurrentOffer>(), items: new Map([['new-item', item(itemCanon(pp(99)))]]), aliases: new Map<string, Canon>() }
     const plan = planRollback(input({ records: [rec], current: changed, refs: new Map([['new-item', noRefs]]) }))
     expect(plan.rows[0]).toMatchObject({ outcome: 'skipped', reason: 'changed-since' })
   })
@@ -235,7 +286,7 @@ describe('planRollback — ITEM_CREATED', () => {
           // the offer was re-priced after the approval ⇒ skipped 'changed-since'
           offers: new Map([['o1', offer(offerCanon(pp(99)), 'new-item', 'Sysco')]]),
           items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
-          rules: new Map(),
+          aliases: new Map(),
         },
         refs: new Map([['new-item', noRefs]]),
       })
@@ -257,7 +308,7 @@ describe('planRollback — ITEM_CREATED', () => {
         current: {
           offers: new Map([['o1', offer(offerNext, 'new-item', 'Sysco')]]),
           items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
-          rules: new Map(),
+          aliases: new Map(),
         },
         refs: new Map([['new-item', noRefs]]),
       })
@@ -265,53 +316,73 @@ describe('planRollback — ITEM_CREATED', () => {
     expect(plan.rows.map(r => r.outcome)).toEqual(['deleted', 'deleted'])
   })
 
-  // `InvoiceMatchRule.inventoryItemId` is `onDelete: Restrict` — not Cascade like
-  // an offer. Deleting a created item while a Restrict FK still points at it
-  // doesn't quietly gut a row, it THROWS and aborts the whole transaction. A
-  // match rule the approval created but someone has since edited is SKIPPED by
-  // the planner (still equals `next`? no), so it survives and must protect its
-  // item exactly like a kept offer does.
-  it('keeps a created item when a match rule pointing at it was kept: Restrict would throw', () => {
-    const ruleNext = ruleCanon({ inventoryItemId: 'new-item' })
+  // `ItemSupplierAlias.inventoryItemId` is `onDelete: Cascade`, like an offer:
+  // deleting the item would silently take an alias this plan deliberately kept
+  // (someone used or changed it since the approval). A kept alias protects its item.
+  it('keeps a created item when an alias on it was kept: the cascade would eat it', () => {
+    const aliasNext = aliasCanon({ inventoryItemId: 'new-item' })
     const plan = planRollback(
       input({
         records: [
-          { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleNext },
+          { kind: 'ALIAS', targetId: 'a1', prev: null, next: aliasNext },
           rec,
         ],
         current: {
           offers: new Map(),
           items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
-          // edited since the approval (supplierItemCode moved) ⇒ skipped 'changed-since'
-          rules: new Map([['r1', ruleCanon({ inventoryItemId: 'new-item', supplierItemCode: 'CHANGED' })]]),
+          // used again since the approval ⇒ skipped 'changed-since'
+          aliases: new Map([['a1', aliasCanon({ inventoryItemId: 'new-item', useCount: 2 })]]),
         },
         refs: new Map([['new-item', noRefs]]),
       })
     )
-    expect(plan.rows[0]).toMatchObject({ kind: 'MATCH_RULE', outcome: 'skipped', reason: 'changed-since' })
+    expect(plan.rows[0]).toMatchObject({ kind: 'ALIAS', outcome: 'skipped', reason: 'changed-since' })
     expect(plan.rows[1]).toMatchObject({ kind: 'ITEM_CREATED', outcome: 'skipped', reason: 'referenced' })
     expect(plan.rows[1].write).toBeUndefined()
-    // detail names the rule, mirroring the offer's guardCascades message
-    expect(plan.rows[1].detail).toContain('CILANTRO BUNCH')
+    expect(plan.rows[1].detail).toContain('CILANTRO, BUNCH')
   })
 
-  it('still deletes a created item whose match rule is deleted with it', () => {
-    const ruleNext = ruleCanon({ inventoryItemId: 'new-item' })
+  it('still deletes a created item whose alias is deleted with it', () => {
+    const aliasNext = aliasCanon({ inventoryItemId: 'new-item' })
     const plan = planRollback(
       input({
         records: [
-          { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleNext },
+          { kind: 'ALIAS', targetId: 'a1', prev: null, next: aliasNext },
           rec,
         ],
         current: {
           offers: new Map(),
           items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
-          rules: new Map([['r1', ruleNext]]),
+          aliases: new Map([['a1', aliasNext]]),
         },
         refs: new Map([['new-item', noRefs]]),
       })
     )
     expect(plan.rows.map(r => r.outcome)).toEqual(['deleted', 'deleted'])
+  })
+
+  // `InvoiceMatchRule.inventoryItemId` is `onDelete: Restrict`, and a legacy
+  // MATCH_RULE record is never undone — so a rule it recorded on the created
+  // item may still point at it, and deleting the item would THROW and take the
+  // whole transaction down. Keep the item.
+  it('keeps a created item a legacy MATCH_RULE record points at: Restrict would throw', () => {
+    const plan = planRollback(
+      input({
+        records: [
+          { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleCanon({ inventoryItemId: 'new-item' }) },
+          rec,
+        ],
+        current: {
+          offers: new Map(),
+          items: new Map([['new-item', item(itemCanon(), 'New Product')]]),
+          aliases: new Map(),
+        },
+        refs: new Map([['new-item', noRefs]]),
+      })
+    )
+    expect(plan.rows[0]).toMatchObject({ kind: 'MATCH_RULE', outcome: 'skipped', reason: LEGACY_RULE })
+    expect(plan.rows[1]).toMatchObject({ kind: 'ITEM_CREATED', outcome: 'skipped', reason: 'referenced' })
+    expect(plan.rows[1].detail).toContain('CILANTRO BUNCH')
   })
 })
 
@@ -332,7 +403,7 @@ describe('planRollback — apply order', () => {
             ['now-primary', offer(promoted, 'i1', 'GFS')],
           ]),
           items: new Map(),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
@@ -364,7 +435,7 @@ describe('planRollback — apply order', () => {
             ['C', offer(offerCanon({ isPrimary: true }), 'i1', 'Costco')],
           ]),
           items: new Map(),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
@@ -396,7 +467,7 @@ describe('planRollback — apply order', () => {
             ['B', offer(promoted, 'i1', 'GFS')],
           ]),
           items: new Map(),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
@@ -421,7 +492,7 @@ describe('planRollback — apply order', () => {
             ['C', offer(cNext, 'i1', 'Costco')],
           ]),
           items: new Map(),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
@@ -442,17 +513,17 @@ describe('planRollback — apply order', () => {
             ['Z', offer(offerCanon({ isPrimary: true }), 'i2', 'Costco')],
           ]),
           items: new Map(),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
     expect(plan.rows[0].outcome).toBe('restored')
   })
 
-  it('applies kinds in order OFFER, ITEM, MATCH_RULE, ITEM_CREATED whatever order the records arrive in', () => {
+  it('applies kinds in order OFFER, ITEM, ALIAS, ITEM_CREATED whatever order the records arrive in', () => {
     const records: UndoRecord[] = [
       { kind: 'ITEM_CREATED', targetId: 'new-item', prev: null, next: itemCanon() },
-      { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleCanon() },
+      { kind: 'ALIAS', targetId: 'r1', prev: null, next: aliasCanon() },
       { kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(1)), next: itemCanon() },
       { kind: 'OFFER', targetId: 'o1', prev: null, next: offerCanon() },
     ]
@@ -465,12 +536,12 @@ describe('planRollback — apply order', () => {
             ['i1', item(itemCanon())],
             ['new-item', item(itemCanon(), 'New Product')],
           ]),
-          rules: new Map([['r1', ruleCanon()]]),
+          aliases: new Map([['r1', aliasCanon()]]),
         },
         refs: new Map([['new-item', noRefs]]),
       })
     )
-    expect(plan.rows.map(r => r.kind)).toEqual(['OFFER', 'ITEM', 'MATCH_RULE', 'ITEM_CREATED'])
+    expect(plan.rows.map(r => r.kind)).toEqual(['OFFER', 'ITEM', 'ALIAS', 'ITEM_CREATED'])
     expect(plan.restoredItemIds).toEqual(['i1'])
     expect(plan.summary).toEqual({ restored: 1, deleted: 3, skipped: 0, bestEffort: 0 })
   })
@@ -492,7 +563,7 @@ describe('planRollback — the Cilantro shape', () => {
     const plan = planRollback(
       input({
         records: [{ kind: 'ITEM', targetId: 'cilantro', prev, next }],
-        current: { offers: new Map(), items: new Map([['cilantro', item(next, 'Cilantro')]]), rules: new Map() },
+        current: { offers: new Map(), items: new Map([['cilantro', item(next, 'Cilantro')]]), aliases: new Map() },
       })
     )
     expect(plan.rows[0].outcome).toBe('restored')
@@ -669,7 +740,7 @@ describe('planRollback — the legacy path', () => {
     const plan = planRollback(
       input({
         records: [{ kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(1)), next }],
-        current: { offers: new Map(), items: new Map([['i1', item(next)]]), rules: new Map() },
+        current: { offers: new Map(), items: new Map([['i1', item(next)]]), aliases: new Map() },
         legacy: {
           status: 'APPROVED',
           priceAlerts: [],
@@ -701,7 +772,7 @@ describe('executeRollback', () => {
       tx: {
         inventorySupplierPrice: model('offer'),
         inventoryItem: model('item'),
-        invoiceMatchRule: model('rule'),
+        itemSupplierAlias: model('alias'),
       } as unknown as Parameters<typeof executeRollback>[0],
     }
   }
@@ -717,14 +788,14 @@ describe('executeRollback', () => {
         { kind: 'OFFER', targetId: 'o1', name: 'Sysco', outcome: 'restored', write: { table: 'offer', op: 'update', data: offerCanon({ isPrimary: false }) } },
         { kind: 'OFFER', targetId: 'o2', name: 'GFS', outcome: 'skipped', reason: 'changed-since' },
         { kind: 'ITEM', targetId: 'i1', name: 'Cilantro', outcome: 'restored', write: { table: 'item', op: 'update', data: itemCanon() } },
-        { kind: 'MATCH_RULE', targetId: 'r1', name: 'X', outcome: 'deleted', write: { table: 'rule', op: 'delete' } },
+        { kind: 'ALIAS', targetId: 'r1', name: 'X', outcome: 'deleted', write: { table: 'alias', op: 'delete' } },
         { kind: 'ITEM_CREATED', targetId: 'n1', name: 'New', outcome: 'deleted', write: { table: 'item', op: 'delete' } },
       ],
     })
     expect(calls.map(c => `${c.table}:${c.op}:${c.id}`)).toEqual([
       'offer:update:o1',
       'item:update:i1',
-      'rule:delete:r1',
+      'alias:delete:r1',
       'item:delete:n1',
     ])
     // isPrimary rides along in the same update — ordering already guarantees
@@ -776,7 +847,7 @@ describe('executeRollback', () => {
         current: {
           offers: new Map([['o1', offer(offerNow)]]),
           items: new Map([['i1', item(itemNow)]]),
-          rules: new Map(),
+          aliases: new Map(),
         },
       })
     )
@@ -816,7 +887,7 @@ describe('executeRestores / executeCreatedItemDeletes', () => {
       tx: {
         inventorySupplierPrice: model('offer'),
         inventoryItem: model('item'),
-        invoiceMatchRule: model('rule'),
+        itemSupplierAlias: model('alias'),
       } as unknown as Parameters<typeof executeRollback>[0],
     }
   }
@@ -829,7 +900,7 @@ describe('executeRestores / executeCreatedItemDeletes', () => {
     rows: [
       { kind: 'OFFER' as const, targetId: 'o1', name: 'Sysco', outcome: 'deleted' as const, write: { table: 'offer' as const, op: 'delete' as const } },
       { kind: 'ITEM' as const, targetId: 'i1', name: 'Cilantro', outcome: 'restored' as const, write: { table: 'item' as const, op: 'update' as const, data: itemCanon() } },
-      { kind: 'MATCH_RULE' as const, targetId: 'r1', name: 'X', outcome: 'deleted' as const, write: { table: 'rule' as const, op: 'delete' as const } },
+      { kind: 'ALIAS' as const, targetId: 'r1', name: 'X', outcome: 'deleted' as const, write: { table: 'alias' as const, op: 'delete' as const } },
       { kind: 'ITEM_CREATED' as const, targetId: 'n1', name: 'New', outcome: 'deleted' as const, write: { table: 'item' as const, op: 'delete' as const } },
       { kind: 'ITEM_CREATED' as const, targetId: 'n2', name: 'Newer', outcome: 'deleted' as const, write: { table: 'item' as const, op: 'delete' as const } },
     ],
@@ -838,7 +909,7 @@ describe('executeRestores / executeCreatedItemDeletes', () => {
   it('executeRestores runs everything except the created-item deletes', async () => {
     const { calls, tx } = fakeTx()
     await executeRestores(tx, plan())
-    expect(calls.map(c => `${c.table}:${c.op}:${c.id}`)).toEqual(['offer:delete:o1', 'item:update:i1', 'rule:delete:r1'])
+    expect(calls.map(c => `${c.table}:${c.op}:${c.id}`)).toEqual(['offer:delete:o1', 'item:update:i1', 'alias:delete:r1'])
   })
 
   it('executeCreatedItemDeletes runs only the created-item deletes, in plan order', async () => {
@@ -862,7 +933,7 @@ describe('executeRestores / executeCreatedItemDeletes', () => {
     expect(calls.map(c => `${c.table}:${c.op}:${c.id}`)).toEqual([
       'offer:delete:o1',
       'item:update:i1',
-      'rule:delete:r1',
+      'alias:delete:r1',
       'item:delete:n1',
       'item:delete:n2',
     ])
@@ -909,7 +980,7 @@ describe('resettleMainBoxes — after a rollback the item equals its main box', 
           return {}
         },
       },
-      invoiceMatchRule: { update: async () => ({}), delete: async () => ({}) },
+      itemSupplierAlias: { update: async () => ({}), delete: async () => ({}) },
     }
     return { db, tx: db as unknown as Parameters<typeof resettleMainBoxes>[0] }
   }
@@ -929,7 +1000,7 @@ describe('resettleMainBoxes — after a rollback the item equals its main box', 
       current: {
         offers: new Map([['o1', offer(boxNow)]]),
         items: new Map([['i1', item(itemNext)]]),
-        rules: new Map(),
+        aliases: new Map(),
       },
     }))
     expect(plan.rows.map(r => `${r.kind}:${r.outcome}`)).toEqual(['OFFER:skipped', 'ITEM:restored'])
@@ -951,7 +1022,7 @@ describe('resettleMainBoxes — after a rollback the item equals its main box', 
     const created = offerCanon({ ...pp(15), isPrimary: true, packChain: [{ unit: 'case', per: 24 }], supplierId: 's1' })
     const plan = planRollback(input({
       records: [{ kind: 'OFFER', targetId: 'o1', prev: null, next: created }],
-      current: { offers: new Map([['o1', offer(created)]]), items: new Map(), rules: new Map() },
+      current: { offers: new Map([['o1', offer(created)]]), items: new Map(), aliases: new Map() },
     }))
     expect(plan.resettleItemIds).toEqual(['i1'])
     const { db, tx } = memDb(
@@ -974,7 +1045,7 @@ describe('resettleMainBoxes — after a rollback the item equals its main box', 
         { kind: 'ITEM', targetId: 'i1', prev: itemCanon(pp(12)), next: itemCanon(pp(15)) },
         { kind: 'ITEM_CREATED', targetId: 'n1', prev: null, next: itemCanon(pp(5)) },
       ],
-      current: { offers: new Map(), items: new Map([['i1', item(itemCanon(pp(15)))], ['n1', item(itemCanon(pp(5)), 'New')]]), rules: new Map() },
+      current: { offers: new Map(), items: new Map([['i1', item(itemCanon(pp(15)))], ['n1', item(itemCanon(pp(5)), 'New')]]), aliases: new Map() },
       refs: new Map([['n1', noRefs]]),
     }))
     expect(plan.resettleItemIds).toEqual(['i1'])

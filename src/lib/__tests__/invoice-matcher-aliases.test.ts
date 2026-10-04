@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, MAX_ALIASES_PER_ITEM, isSupplierSpecificRule, offerSkuTierYieldsToRule, previousPriceFor, inventorySideFormat, inventorySidePrice } from '@/lib/invoice-matcher'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+// The pure helpers below never touch prisma; the matchLineItems blocks at the
+// end of this file read through this stand-in (items, this supplier's aliases
+// AND this supplier's offers — so tier 0b is actually exercised).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const prismaMock = vi.hoisted(() => ({}) as any)
+vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
+import { capAliasConfidence, pickBestFuzzy, buildOfferSkuIndex, groupAliases, previousPriceFor, inventorySideFormat, inventorySidePrice, matchLineItems } from '@/lib/invoice-matcher'
+import type { OcrLineItem } from '@/lib/invoice-ocr'
 
 describe('capAliasConfidence', () => {
   it('caps a HIGH match won only through an alias down to MEDIUM', () => {
@@ -89,25 +96,25 @@ describe('buildOfferSkuIndex — (supplier, SKU) → item from one supplier\'s r
   })
 })
 
-describe('groupAliases', () => {
+describe('groupAliases — this supplier\'s wordings for the tier-3 fuzzy pass', () => {
   const itemNameById = new Map([['item1', 'Butter Unsalted']])
 
-  it('caps the alias list at MAX_ALIASES_PER_ITEM, keeping the input (usefulness) order', () => {
+  it('caps the alias list at 5 per item, keeping the input (usefulness) order', () => {
     // Two-digit suffixes: normalize() drops single-character tokens, so a
     // single digit would collapse every row to the same normalized key.
     const rows = Array.from({ length: 7 }, (_, i) => ({
       inventoryItemId: 'item1',
-      rawDescription: `Alias number ${String(i).padStart(2, '0')}`,
+      rawText: `Alias number ${String(i).padStart(2, '0')}`,
     }))
     const grouped = groupAliases(rows, itemNameById)
-    expect(grouped.get('item1')).toHaveLength(MAX_ALIASES_PER_ITEM)
-    expect(grouped.get('item1')).toEqual(rows.slice(0, MAX_ALIASES_PER_ITEM).map(r => r.rawDescription))
+    expect(grouped.get('item1')).toHaveLength(5)
+    expect(grouped.get('item1')).toEqual(rows.slice(0, 5).map(r => r.rawText))
   })
 
   it('de-duplicates aliases case-insensitively', () => {
     const rows = [
-      { inventoryItemId: 'item1', rawDescription: 'Zucchini Green Fancy' },
-      { inventoryItemId: 'item1', rawDescription: 'ZUCCHINI GREEN FANCY' },
+      { inventoryItemId: 'item1', rawText: 'Zucchini Green Fancy' },
+      { inventoryItemId: 'item1', rawText: 'ZUCCHINI GREEN FANCY' },
     ]
     const grouped = groupAliases(rows, itemNameById)
     expect(grouped.get('item1')).toEqual(['Zucchini Green Fancy'])
@@ -115,49 +122,17 @@ describe('groupAliases', () => {
 
   it('skips an alias whose normalized form equals the item\'s own name', () => {
     const rows = [
-      { inventoryItemId: 'item1', rawDescription: 'BUTTER UNSALTED' },
-      { inventoryItemId: 'item1', rawDescription: 'Butter Unsalted Block' },
+      { inventoryItemId: 'item1', rawText: 'BUTTER UNSALTED' },
+      { inventoryItemId: 'item1', rawText: 'Butter Unsalted Block' },
     ]
     const grouped = groupAliases(rows, itemNameById)
     expect(grouped.get('item1')).toEqual(['Butter Unsalted Block'])
   })
 
   it('an item whose only alias equals its own name gets no entry', () => {
-    const rows = [{ inventoryItemId: 'item1', rawDescription: 'butter unsalted' }]
+    const rows = [{ inventoryItemId: 'item1', rawText: 'butter unsalted' }]
     const grouped = groupAliases(rows, itemNameById)
     expect(grouped.has('item1')).toBe(false)
-  })
-})
-
-describe('isSupplierSpecificRule', () => {
-  it('a rule stored under the raw OCR supplier name is supplier-specific', () => {
-    expect(isSupplierSpecificRule('SYSCO Canada, Inc.', 'SYSCO Canada, Inc.', 'Sysco')).toBe(true)
-  })
-  it('…and so is one stored under the canonical Supplier name', () => {
-    expect(isSupplierSpecificRule('Sysco', 'SYSCO Canada, Inc.', 'Sysco')).toBe(true)
-  })
-  it('the generic ("") bucket is never supplier-specific', () => {
-    expect(isSupplierSpecificRule('', 'Sysco', 'Sysco')).toBe(false)
-    expect(isSupplierSpecificRule(null, 'Sysco', 'Sysco')).toBe(false)
-  })
-  it('another supplier’s rule is not this supplier’s', () => {
-    expect(isSupplierSpecificRule('GFS', 'Sysco', 'Sysco')).toBe(false)
-  })
-})
-
-describe('offerSkuTierYieldsToRule', () => {
-  const taught = { supplierName: 'Sysco', inventoryItem: { id: 'i1' } }
-
-  it('stands tier 0b down when a human taught this supplier this description', () => {
-    expect(offerSkuTierYieldsToRule(taught, 'Sysco', 'Sysco')).toBe(true)
-  })
-  it('leaves tier 0b alone for a generic rule — a unique SKU is better evidence', () => {
-    expect(offerSkuTierYieldsToRule({ supplierName: '', inventoryItem: { id: 'i1' } }, 'Sysco', 'Sysco')).toBe(false)
-  })
-  it('leaves tier 0b alone when there is no rule, or the rule points nowhere', () => {
-    expect(offerSkuTierYieldsToRule(null, 'Sysco', 'Sysco')).toBe(false)
-    expect(offerSkuTierYieldsToRule(undefined, 'Sysco', 'Sysco')).toBe(false)
-    expect(offerSkuTierYieldsToRule({ supplierName: 'Sysco', inventoryItem: null }, 'Sysco', 'Sysco')).toBe(false)
   })
 })
 
@@ -239,5 +214,170 @@ describe('inventorySidePrice — the "was" price per one unit, in its own unit',
   it("a rate-priced item with no box keeps the item's rate unit", () => {
     const item = { ...ITEM, pricing: { mode: 'RATE', rate: 3.49, rateUnit: 'lb' } }
     expect(inventorySidePrice(null, item)).toEqual({ pricePerUnit: 3.49, unit: 'lb' })
+  })
+})
+
+// ── matchLineItems: tier order 0 → 0b → 1, with offers in the fixture ─────────
+type MItem = { id: string; itemName: string; isActive: boolean; mergedIntoId: string | null; recipe: { type: string } | null }
+type MAlias = { id: string; inventoryItemId: string; supplierId: string; text: string; rawText: string; supplierItemCode: string | null; packQty: number | null; packSize: number | null; packUOM: string | null; useCount: number; lastUsed: Date }
+type MOffer = { id: string; inventoryItemId: string; supplierId: string; supplierItemCode: string | null; isPrimary: boolean; pricing: unknown; packChain: unknown }
+
+const CHAIN = { dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 10 }, countUnit: 'case', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+const mItem = (id: string, itemName: string, o: Partial<MItem> = {}): MItem => ({ id, itemName, isActive: true, mergedIntoId: null, recipe: null, ...o })
+let seq = 0
+const mAlias = (o: Partial<MAlias> & Pick<MAlias, 'inventoryItemId' | 'supplierId' | 'text'>): MAlias => ({
+  id: `a${++seq}`, rawText: o.text.toUpperCase(), supplierItemCode: null, packQty: null, packSize: null, packUOM: null, useCount: 1, lastUsed: new Date(0), ...o,
+})
+const mOffer = (o: Partial<MOffer> & Pick<MOffer, 'inventoryItemId' | 'supplierId' | 'supplierItemCode'>): MOffer => ({
+  id: `o${++seq}`, isPrimary: true, pricing: { mode: 'PACK', purchasePrice: 10 }, packChain: [{ unit: 'case', per: 1000 }], ...o,
+})
+
+let ITEMS: MItem[] = []
+let ALIASES: MAlias[] = []
+let OFFERS: MOffer[] = []
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let aliasQueries: any[] = []
+
+const installPrisma = () => {
+  prismaMock.inventoryItem = {
+    findMany: async () => ITEMS.filter(i => i.isActive && i.mergedIntoId == null && i.recipe?.type !== 'PREP').map(i => ({ ...i, ...CHAIN })),
+  }
+  prismaMock.inventorySupplierPrice = {
+    // honours the supplier scope the matcher sends
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findMany: async (args: any) => OFFERS.filter(o => o.supplierId === args.where.supplierId),
+  }
+  prismaMock.itemSupplierAlias = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findMany: async (args: any) => {
+      aliasQueries.push(args)
+      const w = args.where
+      let rows = ALIASES.filter(a => a.supplierId === w.supplierId)
+      if (w.OR) {
+        const texts: string[] = w.OR.find((c: { text?: unknown }) => c.text)?.text.in ?? []
+        const codes: string[] = w.OR.find((c: { supplierItemCode?: unknown }) => c.supplierItemCode)?.supplierItemCode.in ?? []
+        rows = rows.filter(a => texts.includes(a.text) || (a.supplierItemCode != null && codes.includes(a.supplierItemCode)))
+      }
+      if (w.inventoryItemId?.in) rows = rows.filter(a => w.inventoryItemId.in.includes(a.inventoryItemId))
+      rows = [...rows].sort((a, b) => b.useCount - a.useCount || b.lastUsed.getTime() - a.lastUsed.getTime())
+      if (args.take != null) rows = rows.slice(0, args.take)
+      if (args.include) {
+        return rows.map(a => {
+          const item = ITEMS.find(i => i.id === a.inventoryItemId)
+          return { ...a, inventoryItem: item ? { ...item, ...CHAIN } : null }
+        })
+      }
+      return rows.map(a => ({ inventoryItemId: a.inventoryItemId, rawText: a.rawText }))
+    },
+  }
+}
+
+const mLine = (description: string, o: Partial<OcrLineItem> = {}): OcrLineItem => ({
+  description, supplierItemCode: null, lineCategory: null,
+  pricingMode: 'per_case', pricingModeSignal: 'explicit',
+  qtyOrdered: 1, qtyOrderedUOM: 'cs', qtyShipped: 1, qtyShippedUOM: 'cs',
+  packQty: null, packSize: null, packUOM: null,
+  unitPrice: 10, rate: null, rateUOM: null, totalQty: null, totalQtyUOM: null,
+  isCatchweight: false, nominalWeight: null, lineTotal: 10, taxFlag: null, lineTaxAmount: null,
+  ...o,
+} as OcrLineItem)
+
+describe('matchLineItems — tier 0 (alias by code), 0b (offer SKU), 1 (alias by wording)', () => {
+  beforeEach(() => { ITEMS = []; ALIASES = []; OFFERS = []; aliasQueries = []; installPrisma() })
+
+  it('tier 0 (alias by code) beats 0b (offer SKU) when they disagree', async () => {
+    ITEMS = [mItem('old', 'Zeta Item'), mItem('new', 'Theta Item')]
+    OFFERS = [mOffer({ inventoryItemId: 'old', supplierId: 'A', supplierItemCode: 'X' })]
+    ALIASES = [mAlias({ inventoryItemId: 'new', supplierId: 'A', text: 'some other wording', supplierItemCode: 'X' })]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'new', matchConfidence: 'HIGH', matchScore: 100 })
+  })
+
+  it('0b (offer SKU) beats tier 1 when no taught wording disagrees', async () => {
+    ITEMS = [mItem('old', 'Zeta Item'), mItem('new', 'Theta Item')]
+    OFFERS = [mOffer({ inventoryItemId: 'old', supplierId: 'A', supplierItemCode: 'X' })]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'old', matchConfidence: 'HIGH', matchScore: 100 })
+  })
+
+  it('0b answers when the taught wording AGREES with the SKU', async () => {
+    ITEMS = [mItem('old', 'Zeta Item'), mItem('new', 'Theta Item')]
+    OFFERS = [mOffer({ inventoryItemId: 'old', supplierId: 'A', supplierItemCode: 'X' })]
+    ALIASES = [mAlias({ inventoryItemId: 'old', supplierId: 'A', text: 'qqq www' })]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'old', matchConfidence: 'HIGH' })
+  })
+
+  it("0b stands down when this supplier's taught wording (no code) names a different item: tier 1 answers", async () => {
+    ITEMS = [mItem('old', 'Zeta Item'), mItem('new', 'Theta Item')]
+    OFFERS = [mOffer({ inventoryItemId: 'old', supplierId: 'A', supplierItemCode: 'X' })]
+    ALIASES = [mAlias({ inventoryItemId: 'new', supplierId: 'A', text: 'qqq www' })]
+    const [r] = await matchLineItems([mLine('QQQ, www', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'new', matchConfidence: 'HIGH', matchScore: 100 })
+  })
+
+  it('a dead (W4-failing) taught wording does not make 0b stand down', async () => {
+    ITEMS = [mItem('old', 'Zeta Item'), mItem('new', 'Theta Item', { isActive: false })]
+    OFFERS = [mOffer({ inventoryItemId: 'old', supplierId: 'A', supplierItemCode: 'X' })]
+    ALIASES = [mAlias({ inventoryItemId: 'new', supplierId: 'A', text: 'qqq www' })]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'old', matchConfidence: 'HIGH' })
+  })
+
+  it("another supplier's wording never makes 0b stand down", async () => {
+    ITEMS = [mItem('old', 'Zeta Item'), mItem('new', 'Theta Item')]
+    OFFERS = [mOffer({ inventoryItemId: 'old', supplierId: 'A', supplierItemCode: 'X' })]
+    ALIASES = [mAlias({ inventoryItemId: 'new', supplierId: 'B', text: 'qqq www' })]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'old', matchConfidence: 'HIGH' })
+  })
+
+  it('tier 0: a code two live aliases of this supplier give to different items is ambiguous — no hit', async () => {
+    ITEMS = [mItem('one', 'Zeta Item'), mItem('two', 'Theta Item')]
+    ALIASES = [
+      mAlias({ inventoryItemId: 'one', supplierId: 'A', text: 'wording one', supplierItemCode: 'X', useCount: 9 }),
+      mAlias({ inventoryItemId: 'two', supplierId: 'A', text: 'wording two', supplierItemCode: 'X', useCount: 1 }),
+    ]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r.matchedItemId).toBeNull()
+    expect(r.matchConfidence).toBe('NONE')
+  })
+
+  it('tier 0: an ambiguous code falls through to the wording tier', async () => {
+    ITEMS = [mItem('one', 'Zeta Item'), mItem('two', 'Theta Item')]
+    ALIASES = [
+      mAlias({ inventoryItemId: 'one', supplierId: 'A', text: 'wording one', supplierItemCode: 'X', useCount: 9 }),
+      mAlias({ inventoryItemId: 'two', supplierId: 'A', text: 'wording two', supplierItemCode: 'X', useCount: 1 }),
+    ]
+    const [r] = await matchLineItems([mLine('Wording Two', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'two', matchConfidence: 'HIGH' })
+  })
+
+  it('tier 0: two aliases sharing a code on the SAME item are not ambiguous', async () => {
+    ITEMS = [mItem('one', 'Zeta Item'), mItem('two', 'Theta Item')]
+    ALIASES = [
+      mAlias({ inventoryItemId: 'one', supplierId: 'A', text: 'wording one', supplierItemCode: 'X' }),
+      mAlias({ inventoryItemId: 'one', supplierId: 'A', text: 'wording one b', supplierItemCode: 'X' }),
+    ]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'one', matchConfidence: 'HIGH' })
+  })
+
+  it('tier 0: a dead alias sharing the code does not make a live one ambiguous', async () => {
+    ITEMS = [mItem('one', 'Zeta Item'), mItem('two', 'Theta Item', { mergedIntoId: 'one' })]
+    ALIASES = [
+      mAlias({ inventoryItemId: 'one', supplierId: 'A', text: 'wording one', supplierItemCode: 'X' }),
+      mAlias({ inventoryItemId: 'two', supplierId: 'A', text: 'wording two', supplierItemCode: 'X', useCount: 9 }),
+    ]
+    const [r] = await matchLineItems([mLine('QQQ WWW', { supplierItemCode: 'X' })], null, null, 'A')
+    expect(r).toMatchObject({ matchedItemId: 'one', matchConfidence: 'HIGH' })
+  })
+
+  it("tier 3 reads all of this supplier's wordings for the items in play (no row cap on the query)", async () => {
+    ITEMS = [mItem('grapes', 'Red Grapes'), mItem('kale', 'Kale')]
+    await matchLineItems([mLine('RED GRAPES')], null, null, 'A')
+    const tier3 = aliasQueries.find(q => q.where.inventoryItemId?.in)
+    expect(tier3).toBeDefined()
+    expect(tier3.take).toBeUndefined()
   })
 })

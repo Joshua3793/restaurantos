@@ -1,3 +1,4 @@
+// DEAD: one-off collapse of InvoiceMatchRule supplier-name variants (2026-06). Stage 3 retired that table — the app reads and writes supplier wordings in ItemSupplierAlias now. Do not run.
 import { prisma } from '../src/lib/prisma'
 import { matchSupplierByName } from '../src/lib/supplier-matcher'
 import { syncPrepToInventory } from '../src/lib/recipeCosts'
@@ -18,7 +19,7 @@ async function main() {
   const canonCache = new Map<string,string>()
   const canonOf = async (name:string) => {
     if (canonCache.has(name)) return canonCache.get(name)!
-    const sid = await matchSupplierByName(name)
+    const sid = (await matchSupplierByName(name))?.supplierId
     let c = name
     if (sid) { const s = await prisma.supplier.findUnique({ where:{id:sid}, select:{name:true} }); if (s?.name) c = s.name }
     canonCache.set(name, c); return c

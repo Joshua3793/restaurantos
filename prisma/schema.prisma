@@ -93,6 +93,7 @@ model Supplier {
   invoices        Invoice[]
   invoiceSessions InvoiceSession[]         @relation("SupplierInvoiceSessions")
   aliases         SupplierAlias[]
+  itemAliases     ItemSupplierAlias[]
 }
 
 model SupplierAlias {
@@ -103,6 +104,30 @@ model SupplierAlias {
   supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
   @@unique([supplierId, name])
+}
+
+// One supplier's own wording (and code) for one item — what the matcher reads and
+// approve writes. Replaces InvoiceMatchRule (kept, unread, until the Stage 1e drop).
+model ItemSupplierAlias {
+  id               String        @id @default(cuid())
+  inventoryItemId  String
+  supplierId       String
+  text             String // normaliseAliasText(rawText)
+  rawText          String // as last seen on an invoice, for display
+  supplierItemCode String? // normItemCode
+  packQty          Decimal? // learned human format, display/provenance only
+  packSize         Decimal?
+  packUOM          String?
+  source           String // 'APPROVE' | 'CREATE_NEW' | 'MERGE' | 'RENAME' | 'BACKFILL'
+  useCount         Int           @default(1)
+  lastUsed         DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  supplier         Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, text])
+  @@index([supplierId, supplierItemCode])
+  @@index([inventoryItemId])
 }
 
 model InventoryItem {
@@ -164,6 +189,7 @@ model InventoryItem {
   stockTransfers     StockTransfer[]
   wastageLogs        WastageLog[]
   revenueCenters     ItemRevenueCenter[]
+  aliases            ItemSupplierAlias[]
 }
 
 model Invoice {

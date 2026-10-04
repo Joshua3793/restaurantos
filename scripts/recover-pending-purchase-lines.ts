@@ -2,13 +2,13 @@
  * Recover PENDING purchase lines on APPROVED invoices that were already matched to the
  * correct item but never confirmed — so approve skipped them and their stock was never
  * credited. Activates them (action -> ADD_SUPPLIER, approved -> true) and teaches the
- * supplier-code rule so future invoices auto-match (no re-leak).
+ * supplier's wording + code (ItemSupplierAlias) so future invoices auto-match (no re-leak).
  *
  * DRY RUN:  TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/recover-pending-purchase-lines.ts
  * APPLY:    APPLY=1 TS_NODE_PROJECT=tsconfig.scripts.json npx ts-node -r tsconfig-paths/register scripts/recover-pending-purchase-lines.ts
  */
 import { prisma } from '../src/lib/prisma'
-import { saveMatchRule } from '../src/lib/invoice-matcher'
+import { saveAlias } from '../src/lib/invoice-matcher'
 import { getTheoreticalStockMap } from '../src/lib/count-expected'
 import { asChainItem, pricePerBaseUnit, PRICING_SELECT } from '../src/lib/item-model'
 
@@ -27,7 +27,7 @@ async function main() {
       id: true, rawDescription: true, rawLineTotal: true, supplierItemCode: true, matchedItemId: true,
       invoicePackQty: true, invoicePackSize: true, invoicePackUOM: true,
       matchedItem: { select: { itemName: true } },
-      session: { select: { supplierName: true } },
+      session: { select: { supplierId: true } },
     },
     orderBy: { rawLineTotal: 'desc' },
   })
@@ -48,11 +48,11 @@ async function main() {
   const baseOf = new Map(itemsMeta.map(i => [i.id, i.baseUnit]))
 
   if (!APPLY) {
-    console.log(`\n(DRY RUN — no writes. Re-run with APPLY=1 to activate + teach rules.)`)
+    console.log(`\n(DRY RUN — no writes. Re-run with APPLY=1 to activate + teach supplier wordings.)`)
     await prisma.$disconnect(); return
   }
 
-  // Activate lines + teach match rules
+  // Activate lines + teach supplier wordings
   let activated = 0
   for (const l of lines) {
     await prisma.invoiceScanItem.update({
@@ -62,10 +62,13 @@ async function main() {
     const fmt = (l.invoicePackQty != null && l.invoicePackSize != null)
       ? { packQty: Number(l.invoicePackQty), packSize: Number(l.invoicePackSize), packUOM: l.invoicePackUOM ?? 'each' }
       : null
-    await saveMatchRule(l.rawDescription, l.matchedItemId!, l.session.supplierName, fmt, l.supplierItemCode).catch(e => console.error('  rule save failed:', e))
+    await saveAlias({
+      rawDescription: l.rawDescription, inventoryItemId: l.matchedItemId!, supplierId: l.session.supplierId,
+      supplierItemCode: l.supplierItemCode, format: fmt, source: 'APPROVE',
+    }).catch(e => console.error('  supplier wording save failed:', e))
     activated++
   }
-  console.log(`\nActivated ${activated} lines; taught ${activated} match rules (code + description).`)
+  console.log(`\nActivated ${activated} lines; taught ${activated} supplier wordings (code + description).`)
 
   // theoretical AFTER
   const after = await getTheoreticalStockMap(null, ids)

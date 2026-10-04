@@ -266,10 +266,14 @@ async function handleDELETE(_req: NextRequest, { params }: { params: { id: strin
   }
 
   // Truly unreferenced — safe to hard-delete. Clean up the metadata-only relations
-  // (match rules / scan matches / price alerts) that would otherwise FK-block it.
-  // StockAllocation + InventorySupplierPrice cascade automatically.
+  // (old learned matches / scan matches / price alerts) that would otherwise
+  // FK-block it. StockAllocation, InventorySupplierPrice and the supplier
+  // wordings (ItemSupplierAlias) cascade automatically.
   try {
     await prisma.$transaction(async tx => {
+      // The retired InvoiceMatchRule table is no longer read or written, but it
+      // keeps its rows (and its Restrict FK) until the Stage 1e drop — so they
+      // still have to go first or the item delete throws.
       await tx.invoiceMatchRule.deleteMany({ where: { inventoryItemId: id } })
       await tx.priceAlert.deleteMany({ where: { inventoryItemId: id } })
       await tx.invoiceScanItem.updateMany({ where: { matchedItemId: id }, data: { matchedItemId: null } })

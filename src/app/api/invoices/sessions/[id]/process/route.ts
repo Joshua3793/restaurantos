@@ -317,7 +317,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const finalSupplierName = sessionMeta.supplierName ?? session.supplierName
     let autoSupplierId: string | null = null
     if (finalSupplierName) {
-      autoSupplierId = await matchSupplierByName(finalSupplierName)
+      // A fuzzy hit links the session as a suggestion only; the spelling is
+      // learned when the invoice is approved with it (W6).
+      autoSupplierId = (await matchSupplierByName(finalSupplierName))?.supplierId ?? null
     }
 
     let matched: Awaited<ReturnType<typeof matchLineItems>> = []

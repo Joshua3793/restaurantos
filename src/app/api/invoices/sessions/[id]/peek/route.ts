@@ -142,7 +142,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const canonical = new Map<string, string>()
   await Promise.all(rawNames.map(async raw => {
     try {
-      const supplierId = await matchSupplierByName(raw)
+      const supplierId = (await matchSupplierByName(raw))?.supplierId
       if (!supplierId) return
       const sup = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { name: true } })
       if (sup?.name) canonical.set(raw, sup.name)

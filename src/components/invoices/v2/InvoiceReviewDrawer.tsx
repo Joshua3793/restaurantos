@@ -38,7 +38,8 @@ import { formToChain } from '@/lib/item-model-form'
 import {
   DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
 } from '@/components/inventory/ItemChainEditor'
-import { seedFromScanLine, isByWeightLine, lineMeasureUnit, validateCreateNew } from '@/lib/invoice/create-new-seed'
+import { seedFromScanLine, isByWeightLine, lineMeasureUnit, validateCreateNew, createNewName } from '@/lib/invoice/create-new-seed'
+import { isShoutyName, SHOUTY_HINT } from '@/lib/alias-text'
 
 // ─── InvoiceHeader ─────────────────────────────────────────────────────────────
 
@@ -1669,6 +1670,35 @@ function EachMeasureField({
   )
 }
 
+// ─── InvoiceWordingHint ──────────────────────────────────────────────────────────────
+// Under the new product's name box: what the supplier calls it on the invoice
+// (kept as their wording on approve), with the explicit override to use that
+// wording as the name itself.
+
+function InvoiceWordingHint({ supplierName, rawText, usingIt, onUse }: {
+  supplierName: string | null
+  rawText: string
+  /** The name box already holds the wording, accepted on purpose. */
+  usingIt: boolean
+  onUse: () => void
+}) {
+  if (!rawText.trim()) return null
+  return (
+    <p className="text-[11.5px] text-ink-3 mt-1 leading-[1.45]">
+      {supplierName ? `${supplierName} calls it:` : 'The invoice calls it:'}{' '}
+      <span className="font-medium text-ink-2">{rawText}</span>
+      {!usingIt && (
+        <>
+          {' · '}
+          <button type="button" onClick={onUse} className="font-semibold text-ink underline underline-offset-2">
+            Use this wording anyway
+          </button>
+        </>
+      )}
+    </p>
+  )
+}
+
 // ─── CreateNewProductPanel ───────────────────────────────────────────────────────────
 // Full form to configure a new inventory item before approve creates it.
 // Rendered over the review column (not as a centred modal) so the invoice image
@@ -1708,7 +1738,11 @@ function CreateNewProductPanel({
   const [categories, setCategories] = useState<string[]>([])
   const [suppliers,    setSuppliers]    = useState<{ id: string; name: string }[]>([])
   const [storageAreas, setStorageAreas] = useState<{ id: string; name: string }[]>([])
-  const [itemName,     setItemName]     = useState(item.rawDescription ?? '')
+  // W5: the name box starts EMPTY — the invoice wording is shown beneath it as
+  // the supplier's own ("Sysco calls it: …") and is saved as their wording on
+  // approve. "Use this wording anyway" is the explicit override (W1).
+  const [itemName,     setItemName]     = useState('')
+  const [allowShouty,  setAllowShouty]  = useState(false)
   const [category,     setCategory]     = useState('DRY')
   const [supplierId,   setSupplierId]   = useState<string>(sessionSupplierId ?? '')
   const [storageAreaId, setStorageAreaId] = useState<string>('')
@@ -1762,17 +1796,23 @@ function CreateNewProductPanel({
   const perCount = basePerUnit(chainItem, countUnit)
   const seedRate = seed.pricing.mode === 'RATE' ? seed.pricing.rate : null
   const gate = validateCreateNew({ line: item, dimension, eachMeasureQty })
+  // The same name rule approve applies — minus the fallback to the wording, so
+  // a blank box asks for a name instead of silently using the invoice's.
+  const nameGate = createNewName({ itemName, rawDescription: null, allowShouty })
+  const nameIsShouty = !allowShouty && isShoutyName(itemName.trim())
 
   const handleSave = async () => {
     const errors = validateChainItem(chainItem)
     if (errors.length) { alert(errors.join('; ')); return }
     if (!gate.ok) { alert(gate.error); return }
+    if (!nameGate.ok) { alert(nameGate.error); return }
     setSaving(true)
     // Chain-shaped newItemData — the approve route stores dimension/packChain/
     // pricing/countUnit directly (with a legacy-field fallback for any session
     // configured before this form was migrated).
     const newItemData = {
-      itemName: itemName.trim() || item.rawDescription,
+      itemName: nameGate.itemName,
+      ...(allowShouty ? { allowShouty: true } : {}),
       category,
       supplierId: supplierId || null,
       storageAreaId: storageAreaId || null,
@@ -1848,10 +1888,32 @@ function CreateNewProductPanel({
             <input
               type="text"
               value={itemName}
-              onChange={e => setItemName(e.target.value)}
+              onChange={e => { setItemName(e.target.value); setAllowShouty(false) }}
               className={inputCls}
-              placeholder={item.rawDescription ?? ''}
+              placeholder='A plain name, for example "Red Grapes"'
             />
+            <InvoiceWordingHint
+              supplierName={suppliers.find(s => s.id === sessionSupplierId)?.name ?? sessionSupplierName}
+              rawText={item.rawDescription ?? ''}
+              usingIt={allowShouty && itemName === (item.rawDescription ?? '')}
+              onUse={() => { setItemName(item.rawDescription ?? ''); setAllowShouty(true) }}
+            />
+            {nameIsShouty && (
+              <p className="text-[11.5px] text-red-text mt-1 leading-[1.45]">
+                {SHOUTY_HINT}
+                {/* One override link: when the box holds the invoice wording
+                    itself, the "Use this wording anyway" link above is it. */}
+                {itemName.trim() !== (item.rawDescription ?? '').trim() && (
+                  <>
+                    {' '}
+                    <button type="button" onClick={() => setAllowShouty(true)}
+                      className="font-semibold underline underline-offset-2">
+                      Use it anyway
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -2011,14 +2073,19 @@ function CreateNewProductPanel({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !gate.ok}
+            disabled={saving || !gate.ok || !nameGate.ok}
             className="px-4 py-2 text-[13px] font-medium bg-ink text-paper rounded-lg hover:bg-ink-2 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving…' : 'Save product'}
           </button>
         </div>
-        {!gate.ok && (
+        {!gate.ok ? (
           <p className="text-[11px] text-red-text mt-2 text-right">{gate.error}</p>
+        ) : !nameGate.ok && (
+          // The shouty hint already sits under the name box; say only what is missing.
+          <p className="text-[11px] text-ink-3 mt-2 text-right">
+            {nameIsShouty ? 'Give it a plain name, or use the invoice wording anyway.' : nameGate.error}
+          </p>
         )}
       </div>
     </div>

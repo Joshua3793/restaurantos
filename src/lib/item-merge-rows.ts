@@ -78,6 +78,7 @@ export const REPOINT_FK: Record<RepointTable, string> = {
   InventorySupplierPrice: 'inventoryItemId',
   StockAllocation:        'inventoryItemId',
   ItemRevenueCenter:      'inventoryItemId',
+  ItemSupplierAlias:      'inventoryItemId',
 }
 
 // ── 5. request parsing + the row-id guard ────────────────────────────────────
@@ -195,6 +196,7 @@ export const TABLE_DELEGATE: Record<UpdateTable, string> = {
   InventorySupplierPrice: 'inventorySupplierPrice',
   StockAllocation:        'stockAllocation',
   ItemRevenueCenter:      'itemRevenueCenter',
+  ItemSupplierAlias:      'itemSupplierAlias',
 }
 
 // ── 3. nullable Json columns ─────────────────────────────────────────────────
@@ -220,6 +222,7 @@ export const NULLABLE_JSON_COLUMNS: Record<UpdateTable, readonly string[]> = {
   InventorySupplierPrice: ['packChain', 'pricing'],
   StockAllocation:        [],
   ItemRevenueCenter:      [],
+  ItemSupplierAlias:      [],
 }
 
 /** A manifest `row`/`after` object as Prisma write data: identical except that a
@@ -229,6 +232,25 @@ export function writeData(table: UpdateTable | DeleteTable, data: Record<string,
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(data)) out[k] = v === null && jsonCols.includes(k) ? Prisma.DbNull : v
   return out
+}
+
+/**
+ * How the executor removes the row a `delete` op names.
+ *
+ * Every table but one deletes strictly by id: a manifest row that has vanished
+ * is a race, and the P2025 it raises becomes a conflict. The exception is the
+ * wording a merge wrote for the absorbed item's old name (W9), whose only
+ * delete is the UNDO of that create. Since the merge, a manager may have
+ * removed it from the item drawer, or a later invoice may have confirmed it for
+ * another item — so undo removes it only while it is still on the item the
+ * merge put it on, and a missing row is fine (`deleteMany` matches zero).
+ */
+export function deleteArgs(table: DeleteTable, row: Record<string, unknown>):
+  { many: boolean; where: Record<string, unknown> } {
+  const id = row.id
+  if (typeof id !== 'string') throw new Error(`Manifest ${table} delete op has no row id`)
+  if (table === 'ItemSupplierAlias') return { many: true, where: { id, inventoryItemId: row.inventoryItemId } }
+  return { many: false, where: { id } }
 }
 
 // ── 4. op ordering + manifest re-reading ─────────────────────────────────────

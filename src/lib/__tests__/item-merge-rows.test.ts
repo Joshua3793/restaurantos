@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import {
   toPlain, toPlainRow, REPOINT_FK, TABLE_DELEGATE, NULLABLE_JSON_COLUMNS,
   writeData, mergeOpOrder, undoOpOrder, parseManifest, recipeIngredientRepointIds, asCountEntries,
-  repointTableChecks, batchUpdateOps, type BatchedOp,
+  repointTableChecks, batchUpdateOps, deleteArgs, type BatchedOp,
   parseCombinedOnHand, isSafeRowId, lockItemsSql, tombstonedRows, TOMBSTONE_EDIT_ERROR,
 } from '../item-merge-rows'
 import type { MergeManifest, MergeOp, UpdateTable } from '../item-merge'
@@ -80,7 +80,7 @@ describe('table lookups', () => {
   it('covers every re-pointable table', () => {
     expect(Object.keys(REPOINT_FK).sort()).toEqual([
       'CountLine', 'InventorySnapshot', 'InventorySupplierPrice', 'InvoiceLineItem', 'InvoiceMatchRule',
-      'InvoiceScanItem', 'ItemRevenueCenter', 'PriceAlert', 'RecipeIngredient', 'StockAllocation',
+      'InvoiceScanItem', 'ItemRevenueCenter', 'ItemSupplierAlias', 'PriceAlert', 'RecipeIngredient', 'StockAllocation',
       'StockTransfer', 'WastageLog',
     ])
   })
@@ -134,6 +134,25 @@ describe('writeData', () => {
     expect(NULLABLE_JSON_COLUMNS.InventorySupplierPrice).toEqual(['packChain', 'pricing'])
     expect(NULLABLE_JSON_COLUMNS.InvoiceScanItem).toEqual(['rcSplit', 'bbox'])
     expect(NULLABLE_JSON_COLUMNS.InventoryItem).toEqual([])
+    expect(NULLABLE_JSON_COLUMNS.ItemSupplierAlias).toEqual([])
+  })
+})
+
+describe('deleteArgs', () => {
+  it('deletes an ordinary row strictly by id (a vanished row is a conflict)', () => {
+    expect(deleteArgs('InventorySupplierPrice', { id: 'o1', inventoryItemId: 'S' }))
+      .toEqual({ many: false, where: { id: 'o1' } })
+  })
+
+  it('removes a merge wording only while it is still on the item the merge put it on, and tolerates it being gone', () => {
+    // A manager may have deleted the wording from the drawer since, or a later
+    // invoice confirmed it for another item — undo must neither fail nor take it.
+    expect(deleteArgs('ItemSupplierAlias', { id: 'al1', inventoryItemId: 'S' }))
+      .toEqual({ many: true, where: { id: 'al1', inventoryItemId: 'S' } })
+  })
+
+  it('refuses a row with no id', () => {
+    expect(() => deleteArgs('ItemSupplierAlias', { inventoryItemId: 'S' })).toThrow(/no row id/)
   })
 })
 

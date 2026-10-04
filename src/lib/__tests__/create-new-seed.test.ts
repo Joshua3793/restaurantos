@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { lineMeasureUnit, isByWeightLine, seedFromScanLine, validateCreateNew, CREATE_NEW_COUNT_NEEDS_EACH } from '@/lib/invoice/create-new-seed'
+import { lineMeasureUnit, isByWeightLine, seedFromScanLine, validateCreateNew, CREATE_NEW_COUNT_NEEDS_EACH, createNewName, CREATE_NEW_NEEDS_NAME } from '@/lib/invoice/create-new-seed'
+import { SHOUTY_HINT } from '@/lib/alias-text'
 import { formToChain } from '@/lib/item-model-form'
 
 // The four real lines (read-only dump 2026-09-22)
@@ -103,5 +104,53 @@ describe('validateCreateNew', () => {
   })
   it('a proven catch-weight line still needs an each-measure to be COUNT', () => {
     expect(validateCreateNew({ line: catchWeight, dimension: 'COUNT', eachMeasureQty: null })).toEqual({ ok: false, error: CREATE_NEW_COUNT_NEEDS_EACH })
+  })
+})
+
+// W1 on the create-new path: the product's name is a plain name, not the
+// invoice wording — unless the reviewer explicitly kept the wording.
+describe('createNewName', () => {
+  const RAW = 'GRAPE RED FRSH SEEDLS CLAM'
+  it('a plain name passes, trimmed', () => {
+    expect(createNewName({ itemName: '  Red Grapes ', rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: true, itemName: 'Red Grapes' })
+  })
+  it('an invoice wording typed as the name is refused with the hint', () => {
+    expect(createNewName({ itemName: 'BUN BRIOCHE 12 PK', rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: false, error: SHOUTY_HINT })
+  })
+  it('a blank name falls back to the wording (older sessions) — and that wording is refused too', () => {
+    expect(createNewName({ itemName: '', rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: false, error: SHOUTY_HINT })
+    expect(createNewName({ itemName: '', rawDescription: 'Red grapes', allowShouty: undefined }))
+      .toEqual({ ok: true, itemName: 'Red grapes' })
+  })
+  it('allowShouty: true keeps the wording exactly as the reviewer chose', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: true }))
+      .toEqual({ ok: true, itemName: RAW })
+  })
+  it('only a real true overrides — a string "true" does not', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: 'true' }).ok).toBe(false)
+  })
+  it('an older save (no allowShouty, name = the invoice wording the old panel pre-filled) still goes through', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: true, itemName: RAW })
+    expect(createNewName({ itemName: ` ${RAW} `, rawDescription: `${RAW}  `, allowShouty: undefined }))
+      .toEqual({ ok: true, itemName: RAW })
+  })
+  it('a new save that said no to the wording (allowShouty: false) is refused even when it equals the wording', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: RAW, allowShouty: false }))
+      .toEqual({ ok: false, error: SHOUTY_HINT })
+  })
+  it('a shouty name that differs from the wording is refused without an override', () => {
+    expect(createNewName({ itemName: 'GRAPES RED SEEDLESS CLAMSHELL', rawDescription: RAW, allowShouty: undefined }))
+      .toEqual({ ok: false, error: SHOUTY_HINT })
+  })
+  it('the panel (rawDescription: null) never gets the older-save pass', () => {
+    expect(createNewName({ itemName: RAW, rawDescription: null, allowShouty: undefined }).ok).toBe(false)
+  })
+  it('no name and no wording is refused', () => {
+    expect(createNewName({ itemName: ' ', rawDescription: null, allowShouty: undefined }))
+      .toEqual({ ok: false, error: CREATE_NEW_NEEDS_NAME })
   })
 })
