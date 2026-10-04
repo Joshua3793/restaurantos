@@ -6,7 +6,7 @@ const nextConfig = {
   // sharp is a native Node module — must stay outside webpack bundling
   // (Next.js 14 uses experimental.serverComponentsExternalPackages)
   experimental: {
-    serverComponentsExternalPackages: ['sharp'],
+    serverComponentsExternalPackages: ['sharp', 'pg'],
   },
 };
 

@@ -18,6 +18,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",
     "@capacitor/core": "^5.7.8",
+    "@prisma/adapter-pg": "5.22.0",
     "@prisma/client": "^5.22.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.1",
@@ -31,6 +32,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^4.10.38",
+    "pg": "^8.23.1",
     "prisma": "^5.22.0",
     "react": "^18",
     "react-dom": "^18",
@@ -42,6 +44,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.39",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
