@@ -8,12 +8,13 @@ import { listedPrice, withLastCost } from '@/lib/cost-basis'
 import { PRIMARY_SUPPLIER_INCLUDE, withSupplier } from '@/lib/item-supplier'
 import { offerListedPrice } from '@/lib/offer-price'
 import { requireSession, AuthError } from '@/lib/auth'
-import { fetchInventoryList, parseInventoryListParams } from '@/lib/inventory-list'
+import { fetchInventoryList, parseInventoryListParams, type PhaseTimer } from '@/lib/inventory-list'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import { seesItemMoney, redactInventoryItem } from '@/lib/inventory-redact'
 import { isShoutyName, SHOUTY_HINT_PLAIN } from '@/lib/alias-text'
 
 export async function GET(req: NextRequest) {
+  const started = Date.now()
   let user
   try { user = await requireSession() }
   catch (e) {
@@ -22,10 +23,22 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url)
-  const { rows } = await fetchInventoryList(user, parseInventoryListParams(searchParams))
+  // Server-Timing: the phases of the list, readable in the browser's network panel —
+  // the largest read in the app, so its cost should never be a guess.
+  const phases: string[] = [`auth;dur=${Date.now() - started}`]
+  const time: PhaseTimer = async (name, work) => {
+    const t = Date.now()
+    try { return await work } finally { phases.push(`${name};dur=${Date.now() - t}`) }
+  }
+  const { rows } = await time('list', fetchInventoryList(user, parseInventoryListParams(searchParams), time))
   // STAFF never sees item prices (src/lib/inventory-redact.ts).
   const body = seesItemMoney(user.role) ? rows : rows.map(r => redactInventoryItem(r))
-  return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } })
+  const t = Date.now()
+  const json = JSON.stringify(body)
+  phases.push(`json;dur=${Date.now() - t}`)
+  return new NextResponse(json, {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Server-Timing': phases.join(', ') },
+  })
 }
 
 async function handlePOST(req: NextRequest) {

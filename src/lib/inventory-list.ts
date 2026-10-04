@@ -137,9 +137,14 @@ function attachTheoreticalFields<T extends Record<string, any>>(
  * `outOfScope` is true when a scoped user asked for an rcId outside their scope —
  * the caller must return an empty result, never another RC's data.
  */
+/** Optional stopwatch: the list route reports these phases as a Server-Timing header. */
+export type PhaseTimer = <T>(name: string, work: Promise<T>) => Promise<T>
+const untimed: PhaseTimer = (_name, work) => work
+
 export async function fetchInventoryList(
   user: User,
   params: InventoryListParams,
+  time: PhaseTimer = untimed,
 ): Promise<{ rows: InventoryListRow[]; outOfScope: boolean }> {
   const { search, category, supplierId, storageAreaId, isActive, rcId, isDefault, locationId, includeNonStocked } = params
 
@@ -197,7 +202,7 @@ export async function fetchInventoryList(
   // this RC appears here with its theoretical on-hand. StockAllocation is left-joined
   // only for par/reorder (and rcStock as a legacy fallback).
   if (rcId && !isDefault) {
-    const [members, allocations] = await Promise.all([
+    const [members, allocations] = await time('items', Promise.all([
       prisma.inventoryItem.findMany({
         where: { AND: [itemWhere, { revenueCenters: { some: { revenueCenterId: rcId } } }] },
         include: itemInclude,
@@ -207,7 +212,7 @@ export async function fetchInventoryList(
         where: { revenueCenterId: rcId },
         select: { inventoryItemId: true, quantity: true, parLevel: true, reorderQty: true },
       }),
-    ])
+    ]))
     const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
     const items = members.map(m => {
       const i = withSupplier(m)
@@ -221,15 +226,15 @@ export async function fetchInventoryList(
     })
     const itemIds = items.map(i => i.id)
     const [theoMap, countedMap] = await Promise.all([
-      getTheoreticalStockMapCached(rcId),
-      getCountedStockMap([rcId], itemIds),
+      time('theoretical', getTheoreticalStockMapCached(rcId)),
+      time('counted', getCountedStockMap([rcId], itemIds)),
     ])
     return { rows: attachTheoreticalFields(items, theoMap, countedMap), outOfScope: false }
   }
 
   // Default RC (Cafe): stockOnHand IS Cafe's pool – return as-is
   if (rcId && isDefault) {
-    const [items, allocations] = await Promise.all([
+    const [items, allocations] = await time('items', Promise.all([
       prisma.inventoryItem.findMany({
         where: itemWhere,
         include: itemInclude,
@@ -239,7 +244,7 @@ export async function fetchInventoryList(
         where: { revenueCenterId: rcId },
         select: { inventoryItemId: true, parLevel: true, reorderQty: true },
       }),
-    ])
+    ]))
     const allocByItemId = Object.fromEntries(allocations.map(a => [a.inventoryItemId, a]))
     const result = items.map(raw => {
       const i = withSupplier(raw)
@@ -252,10 +257,10 @@ export async function fetchInventoryList(
     })
     const itemIds = result.map(i => i.id)
     const [theoMap, countedMap] = await Promise.all([
-      getTheoreticalStockMapCached(rcId),
+      time('theoretical', getTheoreticalStockMapCached(rcId)),
       // getCountedStockMap attributes pre-RC (null) count sessions to the default RC,
       // so this path also picks up the counts that predate the revenue-centre model.
-      getCountedStockMap([rcId], itemIds),
+      time('counted', getCountedStockMap([rcId], itemIds)),
     ])
     return { rows: attachTheoreticalFields(result, theoMap, countedMap), outOfScope: false }
   }
@@ -297,7 +302,7 @@ export async function fetchInventoryList(
     }
   }
 
-  const rawItems = await prisma.inventoryItem.findMany({
+  const rawItems = await time('items', prisma.inventoryItem.findMany({
     where: { AND: [itemWhere, scopedItemFilter] },
     include: {
       ...itemInclude,
@@ -309,7 +314,7 @@ export async function fetchInventoryList(
       },
     },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
-  })
+  }))
   const items = rawItems.map(({ stockAllocations, ...rawItem }) => {
     const item = withSupplier(rawItem)
     // The default RC's stockOnHand pool only counts toward the aggregate when that RC is in
@@ -322,10 +327,10 @@ export async function fetchInventoryList(
   })
   const itemIds = items.map(i => i.id)
   const [theoMap, countedMap] = await Promise.all([
-    getTheoreticalStockMapCached(null, undefined, scope),
+    time('theoretical', getTheoreticalStockMapCached(null, undefined, scope)),
     // Same scope rule as the theoretical map: "All" is Σ over the RCs in scope — the
     // location lens's RCs, or a scoped user's allowed set, or every RC.
-    getCountedStockMap(scope === null ? null : [...scope], itemIds),
+    time('counted', getCountedStockMap(scope === null ? null : [...scope], itemIds)),
   ])
   return { rows: attachTheoreticalFields(items, theoMap, countedMap), outOfScope: false }
 }
