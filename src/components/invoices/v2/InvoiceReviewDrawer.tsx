@@ -25,7 +25,11 @@ import {
 import {
   isUnlinked, hasMathCheck, hasDimensionConflict, needsTrustCheck,
 } from '@/lib/invoice/predicates'
-import { lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit, type SupplierRef } from '@/lib/invoice/resolution'
+import {
+  lineUnresolved, isCharge, isBigPriceChange, hasInvalidRcSplit, approveBlockOf, unitCheckOf, hasApproveDecision,
+  type SupplierRef, type ResolveOpts,
+} from '@/lib/invoice/resolution'
+import type { BlockedLine } from '@/lib/invoice/approve-outcome'
 import { aggregateSaveResult } from '@/lib/invoice/save-status'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatCurrency } from '@/lib/invoice/formatters'
@@ -366,6 +370,14 @@ function InvoiceHeader({
   )
 }
 
+/** A copy of `set` with `id` flipped in or out. */
+function toggleIn(set: Set<string>, id: string): Set<string> {
+  const next = new Set(set)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return next
+}
+
 // ─── DrawerFooter ──────────────────────────────────────────────────────────────
 // Commits, doesn't decide (mock §4). Left = a plain-English summary of exactly
 // what approving writes; right = Reject + the one ink-on-gold Approve & post.
@@ -623,7 +635,13 @@ export function InvoiceReviewDrawer({
   const [pickingLinkForId,  setPickingLinkForId]  = useState<string | null>(null)
   const [acknowledgedPriceLines, setAcknowledgedPriceLines] = useState<Set<string>>(new Set())
   const [acknowledgedConfLines, setAcknowledgedConfLines] = useState<Set<string>>(new Set())
-  const [creatingNewForItem,      setCreatingNewForItem]      = useState<ScanItem | null>(null)
+  // Approve decisions (plan 2026-10-05 Stage 5, Task 4): "Receive the stock, keep
+  // the old price" and "The price is right" per line, and the lines the approve
+  // preflight refused (409 LINES_BLOCKED) — each kept until that line is edited.
+  const [receiveOnlyLines,   setReceiveOnlyLines]   = useState<Set<string>>(new Set())
+  const [unitConfirmedLines, setUnitConfirmedLines] = useState<Set<string>>(new Set())
+  const [serverBlocks,       setServerBlocks]       = useState<Map<string, BlockedLine>>(new Map())
+  const [creatingNewForItem,     setCreatingNewForItem]      = useState<ScanItem | null>(null)
   // The best existing-item hit for the line currently in the Create-New modal —
   // powers the "Add as a supplier instead" banner. Kept as the full search result
   // (not just the display fields) so onUseExisting can build the link patch
@@ -675,9 +693,10 @@ export function InvoiceReviewDrawer({
     if (!session) return
     if (initializedSessionRef.current === session.id) return // refetch — keep progress
     initializedSessionRef.current = session.id
+    const loadRef: SupplierRef = { supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null }
     const toExpand = new Set(
       session.scanItems
-        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i)))
+        .filter(i => i.action !== 'SKIP' && (isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || hasApproveDecision(i, {}, loadRef)))
         .map(i => i.id),
     )
     setExpandedLineIds(toExpand)
@@ -687,6 +706,9 @@ export function InvoiceReviewDrawer({
     setPickingLinkForId(null)
     setAcknowledgedPriceLines(new Set())
     setAcknowledgedConfLines(new Set())
+    setReceiveOnlyLines(new Set())
+    setUnitConfirmedLines(new Set())
+    setServerBlocks(new Map())
     setActiveBboxItemId(null)
     setMobileTab('review')
     setReviewSegment('all')
@@ -700,7 +722,7 @@ export function InvoiceReviewDrawer({
     const attentionIds = new Set(
       session.scanItems
         .filter(i => i.action !== 'SKIP' && (
-          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, { supplierId: session.supplierId, supplierName: session.supplierName, canonicalName: session.supplier?.name ?? null }) || needsTrustCheck(i)
+          isUnlinked(i) || hasMathCheck(i) || hasDimensionConflict(i) || isBridgeable(i) || isBigPriceChange(i, loadRef) || needsTrustCheck(i) || hasApproveDecision(i, {}, loadRef)
         ))
         .map(i => i.id),
     )
@@ -725,11 +747,14 @@ export function InvoiceReviewDrawer({
 
   // Per-line resolution options (price / low-trust acknowledgement).
   const optsFor = useCallback(
-    (id: string) => ({
+    (id: string): ResolveOpts => ({
       priceAck: acknowledgedPriceLines.has(id),
       confAck: acknowledgedConfLines.has(id),
+      receiveOnly: receiveOnlyLines.has(id),
+      unitConfirmed: unitConfirmedLines.has(id),
+      serverBlock: serverBlocks.get(id) ?? null,
     }),
-    [acknowledgedPriceLines, acknowledgedConfLines],
+    [acknowledgedPriceLines, acknowledgedConfLines, receiveOnlyLines, unitConfirmedLines, serverBlocks],
   )
 
   // ONE supplier ref for every offer lookup in this drawer — the same shape the
@@ -742,8 +767,10 @@ export function InvoiceReviewDrawer({
   }), [session?.supplierId, session?.supplierName, session?.supplier?.name])
 
   const lineIsAttention = useCallback((i: ScanItem) =>
-    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, sessionSupplierRef) || needsTrustCheck(i) || hasInvalidRcSplit(i, sessionSupplierRef),
-  [sessionSupplierRef])
+    isUnlinked(i) || hasDimensionConflict(i) || isBridgeable(i) || hasMathCheck(i) || isBigPriceChange(i, sessionSupplierRef) || needsTrustCheck(i) || hasInvalidRcSplit(i, sessionSupplierRef)
+    // A line approve would refuse, or a price ~1,000× off — the same decision the preflight runs.
+    || hasApproveDecision(i, optsFor(i.id), sessionSupplierRef),
+  [sessionSupplierRef, optsFor])
 
   // Group lines into the mock's three sections + per-line invoice numbering.
   const sections = useMemo(() => {
@@ -783,6 +810,11 @@ export function InvoiceReviewDrawer({
     sections.attention.filter(i => lineUnresolved(i, optsFor(i.id), sessionSupplierRef)).length +
     (supplierNeedsLink && initialAttention.supplier ? 1 : 0)
   const canApprove = currentlyUnresolved === 0
+  // Lines the approve preflight refused that still need the reviewer's decision.
+  const serverBlockedOpen = [...serverBlocks.keys()].filter(id => {
+    const l = effectiveLines.find(x => x.id === id)
+    return !!l && lineUnresolved(l, optsFor(id), sessionSupplierRef)
+  }).length
   const disabledReason = canApprove
     ? ''
     : `${currentlyUnresolved} ${currentlyUnresolved === 1 ? 'issue needs' : 'issues need'} a decision`
@@ -891,6 +923,14 @@ export function InvoiceReviewDrawer({
       next.set(id, { ...prev.get(id), ...patch })
       return next
     })
+    // A block the approve preflight sent describes the line as it WAS; once the
+    // line is edited the live decision is the judge again.
+    setServerBlocks(prev => {
+      if (!prev.has(id)) return prev
+      const next = new Map(prev)
+      next.delete(id)
+      return next
+    })
     // Stage the patch (merged per line) and debounce the server save by 600ms
     pendingEditsRef.current.set(id, { ...pendingEditsRef.current.get(id), ...patch })
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -969,6 +1009,14 @@ export function InvoiceReviewDrawer({
     setAcknowledgedConfLines(prev => new Set(prev).add(id))
   }, [])
 
+  // ── Approve decisions on a blocked / implausible line (toggles) ──────────────
+  const toggleReceiveOnly = useCallback((id: string) => {
+    setReceiveOnlyLines(prev => toggleIn(prev, id))
+  }, [])
+  const toggleUnitConfirmed = useCallback((id: string) => {
+    setUnitConfirmedLines(prev => toggleIn(prev, id))
+  }, [])
+
   // ── Mobile: jump to the image tab with a line's bbox highlighted ─────────────
   const showLineOnImage = useCallback((id: string) => {
     setActiveBboxItemId(id)
@@ -1014,13 +1062,36 @@ export function InvoiceReviewDrawer({
       // Make sure staged line edits (e.g. a just-clicked format consent) are
       // on the server before it snapshots the scan items.
       await flushPendingEdits()
+      // The reviewer's per-line choices — only for lines that still need them, so
+      // a choice made before the line was fixed is never sent.
+      const byId = new Map(effectiveLines.map(l => [l.id, l]))
+      const receiveWithoutPrice = [...receiveOnlyLines].filter(id => {
+        const l = byId.get(id)
+        return !!l && !!approveBlockOf(l, optsFor(id), sessionSupplierRef)
+      })
+      const priceConfirmed = [...unitConfirmedLines].filter(id => {
+        const l = byId.get(id)
+        return !!l && !!unitCheckOf(l, optsFor(id), sessionSupplierRef)
+      })
       const res = await fetch(`/api/invoices/sessions/${session.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force }),
+        body: JSON.stringify({ force, receiveWithoutPrice, priceConfirmed }),
       })
       const result = await res.json()
-      if (res.status === 409 && result.duplicate && !force) {
+      if (res.status === 409 && result.code === 'LINES_BLOCKED' && Array.isArray(result.blocked)) {
+        // The server refused some lines (its own snapshot may be newer than ours).
+        // Show each on its line — no popup — and take the reviewer to the first.
+        const blocked = result.blocked as BlockedLine[]
+        setServerBlocks(new Map(blocked.map(b => [b.scanItemId, b])))
+        const first = blocked[0]?.scanItemId
+        if (first) {
+          if (reviewSegment === 'matched') setReviewSegment('all')
+          focusLine(first)
+        }
+        return
+      }
+      if (res.status === 409 && (result.code === 'DUPLICATE' || result.duplicate) && !force) {
         const ok = window.confirm(`${result.error}\n\nApprove anyway?`)
         if (ok) { return await handleApprove(true) }
         return
@@ -1276,6 +1347,10 @@ export function InvoiceReviewDrawer({
     pickingLinkForId,
     acknowledgedPriceLines,
     acknowledgedConfLines,
+    receiveOnlyLines,
+    unitConfirmedLines,
+    serverBlocks,
+    resolveOptsFor: optsFor,
     reconciliation,
     getEffectiveLine,
     getItemRc,
@@ -1293,15 +1368,19 @@ export function InvoiceReviewDrawer({
     setItemDensity,
     acknowledgePrice,
     acknowledgeConf,
+    toggleReceiveOnly,
+    toggleUnitConfirmed,
     activeBboxItemId,
     showLineOnImage,
     toggleFilter,
     setSortMode,
   }), [
     session, revenueCenters, editedLines, expandedLineIds, flashingLineIds,
-    activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines, reconciliation,
+    activeFilters, sortMode, pickingLinkForId, acknowledgedPriceLines, acknowledgedConfLines,
+    receiveOnlyLines, unitConfirmedLines, serverBlocks, optsFor, reconciliation,
     getEffectiveLine, getItemRc, updateLine, clearLineEdits, linkExistingItem, toggleExpand,
-    setLineRc, bridgeAndReceiveAsCount, setItemDensity, acknowledgePrice, acknowledgeConf, activeBboxItemId, showLineOnImage, toggleFilter,
+    setLineRc, bridgeAndReceiveAsCount, setItemDensity, acknowledgePrice, acknowledgeConf,
+    toggleReceiveOnly, toggleUnitConfirmed, activeBboxItemId, showLineOnImage, toggleFilter,
   ])
 
   // ── Panel open/close animation ───────────────────────────────────────────────
@@ -1517,6 +1596,16 @@ export function InvoiceReviewDrawer({
                     <div className="flex items-center justify-center h-32 text-[13px] text-ink-4">No line items.</div>
                   )}
                 </div>
+
+                {/* Approve refused some lines (409 LINES_BLOCKED) — one plain line, no popup. */}
+                {!approving && serverBlockedOpen > 0 && (
+                  <div className="flex items-center gap-2 px-[22px] py-2 bg-red-soft border-t border-line text-[12.5px] text-red-text shrink-0" role="status">
+                    <AlertTriangle size={13} className="shrink-0" />
+                    {serverBlockedOpen === 1
+                      ? '1 line needs a decision before this invoice can be approved.'
+                      : `${serverBlockedOpen} lines need a decision before this invoice can be approved.`}
+                  </div>
+                )}
 
                 {/* Footer */}
                 {!approving ? (

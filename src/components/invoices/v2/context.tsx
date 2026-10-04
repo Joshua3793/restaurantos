@@ -7,6 +7,8 @@ import type { ScanItem, LineItemAction } from '@/components/invoices/types'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
 import type { ReconcileResult, InventorySearchResult } from './composites'
 import type { FilterKey, SortMode } from '@/lib/invoice/filters'
+import type { ResolveOpts } from '@/lib/invoice/resolution'
+import type { BlockedLine } from '@/lib/invoice/approve-outcome'
 
 export interface DrawerContextValue {
   // ── Server-sourced data ────────────────────────────────────────────────────
@@ -34,6 +36,15 @@ export interface DrawerContextValue {
   pickingLinkForId: string | null     // which line's link picker is open
   acknowledgedPriceLines: Set<string> // lines where the user accepted the price change
   acknowledgedConfLines: Set<string>  // lines where the user confirmed a low-trust line
+  /** Lines the reviewer chose to "Receive the stock, keep the old price". */
+  receiveOnlyLines: Set<string>
+  /** Lines where the reviewer said "The price is right" on a price that looks 1,000× off. */
+  unitConfirmedLines: Set<string>
+  /** Lines the approve preflight refused (409 LINES_BLOCKED), until each is edited. */
+  serverBlocks: Map<string, BlockedLine>
+  /** Everything lineReasons needs for one line — the card, the progress bar and
+   *  the Approve gate all read the same options. */
+  resolveOptsFor: (id: string) => ResolveOpts
 
   // ── Reconciliation result ──────────────────────────────────────────────────
   reconciliation: ReconcileResult | null
@@ -91,6 +102,10 @@ export interface DrawerContextValue {
 
   // ── Low-trust line confirmation (resolves the conf .issue) ─────────────────
   acknowledgeConf: (id: string) => void
+
+  // ── Approve decisions on a blocked / implausible line (toggles) ────────────
+  toggleReceiveOnly: (id: string) => void
+  toggleUnitConfirmed: (id: string) => void
 
   // ── Active bbox for image highlight ────────────────────────────────────────
   activeBboxItemId: string | null     // which line card is expanded + has a bbox

@@ -170,7 +170,7 @@ export function ModeToggle({
 // supplier). Mock §5: .badge.price → red-soft, .badge.mode → gold-soft,
 // .badge.sku → blue-soft. Mono, uppercase, pill.
 
-export type IssueKind = 'price' | 'sku' | 'supplier' | 'conf' | 'conflict' | 'bridge' | 'math' | 'rcsplit'
+export type IssueKind = 'price' | 'sku' | 'supplier' | 'conf' | 'conflict' | 'bridge' | 'math' | 'rcsplit' | 'blocked' | 'unit'
 
 const ISSUE_BADGE: Record<IssueKind, string> = {
   price:    'bg-red-soft text-red-text',
@@ -181,6 +181,8 @@ const ISSUE_BADGE: Record<IssueKind, string> = {
   bridge:   'bg-blue-soft text-blue-text',
   math:     'bg-gold-soft text-gold-2',
   rcsplit:  'bg-gold-soft text-gold-2',
+  blocked:  'bg-red-soft text-red-text',   // approve would refuse this line
+  unit:     'bg-gold-soft text-gold-2',    // price looks ~1,000× off — check the unit
 }
 
 export function IssueBadge({ kind, children }: { kind: IssueKind; children: React.ReactNode }) {

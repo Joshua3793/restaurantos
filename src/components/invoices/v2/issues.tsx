@@ -14,7 +14,10 @@ import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { dimensionOf } from '@/lib/item-model'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import { priceDisplayScale } from '@/lib/utils'
-import { offerForSupplier, cheapestOtherOffer, type SupplierRef } from '@/lib/invoice/resolution'
+import {
+  offerForSupplier, cheapestOtherOffer, BLOCK_TITLE,
+  type SupplierRef, type ApproveBlock, type UnitCheck,
+} from '@/lib/invoice/resolution'
 import { isNewSupplierForItem } from '@/lib/invoice/new-supplier'
 import type { ScanItem } from '@/components/invoices/types'
 
@@ -494,6 +497,140 @@ export function ConfIssue({ item, lineId }: { item: ScanItem; lineId: string }) 
       }
     >
       {reason}
+    </IssueShell>
+  )
+}
+
+// ─── ApproveBlockIssue ─────────────────────────────────────────────────────────
+// A line approve would refuse (the same decision the approve preflight runs —
+// plan 2026-10-05 Stage 5, Task 4). The message says why; the buttons fix it in
+// place, or — where there is stock to receive — take the delivery and leave the
+// price as it was.
+
+/** "Cleveland Meats'", "Sysco's". */
+function possessive(name: string): string {
+  const n = name.trim()
+  return /s$/i.test(n) ? `${n}'` : `${n}'s`
+}
+
+export function ApproveBlockIssue({
+  item,
+  lineId,
+  block,
+  supplierName,
+  onAdoptFormat,
+  onSetWeight,
+  onEnterPrice,
+}: {
+  item: ScanItem
+  lineId: string
+  block: ApproveBlock
+  /** The invoice's supplier, for "Use this invoice's case for Sysco's box". */
+  supplierName: string | null
+  /** PACK_DISAGREES: put this invoice's case on the supplier's box (AdoptFormatModal). */
+  onAdoptFormat: () => void
+  /** RATE_UNCOSTABLE: open the "how much does one weigh" editor. */
+  onSetWeight: () => void
+  /** NO_PRICE: take the reviewer to the price field. */
+  onEnterPrice: () => void
+}) {
+  const ctx = useDrawerContext()
+  const receiving = block.canReceiveWithoutPrice && ctx.receiveOnlyLines.has(lineId)
+  const receiveOnly = block.canReceiveWithoutPrice && (
+    <ActButton variant={receiving ? 'primary' : 'default'} onClick={() => ctx.toggleReceiveOnly(lineId)}
+      title={receiving ? 'Click again to undo' : 'The stock goes in; the price stays as it was'}>
+      {receiving ? <><Check size={12} /> Receiving the stock, keeping the old price</> : 'Receive the stock, keep the old price'}
+    </ActButton>
+  )
+
+  let fixes: React.ReactNode = null
+  switch (block.reason) {
+    case 'PACK_DISAGREES':
+      fixes = (
+        <ActButton onClick={onAdoptFormat}>
+          {supplierName?.trim() ? `Use this invoice’s case for ${possessive(supplierName)} box` : 'Use this invoice’s case'}
+        </ActButton>
+      )
+      break
+    case 'RATE_UNCOSTABLE':
+      fixes = <ActButton onClick={onSetWeight}>Set how much one weighs</ActButton>
+      break
+    case 'NO_PRICE':
+      fixes = <ActButton onClick={onEnterPrice}>Enter the price</ActButton>
+      break
+    case 'NOT_LINKED':
+      fixes = (
+        <>
+          <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link it</ActButton>
+          <ActButton onClick={() => ctx.openCreateNew(item)}>Create a product</ActButton>
+          <ActButton variant="danger" onClick={() => ctx.updateLine(lineId, { action: 'SKIP' })}>Skip it</ActButton>
+        </>
+      )
+      break
+    default: // the three new-product refusals
+      fixes = (
+        <>
+          <ActButton onClick={() => ctx.openCreateNew(item)}>Set up the new product</ActButton>
+          <ActButton onClick={() => ctx.startLinkPicker(lineId)}>Link to a product you have</ActButton>
+          <ActButton variant="danger" onClick={() => ctx.updateLine(lineId, { action: 'SKIP' })}>Skip it</ActButton>
+        </>
+      )
+  }
+
+  return (
+    <IssueShell
+      kind="blocked"
+      label={BLOCK_TITLE[block.reason]}
+      resolved={receiving}
+      actions={<>{fixes}{receiveOnly}</>}
+    >
+      {block.message}
+      {receiving && (
+        <div className="mt-1.5 text-[11.5px] text-ink-3">
+          The stock will go in on approve. The price stays as it was.
+        </div>
+      )}
+    </IssueShell>
+  )
+}
+
+// ─── UnitCheckIssue ────────────────────────────────────────────────────────────
+// A per-weight price that works out 20× or more off the box's — almost always the
+// wrong unit (a $25/kg rate read as $25/g). One-click fix to the unit that makes
+// the price sensible, or the reviewer says the price really is right.
+
+export function UnitCheckIssue({
+  lineId,
+  check,
+  suggestion,
+  onSetUnit,
+}: {
+  lineId: string
+  check: UnitCheck
+  /** The unit that clears the check ("kg"), or null when none does. */
+  suggestion: string | null
+  onSetUnit: (unit: string) => void
+}) {
+  const ctx = useDrawerContext()
+  const confirmed = ctx.unitConfirmedLines.has(lineId)
+  return (
+    <IssueShell
+      kind="unit"
+      label={check.title}
+      resolved={confirmed}
+      actions={
+        <>
+          {suggestion && !confirmed && (
+            <ActButton variant="primary" onClick={() => onSetUnit(suggestion)}>It&rsquo;s per {suggestion}</ActButton>
+          )}
+          <ActButton variant={confirmed ? 'primary' : 'default'} onClick={() => ctx.toggleUnitConfirmed(lineId)}
+            title={confirmed ? 'Click again to undo' : undefined}>
+            {confirmed ? <><Check size={12} /> The price is right</> : 'The price is right'}
+          </ActButton>
+        </>
+      }
+    >
+      {check.summary}
     </IssueShell>
   )
 }
