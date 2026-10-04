@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { measureWord, bridgePrompt, changeLines, appliedToast, changedAgo } from '@/lib/remeasure-copy'
+import { measureWord, bridgePrompt, changeLines, appliedToast, changedAgo, defaultTargetUnit } from '@/lib/remeasure-copy'
 import type { RemeasureSummary } from '@/lib/remeasure-plan'
 
 const side = { dimension: 'COUNT' as const, unit: 'each', packLabel: 'case (12 each)', priceLabel: '$40.00 per case', countUnit: 'each' }
@@ -121,5 +121,25 @@ describe('changedAgo', () => {
   })
   it('a bad date says nothing', () => {
     expect(changedAgo('nope', now)).toBe('')
+  })
+})
+
+describe('defaultTargetUnit', () => {
+  it('follows the bridge unit when it is a unit of the new measure', () => {
+    expect(defaultTargetUnit('MASS', 'g')).toBe('g')
+    expect(defaultTargetUnit('MASS', 'lb')).toBe('lb')
+    expect(defaultTargetUnit('VOLUME', 'ml')).toBe('ml')
+  })
+  it('canonicalises the bridge unit first', () => {
+    expect(defaultTargetUnit('MASS', 'KG')).toBe('kg')
+  })
+  it('falls back to kg / l when the bridge is another measure or missing', () => {
+    expect(defaultTargetUnit('VOLUME', 'g')).toBe('l')
+    expect(defaultTargetUnit('MASS', 'ml')).toBe('kg')
+    expect(defaultTargetUnit('MASS', '')).toBe('kg')
+    expect(defaultTargetUnit('VOLUME', null)).toBe('l')
+  })
+  it('pieces are always each', () => {
+    expect(defaultTargetUnit('COUNT', 'g')).toBe('each')
   })
 })

@@ -446,28 +446,36 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   }
 
   // A measure change (or its undo) rewrites the item's measure, pack, price,
-  // bridge, stock and every frozen count/receipt — so besides the shared
-  // refetch, the stock panel is re-read (its units changed) and an open edit
-  // form takes the new measure + bridge, or its Save would write the old ones
-  // straight back over the change.
-  async function afterRemeasure(): Promise<void> {
+  // bridge, stock, supplier boxes and every frozen count/receipt — so besides
+  // the shared refetch, the stock panel is re-read (its units changed), the
+  // supplier boxes and the undo row re-load (measureTick), and the edit form is
+  // brought up to date:
+  //  - 'measure' (this user's own apply or undo): only the measure fields are
+  //    re-seeded — the rest of an open form is the user's unsaved typing — or
+  //    its Save would write the old measure + bridge straight back.
+  //  - 'rebuild' (STALE: someone else changed the item first): the whole form is
+  //    rebuilt from the fresh row, as reloadForEdit does.
+  async function afterRemeasure(mode: 'measure' | 'rebuild' = 'measure'): Promise<void> {
     if (!item) return
-    setMeasureTick(t => t + 1)
     const [fresh, sm] = await Promise.all([
       fetch(`/api/inventory/${item.id}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
       fetch(`/api/inventory/${item.id}/stock-movements`).then(r => (r.ok ? r.json() : null)).catch(() => null),
     ])
     onUpdated?.()
     if (sm) setStockMovements(sm)
-    if (!fresh) return
-    const n = normalizeItem(fresh)
-    setItem(n)
-    const b = buildEditForm(n)
-    setEditForm(f => ({
-      ...f,
-      dimension: b.dimension, chain: b.chain, pricing: b.pricing, countUnit: b.countUnit,
-      eachMeasureQty: b.eachMeasureQty, eachMeasureUnit: b.eachMeasureUnit, densityGPerMl: b.densityGPerMl,
-    }))
+    if (fresh) {
+      const n = normalizeItem(fresh)
+      setItem(n)
+      const b = buildEditForm(n)
+      if (mode === 'rebuild') setEditForm(b)
+      else setEditForm(f => ({
+        ...f,
+        dimension: b.dimension, chain: b.chain, pricing: b.pricing, countUnit: b.countUnit,
+        eachMeasureQty: b.eachMeasureQty, eachMeasureUnit: b.eachMeasureUnit, densityGPerMl: b.densityGPerMl,
+      }))
+    }
+    // After the fresh row lands, so the re-mounted boxes read the new measure.
+    setMeasureTick(t => t + 1)
   }
 
   return (
@@ -1118,6 +1126,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     move the item's version and price, so it re-fetches the item. */}
                 {seesMoney && !item.recipe && (
                   <SupplierOffersSection
+                    // A measure change (or its undo) re-expresses every box — re-mount
+                    // so the list re-loads and no box form stays open in the old measure.
+                    key={`offers-${measureTick}`}
                     itemId={item.id}
                     itemName={item.itemName}
                     baseUnit={item.baseUnit ?? null}
@@ -1141,7 +1152,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                 {/* Measure changes on this item, each with its Undo. */}
                 {canEdit && !item.recipe && (
-                  <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={afterRemeasure} />
+                  <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={() => afterRemeasure('measure')} />
                 )}
 
                 {/* Price History */}
@@ -1207,7 +1218,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   lastUpdated: item.lastUpdated ?? null,
                 }}
                 onClose={() => setRemeasureOpen(false)}
-                onChanged={afterRemeasure}
+                onChanged={why => afterRemeasure(why === 'stale' ? 'rebuild' : 'measure')}
               />
             )}
           </>

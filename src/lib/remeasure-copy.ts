@@ -6,6 +6,7 @@
 
 import type { Dimension } from '@/lib/item-model'
 import type { RemeasureSummary } from '@/lib/remeasure-plan'
+import { canonicalUom } from '@/lib/uom'
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
@@ -16,6 +17,23 @@ export function measureWord(d: Dimension): 'weight' | 'volume' | 'pieces' {
 
 const WEIGHT_UNITS = ['g', 'kg', 'oz', 'lb']
 const VOLUME_UNITS = ['ml', 'l']
+
+/** The units the item can be measured in, per measure (the sheet's Unit select). */
+export const TARGET_UNITS: Record<Dimension, string[]> = {
+  MASS: ['g', 'kg', 'lb', 'oz'],
+  VOLUME: ['ml', 'l'],
+  COUNT: ['each'],
+}
+
+/** The unit the sheet starts the new measure in: the bridge's own unit when it
+ *  is a unit of the new measure ("one piece weighs 120 g" → measured in g),
+ *  else kg / l. Pieces are always `each`. */
+export function defaultTargetUnit(to: Dimension, bridgeUnit: string | null | undefined): string {
+  if (to === 'COUNT') return 'each'
+  const u = bridgeUnit ? canonicalUom(bridgeUnit) : ''
+  if (TARGET_UNITS[to].includes(u)) return u
+  return to === 'MASS' ? 'kg' : 'l'
+}
 
 /** What the sheet must ask before it can change `from` into `to`: how much one
  *  piece weighs/holds (pieces ↔ weight/volume), or the density (weight ↔ volume). */
