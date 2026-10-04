@@ -176,8 +176,26 @@ export interface LegacyLine {
   itemName?: string | null
 }
 
+/**
+ * Undo records exist for every approval from this moment (2026-09-22, Pacific
+ * midnight). The legacy best-effort revert is ONLY for sessions approved before
+ * it: a record-less session approved on/after it wrote nothing a record would
+ * have captured (every line received without a price, or nothing priced), so
+ * reverting its lines' `previousPrice` would write prices the approval never wrote.
+ */
+export const UNDO_RECORDS_SINCE = new Date('2026-09-22T07:00:00.000Z')
+
+/** The legacy path applies: approved before undo records existed (or the date is unknown — old rows). */
+export function approvedBeforeUndoRecords(approvedAt: Date | string | null | undefined): boolean {
+  if (approvedAt == null) return true
+  const t = new Date(approvedAt).getTime()
+  return !Number.isFinite(t) || t < UNDO_RECORDS_SINCE.getTime()
+}
+
 export interface LegacyInput {
   status: string
+  /** The session's `approvedAt`. On/after `UNDO_RECORDS_SINCE` the legacy path never runs. */
+  approvedAt?: Date | string | null
   /**
    * MUST be ordered by `sortOrder` (the invoice's own line order). The legacy
    * path emits one row per qualifying line and does NOT deduplicate: a session
@@ -503,7 +521,10 @@ export function planRollback(input: PlanInput): RollbackPlan {
     // rollback at all, and the banner tells the user the offers and learned
     // wordings were not restored. `legacy: true` is set ONLY on this branch, so
     // a session with even one record never claims it.
-  } else if (input.legacy && input.legacy.status === 'APPROVED') {
+  } else if (input.legacy && input.legacy.status === 'APPROVED' && approvedBeforeUndoRecords(input.legacy.approvedAt)) {
+    // Only for sessions approved before undo records existed. A record-less
+    // session approved since then wrote no price a record would have captured,
+    // so there is nothing to revert (rows = []).
     legacy = true
     rows = legacyRows(input.legacy)
   } else {

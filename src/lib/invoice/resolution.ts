@@ -19,6 +19,8 @@ import { matchedLikeOf } from '@/lib/invoice/matched-like'
 import { pickOffer, type SupplierRef } from '@/lib/invoice/line-format'
 import { formatCurrency } from '@/lib/invoice/formatters'
 import type { IssueKind } from '@/components/invoices/v2/atoms'
+import { implausibleParts, type BlockReason, type BlockedLine } from '@/lib/invoice/approve-outcome'
+import { decisionForScanItem, createNewRefusalFor } from '@/lib/invoice/approve-outcome-client'
 
 /** A line's inputs to the receiving rule with any FROZEN receipt cleared —
  *  WITHOUT `receivedQtyBase`, deliberately, mirroring `lineQtyOf` in
@@ -71,6 +73,124 @@ export interface ResolveOpts {
   priceAck: boolean
   /** line ids where the user confirmed a low-trust line (low OCR conf / fuzzy match) */
   confAck: boolean
+  /** The reviewer chose "Receive the stock, keep the old price" for this line. */
+  receiveOnly?: boolean
+  /** The reviewer said "The price is right" on a price that looks 1,000× off. */
+  unitConfirmed?: boolean
+  /** The approve preflight refused this line (409 LINES_BLOCKED) — kept until the line is edited. */
+  serverBlock?: BlockedLine | null
+}
+
+// ── Lines approve would refuse ───────────────────────────────────────────────
+// Read through the SAME decision the approve preflight runs (decideLinePrice via
+// decisionForScanItem), so the screen blocks exactly the lines the 409 would list.
+
+/** Reasons whose stock can still be received with the old price kept. Never a
+ *  price that looks off: that clears only by "The price is right". */
+const RECEIVABLE: ReadonlySet<BlockReason> = new Set<BlockReason>(['PACK_DISAGREES', 'RATE_UNCOSTABLE', 'NO_PRICE'])
+
+export const BLOCK_TITLE: Record<BlockReason, string> = {
+  PACK_DISAGREES:        'Case size changed',
+  RATE_UNCOSTABLE:       'Priced by weight, counted by each',
+  NO_PRICE:              'No price',
+  PRICE_IMPLAUSIBLE:     'Price looks off',
+  NOT_LINKED:            'Not linked',
+  CREATE_NEW_NOT_SET_UP: 'New product not set up',
+  CREATE_NEW_NAME:       'New product not set up',
+  CREATE_NEW_SHAPE:      'New product not set up',
+}
+
+export interface ApproveBlock {
+  reason: BlockReason
+  message: string
+  /** "Receive the stock, keep the old price" is on offer (there is stock to receive). */
+  canReceiveWithoutPrice: boolean
+  /** What receive-only would put in, in the item's count unit ("0.25 case", "24 each"); null when unknown. */
+  receiveText?: string | null
+}
+
+/** "0.25 case" — the line's received quantity in the item's count unit, read
+ *  through this supplier's box exactly as approve freezes a refused line. */
+function receiveTextOf(item: ScanItem, ref: SupplierRef | null | undefined): string | null {
+  const t = splitTargetOf(item, ref ?? null)
+  if (!t || !(t.qty > 0)) return null
+  return `${(+t.qty.toFixed(3)).toLocaleString('en-CA')} ${t.countUom}`
+}
+
+/** The receive-only button: "Receive 24 case, keep the old price". */
+export function receiveOnlyLabel(block: Pick<ApproveBlock, 'receiveText'>): string {
+  return block.receiveText ? `Receive ${block.receiveText}, keep the old price` : 'Receive the stock, keep the old price'
+}
+
+/**
+ * Why approve would refuse this line, or null. The live decision wins; a block
+ * the server sent (409) is shown while the live decision sees nothing wrong,
+ * until the reviewer edits the line (the drawer drops it then). A line that is
+ * simply not linked yet is the "Not linked" reason's job, not this one.
+ */
+export function approveBlockOf(item: ScanItem, opts: Pick<ResolveOpts, 'serverBlock'>, ref?: SupplierRef | null): ApproveBlock | null {
+  if (isCharge(item)) return null
+  const d = decisionForScanItem(item, ref ?? {})
+  if (d && !d.ok) {
+    const canReceiveWithoutPrice = RECEIVABLE.has(d.reason) && d.receivable
+    return {
+      reason: d.reason, message: d.message, canReceiveWithoutPrice,
+      receiveText: canReceiveWithoutPrice ? receiveTextOf(item, ref) : null,
+    }
+  }
+  const cn = createNewRefusalFor(item)
+  if (cn) return { reason: cn.reason, message: cn.message, canReceiveWithoutPrice: false }
+  const sb = opts.serverBlock
+  if (!sb || sb.reason === 'PRICE_IMPLAUSIBLE') return null
+  if (sb.reason === 'NOT_LINKED' && isUnlinked(item)) return null
+  return {
+    reason: sb.reason, message: sb.message, canReceiveWithoutPrice: sb.canReceiveWithoutPrice,
+    receiveText: sb.canReceiveWithoutPrice ? receiveTextOf(item, ref) : null,
+  }
+}
+
+export interface UnitCheck {
+  /** "Price looks about 1,000× off" */
+  title: string
+  /** "Check the unit. This line works out at $25,000.00 per kg; Cleveland Meats' box is $25.00 per kg." */
+  summary: string
+}
+
+/** "about 1,000×" — the bigger way up, 2 significant figures (the approve message's rule). */
+function timesText(ratio: number): string {
+  const up = ratio >= 1 ? ratio : 1 / ratio
+  return `${(+up.toPrecision(2)).toLocaleString('en-CA')}×`
+}
+
+/** A per-weight price 20× or more off the box's (3× when the unit was assumed) — the approve preflight's PRICE_IMPLAUSIBLE. */
+export function unitCheckOf(item: ScanItem, opts: Pick<ResolveOpts, 'serverBlock'>, ref?: SupplierRef | null): UnitCheck | null {
+  if (isCharge(item)) return null
+  const r = ref ?? {}
+  const d = decisionForScanItem(item, r)
+  if (d?.ok && d.implausible && item.matchedItem) {
+    const supplierName = r.canonicalName ?? r.supplierName ?? null
+    const offer = offerForSupplier(item, r)
+    const { detail } = implausibleParts({
+      newPricePerBase: d.newPricePerBase, currentPpb: d.implausible.currentPpb, ratio: d.implausible.ratio,
+      baseUnit: item.matchedItem.baseUnit ?? 'each', itemName: item.matchedItem.itemName, supplierName,
+      boxIsSuppliers: !!offer && d.speaks.pricing === offer.pricing, assumed: d.implausible.assumed,
+    })
+    return {
+      title: `Price looks about ${timesText(d.implausible.ratio)} off`,
+      // A line that prints no unit: the unit was a guess (the check fires at 3×).
+      summary: d.implausible.assumed ? `The unit was assumed — confirm it. ${detail}` : `Check the unit. ${detail}`,
+    }
+  }
+  // The server judged it on its own snapshot; show its words until the line changes.
+  if (opts.serverBlock?.reason === 'PRICE_IMPLAUSIBLE') {
+    return { title: 'Price looks off', summary: opts.serverBlock.message }
+  }
+  return null
+}
+
+/** The line carries a decision only approve's own rules raise (a block or a unit check). */
+export function hasApproveDecision(item: ScanItem, opts: Pick<ResolveOpts, 'serverBlock'>, ref?: SupplierRef | null): boolean {
+  return !!approveBlockOf(item, opts, ref) || !!unitCheckOf(item, opts, ref)
 }
 
 // ── Supplier offers on the matched item ──────────────────────────────────────
@@ -158,6 +278,10 @@ export function lineReasons(item: ScanItem, opts: ResolveOpts, sessionSupplier?:
   if (isCharge(item)) return []
   const out: LineReason[] = []
   const itemName = item.matchedItem?.itemName ?? item.rawDescription ?? 'this line'
+  const block = approveBlockOf(item, opts, sessionSupplier)
+  // Receiving without the price keeps the old price, so a price move on that
+  // line no longer needs accepting.
+  const receivingOnly = !!opts.receiveOnly && !!block?.canReceiveWithoutPrice
 
   // New SKU / needs link — only resolvable by linking, creating, or skipping
   // (all of which make isUnlinked() false), so while present it is unresolved.
@@ -217,7 +341,30 @@ export function lineReasons(item: ScanItem, opts: ResolveOpts, sessionSupplier?:
       kind: 'price',
       title: `Price ${pct > 0 ? '↑' : '↓'} ${Math.abs(pct).toFixed(0)}%`,
       summary: `Cost moved ${Math.abs(pct).toFixed(0)}% from the last price — approving re-costs every recipe that uses it.`,
-      resolved: opts.priceAck,
+      resolved: opts.priceAck || receivingOnly,
+    })
+  }
+
+  // A line approve would refuse — resolved by fixing it (the block disappears)
+  // or by choosing "Receive the stock, keep the old price" where that is offered.
+  if (block) {
+    out.push({
+      kind: 'blocked',
+      title: BLOCK_TITLE[block.reason],
+      summary: block.message,
+      resolved: receivingOnly,
+    })
+  }
+
+  // A price that works out 20×+ off the box's — resolved by fixing the unit (the
+  // check disappears) or by saying "The price is right".
+  const unit = unitCheckOf(item, opts, sessionSupplier)
+  if (unit) {
+    out.push({
+      kind: 'unit',
+      title: unit.title,
+      summary: unit.summary,
+      resolved: !!opts.unitConfirmed,
     })
   }
 

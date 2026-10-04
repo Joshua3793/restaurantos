@@ -721,6 +721,29 @@ describe('planRollback — the legacy path', () => {
     ])
   })
 
+  // Undo records exist for every approval since 2026-09-22. A session approved
+  // on/after that date with NO records wrote nothing they would have recorded
+  // (e.g. every line was received without a price) — reverting its lines'
+  // previousPrice would write prices the approval never wrote.
+  it('never reverts prices for a record-less session approved on/after 2026-09-22', () => {
+    const lines = [{ approved: true, action: 'UPDATE_PRICE', matchedItemId: 'i1', previousPrice: 15, matchedItem, itemName: 'Flour' }]
+    const after = planRollback(input({ legacy: { status: 'APPROVED', approvedAt: new Date('2026-09-22T12:00:00Z'), priceAlerts: [], lines } }))
+    expect(after.legacy).toBe(false)
+    expect(after.rows).toEqual([])
+    expect(after.restoredItemIds).toEqual([])
+    const later = planRollback(input({ legacy: { status: 'APPROVED', approvedAt: '2026-10-02T09:00:00.000Z', priceAlerts: [], lines } }))
+    expect(later.rows).toEqual([])
+  })
+
+  it('still best-efforts a session approved before 2026-09-22 (and one with no approval date)', () => {
+    const lines = [{ approved: true, action: 'UPDATE_PRICE', matchedItemId: 'i1', previousPrice: 15, matchedItem, itemName: 'Flour' }]
+    const before = planRollback(input({ legacy: { status: 'APPROVED', approvedAt: new Date('2026-09-21T20:00:00Z'), priceAlerts: [], lines } }))
+    expect(before.legacy).toBe(true)
+    expect(before.rows.map(r => r.targetId)).toEqual(['i1'])
+    const unknown = planRollback(input({ legacy: { status: 'APPROVED', approvedAt: null, priceAlerts: [], lines } }))
+    expect(unknown.rows.map(r => r.targetId)).toEqual(['i1'])
+  })
+
   it('does not take the legacy path for a session that was never approved', () => {
     const plan = planRollback(
       input({

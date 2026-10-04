@@ -16,12 +16,16 @@ import {
   InvoiceMathFields,
   type InventorySearchResult,
 } from './composites'
-import { DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, NewSupplierNote, AttentionSummary, type SummaryRow } from './issues'
+import {
+  DimensionConflictIssue, NewSkuIssue, PriceIssue, ConfIssue, SupplierSwitchNote, NewSupplierNote, AttentionSummary,
+  ApproveBlockIssue, UnitCheckIssue, type SummaryRow,
+} from './issues'
 import {
   derivePricingMode, isCatchweight, hasDimensionConflict,
   hasMathCheck, isUnlinked, needsTrustCheck, hasUnknownUom,
 } from '@/lib/invoice/predicates'
-import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, splitTargetOf } from '@/lib/invoice/resolution'
+import { isBigPriceChange, lineUnresolved, hasInvalidRcSplit, lineReasons, splitTargetOf, approveBlockOf, unitCheckOf } from '@/lib/invoice/resolution'
+import { weightUnitForScanItem, unitCheckSuggestion, unitFixPatch } from '@/lib/invoice/approve-outcome-client'
 import { isBridgeable } from '@/lib/invoice/classify'
 import { formatPackSummary, formatRateLabel, formatCurrency } from '@/lib/invoice/formatters'
 import { computeNormalisedPrices, computeDisplayVariance } from '@/lib/invoice/calculations'
@@ -95,8 +99,17 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const bigPrice       = !isSkipped && isBigPriceChange(item, sessionSupplier)
   const trustCheck     = !isSkipped && needsTrustCheck(item)
   const badSplit       = !isSkipped && hasInvalidRcSplit(item, sessionSupplier)
-  const isAttention    = unlinked || dimConflict || bridge || mathCheck || bigPrice || trustCheck || badSplit
+  // Read through the SAME decision the approve preflight runs: a line approve
+  // would refuse, and a price that works out ~1,000× off the box's.
+  const resolveOpts    = ctx.resolveOptsFor(lineId)
+  const approveBlock   = isSkipped ? null : approveBlockOf(item, resolveOpts, sessionSupplier)
+  const unitCheck      = isSkipped ? null : unitCheckOf(item, resolveOpts, sessionSupplier)
+  const isAttention    = unlinked || dimConflict || bridge || mathCheck || bigPrice || trustCheck || badSplit || !!approveBlock || !!unitCheck
   const isCatch        = isCatchweight(item)
+  // The unit an unlabelled weight is read in — the same answer approve uses — and
+  // the note shown while the line has no unit of its own.
+  const weightUnit     = weightUnitForScanItem(item, sessionSupplier)
+  const bridgeRef      = useRef<HTMLDivElement>(null)
 
   // RC split: the line's received quantity (count UOM) is the target the split
   // must sum to; the line total is what the money shares must reconcile to.
@@ -107,11 +120,6 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   const lineTotalNum = item.rawLineTotal != null ? Number(item.rawLineTotal) : 0
   const splitActive  = Array.isArray(item.rcSplit) && item.rcSplit.length > 0
   const canSplit     = !!item.matchedItem && !!received && received.qty > 0 && ctx.revenueCenters.length > 1
-
-  const resolveOpts = {
-    priceAck: ctx.acknowledgedPriceLines.has(lineId),
-    confAck:  ctx.acknowledgedConfLines.has(lineId),
-  }
 
   // A line that surfaced an issue but whose decisions are all made now reads as
   // resolved — flips the card from amber attention to green acknowledgment.
@@ -139,6 +147,8 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
     : mathCheck      ? 'math'
     : dimConflict    ? 'conflict'
     : bridge         ? 'bridge'
+    : approveBlock   ? 'blocked'
+    : unitCheck      ? 'unit'
     : undefined
 
   const handleToggle = () => ctx.toggleExpand(lineId)
@@ -150,6 +160,24 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
   }
 
   const handleMathChange = (patch: Partial<ScanItem>) => ctx.updateLine(lineId, patch)
+
+  // Fixes offered by a blocked line.
+  const scrollToMath = () => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const handleEnterPrice = () => {
+    scrollToMath()
+    mathRef.current?.querySelector<HTMLInputElement>('input[data-price-input]')?.focus({ preventScroll: true })
+  }
+  const handleSetWeight = () => {
+    // The "how much does one weigh" editor is the bridge block on this card when
+    // it shows; otherwise the item's own drawer, where the weight per each lives.
+    if ((dimConflict || bridge) && bridgeRef.current) {
+      bridgeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      bridgeRef.current.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
+    } else if (item.matchedItem?.id) {
+      ctx.openInventoryEdit(item.matchedItem.id)
+    }
+  }
+  const unitSuggestion = unitCheck ? unitCheckSuggestion(item, sessionSupplier) : null
   const defaultRcId = ctx.sessionRcId ?? ctx.revenueCenters.find(r => r.isDefault)?.id ?? ''
 
   const total = item.rawLineTotal ? Number(item.rawLineTotal) : null
@@ -273,7 +301,11 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
             {isCatch && item.qtyOrdered && (
               <>
                 <span className="text-line-2">·</span>
-                <span className="text-blue-text">{Number(item.qtyOrdered).toFixed(2)} {item.qtyOrderedUOM ?? item.rateUOM ?? 'lb'} received</span>
+                <span className="text-blue-text">{Number(item.qtyOrdered).toFixed(2)} {item.qtyOrderedUOM ?? item.rateUOM ?? weightUnit.unit} received</span>
+                {/* No unit printed on the line — say which one was assumed (the one approve uses). */}
+                {!item.qtyOrderedUOM && !item.rateUOM && weightUnit.note && (
+                  <span className="font-sans text-[10.5px] text-ink-4">({weightUnit.note})</span>
+                )}
               </>
             )}
           </div>
@@ -365,7 +397,30 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
       {!isPicking && (
         <>
           {unlinked && <NewSkuIssue item={item} lineId={lineId} />}
-          {(dimConflict || bridge) && <DimensionConflictIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
+          {approveBlock && (
+            <ApproveBlockIssue
+              item={item}
+              lineId={lineId}
+              block={approveBlock}
+              supplierName={ctx.sessionSupplierCanonicalName ?? ctx.sessionSupplierName}
+              onAdoptFormat={() => ctx.adoptInvoiceFormat(item)}
+              onSetWeight={handleSetWeight}
+              onEnterPrice={handleEnterPrice}
+            />
+          )}
+          {unitCheck && (
+            <UnitCheckIssue
+              lineId={lineId}
+              check={unitCheck}
+              suggestion={unitSuggestion}
+              onSetUnit={u => ctx.updateLine(lineId, unitFixPatch(item, u))}
+            />
+          )}
+          {(dimConflict || bridge) && (
+            <div ref={bridgeRef}>
+              <DimensionConflictIssue item={item} lineId={lineId} onFixUom={scrollToMath} />
+            </div>
+          )}
           {bigPrice && <PriceIssue item={item} lineId={lineId} onFixUom={() => mathRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />}
           {!bigPrice && <SupplierSwitchNote item={item} sessionSupplier={sessionSupplier} />}
           <NewSupplierNote item={item} sessionSupplier={sessionSupplier} />
@@ -388,6 +443,7 @@ export function LineItemCard({ lineId, displayNo }: { lineId: string; displayNo:
               mode={pricingMode}
               onMode={m => ctx.updateLine(lineId, { pricingMode: m })}
               onChange={handleMathChange}
+              assumedUnit={weightUnit}
             />
           </Zone>
 

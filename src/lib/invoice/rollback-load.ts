@@ -255,6 +255,7 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
     select: {
       id: true,
       status: true,
+      approvedAt: true,
       parentSessionId: true,
       files: { select: { fileUrl: true } },
       _count: { select: { scanItems: true } },
@@ -355,6 +356,7 @@ export async function loadRollbackInputs(db: Db, sessionId: string): Promise<Rol
       refs,
       legacy: {
         status: session.status,
+        approvedAt: session.approvedAt,
         lines: session.scanItems.map(s => ({
           approved: s.approved,
           action: s.action,

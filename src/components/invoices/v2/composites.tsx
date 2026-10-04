@@ -360,6 +360,7 @@ export function InvoiceMathFields({
   mode,
   onMode,
   onChange,
+  assumedUnit,
 }: {
   item: ScanItem
   mode: 'per_case' | 'per_weight'
@@ -368,6 +369,10 @@ export function InvoiceMathFields({
     'rawQty' | 'rawUnit' | 'rawUnitPrice' | 'rawLineTotal' |
     'totalQty' | 'totalQtyUOM' | 'rate' | 'rateUOM'
   >>) => void
+  /** The unit an unlabelled weight is read in (`weightUnitForScanItem` — the same
+   *  answer approve uses) and its plain-English note, shown while the line has no
+   *  unit of its own. */
+  assumedUnit?: { unit: string; note: string | null }
 }) {
   // Per-case fields
   const [qty,       setQty]       = useState(item.rawQty          ? String(Number(item.rawQty))          : '')
@@ -380,9 +385,17 @@ export function InvoiceMathFields({
   // unit — pick kg and the rate becomes $/kg (was hard-coded to $/lb, which
   // mislabelled every non-lb catch-weight line and corrupted the conversion).
   // Default to the invoice's own price basis (rateUOM), then the shipped-weight
-  // unit, then the nominal-weight unit.
+  // unit, then the nominal-weight unit, then the unit approve ASSUMES for a line
+  // that prints none (the supplier's box unit, …) — never a hard-coded 'lb',
+  // which showed "lb" on a unit-less bison line while the server read it in g.
+  const lineUnit = item.rateUOM ?? item.totalQtyUOM ?? item.qtyOrderedUOM ?? null
+  const defaultUnit = lineUnit ?? assumedUnit?.unit ?? 'lb'
   const [wQty,      setWQty]      = useState(item.totalQty        ? String(Number(item.totalQty))        : '')
-  const [weightUOM, setWeightUOM] = useState(item.rateUOM ?? item.totalQtyUOM ?? item.qtyOrderedUOM ?? 'lb')
+  const [weightUOM, setWeightUOM] = useState(defaultUnit)
+  // Follow the line when its unit is set from elsewhere (the "It's per kg" quick
+  // fix) or the assumed unit moves (the supplier's box changed).
+  useEffect(() => { setWeightUOM(defaultUnit) }, [defaultUnit])
+  const unitOptions = ['lb', 'kg', 'g', 'oz'].includes(weightUOM) ? ['lb', 'kg', 'g', 'oz'] : ['lb', 'kg', 'g', 'oz', weightUOM]
   const [rate,      setRate]      = useState(item.rate            ? String(Number(item.rate))            : '')
   const [wTotal,    setWTotal]    = useState(item.rawLineTotal     ? String(Number(item.rawLineTotal))    : '')
 
@@ -461,6 +474,7 @@ export function InvoiceMathFields({
               <input
                 type="number" step="any" min="0"
                 value={unitPrice}
+                data-price-input
                 onChange={e => { setUnitPrice(e.target.value); markEdited('unitPrice') }}
                 onBlur={() => onChange({ rawUnitPrice: unitPrice || null })}
                 className="flex-1 bg-transparent border-none outline-none text-sm font-medium tabular-nums"
@@ -509,9 +523,14 @@ export function InvoiceMathFields({
                 onChange={e => { setWeightUOM(e.target.value); onChange({ totalQtyUOM: e.target.value, rateUOM: e.target.value }) }}
                 className="h-8 px-1.5 border border-line rounded bg-paper text-sm font-medium focus:outline-none"
               >
-                {['lb', 'kg', 'g', 'oz'].map(u => <option key={u} value={u}>{u}</option>)}
+                {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
+            {/* The invoice printed no unit — say which one is assumed. Picking a
+                unit above writes it to the line, which ends the assumption. */}
+            {!lineUnit && assumedUnit?.note && (
+              <div className="mt-1 text-[11px] leading-[1.35] text-ink-4">{assumedUnit.note}</div>
+            )}
           </div>
 
           {/* Rate */}
@@ -525,6 +544,7 @@ export function InvoiceMathFields({
               <input
                 type="number" step="any" min="0"
                 value={rate}
+                data-price-input
                 onChange={e => { setRate(e.target.value); markEdited('rate') }}
                 onBlur={() => onChange({ rate: rate || null, rateUOM: weightUOM })}
                 className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-medium tabular-nums"
