@@ -169,7 +169,7 @@ function buildSignals(
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function SignalsPage() {
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   const [dash, setDash]               = useState<DashboardData | null>(null)
   const [inbox, setInbox]             = useState<InboxCounts | null>(null)
   const [highCostRecipes, setHighCost] = useState<Recipe[]>([])
@@ -177,6 +177,7 @@ export default function SignalsPage() {
   const [refreshedAt, setRefreshedAt] = useState<Date>(new Date())
 
   const fetchAll = useCallback(async () => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     setLoading(true)
     const p = new URLSearchParams()
     setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
@@ -208,7 +209,7 @@ export default function SignalsPage() {
 
     setLoading(false)
     setRefreshedAt(new Date())
-  }, [activeRcId, activeRc, activeKind, activeLocationId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 

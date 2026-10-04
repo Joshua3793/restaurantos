@@ -886,11 +886,12 @@ export default function SalesPage() {
   const [deleteId,      setDeleteId]      = useState<string | null>(null)
   const [activeTab,     setActiveTab]     = useState<'list' | 'analytics'>('list')
 
-  const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, isReadOnly } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, isReadOnly, ready: scopeReady } = useRc()
 
   const [startDate, endDate] = getRange(rangeMode, customStart, customEnd)
 
   const fetchSales = useCallback(async () => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     setLoading(true)
     setLoadError(null)
     const params = new URLSearchParams({ startDate, endDate })
@@ -916,7 +917,7 @@ export default function SalesPage() {
       clearTimeout(timer)
       setLoading(false)
     }
-  }, [startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId])
+  }, [startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { fetchSales() }, [fetchSales])
 

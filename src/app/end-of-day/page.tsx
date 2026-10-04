@@ -72,7 +72,7 @@ export interface EodCloseState {
 
 export default function EndOfDayPage() {
   const router = useRouter()
-  const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, setActiveRcId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, revenueCenters, setActiveRcId, ready: scopeReady } = useRc()
   const { role, loading: userLoading } = useUser()
   // A Lead runs the operational close but the clearance ladder is explicit
   // that Leads see "no cost or money" — /api/eod/summary and /api/eod/orders
@@ -94,6 +94,7 @@ export default function EndOfDayPage() {
   const isRcScoped = activeKind === 'rc' && !!activeRcId
 
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     // showMoney is false for the whole userLoading window, so this can't
     // fire before we know the real role; once loading flips to false it's
     // in the dependency array below, so a MANAGER's data still loads.
@@ -105,7 +106,7 @@ export default function EndOfDayPage() {
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setData(d) })
       .catch(() => {})
-  }, [activeRcId, activeRc, activeKind, activeLocationId, showMoney])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, showMoney, scopeReady])
 
   const loadClose = useCallback(() => {
     if (!isRcScoped) { setCloseState(null); setTempUnits([]); return }

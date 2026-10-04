@@ -60,13 +60,14 @@ function completionColor(rate: number) {
 }
 
 export default function PrepTab() {
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   const [range,   setRange]   = useReportRange()
   const [report,  setReport]  = useState<PrepReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -77,7 +78,7 @@ export default function PrepTab() {
       .then(data => { if (!cancelled) { setReport(data); setLoading(false) } })
       .catch(() => { if (!cancelled) { setError('Failed to load prep report'); setLoading(false) } })
     return () => { cancelled = true }
-  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   return (
     <div className="space-y-6">

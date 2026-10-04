@@ -28,6 +28,44 @@ interface RecipeAlert {
   session: { id: string; supplierName: string | null; invoiceDate: string | null }
 }
 
+interface AlertsData { priceAlerts: PriceAlert[]; recipeAlerts: RecipeAlert[]; totalUnread: number }
+
+// ONE alerts feed for every bell on screen. The desktop cost strip and the phone
+// top bar each mount a bell (one is always hidden), and each used to fetch on
+// mount and poll every 30 s on its own — twice the requests for one badge.
+const feed = {
+  data: null as AlertsData | null,
+  listeners: new Set<(d: AlertsData) => void>(),
+  timer: null as ReturnType<typeof setInterval> | null,
+  inflight: null as Promise<void> | null,
+}
+
+function refreshFeed(): Promise<void> {
+  if (feed.inflight) return feed.inflight
+  feed.inflight = fetch('/api/invoices/alerts')
+    .then(r => r.json())
+    .then(d => {
+      feed.data = { priceAlerts: d.priceAlerts || [], recipeAlerts: d.recipeAlerts || [], totalUnread: d.totalUnread || 0 }
+      feed.listeners.forEach(l => l(feed.data!))
+    })
+    .catch(() => {})
+    .finally(() => { feed.inflight = null })
+  return feed.inflight
+}
+
+function subscribeFeed(listener: (d: AlertsData) => void): () => void {
+  feed.listeners.add(listener)
+  if (feed.data) listener(feed.data)
+  if (feed.listeners.size === 1) {
+    refreshFeed()
+    feed.timer = setInterval(refreshFeed, 30000)
+  }
+  return () => {
+    feed.listeners.delete(listener)
+    if (feed.listeners.size === 0 && feed.timer) { clearInterval(feed.timer); feed.timer = null }
+  }
+}
+
 interface AlertsBellProps {
   dropdownAlign?: 'left' | 'right'
 }
@@ -40,20 +78,13 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { notifications, dismiss, dismissAll } = useNotifications()
 
-  const fetchAlerts = async () => {
-    try {
-      const data = await fetch('/api/invoices/alerts').then(r => r.json())
-      setPriceAlerts(data.priceAlerts || [])
-      setRecipeAlerts(data.recipeAlerts || [])
-      setTotalUnread(data.totalUnread || 0)
-    } catch {}
-  }
+  const fetchAlerts = refreshFeed
 
-  useEffect(() => {
-    fetchAlerts()
-    const interval = setInterval(fetchAlerts, 30000)
-    return () => clearInterval(interval)
-  }, [])
+  useEffect(() => subscribeFeed(d => {
+    setPriceAlerts(d.priceAlerts)
+    setRecipeAlerts(d.recipeAlerts)
+    setTotalUnread(d.totalUnread)
+  }), [])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {

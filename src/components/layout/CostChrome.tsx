@@ -39,7 +39,7 @@ interface ChromeData {
 }
 
 export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: boolean; desktopOnly?: boolean }) {
-  const { activeRcId, activeRc, activeKind } = useRc()
+  const { activeRcId, activeRc, activeKind, ready: scopeReady } = useRc()
   const { role } = useUser()
   const [data, setData] = useState<ChromeData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -52,6 +52,8 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
   useEffect(() => {
     // Off-spine routes and below-MANAGER users show only the brand shell.
     if (!showKpis) return
+    // Wait for the scope — before it resolves this would fetch the unscoped strip first.
+    if (!scopeReady) return
     let cancelled = false
     const fetchData = async () => {
       try {
@@ -65,7 +67,7 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
     fetchData()
     const i = setInterval(fetchData, 60_000)
     return () => { cancelled = true; clearInterval(i) }
-  }, [activeRcId, showKpis])
+  }, [activeRcId, showKpis, scopeReady])
 
   const fcPct = data?.foodCostPct ?? null
   const fcClass = fcPct === null

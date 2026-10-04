@@ -119,7 +119,7 @@ interface AttnItem {
 
 export default function PassPage() {
   const { user, role } = useUser()
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   // Type-driven cost noun: an RC carries a FOOD/DRINK type → "FOOD COST" /
   // "POUR COST"; a Location or "all" view spans types → generic "COST".
   const costNoun = activeKind === 'rc'
@@ -195,6 +195,7 @@ export default function PassPage() {
   }
 
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     let cancelled = false
     const load = async () => {
       try {
@@ -245,7 +246,7 @@ export default function PassPage() {
     load()
     const t = setInterval(load, 60_000)
     return () => { cancelled = true; clearInterval(t) }
-  }, [activeRcId, activeRc, activeKind, activeLocationId, reloadTick])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, reloadTick, scopeReady])
 
   // ── Attention queue (derived) ────────────────────────────────────────────
   const attn = useMemo<AttnItem[]>(() => {

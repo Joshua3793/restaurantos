@@ -41,7 +41,7 @@ const InvoiceGroupingModal = dynamic(
 )
 
 export default function InvoicesPage() {
-  const { activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, isReadOnly, ready: scopeReady } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { push } = useNotifications()
   const toast = useToast()
@@ -68,6 +68,7 @@ export default function InvoicesPage() {
   }, [selectedSessionId, setDrawerOpen])
 
   const fetchSessions = useCallback(async () => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     try {
       const p = new URLSearchParams()
       setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
@@ -118,7 +119,7 @@ export default function InvoicesPage() {
     } catch {
       // silent — keeps existing sessions on screen, polling continues
     }
-  }, [activeRcId, activeRc, activeKind, activeLocationId, push])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, push, scopeReady])
 
   const handleScanComplete = useCallback(() => {
     fetchSessions()

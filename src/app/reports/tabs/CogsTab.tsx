@@ -67,7 +67,7 @@ function InventoryCard({ label, bound, rcName }: { label: string; bound: InvBoun
 }
 
 export default function CogsTab() {
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   // Type-driven cost noun: RC type → "food cost" / "pour cost"; Location/all → "cost".
   const costNounLower = activeKind === 'rc'
     ? getVocab(activeRc?.type).costPctLabel.replace(/ %$/, '').toLowerCase()
@@ -78,6 +78,7 @@ export default function CogsTab() {
 
   // Auto-recompute whenever the range or revenue center changes.
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     let cancelled = false
     setLoading(true)
     const params = new URLSearchParams({ startDate: ymd(range.from), endDate: ymd(range.to) })
@@ -87,7 +88,7 @@ export default function CogsTab() {
       .then(d => { if (!cancelled && d) setData(d) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [range, activeRcId, activeRc, activeKind, activeLocationId])
+  }, [range, activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   const fcColor = (pct: number) => pct < 28 ? 'text-green-text' : pct < 35 ? 'text-gold' : 'text-red'
   const rcName = activeRc ? activeRc.name : 'All RCs'

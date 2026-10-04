@@ -77,7 +77,7 @@ const LINE_FALLBACK: CheckItem[] = [
 
 export default function PreshiftPage() {
   const router = useRouter()
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
 
   const [prepItems, setPrepItems] = useState<PrepItem[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -136,6 +136,7 @@ export default function PreshiftPage() {
 
   // Live temp units (mirror of the Temps page) for the safety gate.
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     let cancelled = false
     const today = ymd(new Date())
     const p = new URLSearchParams({ date: today })
@@ -145,7 +146,7 @@ export default function PreshiftPage() {
       .then(d => { if (!cancelled && Array.isArray(d)) setTempUnits(d) })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [activeKind, activeRcId, activeRc, activeLocationId])
+  }, [activeKind, activeRcId, activeRc, activeLocationId, scopeReady])
 
   // ── Build the line-check items from prep ──────────────────────────────────
   const lineItems = useMemo<CheckItem[]>(() => {

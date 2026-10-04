@@ -27,6 +27,7 @@ import { LARGE_VARIANCE_PCT } from '@/lib/count-constants'
 import { fmtCount, countGap, GAP_CLASS } from '@/lib/count-labels'
 import { atLeast } from '@/lib/roles'
 import { canEditItems } from '@/lib/inventory-redact'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -271,6 +272,30 @@ function StatusBadge({ status }: { status: string }) {
 
 type View = 'list' | 'new' | 'count' | 'review'
 
+// A count draws its lines a screenful at a time. A full count is 400+ lines of
+// ~40 elements each, and they were drawn twice (desktop + phone, one hidden):
+// ~35,000 elements, every one redrawn on each keystroke in the open line.
+const LINE_BATCH = 60
+
+/** Lines in the order the list shows them — category groups A–Z, or flat. */
+function displayOrder(filtered: Line[], grouped: Record<string, Line[]> | null): Line[] {
+  if (!grouped) return filtered
+  return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).flatMap(([, ls]) => ls)
+}
+
+/** Category groups trimmed to the first `budget` lines in display order. */
+function budgetGroups(grouped: Record<string, Line[]>, budget: number): [string, Line[], Line[]][] {
+  const out: [string, Line[], Line[]][] = []
+  let left = budget
+  for (const [cat, ls] of Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b))) {
+    if (left <= 0) break
+    const shown = ls.slice(0, left)
+    left -= shown.length
+    out.push([cat, ls, shown])
+  }
+  return out
+}
+
 export default function CountPage() {
   // ── Global state ──────────────────────────────────────────────────────────
   const [view,          setView]          = useState<View>('list')
@@ -352,7 +377,7 @@ export default function CountPage() {
     areas: [] as string[], // stores storageArea IDs
   })
 
-  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly } = useRc()
+  const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly, ready: scopeReady } = useRc()
   const { setDrawerOpen } = useDrawer()
   const { user, role } = useUser()
   // Cost and money are manager information (see ROLE_DESCRIPTIONS: staff never see them).
@@ -370,11 +395,12 @@ export default function CountPage() {
 
   // ── Loaders ───────────────────────────────────────────────────────────────
   const loadSessions = useCallback(async () => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     const params = new URLSearchParams()
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/count/sessions?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setSessions(Array.isArray(data) ? data : [])
-  }, [activeRcId, activeRc, activeKind, activeLocationId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   const loadSession = useCallback(async (id: string): Promise<Session | null> => {
     try {
@@ -391,11 +417,12 @@ export default function CountPage() {
   }, [])
 
   const loadCountAreas = useCallback(async () => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     const params = new URLSearchParams()
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/count/areas?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setCountAreas(Array.isArray(data) ? data : [])
-  }, [activeRcId, activeRc, activeKind, activeLocationId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { loadSessions(); loadCountAreas() }, [loadSessions, loadCountAreas])
   useEffect(() => {
@@ -578,6 +605,30 @@ export default function CountPage() {
     }, {} as Record<string, Line[]>)
   }, [filteredLines, catFilter, searchQuery])
 
+  // Which renderer is on screen (the page splits at `md`); null = both, first render.
+  const isDesktop = useMediaQuery('(min-width: 768px)')
+  const cardPrefix = () => (isDesktop === false ? 'm-' : 'd-')
+  // How many lines are drawn: grows as the list scrolls, starts over when the
+  // filters change. `revealId` keeps a line the app jumps to (auto-advance, a
+  // barcode scan) drawn even when it sits past the budget.
+  const [lineBudget, setLineBudget] = useState(LINE_BATCH)
+  const [revealId, setRevealId] = useState<string | null>(null)
+  useEffect(() => { setLineBudget(LINE_BATCH) }, [active?.id, catFilter, locFilter, statusFilter, searchQuery])
+  const orderedLines = useMemo(() => displayOrder(filteredLines, grouped), [filteredLines, grouped])
+  const revealAt = revealId ? orderedLines.findIndex(l => l.id === revealId) : -1
+  const shownCount = Math.max(lineBudget, revealAt >= 0 ? revealAt + 1 + LINE_BATCH / 2 : 0)
+  const moreLinesRef = useRef<HTMLDivElement>(null)
+  const linesLeft = shownCount < orderedLines.length
+  useEffect(() => {
+    const el = moreLinesRef.current
+    if (!el || !linesLeft) return
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) setLineBudget(b => Math.max(b, shownCount) + LINE_BATCH)
+    }, { rootMargin: '1500px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [linesLeft, shownCount, isDesktop])
+
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
       if (sessionFilter === 'in_progress') return s.status === 'IN_PROGRESS' || s.status === 'PENDING_REVIEW'
@@ -721,10 +772,10 @@ export default function CountPage() {
     if (!opts?.silent) {
       const next = filteredLines.find(l => l.id !== line.id && l.countedQty === null && !l.skipped)
       if (next) {
+        setRevealId(next.id)   // draw it first if it sits past the drawn lines
         setTimeout(() => {
           setOpenId(next.id)
-          const prefix = typeof window !== 'undefined' && window.innerWidth < 640 ? 'm-' : 'd-'
-          cardRefs.current[`${prefix}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          cardRefs.current[`${cardPrefix()}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }, 120)
       }
     }
@@ -951,13 +1002,14 @@ export default function CountPage() {
       const line = (active?.lines ?? []).find(l => l.inventoryItemId === results[0].id)
       if (line) {
         setSearchQuery('')
-        const prefix = typeof window !== 'undefined' && window.innerWidth < 640 ? 'm-' : 'd-'
+        setRevealId(line.id)
         setTimeout(() => {
-          cardRefs.current[`${prefix}${line.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          cardRefs.current[`${cardPrefix()}${line.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }, 50)
       }
     }
-  }, [active?.lines, setSearchQuery])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.lines, setSearchQuery, isDesktop])
 
   const openAddItem = async () => {
     const [cats, sups, areas] = await Promise.all([
@@ -2547,12 +2599,11 @@ export default function CountPage() {
     const DesktopItems = () => (
       <>
         {(catFilter || !grouped) ? (
-          filteredLines.length === 0 ? <Empty /> : filteredLines.map(renderLine)
+          filteredLines.length === 0 ? <Empty /> : filteredLines.slice(0, shownCount).map(renderLine)
         ) : (
           Object.keys(grouped).length === 0 ? <Empty /> :
-          Object.entries(grouped)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([cat, lines]) => {
+          budgetGroups(grouped, shownCount)
+            .map(([cat, lines, shown]) => {
               const catDone = lines.filter(l => l.countedQty !== null || l.skipped).length
               return (
                 <div key={cat} className="mb-2">
@@ -2564,7 +2615,7 @@ export default function CountPage() {
                         style={{ width: `${lines.length > 0 ? (catDone / lines.length) * 100 : 0}%` }} />
                     </div>
                   </div>
-                  {lines.map(renderLine)}
+                  {shown.map(renderLine)}
                 </div>
               )
             })
@@ -2940,7 +2991,7 @@ export default function CountPage() {
 
           {/* ── Right: item list ─────────────────────────────────────── */}
           <div className="pt-1">
-            {DesktopItems()}
+            {isDesktop !== false && DesktopItems()}
           </div>
         </div>
 
@@ -3039,6 +3090,7 @@ export default function CountPage() {
         )}
 
         {/* ── Mobile items list ──────────────────────────────────────────────── */}
+        {isDesktop !== true && (
         <div className="md:hidden px-3 pt-1 pb-28 space-y-1.5">
           {(() => {
             const emptyMsg = searchQuery.trim()
@@ -3046,12 +3098,11 @@ export default function CountPage() {
               : statusFilter === 'uncounted' ? 'ALL ITEMS COUNTED ✓' : 'NOTHING HERE'
             const MobileEmpty = () => <div className="font-mono text-[11px] text-ink-4 text-center py-16 tracking-[0.02em]">{emptyMsg}</div>
             return (catFilter || !grouped) ? (
-            filteredLines.length === 0 ? <MobileEmpty /> : filteredLines.map(renderMobileLine)
+            filteredLines.length === 0 ? <MobileEmpty /> : filteredLines.slice(0, shownCount).map(renderMobileLine)
           ) : (
             Object.keys(grouped).length === 0 ? <MobileEmpty /> :
-            Object.entries(grouped)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([cat, lines]) => {
+            budgetGroups(grouped, shownCount)
+              .map(([cat, lines, shown]) => {
                 const catDone = lines.filter(l => l.countedQty !== null || l.skipped).length
                 return (
                   <div key={`mc-${cat}`}>
@@ -3063,13 +3114,16 @@ export default function CountPage() {
                           style={{ width: `${lines.length > 0 ? (catDone / lines.length) * 100 : 0}%` }} />
                       </div>
                     </div>
-                    {lines.map(renderMobileLine)}
+                    {shown.map(renderMobileLine)}
                   </div>
                 )
               })
           )
           })()}
         </div>
+        )}
+        {/* Reaching this draws the next batch of lines. */}
+        {linesLeft && <div ref={moreLinesRef} className="h-px" aria-hidden />}
 
         {/* ── Mobile finalize bar — adaptive: jump-to-uncounted while counting, finalize when done ─ */}
         <div className={`md:hidden fixed bottom-20 inset-x-3 z-30${statusFilter === 'nomovement' && bulkEligible.length > 0 ? ' hidden' : ''}`}>

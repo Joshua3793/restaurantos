@@ -23,6 +23,7 @@ import { setScopeParams } from '@/lib/scope-params'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
 import { rcHex } from '@/lib/rc-colors'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
 import { InventoryImportModal } from '@/components/inventory/InventoryImportModal'
 import {
@@ -218,19 +219,6 @@ export default function InventoryPage() {
 // typing) then cost the browser ~25× more work — the drawer felt sluggish.
 // Filters, search, totals and export all still work on the full list.
 const ROW_BATCH = 60
-
-/** true = desktop table, false = phone list, null = not measured yet (first render draws both). */
-function useIsDesktop(): boolean | null {
-  const [desktop, setDesktop] = useState<boolean | null>(null)
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 640px)')   // Tailwind `sm`
-    const sync = () => setDesktop(mq.matches)
-    sync()
-    mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
-  }, [])
-  return desktop
-}
 
 /** Category groups trimmed to `budget` rows; a collapsed group costs nothing. */
 function budgetGroups(groups: [string, InventoryItem[]][], collapsed: Set<string>, budget: number) {
@@ -539,7 +527,8 @@ function InventoryPageInner() {
 
   // How many rows are drawn — grows as the list scrolls into view, and starts over
   // when the filters or sort change (not on a refetch, which would jump the scroll).
-  const isDesktop = useIsDesktop()
+  // true = desktop table, false = phone list, null = not measured yet (draws both).
+  const isDesktop = useMediaQuery('(min-width: 640px)')   // Tailwind `sm`
   const [rowBudget, setRowBudget] = useState(ROW_BATCH)
   useEffect(() => { setRowBudget(ROW_BATCH) },
     [search, catFilter, supplierFilter, areaFilter, sortBy, colSort, activePill, showNonStocked, showInactive, stockInHand, activeRcId])
