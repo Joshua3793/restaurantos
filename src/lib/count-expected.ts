@@ -50,15 +50,8 @@ type IngredientWithLinks = {
   inventoryItem:   ({ id: string } & MovementItem) | null
   linkedRecipeId:  string | null
   linkedRecipe: null | {
-    id: string
     inventoryItemId: string | null
     inventoryItem:   ({ id: string } & MovementItem) | null
-    ingredients: Array<{
-      inventoryItemId: string | null
-      inventoryItem:   ({ id: string } & MovementItem) | null
-      qtyBase: string | number | { toString(): string }
-      unit: string
-    }>
   }
   qtyBase: string | number | { toString(): string }
   unit: string
@@ -89,6 +82,18 @@ type RecipeForExpansion = {
  * (Previously such items received nothing, which silently dropped their purchases.)
  */
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/** The recipe fields a sale's expansion reads — and nothing else (see buildConsumptionMap). */
+const EXPANSION_RECIPE_SELECT = {
+  id: true, name: true, baseYieldQty: true, yieldUnit: true, portionSize: true, portionUnit: true,
+  ingredients: {
+    select: {
+      inventoryItemId: true, qtyBase: true, unit: true, linkedRecipeId: true,
+      inventoryItem: { select: MOVEMENT_ITEM_SELECT },
+      linkedRecipe: { select: { inventoryItemId: true, inventoryItem: { select: MOVEMENT_ITEM_SELECT } } },
+    },
+  },
+} as const
 
 /**
  * `onlyItems` — the builders' optional narrowing: read only the source rows that
@@ -270,25 +275,13 @@ export async function buildConsumptionMap(
         ...(rcId ? { revenueCenterId: rcId } : {}),
       },
     },
-    include: {
+    // Only the fields the expansion reads. `include` pulled every Recipe column —
+    // method, steps, notes, stages — for each recipe and sub-recipe, and a
+    // sub-recipe's own ingredient list that expandRecipeIngredients never reads.
+    select: {
+      qtySold: true,
       sale: { select: { id: true, date: true, endDate: true, revenueCenterId: true } },
-      recipe: {
-        include: {
-          ingredients: {
-            include: {
-              inventoryItem: { select: MOVEMENT_ITEM_SELECT },
-              linkedRecipe: {
-                include: {
-                  inventoryItem: { select: MOVEMENT_ITEM_SELECT },
-                  ingredients: {
-                    include: { inventoryItem: { select: MOVEMENT_ITEM_SELECT } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      recipe: { select: EXPANSION_RECIPE_SELECT },
     },
   })
 
@@ -689,14 +682,19 @@ export async function buildPrepMap(
       logDate: { gte: since },
       ...(rcId ? { revenueCenterId: rcId } : {}),
     },
-    include: {
+    // Only the fields the loop below reads (see buildConsumptionMap).
+    select: {
+      id: true, actualPrepQty: true, completedAt: true, createdAt: true, logDate: true, revenueCenterId: true,
       prepItem: {
-        include: {
+        select: {
+          unit: true,
           linkedRecipe: {
-            include: {
+            select: {
+              name: true, yieldUnit: true, baseYieldQty: true, inventoryItemId: true,
               inventoryItem: { select: MOVEMENT_ITEM_SELECT },
               ingredients: {
-                include: {
+                select: {
+                  qtyBase: true, unit: true, inventoryItemId: true, linkedRecipeId: true,
                   inventoryItem: { select: MOVEMENT_ITEM_SELECT },
                   linkedRecipe: { select: { inventoryItem: { select: MOVEMENT_ITEM_SELECT } } },
                 },
