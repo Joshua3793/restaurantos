@@ -47,7 +47,7 @@ interface RecipeDriftRow {
 }
 
 export default function ReportsPage() {
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
@@ -55,6 +55,7 @@ export default function ReportsPage() {
 
   // cost-chrome (target + live on-hand) and recipes are point-in-time — fetch on RC change only.
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     const chromeParams = new URLSearchParams()
     setScopeParams(chromeParams, { activeKind, activeRcId, activeRc, activeLocationId })
     const chromeQs = chromeParams.toString()
@@ -69,10 +70,11 @@ export default function ReportsPage() {
       if (c) setChrome(c)
       if (Array.isArray(r)) setRecipes(r)
     })
-  }, [activeRcId, activeRc, activeKind, activeLocationId])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   // dashboard is range-driven — refetch when the RC or the selected range changes.
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     // Send calendar days (YYYY-MM-DD, local Y/M/D); the API interprets them at UTC
     // boundaries to match how sales dates are stored (date-only → UTC midnight).
     const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -83,7 +85,7 @@ export default function ReportsPage() {
     fetch(`/api/reports/dashboard?${params.toString()}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setDashboard(d) })
-  }, [activeRcId, activeRc, activeKind, activeLocationId, range])
+  }, [activeRcId, activeRc, activeKind, activeLocationId, range, scopeReady])
 
   const target = chrome?.targetPct ?? 27
   // Food-cost % is now range-driven (purchases / food sales over the selected window).

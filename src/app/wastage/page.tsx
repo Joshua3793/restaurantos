@@ -164,7 +164,7 @@ const REASON_COLORS: Record<string, string> = {
 
 
 export default function WastagePage() {
-  const { activeRcId, activeRc, activeKind, activeLocationId } = useRc()
+  const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
   const [logs, setLogs] = useState<WastageLog[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [reasonFilter, setReasonFilter] = useState('')
@@ -184,13 +184,14 @@ export default function WastagePage() {
   })
 
   const fetchLogs = useCallback(() => {
+    if (!scopeReady) return Promise.resolve()   // wait for the scope, or this fires an unscoped load first
     const params = new URLSearchParams()
     if (reasonFilter) params.set('reason', reasonFilter)
     if (startDate) params.set('startDate', startDate)
     if (endDate) params.set('endDate', endDate)
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     return fetch(`/api/wastage?${params}`).then(r => r.json()).then(setLogs)
-  }, [reasonFilter, startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId])
+  }, [reasonFilter, startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
   useEffect(() => {

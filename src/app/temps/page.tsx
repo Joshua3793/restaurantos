@@ -12,7 +12,7 @@ import {
 } from '@/components/temps/temp-utils'
 
 export default function TempChartsPage() {
-  const { activeRc, activeRcId, activeKind, activeLocationId } = useRc()
+  const { activeRc, activeRcId, activeKind, activeLocationId, ready: scopeReady } = useRc()
   const { user } = useUser()
   const rcId = activeRc?.id ?? null
   // New units are stamped with the active RC (the location you're managing).
@@ -38,6 +38,7 @@ export default function TempChartsPage() {
 
   // ── load today's units + readings ──
   const load = useCallback(async () => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     try {
       const p = new URLSearchParams({ date: TODAY })
       setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
@@ -51,7 +52,7 @@ export default function TempChartsPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeKind, activeRcId, activeRc, activeLocationId, TODAY])
+  }, [activeKind, activeRcId, activeRc, activeLocationId, TODAY, scopeReady])
 
   useEffect(() => {
     setLoading(true)
@@ -89,6 +90,7 @@ export default function TempChartsPage() {
   }, [activeKind, activeRcId, activeRc, activeLocationId, histRange, histFrom, histTo])
 
   const loadHistory = useCallback(async (o?: HistWindow) => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     setHistLoading(true)
     try {
       const res = await fetch(`/api/temps/readings?${buildHistoryQS(o).toString()}`)
@@ -99,7 +101,7 @@ export default function TempChartsPage() {
     } finally {
       setHistLoading(false)
     }
-  }, [buildHistoryQS])
+  }, [buildHistoryQS, scopeReady])
 
   // desktop: reload history whenever the tab/filters change (loadHistory's
   // identity changes when range/from/to change, so this re-fires).

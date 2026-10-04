@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { KpiData } from './types'
 import { formatCurrency } from '@/lib/utils'
 import { setScopeParams } from '@/lib/scope-params'
+import { useRc } from '@/contexts/RevenueCenterContext'
 
 interface Props {
   refreshKey: number  // increment to trigger a refetch
@@ -27,10 +28,12 @@ interface Props {
  * including a sparkline that turned into clutter).
  */
 export function InvoiceKpiStripV2({ refreshKey, scope }: Props) {
+  const { ready: scopeReady } = useRc()
   const [kpis, setKpis] = useState<KpiData | null>(null)
   const { activeKind, activeRcId, activeRc, activeLocationId } = scope
 
   useEffect(() => {
+    if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     const p = new URLSearchParams()
     setScopeParams(p, { activeKind, activeRcId, activeRc, activeLocationId })
     const qs = p.toString()
@@ -38,7 +41,7 @@ export function InvoiceKpiStripV2({ refreshKey, scope }: Props) {
       .then(r => r.ok ? r.json() : null)
       .then(data => data && setKpis(data))
       .catch(() => {})
-  }, [refreshKey, activeKind, activeRcId, activeRc, activeLocationId])
+  }, [refreshKey, activeKind, activeRcId, activeRc, activeLocationId, scopeReady])
 
   return (
     <div className="grid gap-3 mb-5" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>
