@@ -1,11 +1,12 @@
 # Supplier wordings backfill (InvoiceMatchRule → ItemSupplierAlias)
 
-Run: 2026-10-04T01:27:13.051Z · mode: **DRY RUN** · script: `scripts/backfill-item-supplier-aliases.ts`
+Run: 2026-10-04T01:28:36.246Z · mode: **APPLY** · script: `scripts/backfill-item-supplier-aliases.ts`
 
 ## Counts
 
 - InvoiceMatchRule rows read: 556
 - Alias rows planned: 454 (already present: 0; to create: 454; on inactive items: 8)
+- **Alias rows created: 454** · backup `item-supplier-aliases-backup-2026-10-04T01-28-35-403Z.json`
 - Collisions: 79 (joining different items: 0; rules folded: 100)
 - Skipped: 0 (none)
 - Unresolved: 2 (unknown supplier 2)
