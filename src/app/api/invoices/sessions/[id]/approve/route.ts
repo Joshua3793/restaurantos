@@ -19,7 +19,8 @@ import { shouldRepriceItem, primaryBoxWrite } from '@/lib/invoice/reprice'
 import { resolveLineFormat, pickOffer, supplierOffers, type OfferFormat } from '@/lib/invoice/line-format'
 import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
 import { canonicalUom } from '@/lib/uom'
-import { seedFromScanLine, validateCreateNew } from '@/lib/invoice/create-new-seed'
+import { seedFromScanLine, validateCreateNew, createNewName } from '@/lib/invoice/create-new-seed'
+import { learnAlias } from '@/lib/supplier-matcher'
 import { lookupDensity } from '@/lib/density'
 import { UndoCollector, OFFER_SELECT, offerState, itemState, offerCaptureFor } from '@/lib/invoice/approve-undo'
 import { requireSession, AuthError } from '@/lib/auth'
@@ -920,6 +921,17 @@ async function doApprove(
           continue
         }
         const newData = JSON.parse(scanItem.newItemData)
+        // W1: the product is created under a plain name. An invoice wording
+        // (typed in, or the fallback for a blank name) is refused with the hint
+        // unless the reviewer chose "Use this wording anyway" (allowShouty).
+        // The line stays un-approved, like any other skipped CREATE_NEW.
+        const name = createNewName({ itemName: newData.itemName, rawDescription: scanItem.rawDescription, allowShouty: newData.allowShouty })
+        if (!name.ok) {
+          console.error(`[approve] Not creating a product for "${scanItem.rawDescription}" — ${name.error}`)
+          skippedLines++
+          skippedCreateNew.push(`"${scanItem.rawDescription}": ${name.error}`)
+          continue
+        }
         // The drawer's AddNewItemModal now writes a chain-shaped newItemData
         // ({ dimension, packChain, pricing, countUnit }). Older sessions may
         // still carry the legacy pack-field shape — reconstruct the chain from
@@ -961,7 +973,7 @@ async function doApprove(
         }
         const created = await prisma.inventoryItem.create({
           data: {
-            itemName:           newData.itemName || scanItem.rawDescription,
+            itemName:           name.itemName,
             category:           newData.category || 'DRY',
             // Canonical SI base (g/ml/each) — never the raw packUOM, which would
             // store ppb ($/SI-base) under a kg/lb/L label and under-cost recipes.
@@ -1428,6 +1440,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
   if (claimed.count === 0) {
     return NextResponse.json({ error: 'Session is already being approved' }, { status: 409 })
+  }
+
+  // W6: approving with a supplier linked is the reviewer confirming it, so the
+  // invoice's spelling of that supplier is learned now — a fuzzy match at scan
+  // time only suggested the link (src/lib/supplier-matcher.ts). Never fails the
+  // approval.
+  if (session.supplierId && session.supplierName) {
+    await learnAlias(session.supplierId, session.supplierName).catch(() => {})
   }
 
   // waitUntil keeps the Vercel function alive until doApprove finishes,

@@ -19,7 +19,7 @@ async function main() {
   const canonCache = new Map<string,string>()
   const canonOf = async (name:string) => {
     if (canonCache.has(name)) return canonCache.get(name)!
-    const sid = await matchSupplierByName(name)
+    const sid = (await matchSupplierByName(name))?.supplierId
     let c = name
     if (sid) { const s = await prisma.supplier.findUnique({ where:{id:sid}, select:{name:true} }); if (s?.name) c = s.name }
     canonCache.set(name, c); return c

@@ -5,6 +5,7 @@
 import { canonicalUom, UNIT_FACTORS } from '@/lib/uom'
 import { billedWeightIsPriced, type LineQtyInput } from '@/lib/invoice/line-qty'
 import type { ItemFormInput } from '@/lib/item-model-form'
+import { isShoutyName, SHOUTY_HINT } from '@/lib/alias-text'
 
 export interface SeedLine {
   pricingMode?: string | null
@@ -90,6 +91,22 @@ export function seedFromScanLine(line: SeedLine): ItemFormInput {
 }
 
 export const CREATE_NEW_COUNT_NEEDS_EACH = 'Bought by weight but the product is counted as units — add how much one weighs, or make it a weight item.'
+
+export const CREATE_NEW_NEEDS_NAME = 'Give the product a name.'
+
+/** W1 on the create-new path: the name the product is created with. A blank
+ *  name falls back to the invoice wording (sessions configured before the name
+ *  box started empty); an invoice wording is refused with the hint unless the
+ *  reviewer explicitly kept it (`allowShouty === true` — nothing else counts).
+ *  The panel passes `rawDescription: null` so a blank name is refused there. */
+export function createNewName(a: { itemName: unknown; rawDescription: string | null | undefined; allowShouty: unknown }):
+  { ok: true; itemName: string } | { ok: false; error: string } {
+  const typed = typeof a.itemName === 'string' ? a.itemName.trim() : ''
+  const itemName = typed || (a.rawDescription ?? '').trim()
+  if (!itemName) return { ok: false, error: CREATE_NEW_NEEDS_NAME }
+  if (a.allowShouty !== true && isShoutyName(itemName)) return { ok: false, error: SHOUTY_HINT }
+  return { ok: true, itemName }
+}
 
 export function validateCreateNew(a: { line: SeedLine; dimension: string; eachMeasureQty: unknown }): { ok: true } | { ok: false; error: string } {
   if (isByWeightLine(a.line) && String(a.dimension).toUpperCase() === 'COUNT' && !(num(a.eachMeasureQty) > 0)) {

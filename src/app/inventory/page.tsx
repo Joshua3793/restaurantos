@@ -249,6 +249,9 @@ function InventoryPageInner() {
   const [showAdd,      setShowAdd]      = useState(false)
   const [showImport,   setShowImport]   = useState(false)
   const [form,         setForm]         = useState(defaultForm)
+  // The server's "that looks like an invoice wording" hint for the name typed
+  // in the Add Item form (cleared as soon as the name changes).
+  const [shoutyHint,   setShoutyHint]   = useState<string | null>(null)
   // RC the new item's initial stock is distributed to (defaults to the active RC).
   const [addRcId,      setAddRcId]      = useState<string | null>(null)
   // When the Add-Item modal opens, default its RC to the active RC (else main pool).
@@ -604,8 +607,14 @@ function InventoryPageInner() {
     if (selected?.id === id) setSelected(null)
   }
 
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAdd = (e: React.FormEvent) => {
     e.preventDefault()
+    void submitAdd(false)
+  }
+
+  // `allowShouty` is the person's explicit "Use it anyway" after the server
+  // refused the name as an invoice wording (400 SHOUTY_NAME, W1).
+  const submitAdd = async (allowShouty: boolean) => {
     // Chain item: stock is entered in countUnit, stored in base. The each-measure
     // bridge is passed so validateChainItem doesn't reject a bridged RATE — this
     // form's rate-unit choices stay within the item's own dimension, but the
@@ -643,13 +652,16 @@ function InventoryPageInner() {
         eachMeasureUnit: form.eachMeasureUnit,
         // The new item joins exactly this RC (its first membership).
         revenueCenterId: addRcId || defaultRcId || null,
+        ...(allowShouty ? { allowShouty: true } : {}),
       }),
     })
     if (!res.ok) {
       const err = await res.json().catch(() => null)
+      if (err?.code === 'SHOUTY_NAME') { setShoutyHint(err.error); return }
       alert(err?.error ?? `Add failed (${res.status}). Please try again.`)
       return
     }
+    setShoutyHint(null)
     const created = await res.json().catch(() => null)
     // Distribute the initial stock to the chosen revenue center (the item is
     // created with stock in the main pool; pull moves it into a non-default RC).
@@ -1930,7 +1942,15 @@ function InventoryPageInner() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-ink-3 mb-1">Item Name *</label>
-                  <input required value={form.itemName} onChange={e => setForm(f => ({ ...f, itemName: e.target.value }))} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  <input required value={form.itemName} onChange={e => { setForm(f => ({ ...f, itemName: e.target.value })); setShoutyHint(null) }} className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold" />
+                  {shoutyHint && (
+                    <p className="text-xs text-red-text mt-1 leading-snug">
+                      {shoutyHint}{' '}
+                      <button type="button" onClick={() => void submitAdd(true)} className="font-semibold underline underline-offset-2">
+                        Use it anyway
+                      </button>
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
