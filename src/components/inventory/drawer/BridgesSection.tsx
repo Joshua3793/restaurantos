@@ -1,7 +1,7 @@
 'use client'
 import { levelBaseUnits, type PackLink } from '@/lib/item-model'
 import { bridgeSentence } from '@/lib/drawer-copy'
-import { SectionTitle } from './SectionTitle'
+import { CollapsibleSection } from './CollapsibleSection'
 import type { InventoryItem } from './types'
 
 /** A pack that is just the base unit ("1 each = 1 each") says nothing. */
@@ -56,8 +56,7 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
   // A recipe-made item with a plain unit and no bridge has nothing to say here.
   if (isRecipe && !rule && bridges.length === 0) return null
   return (
-    <div className="space-y-2">
-      <SectionTitle>How it converts</SectionTitle>
+    <CollapsibleSection name="converts" title="How it converts">
       <div className="bg-paper border border-line rounded-[10px] p-3 space-y-2">
         <PackLines chain={chain} baseUnit={baseUnit} />
         {bridges.length > 0 ? (
@@ -91,6 +90,6 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
           </button>
         </div>
       )}
-    </div>
+    </CollapsibleSection>
   )
 }

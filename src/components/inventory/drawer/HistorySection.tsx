@@ -3,7 +3,7 @@ import { formatCurrency } from '@/lib/utils'
 import { shortDay } from '@/lib/drawer-copy'
 import { MergedItemsRow } from '../MergeItemSheet'
 import { RemeasuredRow } from '../RemeasureSheet'
-import { SectionTitle } from './SectionTitle'
+import { CollapsibleSection } from './CollapsibleSection'
 import type { InventoryItem, PriceHistoryRow } from './types'
 
 /** How many invoice lines "Recent invoice lines" lists. */
@@ -42,9 +42,7 @@ export function HistorySection({
   const showMeasures = canEdit && !isRecipe
   if (!showPrices && !showMerges && !showMeasures) return null
   return (
-    <div className="space-y-3">
-      <SectionTitle>History</SectionTitle>
-
+    <CollapsibleSection name="history" title="History" defaultOpen={false} gap="space-y-3">
       {/* The price paid on each recent delivery. */}
       {showPrices && (
         priceHistory.length === 0 ? (
@@ -102,6 +100,6 @@ export function HistorySection({
           </div>
         </div>
       )}
-    </div>
+    </CollapsibleSection>
   )
 }

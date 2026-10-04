@@ -3,7 +3,7 @@ import Link from 'next/link'
 import type { Dimension } from '@/lib/item-model'
 import { lastDeliveryDay } from '@/lib/drawer-copy'
 import { SupplierOffersSection } from '../SupplierOffersSection'
-import { SectionTitle } from './SectionTitle'
+import { CollapsibleSection } from './CollapsibleSection'
 import { chainFromItem, type InventoryItem, type PriceHistoryRow } from './types'
 
 /** Supplier boxes, one card each — prices, so LEAD+; adding, editing, removing
@@ -26,21 +26,19 @@ export function BoxesSection({ item, seesMoney, canEdit, measureTick, onRefresh,
   if (!seesMoney) return null
   if (item.recipe) {
     return (
-      <div className="space-y-2">
-        <SectionTitle>Supplier boxes</SectionTitle>
+      <CollapsibleSection name="boxes" title="Supplier boxes">
         <Link
           href={`/recipes?item=${item.recipe.id}`}
           className="block bg-paper border border-line rounded-[10px] px-3 py-2.5 text-[13px] text-ink-2 hover:border-ink-3 transition-colors"
         >
           Cost comes from the recipe <span className="font-medium text-ink">{item.recipe.name}</span> &rarr;
         </Link>
-      </div>
+      </CollapsibleSection>
     )
   }
   const c = chainFromItem(item)
   return (
-    <div className="space-y-2">
-      <SectionTitle>Supplier boxes</SectionTitle>
+    <CollapsibleSection name="boxes" title="Supplier boxes">
       <SupplierOffersSection
         // A measure change (or its undo) re-expresses every box — re-mount
         // so the list re-loads and no box form stays open in the old measure.
@@ -61,6 +59,6 @@ export function BoxesSection({ item, seesMoney, canEdit, measureTick, onRefresh,
         onChanged={onRefresh}
         lastDeliveryOf={name => lastDeliveryDay(priceHistory, name)}
       />
-    </div>
+    </CollapsibleSection>
   )
 }

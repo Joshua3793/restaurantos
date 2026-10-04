@@ -4,7 +4,7 @@ import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { resolveCountUom } from '@/lib/count-uom'
 import { shortDay } from '@/lib/drawer-copy'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
-import { SectionTitle } from './SectionTitle'
+import { CollapsibleSection } from './CollapsibleSection'
 import {
   baseToDisplay, displayStock, formatDay, itemChainDims, unbridgedAdvice,
   type InventoryItem, type MovementType, type StockMovementsResponse,
@@ -31,8 +31,7 @@ export function StockSection({
   const last = stockMovements?.lastCount
   const lastDay = last?.date ? (last.dayKey ?? last.date.slice(0, 10)) : null
   return (
-    <div className="space-y-2">
-      <SectionTitle>Stock</SectionTitle>
+    <CollapsibleSection name="stock" title="Stock">
 
       {/* On hand per revenue center — assigning stock to an RC is a primary task. */}
       {showRcPanel && (
@@ -175,6 +174,6 @@ export function StockSection({
         {stockMovements && stockMovements.movements.length === 0 && (
           <div className="text-[12px] text-ink-4 text-center py-2">Nothing has moved since the last count.</div>
         )}
-    </div>
+    </CollapsibleSection>
   )
 }

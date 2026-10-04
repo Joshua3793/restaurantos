@@ -2,6 +2,7 @@
 // cost-basis.ts imports Prisma at runtime — type-only import so it isn't bundled client-side.
 import type { ItemCostBasis } from '@/lib/cost-basis'
 import { countValueSentence, priceEach, recipeCostSentence } from '@/lib/drawer-copy'
+import { CollapsibleSection } from './CollapsibleSection'
 import type { InventoryItem } from './types'
 
 /** A sentence with its price in bold — the first place `price` appears. */
@@ -41,9 +42,12 @@ export function CostLine({ item, baseUnit, last, lastDelivery, seesMoney }: {
     { recipeName: item.recipe?.name ?? null },
   )
   return (
-    <div className="bg-paper border border-line rounded-[10px] p-3 space-y-1 text-[13px] leading-snug text-ink-2">
-      {recipeLine && cb && <Sentence text={recipeLine} price={priceEach(cb.pricePerBase, baseUnit)} />}
-      <Sentence text={countLine} price={priceEach(last, baseUnit)} />
-    </div>
+    // No heading on sm+ (the cost line never had one); a foldable title on a phone.
+    <CollapsibleSection name="cost" title="What it costs" heading={null}>
+      <div className="bg-paper border border-line rounded-[10px] p-3 space-y-1 text-[13px] leading-snug text-ink-2">
+        {recipeLine && cb && <Sentence text={recipeLine} price={priceEach(cb.pricePerBase, baseUnit)} />}
+        <Sentence text={countLine} price={priceEach(last, baseUnit)} />
+      </div>
+    </CollapsibleSection>
   )
 }
