@@ -9,7 +9,7 @@
 // — start-by is meaningless once a job has started, and elapsed/remaining is the
 // number a cook actually wants.
 import { useRef, useState } from 'react'
-import { Flame, RotateCcw, ArrowRight } from 'lucide-react'
+import { BookOpen, RotateCcw, ArrowRight } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
@@ -81,9 +81,18 @@ export function WorkingRow({
       {/* task — the name never truncates; it is the one thing a cook must read. */}
       <div className="min-w-0">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="w-[22px] h-[22px] rounded-[7px] bg-ink grid place-items-center shrink-0">
-            <Flame size={13} className="text-gold" />
-          </span>
+          {/* The recipe button the Next Up card carries ("Recipe · method") —
+              kept on the row once the job starts, so the method is one tap away
+              while cooking. The pulsing timer dot already says "live". */}
+          <button
+            type="button"
+            onClick={() => onOpenRecipe(item)}
+            title="Open recipe"
+            aria-label={`Open the recipe for ${item.name}`}
+            className="w-[22px] h-[22px] rounded-[7px] bg-ink grid place-items-center shrink-0 border-none cursor-pointer"
+          >
+            <BookOpen size={13} className="text-gold" />
+          </button>
           <span
             onClick={() => onOpenRecipe(item)}
             title="Open recipe"

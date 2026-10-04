@@ -9,7 +9,7 @@
 // RunRowMobile has room for ONE 44px action button; this row needs two (Stop and
 // Done), so there is no room for a recipe button — the name is the recipe-open
 // target, exactly as it is on RunRowMobile.
-import { Flame, RotateCcw, ArrowRight } from 'lucide-react'
+import { BookOpen, RotateCcw, ArrowRight } from 'lucide-react'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import { AssigneeChip } from './assignee'
@@ -71,8 +71,10 @@ export function WorkingRowMobile({
       {/* task — tapping the name opens the recipe (no room for a recipe button) */}
       <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
         <div className="flex items-center gap-1.5">
-          <span className="w-5 h-5 rounded-[6px] bg-ink grid place-items-center shrink-0">
-            <Flame size={12} className="text-gold" />
+          {/* Recipe icon (as on the Next Up card) — the whole block is the
+              recipe-open target; the pulsing timer dot already says "live". */}
+          <span title="Open recipe" className="w-5 h-5 rounded-[6px] bg-ink grid place-items-center shrink-0">
+            <BookOpen size={12} className="text-gold" />
           </span>
           <div className="text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0">
             {item.name}{' '}
