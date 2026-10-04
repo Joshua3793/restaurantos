@@ -19,6 +19,7 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { SupplierOffersSection } from './SupplierOffersSection'
+import { SupplierWordingsSection } from './SupplierWordingsSection'
 import { Combobox } from './Combobox'
 import { QuickCountSheet } from './QuickCountSheet'
 import { MergeItemSheet, MergedItemsRow } from './MergeItemSheet'
@@ -1144,6 +1145,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     onChanged={refreshItem}
                   />
                 )}
+
+                {/* How each supplier writes this item on its invoices (W7) — MANAGER+. */}
+                {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} />}
 
                 {/* Merges into this item, each with its Undo (the Merge button is in the header). */}
                 {canMerge && !item.recipe && (
