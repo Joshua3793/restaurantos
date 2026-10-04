@@ -68,7 +68,7 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
         ) : !isRecipe && canEdit && (
           // Only someone who can add the weight is told it is missing.
           <div className={`${rule}text-[12px] text-ink-3 leading-snug`}>
-            No weight per each yet — add it in Edit if this item is bought by weight but counted.{' '}
+            No weight per each yet — needed only if this item is bought by weight but counted.{' '}
             <button
               type="button" onClick={onEditBridge}
               className="text-gold-2 font-medium hover:text-gold underline underline-offset-2"
