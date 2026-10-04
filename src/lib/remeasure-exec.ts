@@ -49,7 +49,7 @@ export const REMEASURE_SENTENCE = {
   TOMBSTONE: 'This item was merged into another.',
   OPEN_COUNT: 'This item is on a count that is still open. Finalize or discard it first.',
   STALE: 'Someone changed this item a moment ago. Reload to see their change before changing its measure.',
-  INVALID: "This change can't be applied — the new pack or price would not be valid. Check the bridge and try again.",
+  INVALID: "This change can't be applied — the new pack or price would not be valid. Check what one piece weighs and try again.",
   UNDO_ITEM_CHANGED: 'The item has changed since — undo is no longer safe.',
   UNDO_COUNTED: 'A count was recorded since — undo is no longer safe.',
   UNDO_REMEASURED: 'Its measure was changed again since — undo that one first.',

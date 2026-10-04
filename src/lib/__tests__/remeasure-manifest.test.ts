@@ -388,7 +388,7 @@ describe('invalidRefusal', () => {
     ]
     const r = invalidRefusal(errors)
     expect(r.code).toBe('INVALID')
-    expect(r.message).toBe("This change can't be applied — the new pack or price would not be valid. Check the bridge and try again.")
+    expect(r.message).toBe("This change can't be applied — the new pack or price would not be valid. Check what one piece weighs and try again.")
     expect(r.message).not.toMatch(/countUnit|packChain|chain/)
     expect(r.details).toEqual(errors)
   })
