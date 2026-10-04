@@ -69,25 +69,34 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const [storageAreas, setStorageAreas] = useState<{ id: string; name: string }[]>([])
   const [priceHistory, setPriceHistory] = useState<PriceHistoryRow[]>([])
   const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
+  const [stockLoading, setStockLoading] = useState(true)
 
   useEffect(() => {
+    let live = true
     setLoading(true)
+    setStockLoading(true)
     Promise.all([
       fetch(`/api/inventory/${itemId}`).then(r => r.json()),
       fetch('/api/categories').then(r => r.json()),
       fetch('/api/storage-areas').then(r => r.json()),
       // LEAD+ only server-side — a STAFF 403 must land as an empty list, not an error body.
       fetch(`/api/inventory/${itemId}/price-history`).then(r => (r.ok ? r.json() : [])).catch(() => []),
-      fetch(`/api/inventory/${itemId}/stock-movements`).then(r => r.json()).catch(() => null),
-    ]).then(([fetchedItem, cats, areas, ph, sm]) => {
+    ]).then(([fetchedItem, cats, areas, ph]) => {
+      if (!live) return
       const normalized = normalizeItem(fetchedItem)
       setItem(normalized)
       setCategories(cats)
       setStorageAreas(areas)
       setPriceHistory(ph)
-      setStockMovements(sm)
       setLoading(false)
     })
+    // The stock ledger re-adds every sale, delivery and prep since the last count —
+    // the slowest read by far. It fills the Stock section when it lands instead of
+    // holding the whole drawer on a spinner.
+    fetch(`/api/inventory/${itemId}/stock-movements`)
+      .then(r => (r.ok ? r.json() : null)).catch(() => null)
+      .then(sm => { if (!live) return; setStockMovements(sm); setStockLoading(false) })
+    return () => { live = false }
   }, [itemId])
 
   // initialEditMode (the recipe editor's quick-edit) opens straight into the
@@ -278,7 +287,9 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
   return (
     <div className={`fixed inset-0 ${zClassName} flex items-end sm:items-stretch sm:justify-end`} onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+      {/* Plain dim, no backdrop-blur: a blur over the whole inventory list repaints
+          every frame behind the drawer and froze the app. */}
+      <div className="absolute inset-0 bg-black/40" />
       <div
         className="relative bg-bg w-full max-w-[100vw] sm:max-w-md h-[92vh] sm:h-full overflow-y-auto overflow-x-hidden shadow-2xl rounded-t-2xl sm:rounded-none"
         onClick={e => e.stopPropagation()}
@@ -392,6 +403,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     onUpdated?.()
                   }}
                   stockMovements={stockMovements}
+                  stockLoading={stockLoading}
                   activeRc={activeRc}
                   onCount={() => setShowQuick(true)}
                 />

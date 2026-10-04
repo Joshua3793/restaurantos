@@ -212,10 +212,34 @@ export default function InventoryPage() {
   )
 }
 
+type ItemDrawerApi = { open: (id: string) => void; closeIf: (id: string) => void }
+type DrawerUpdated = NonNullable<React.ComponentProps<typeof InventoryItemDrawer>['onUpdated']>
+
+// The item drawer's open/closed state lives here, not on the page. The page draws
+// every item twice (desktop table + phone list, ~465 rows each), and holding the
+// open item there redrew all of them on every open and close — the freeze staff
+// felt when opening an item. Rows open it through `apiRef`, which never changes.
+function ItemDrawerHost({ apiRef, onUpdated }: {
+  apiRef: React.MutableRefObject<ItemDrawerApi | null>
+  onUpdated: DrawerUpdated
+}) {
+  const [itemId, setItemId] = useState<string | null>(null)
+  const { setDrawerOpen } = useDrawer()
+  useEffect(() => {
+    apiRef.current = { open: setItemId, closeIf: id => setItemId(cur => (cur === id ? null : cur)) }
+    return () => { apiRef.current = null }
+  }, [apiRef])
+  useEffect(() => {
+    setDrawerOpen(itemId !== null)
+    return () => setDrawerOpen(false)
+  }, [itemId, setDrawerOpen])
+  if (!itemId) return null
+  return <InventoryItemDrawer itemId={itemId} onClose={() => setItemId(null)} onUpdated={onUpdated} />
+}
+
 function InventoryPageInner() {
   const searchParams = useSearchParams()
   const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, isReadOnly, ready: scopeReady } = useRc()
-  const { setDrawerOpen } = useDrawer()
   const { show: showToast, dismiss: dismissToast } = useToast()
   const defaultRcId = useMemo(() => revenueCenters.find(rc => rc.isDefault)?.id ?? null, [revenueCenters])
   const [items,        setItems]        = useState<InventoryItem[]>([])
@@ -244,7 +268,8 @@ function InventoryPageInner() {
   // /inventory is LEAD+; item writes (add, import, bulk, activate, delete) are
   // MANAGER+ server-side, so a Shift Lead browses the library without those controls.
   const canEdit = role !== null && canEditItems(role)
-  const [selected,     setSelected]     = useState<InventoryItem | null>(null)
+  const drawerApi = useRef<ItemDrawerApi | null>(null)
+  const openItem = useCallback((item: InventoryItem) => drawerApi.current?.open(item.id), [])
   const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
   const [showImport,   setShowImport]   = useState(false)
@@ -272,18 +297,6 @@ function InventoryPageInner() {
   const [orderQtys,    setOrderQtys]    = useState<Record<string, string>>({})
   const [showMobileSortSheet,   setShowMobileSortSheet]   = useState(false)
   const [showMobileFilterSheet, setShowMobileFilterSheet] = useState(false)
-  const [priceHistory, setPriceHistory] = useState<Array<{
-    invoiceDate: string | null; dayKey: string | null; invoiceNumber: string; supplierName: string;
-    qtyPurchased: number | null; unitPrice: number; lineTotal: number | null
-  }>>([])
-  type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE'
-  interface StockMovement { id: string; date: string; type: MovementType; qty: number; unit: string; description: string }
-  interface StockMovementsResponse {
-    lastCount: { qty: number; unit: string; date: string | null }
-    theoretical: { qty: number; unit: string }
-    movements: StockMovement[]
-  }
-  const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
 
   // The single place the list query is built. Both the list fetch and the export
   // button call it, so the downloaded file always covers exactly the rows the
@@ -331,11 +344,6 @@ function InventoryPageInner() {
 
   useEffect(() => { fetchItems() }, [fetchItems])
 
-  useEffect(() => {
-    setDrawerOpen(selected !== null)
-    return () => setDrawerOpen(false)
-  }, [selected, setDrawerOpen])
-
   const deepLinkItemId = useRef<string | null>(null)
   // Deep-link: ?item=id opens that item's drawer; ?orderList=1 opens the order list
   useEffect(() => {
@@ -356,23 +364,12 @@ function InventoryPageInner() {
     if (!itemId || !loaded) return
     deepLinkItemId.current = null
     const match = items.find(i => i.id === itemId)
-    if (match) { setSelected(match); return }
+    if (match) { openItem(match); return }
     fetch('/api/inventory').then(r => r.json()).then((all: InventoryItem[]) => {
       const m = Array.isArray(all) ? all.find(i => i.id === itemId) : undefined
-      if (m) setSelected(normalizeItem(m))
+      if (m) openItem(m)
     })
-  }, [loaded, items])
-
-  // Fetch price history whenever an item is selected
-  useEffect(() => {
-    if (!selected) { setPriceHistory([]); setStockMovements(null); return }
-    fetch(`/api/inventory/${selected.id}/stock-movements`)
-      .then(r => r.json()).then(setStockMovements).catch(() => setStockMovements(null))
-    fetch(`/api/inventory/${selected.id}/price-history`)
-      .then(r => r.json())
-      .then(setPriceHistory)
-      .catch(() => setPriceHistory([]))
-  }, [selected])
+  }, [loaded, items, openItem])
 
   useEffect(() => {
     fetch('/api/suppliers').then(r => r.json()).then(setSuppliers)
@@ -604,7 +601,7 @@ function InventoryPageInner() {
       return
     }
     setItems(prev => prev.filter(i => i.id !== id))
-    if (selected?.id === id) setSelected(null)
+    drawerApi.current?.closeIf(id)
   }
 
   const handleAdd = (e: React.FormEvent) => {
@@ -702,7 +699,7 @@ function InventoryPageInner() {
       <tr
         key={item.id}
         className={`hover:bg-bg cursor-pointer border-b border-line ${!item.isActive ? 'opacity-50' : ''}`}
-        onClick={() => setSelected(item)}
+        onClick={() => openItem(item)}
       >
         <td className="pl-4 py-[13px] pr-2" onClick={e => e.stopPropagation()}>
           {canEdit && (
@@ -805,7 +802,7 @@ function InventoryPageInner() {
     return (
       <div
         key={`m-${item.id}`}
-        onClick={() => setSelected(item)}
+        onClick={() => openItem(item)}
         className={`flex items-center gap-3 px-3 py-2.5 border-b border-line cursor-pointer active:bg-bg transition-colors ${
           !inStock ? 'bg-gold-soft/40' : ''
         } ${!item.isActive ? 'opacity-50' : ''}`}
@@ -1886,18 +1883,15 @@ function InventoryPageInner() {
       </>)}
 
       {/* Item drawer — single source of truth across Inventory / Count */}
-      {selected && (
-        <InventoryItemDrawer
-          itemId={selected.id}
-          onClose={() => setSelected(null)}
-          onUpdated={(updatedItem) => {
-            if (updatedItem) {
-              setItems(prev => prev.map(i => i.id === updatedItem.id ? { ...i, ...(updatedItem as Partial<InventoryItem>) } : i))
-            }
-            fetchItems()
-          }}
-        />
-      )}
+      <ItemDrawerHost
+        apiRef={drawerApi}
+        onUpdated={(updatedItem) => {
+          if (updatedItem) {
+            setItems(prev => prev.map(i => i.id === updatedItem.id ? { ...i, ...(updatedItem as Partial<InventoryItem>) } : i))
+          }
+          fetchItems()
+        }}
+      />
 
       {/* Quick count — single-item count without a full session */}
       {quickItem && (
