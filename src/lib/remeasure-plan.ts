@@ -54,7 +54,7 @@ export interface Measure { dimension: Dimension; unit: string }
 /** "One piece = 150 g" (`eachQty` + `eachUnit`) or a density in g/ml. */
 export interface Bridge { eachQty?: number | null; eachUnit?: string | null; densityGPerMl?: number | null }
 
-export type RemeasureErrorCode = 'SAME_MEASURE' | 'NEEDS_BRIDGE'
+export type RemeasureErrorCode = 'SAME_MEASURE' | 'NEEDS_BRIDGE' | 'BRIDGE_DIFFERS'
 export interface RemeasureError { error: string; code: RemeasureErrorCode }
 
 export interface RemeasureBoxInput {
@@ -273,12 +273,33 @@ export function remeasureFactor(from: ChainItem, to: Measure, bridge: Bridge): {
       return { error: `Tell the app how much one piece ${verb} first — for example 1 each = 150 g.`, code: 'NEEDS_BRIDGE' }
     }
     const perEach = convertQty(qty, unit, DIMENSION_BASE[measured])
+    // History was read through the item's STORED piece weight (counts typed in
+    // pieces on a weight item, deliveries billed by weight on a pieces item).
+    // Converting it by a different weight would move every one of those numbers,
+    // so the stored value must be corrected first (Edit), never overridden here.
+    const stored = from.eachMeasure
+    if (stored && dimensionOf(stored.unit) === measured) {
+      const storedPerEach = convertQty(stored.qty, stored.unit, DIMENSION_BASE[measured])
+      if (Math.abs(storedPerEach - perEach) > Math.abs(storedPerEach) * 1e-9) {
+        return {
+          error: `This item already says 1 each = ${stored.qty} ${stored.unit}. If that is wrong, fix it in Edit first, then change the measure.`,
+          code: 'BRIDGE_DIFFERS',
+        }
+      }
+    }
     return { k: from.dimension === 'COUNT' ? perEach : 1 / perEach }
   }
 
   // MASS ↔ VOLUME
   const d = Number(bridge.densityGPerMl)
   if (!(d > 0)) return { error: 'Tell the app the density first — how many grams 1 ml weighs.', code: 'NEEDS_BRIDGE' }
+  const storedDensity = from.densityGPerMl ?? null
+  if (storedDensity && storedDensity > 0 && Math.abs(storedDensity - d) > storedDensity * 1e-9) {
+    return {
+      error: `This item already says 1 ml weighs ${storedDensity} g. If that is wrong, fix it in Edit first, then change the measure.`,
+      code: 'BRIDGE_DIFFERS',
+    }
+  }
   return { k: from.dimension === 'MASS' ? 1 / d : d }
 }
 

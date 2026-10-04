@@ -137,12 +137,12 @@ describe('buildManifest', () => {
     const input = fixture()
     input.item.stockOnHand = '36'
     input.item.lastCountQty = null
-    input.item.eachMeasureQty = '100'
+    input.item.eachMeasureQty = '150'   // Decimal-ish string, same piece weight the request names
     input.item.eachMeasureUnit = 'g'
     const mm = manifestOf(input)
     expect(mm.item.before.stockOnHand).toBe(36)
     expect(mm.item.before.lastCountQty).toBeNull()
-    expect(mm.item.before.eachMeasureQty).toBe(100)
+    expect(mm.item.before.eachMeasureQty).toBe(150)
   })
 })
 
@@ -388,7 +388,7 @@ describe('invalidRefusal', () => {
     ]
     const r = invalidRefusal(errors)
     expect(r.code).toBe('INVALID')
-    expect(r.message).toBe("This change can't be applied — the new pack or price would not be valid. Check what one piece weighs and try again.")
+    expect(r.message).toBe("This change can't be applied — the new pack or price would not be valid. Check the numbers and try again.")
     expect(r.message).not.toMatch(/countUnit|packChain|chain/)
     expect(r.details).toEqual(errors)
   })

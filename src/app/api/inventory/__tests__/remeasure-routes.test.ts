@@ -186,7 +186,7 @@ describe('POST /api/inventory/[id]/remeasure — apply', () => {
   it('maps the other refusals to their statuses', async () => {
     const cases: [string, number][] = [
       ['NOT_FOUND', 404], ['PREP_OWNED', 409], ['TOMBSTONE', 409], ['OPEN_COUNT', 409],
-      ['SAME_MEASURE', 400], ['NEEDS_BRIDGE', 400], ['INVALID', 400],
+      ['SAME_MEASURE', 400], ['NEEDS_BRIDGE', 400], ['BRIDGE_DIFFERS', 400], ['INVALID', 400],
     ]
     for (const [code, status] of cases) {
       previewRemeasure.mockRejectedValueOnce(new MockRefusal(code, 'x'))

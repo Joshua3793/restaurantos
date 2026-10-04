@@ -12,6 +12,7 @@ const STATUS: Record<string, number> = {
   UNDO_UNSAFE: 409,
   SAME_MEASURE: 400,
   NEEDS_BRIDGE: 400,
+  BRIDGE_DIFFERS: 400,
   INVALID: 400,
 }
 

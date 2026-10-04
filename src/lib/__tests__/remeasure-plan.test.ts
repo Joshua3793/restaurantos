@@ -88,9 +88,10 @@ describe('remeasureFactor', () => {
       error: 'Tell the app the density first — how many grams 1 ml weighs.', code: 'NEEDS_BRIDGE',
     })
   })
-  it('the bridge in the request wins over the item’s stored one', () => {
+  it('a stored piece weight must match the one typed — history was read through it', () => {
     const stored = ci({ dimension: 'COUNT', baseUnit: 'each', eachMeasure: { qty: 100, unit: 'g' } })
-    expect(kOf(remeasureFactor(stored, { dimension: 'MASS', unit: 'g' }, { eachQty: 150, eachUnit: 'g' }))).toBe(150)
+    expect(kOf(remeasureFactor(stored, { dimension: 'MASS', unit: 'g' }, { eachQty: 100, eachUnit: 'g' }))).toBe(100)
+    expect(remeasureFactor(stored, { dimension: 'MASS', unit: 'g' }, { eachQty: 150, eachUnit: 'g' })).toMatchObject({ code: 'BRIDGE_DIFFERS' })
     // …and the stored one is NOT a fallback: no bridge in the request ⇒ refused.
     expect(remeasureFactor(stored, { dimension: 'MASS', unit: 'g' }, {})).toMatchObject({ code: 'NEEDS_BRIDGE' })
   })
@@ -780,10 +781,8 @@ describe('planRemeasure — a RATE in the target dimension keeps its printed pri
       expect(p.errors).toEqual([])
     })
 
-    it(`bridged differently before (1 each = 100 g, now 150 g) — still the printed $3.49/lb, not refused (${isStocked ? 'stocked' : 'unstocked'})`, () => {
-      const p = plan(planRemeasure(rateBoxInput(isStocked, { qty: 100, unit: 'g' })))
-      expect(p.boxes.find((b) => b.id === 'box-farm')!.pricing).toEqual({ mode: 'RATE', rate: 3.49, rateUnit: 'lb' })
-      expect(p.errors).toEqual([])
+    it(`bridged differently before (1 each = 100 g, now 150 g) — refused: fix the stored piece weight first (${isStocked ? 'stocked' : 'unstocked'})`, () => {
+      expect(planRemeasure(rateBoxInput(isStocked, { qty: 100, unit: 'g' }))).toMatchObject({ code: 'BRIDGE_DIFFERS' })
     })
   }
 
@@ -791,7 +790,7 @@ describe('planRemeasure — a RATE in the target dimension keeps its printed pri
     const input = fixture()
     input.boxes = []
     input.item.pricing = { mode: 'RATE', rate: 3.49, rateUnit: 'lb' }
-    input.item.eachMeasureQty = 100
+    input.item.eachMeasureQty = 150   // the same piece weight the request names
     input.item.eachMeasureUnit = 'g'
     const p = plan(planRemeasure(input))
     expect(p.item.after.pricing).toEqual({ mode: 'RATE', rate: 3.49, rateUnit: 'lb' })
@@ -923,5 +922,36 @@ describe('planRemeasure — MASS → COUNT end to end', () => {
     expect(p.stock.stockOnHand.next).toBeCloseTo(144, 9)
     expect(p.sessions[0].next).toBe(100)
     expect(p.transfers).toEqual([{ id: 't', old: 740, next: 10 }])
+  })
+})
+
+describe('remeasureFactor — a typed piece weight or density must match the one the item already stores', () => {
+  it('refuses a different piece weight on a pieces item that stores one', () => {
+    const from = ci({ dimension: 'COUNT', baseUnit: 'each', eachMeasure: { qty: 200, unit: 'g' } })
+    const r = remeasureFactor(from, { dimension: 'MASS', unit: 'g' }, { eachQty: 150, eachUnit: 'g' })
+    expect(r).toEqual({ code: 'BRIDGE_DIFFERS', error: 'This item already says 1 each = 200 g. If that is wrong, fix it in Edit first, then change the measure.' })
+  })
+
+  it('accepts the same piece weight in another unit (0.2 kg = 200 g)', () => {
+    const from = ci({ dimension: 'COUNT', baseUnit: 'each', eachMeasure: { qty: 200, unit: 'g' } })
+    expect(remeasureFactor(from, { dimension: 'MASS', unit: 'g' }, { eachQty: 0.2, eachUnit: 'kg' })).toEqual({ k: 200 })
+  })
+
+  it('refuses a different piece weight on a weight item that stores one (pieces target)', () => {
+    const from = ci({ dimension: 'MASS', baseUnit: 'g', eachMeasure: { qty: 200, unit: 'g' } })
+    const r = remeasureFactor(from, { dimension: 'COUNT', unit: 'each' }, { eachQty: 150, eachUnit: 'g' })
+    expect(r).toMatchObject({ code: 'BRIDGE_DIFFERS' })
+  })
+
+  it('ignores a stored piece weight in another measure than the one crossed (volume bridge on a weight change)', () => {
+    const from = ci({ dimension: 'COUNT', baseUnit: 'each', eachMeasure: { qty: 250, unit: 'ml' } })
+    expect(remeasureFactor(from, { dimension: 'MASS', unit: 'g' }, { eachQty: 150, eachUnit: 'g' })).toEqual({ k: 150 })
+  })
+
+  it('refuses a different density on a weight ↔ volume change', () => {
+    const from = ci({ dimension: 'MASS', baseUnit: 'g', densityGPerMl: 1.03 })
+    const r = remeasureFactor(from, { dimension: 'VOLUME', unit: 'ml' }, { densityGPerMl: 1.1 })
+    expect(r).toEqual({ code: 'BRIDGE_DIFFERS', error: 'This item already says 1 ml weighs 1.03 g. If that is wrong, fix it in Edit first, then change the measure.' })
+    expect(remeasureFactor(from, { dimension: 'VOLUME', unit: 'ml' }, { densityGPerMl: 1.03 })).toEqual({ k: 1 / 1.03 })
   })
 })
