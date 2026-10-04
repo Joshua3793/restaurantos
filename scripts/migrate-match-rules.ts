@@ -1,3 +1,4 @@
+// DEAD: one-off collapse of InvoiceMatchRule supplier-name variants (2026-06). Stage 3 retired that table — the app reads and writes supplier wordings in ItemSupplierAlias now. Do not run.
 import { prisma } from '../src/lib/prisma'
 import { matchSupplierByName } from '../src/lib/supplier-matcher'
 import { syncPrepToInventory } from '../src/lib/recipeCosts'

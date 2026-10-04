@@ -13,8 +13,12 @@
 // Legacy sessions (approved before these records existed) fall back to today's
 // `revertedPricing` rule, exactly as it stands today — UPDATE_PRICE lines
 // only, never ADD_SUPPLIER (see `legacyRows` for why) — flagged 'best-effort':
-// offers, learned match rules and created items cannot be restored at all,
+// offers, learned wordings and created items cannot be restored at all,
 // because nothing recorded what they looked like.
+//
+// Records of kind MATCH_RULE (written before the ItemSupplierAlias table) are a
+// labelled no-op: the old learned-match table is no longer read or written by
+// the app, so its rows are left exactly as they are.
 //
 // ── THE LOADER'S CONTRACT (Task 4) ──────────────────────────────────────────
 // The planner is pure: everything it knows about the world outside the undo
@@ -39,7 +43,8 @@
 //        WastageLog.inventoryItem           — wastage
 //        StockTransfer.inventoryItem        — RC transfers
 //        PriceAlert.inventoryItem           — price alerts
-//        InvoiceMatchRule.inventoryItem     — learned matches
+//        InvoiceMatchRule.inventoryItem     — legacy learned matches (never
+//                                              rolled back, so ALL of them count)
 //      SetNull by default (optional FK — the row SURVIVES, pointing at nothing;
 //      just as bad, and it does not announce itself):
 //        RecipeIngredient.inventoryItem     — a recipe ingredient goes $0
@@ -52,6 +57,7 @@
 //        InventoryItem.mergedInto           — a merge tombstone points nowhere
 //      Cascade (the row is DELETED with the item, silently):
 //        InventorySupplierPrice.inventoryItem
+//        ItemSupplierAlias.inventoryItem    — a supplier's wording for the item
 //
 //    EXCLUDED entirely — membership rows the item takes with it, not a claim on
 //    stock (a real stock observation is `CountLine`, which is Restrict and IS
@@ -65,12 +71,12 @@
 //    EXCLUDE the rows this same deletion is already removing, or nothing is ever
 //    deletable: this session's (and its RC clones') `InvoiceScanItem` rows
 //    (they cascade with the session — regardless of `approved`); this
-//    session's `PriceAlert` and `RecipeAlert` rows (same); and the
-//    `InventorySupplierPrice` / `InvoiceMatchRule` rows THIS PLAN deletes. The
-//    planner re-adds the two exclusions the loader cannot see coming: an offer
-//    OR a learned match the plan ends up SKIPPING protects its item again,
-//    because the cascade (offer) or the Restrict FK (match rule) would
-//    otherwise take the whole transaction down (see `guardCascades`).
+//    session's `PriceAlert` and `RecipeAlert` rows (same); the
+//    `InventorySupplierPrice` rows THIS PLAN deletes; and the `ItemSupplierAlias`
+//    rows this plan deletes or restores (either way they leave the item). The
+//    planner re-adds the exclusions the loader cannot see coming: an offer or an
+//    alias the plan ends up SKIPPING protects its item again, because the
+//    cascade would otherwise silently take it (see `guardCascades`).
 //
 // 2. `current.offers` must hold EVERY offer of every item touched by any OFFER
 //    record — not just the recorded ones. A third offer that took the primary
@@ -87,7 +93,7 @@ import {
   type UndoKind,
   offerState,
   itemState,
-  ruleState,
+  aliasState,
   canonEqual,
   currentFieldsOnly,
 } from '@/lib/invoice/approve-undo'
@@ -100,8 +106,13 @@ type Db = Prisma.TransactionClient | typeof prisma
 export type ChainItemRow = RevertItemRow
 
 export type Outcome = 'restored' | 'deleted' | 'skipped' | 'best-effort'
-export type SkipReason = 'changed-since' | 'gone' | 'referenced' | 'approved before undo records existed'
-export type RollbackTable = 'offer' | 'item' | 'rule'
+export type SkipReason =
+  | 'changed-since'
+  | 'gone'
+  | 'referenced'
+  | 'approved before undo records existed'
+  | 'learned wording predates the alias table'
+export type RollbackTable = 'offer' | 'item' | 'alias'
 
 export interface PlanRow {
   kind: UndoKind
@@ -188,7 +199,8 @@ export interface PlanInput {
   current: {
     offers: Map<string, CurrentOffer>
     items: Map<string, CurrentItem>
-    rules: Map<string, Canon>
+    /** ItemSupplierAlias rows by id, through `aliasState` (carries inventoryItemId). */
+    aliases: Map<string, Canon>
   }
   /** Keyed by ITEM_CREATED targetId. A target missing from the map is treated
    *  as referenced: never delete an item whose references were not checked. */
@@ -196,10 +208,11 @@ export interface PlanInput {
   legacy: LegacyInput | null
 }
 
-const TABLE_OF: Record<UndoKind, RollbackTable> = {
+// MATCH_RULE has no table: its records never produce a write (see planOne).
+const TABLE_OF: Record<Exclude<UndoKind, 'MATCH_RULE'>, RollbackTable> = {
   OFFER: 'offer',
   ITEM: 'item',
-  MATCH_RULE: 'rule',
+  ALIAS: 'alias',
   ITEM_CREATED: 'item',
 }
 
@@ -209,7 +222,7 @@ const TABLE_OF: Record<UndoKind, RollbackTable> = {
 // one primary per item, so the flag has to be surrendered before it is taken.
 // ITEM_CREATED last — its reference check assumes the offers this plan removes
 // are already gone.
-const KIND_RANK: Record<UndoKind, number> = { OFFER: 0, ITEM: 1, MATCH_RULE: 2, ITEM_CREATED: 3 }
+const KIND_RANK: Record<UndoKind, number> = { OFFER: 0, ITEM: 1, ALIAS: 2, MATCH_RULE: 2, ITEM_CREATED: 3 }
 
 function orderRank(r: UndoRecord): number {
   const claimsPrimary = r.kind === 'OFFER' && r.prev !== null && r.prev.isPrimary === true
@@ -226,7 +239,7 @@ function ordered(records: UndoRecord[]): UndoRecord[] {
 
 function selectorFor(kind: UndoKind): (row: Record<string, unknown>) => Canon {
   if (kind === 'OFFER') return offerState
-  if (kind === 'MATCH_RULE') return ruleState
+  if (kind === 'ALIAS') return aliasState
   return itemState
 }
 
@@ -239,10 +252,14 @@ function nameFor(rec: UndoRecord, input: PlanInput): string {
     return item?.itemName ? `${supplier} → ${item.itemName}` : supplier
   }
   if (rec.kind === 'MATCH_RULE') {
+    const raw = (rec.next.rawDescription as string | undefined) ?? (rec.prev?.rawDescription as string | undefined)
+    return raw || rec.targetId
+  }
+  if (rec.kind === 'ALIAS') {
     const raw =
-      (input.current.rules.get(rec.targetId)?.rawDescription as string | undefined) ??
-      (rec.next.rawDescription as string | undefined) ??
-      (rec.prev?.rawDescription as string | undefined)
+      (input.current.aliases.get(rec.targetId)?.rawText as string | undefined) ??
+      (rec.next.rawText as string | undefined) ??
+      (rec.prev?.rawText as string | undefined)
     return raw || rec.targetId
   }
   return input.current.items.get(rec.targetId)?.itemName || rec.targetId
@@ -255,15 +272,18 @@ function referenceDetail(refs: ItemRefs | undefined): string | null {
 }
 
 function planOne(rec: UndoRecord, input: PlanInput): PlanRow {
-  const table = TABLE_OF[rec.kind]
   const name = nameFor(rec, input)
   const base = { kind: rec.kind, targetId: rec.targetId, name }
+
+  // Legacy: the old learned-match table is never read or written again.
+  if (rec.kind === 'MATCH_RULE') return { ...base, outcome: 'skipped', reason: 'learned wording predates the alias table' }
+  const table = TABLE_OF[rec.kind]
 
   const current: Record<string, unknown> | undefined =
     rec.kind === 'OFFER'
       ? input.current.offers.get(rec.targetId)
-      : rec.kind === 'MATCH_RULE'
-        ? input.current.rules.get(rec.targetId)
+      : rec.kind === 'ALIAS'
+        ? input.current.aliases.get(rec.targetId)
         : input.current.items.get(rec.targetId)
 
   if (!current) return { ...base, outcome: 'skipped', reason: 'gone' }
@@ -329,44 +349,51 @@ function guardPrimaryCollisions(recs: UndoRecord[], rows: PlanRow[], input: Plan
 }
 
 /**
- * Two relations would otherwise blow up a created item's delete once it is
+ * Three relations would otherwise blow up a created item's delete once it is
  * skipped-but-still-there:
  *
  *  - `InventorySupplierPrice.inventoryItemId` is `onDelete: Cascade`. Deleting
  *    a created item takes EVERY offer on it — including one this plan
  *    deliberately kept because it had changed since the approval.
- *  - `InvoiceMatchRule.inventoryItemId` is `onDelete: Restrict`. A match rule
- *    the approval created but someone has since edited is also skipped by the
- *    planner — and unlike the offer, nothing else catches it: the delete
- *    THROWS and takes the whole transaction down with it.
+ *  - `ItemSupplierAlias.inventoryItemId` is `onDelete: Cascade` too: an alias
+ *    a later invoice used again (or someone changed) is kept by the planner,
+ *    and the item delete would silently take it anyway.
+ *  - `InvoiceMatchRule.inventoryItemId` is `onDelete: Restrict`, and a legacy
+ *    MATCH_RULE record is never undone — a rule it recorded on the created
+ *    item may still point at it, and the delete would THROW and take the whole
+ *    transaction down. (The loader counts every rule on the item as well;
+ *    this is the planner's own guard, from the record alone.)
  *
- * `refs` cannot see either case: the loader counted offers/rules before the
- * plan decided which ones it would skip. So a skipped offer or a skipped
- * match rule protects its item, here, after both outcomes are known.
+ * `refs` cannot see the first two: the loader counted offers/aliases before
+ * the plan decided which ones it would skip. So a skipped offer, alias or
+ * legacy rule protects its item, here, after every outcome is known.
  */
 function guardCascades(recs: UndoRecord[], rows: PlanRow[], input: PlanInput): void {
-  const protectedByOffer = new Set<string>()
-  const protectedByRule = new Map<string, string>() // itemId → the rule's display name, for `detail`
+  const protectedBy = new Map<string, string>() // itemId → why, for `detail`
   for (let i = 0; i < recs.length; i++) {
     if (rows[i].outcome !== 'skipped') continue
-    if (recs[i].kind === 'OFFER') {
-      const itemId = input.current.offers.get(recs[i].targetId)?.inventoryItemId
-      if (itemId) protectedByOffer.add(itemId)
-    } else if (recs[i].kind === 'MATCH_RULE') {
-      const itemId = input.current.rules.get(recs[i].targetId)?.inventoryItemId
-      if (typeof itemId === 'string') protectedByRule.set(itemId, rows[i].name)
+    const rec = recs[i]
+    if (rec.kind === 'OFFER') {
+      const itemId = input.current.offers.get(rec.targetId)?.inventoryItemId
+      if (itemId && !protectedBy.has(itemId)) protectedBy.set(itemId, 'a supplier price on this item was kept')
+    } else if (rec.kind === 'ALIAS') {
+      const itemId = input.current.aliases.get(rec.targetId)?.inventoryItemId
+      if (typeof itemId === 'string' && !protectedBy.has(itemId)) {
+        protectedBy.set(itemId, `a supplier wording ("${rows[i].name}") on this item was kept`)
+      }
+    } else if (rec.kind === 'MATCH_RULE') {
+      const itemId = rec.next.inventoryItemId
+      if (typeof itemId === 'string' && !protectedBy.has(itemId)) {
+        protectedBy.set(itemId, `an old learned match ("${rows[i].name}") may still point at this item`)
+      }
     }
   }
-  if (protectedByOffer.size === 0 && protectedByRule.size === 0) return
+  if (protectedBy.size === 0) return
 
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].kind !== 'ITEM_CREATED' || rows[i].outcome !== 'deleted') continue
-    const itemId = rows[i].targetId
-    if (protectedByOffer.has(itemId)) {
-      rows[i] = skip(rows[i], 'referenced', 'a supplier price on this item was kept')
-    } else if (protectedByRule.has(itemId)) {
-      rows[i] = skip(rows[i], 'referenced', `a learned match ("${protectedByRule.get(itemId)}") on this item was kept`)
-    }
+    const why = protectedBy.get(rows[i].targetId)
+    if (why) rows[i] = skip(rows[i], 'referenced', why)
   }
 }
 
@@ -474,7 +501,7 @@ export function planRollback(input: PlanInput): RollbackPlan {
     // RECORDED session whose `UndoCollector.flush()` failed also looks like.
     // That misread is the safe direction: best-effort price reverts beat no
     // rollback at all, and the banner tells the user the offers and learned
-    // matches were not restored. `legacy: true` is set ONLY on this branch, so
+    // wordings were not restored. `legacy: true` is set ONLY on this branch, so
     // a session with even one record never claims it.
   } else if (input.legacy && input.legacy.status === 'APPROVED') {
     legacy = true
@@ -507,7 +534,7 @@ export function planRollback(input: PlanInput): RollbackPlan {
   }
 }
 
-// `packChain` and `pricing` are the Json columns in every selector's field set.
+// `packChain` and `pricing` are the Json columns in the offer/item selectors.
 // A nullable Json column takes a sentinel, not a plain JS null, which the
 // generated client rejects — and the sentinel is Prisma.DbNull: SQL NULL, "this
 // offer has no chain". Prisma.JsonNull would store the JSON scalar `null`, a
@@ -531,7 +558,7 @@ async function applyRow(tx: Db, row: PlanRow): Promise<void> {
   if (w.op === 'delete') {
     if (w.table === 'offer') await tx.inventorySupplierPrice.delete({ where })
     else if (w.table === 'item') await tx.inventoryItem.delete({ where })
-    else await tx.invoiceMatchRule.delete({ where })
+    else await tx.itemSupplierAlias.delete({ where })
     return
   }
 
@@ -541,12 +568,12 @@ async function applyRow(tx: Db, row: PlanRow): Promise<void> {
   } else if (w.table === 'item') {
     await tx.inventoryItem.update({ where, data: data as unknown as Prisma.InventoryItemUncheckedUpdateInput })
   } else {
-    await tx.invoiceMatchRule.update({ where, data: data as unknown as Prisma.InvoiceMatchRuleUncheckedUpdateInput })
+    await tx.itemSupplierAlias.update({ where, data: data as unknown as Prisma.ItemSupplierAliasUncheckedUpdateInput })
   }
 }
 
 /**
- * Everything except the created-item deletes: offer/item/rule restores and
+ * Everything except the created-item deletes: offer/item/alias restores and
  * deletes, plus the legacy best-effort rows. Runs FIRST, while the session row
  * is still there.
  */

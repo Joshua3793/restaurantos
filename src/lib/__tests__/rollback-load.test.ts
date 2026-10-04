@@ -59,6 +59,7 @@ describe('referencePhrases', () => {
     ['stockTransfers', '2 stock transfers'],
     ['priceAlerts', '2 price alerts'],
     ['matchRules', '2 learned matches'],
+    ['supplierWordings', '2 supplier wordings'],
     ['recipeIngredients', '2 recipe ingredients'],
     ['recipes', '2 recipes'],
     ['prepItems', '2 prep items'],
@@ -138,14 +139,16 @@ const offerCanon = (o: Partial<Canon> = {}): Canon => ({
   ...o,
 })
 
-const ruleCanon = (o: Partial<Canon> = {}): Canon => ({
+const aliasCanon = (o: Partial<Canon> = {}): Canon => ({
   inventoryItemId: 'i1',
-  invoicePackQty: null,
-  invoicePackSize: null,
-  invoicePackUOM: null,
-  rawDescription: 'ROMAINE 24CT',
-  supplierName: 'SYSCO',
+  packQty: null,
+  packSize: null,
+  packUOM: null,
+  rawText: 'ROMAINE 24CT',
+  supplierId: 'sup',
   supplierItemCode: null,
+  text: 'romaine 24ct',
+  useCount: 1,
   ...o,
 })
 
@@ -163,7 +166,7 @@ describe('plannedRowDeletes', () => {
       new Map(),
     )
     expect([...got.offerIds]).toEqual(['o1'])
-    expect([...got.ruleIds]).toEqual([])
+    expect([...got.aliasIds]).toEqual([])
   })
 
   it('an OLD created-offer record still carrying the retired lastPrice is still deleted', () => {
@@ -198,19 +201,31 @@ describe('plannedRowDeletes', () => {
     expect([...got.offerIds]).toEqual([])
   })
 
-  it('does the same for created match rules', () => {
+  // An alias this plan deletes (created) OR restores (updated) leaves the
+  // created item either way — prev cannot name an item that did not exist yet.
+  it('excludes every alias the plan will undo — created or updated — and keeps one that moved on', () => {
     const records: UndoRecord[] = [
-      { kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: ruleCanon() },
-      { kind: 'MATCH_RULE', targetId: 'r2', prev: null, next: ruleCanon({ rawDescription: 'moved on' }) },
-      { kind: 'MATCH_RULE', targetId: 'r3', prev: ruleCanon(), next: ruleCanon() },
+      { kind: 'ALIAS', targetId: 'a1', prev: null, next: aliasCanon() },
+      { kind: 'ALIAS', targetId: 'a2', prev: null, next: aliasCanon({ useCount: 1 }) },
+      { kind: 'ALIAS', targetId: 'a3', prev: aliasCanon({ inventoryItemId: 'older' }), next: aliasCanon() },
     ]
-    const rules = new Map<string, Canon>([
-      ['r1', ruleCanon()],
-      ['r2', ruleCanon()],
-      ['r3', ruleCanon()],
+    const aliases = new Map<string, Canon>([
+      ['a1', aliasCanon()],
+      ['a2', aliasCanon({ useCount: 2 })], // a later invoice used it again
+      ['a3', aliasCanon()],
     ])
-    const got = plannedRowDeletes(records, new Map(), rules)
-    expect([...got.ruleIds]).toEqual(['r1'])
+    const got = plannedRowDeletes(records, new Map(), aliases)
+    expect([...got.aliasIds]).toEqual(['a1', 'a3'])
+  })
+
+  it('never plans anything for a legacy MATCH_RULE record', () => {
+    const got = plannedRowDeletes(
+      [{ kind: 'MATCH_RULE', targetId: 'r1', prev: null, next: { rawDescription: 'X' } }],
+      new Map(),
+      new Map(),
+    )
+    expect([...got.offerIds]).toEqual([])
+    expect([...got.aliasIds]).toEqual([])
   })
 
   it('ignores ITEM and ITEM_CREATED records', () => {
@@ -220,7 +235,7 @@ describe('plannedRowDeletes', () => {
     ]
     const got = plannedRowDeletes(records, new Map(), new Map())
     expect([...got.offerIds]).toEqual([])
-    expect([...got.ruleIds]).toEqual([])
+    expect([...got.aliasIds]).toEqual([])
   })
 
   it('compares through the selector, so display fields never look like a change', () => {
@@ -264,10 +279,11 @@ function fakeDb(rows: Partial<Record<string, GroupRow[]>> = {}) {
     prepItem: { groupBy: groupBy('prepItem') },
     inventoryItem: { groupBy: groupBy('inventoryItem') },
     invoiceMatchRule: { groupBy: groupBy('invoiceMatchRule') },
+    itemSupplierAlias: { groupBy: groupBy('itemSupplierAlias') },
   }
 }
 
-const noPlanned = { offerIds: new Set<string>(), ruleIds: new Set<string>() }
+const noPlanned = { offerIds: new Set<string>(), aliasIds: new Set<string>() }
 const asDb = (db: ReturnType<typeof fakeDb>) => db as unknown as Parameters<typeof loadItemRefs>[0]
 
 describe('loadItemRefs — StockAllocation and ItemRevenueCenter are excluded entirely', () => {
@@ -307,5 +323,19 @@ describe('loadItemRefs — every InvoiceScanItem row outside this session counts
     })
     const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
     expect(refs.get('new-item')).toEqual({ referencedBy: ['2 invoice lines'] })
+  })
+})
+
+describe('loadItemRefs — supplier wordings and legacy learned matches', () => {
+  it('an alias on the created item counts (it would cascade away with it)', async () => {
+    const db = fakeDb({ itemSupplierAlias: [{ inventoryItemId: 'new-item', _count: { _all: 2 } }] })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: ['2 supplier wordings'] })
+  })
+
+  it('a legacy learned match always counts: the old table is Restrict and is never rolled back', async () => {
+    const db = fakeDb({ invoiceMatchRule: [{ inventoryItemId: 'new-item', _count: { _all: 1 } }] })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: ['1 learned match'] })
   })
 })

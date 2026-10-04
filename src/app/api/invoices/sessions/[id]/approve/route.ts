@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { recalculateRecipeCosts } from '@/lib/recipe-costs'
 import { ensurePrimary } from '@/lib/primary-offer'
 import { propagatePrepCostChanges } from '@/lib/recipeCosts'
-import { saveMatchRule } from '@/lib/invoice-matcher'
+import { saveAlias } from '@/lib/invoice-matcher'
+import { normaliseAliasText } from '@/lib/alias-text'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { getUnitConv } from '@/lib/utils'
 import { derivePricingMode } from '@/lib/invoice/predicates'
@@ -28,6 +29,13 @@ import { resolvePurchaseDate } from '@/lib/purchase-date'
 // Give background work up to 60s after the response is sent
 export const maxDuration = 60
 
+
+/** The pack printed/confirmed on a line, as the alias learns it (display and
+ *  provenance only — costing always reads the chain). None without a qty and size. */
+function packTripleOf(line: { invoicePackQty: unknown; invoicePackSize: unknown; invoicePackUOM: string | null }) {
+  if (!line.invoicePackQty || line.invoicePackSize == null) return null
+  return { packQty: Number(line.invoicePackQty), packSize: Number(line.invoicePackSize), packUOM: line.invoicePackUOM ?? 'each' }
+}
 
 interface ApproveResult {
   itemsUpdated: number
@@ -1008,6 +1016,18 @@ async function doApprove(
           }))().catch((e) => { console.error('[approve] CREATE_NEW supplier box failed:', e); return null })
           if (box) undo.created('OFFER', box.id)
         }
+        // The invoice's own wording (and code, and pack) for the product it just
+        // created, under the INVOICE's supplier — whoever the box went to, this
+        // wording came off this supplier's paper. Non-critical, like the box.
+        await saveAlias({
+          rawDescription:   scanItem.rawDescription,
+          inventoryItemId:  created.id,
+          supplierId:       session.supplierId,
+          supplierItemCode: scanItem.supplierItemCode,
+          format:           packTripleOf(scanItem),
+          source:           'CREATE_NEW',
+          undo,
+        }).catch((e) => console.error('[approve] CREATE_NEW supplier wording failed:', e))
         updatedItemIds.push(created.id)
         newItemsCreated++
         registerLineAllocs(created.id, scanItem)
@@ -1237,28 +1257,35 @@ async function doApprove(
       }
     }
 
-    // ── Save learned match rules (parallel, non-critical) ───────────────
+    // ── Learn this supplier's wordings (non-critical) ───────────────────
+    // Every matched, non-SKIP line upserts (session supplier, normalised wording)
+    // → item, with its code and pack. CREATE_NEW lines learned theirs in the
+    // loop above against the item they created. Lines that normalise to the same
+    // wording write the same alias row, so they run one after another (last line
+    // wins, exactly as sequential approval would); different wordings run in
+    // parallel.
+    const aliasGroups = new Map<string, typeof itemsToProcess>()
+    for (const item of itemsToProcess) {
+      if (!item.matchedItemId || item.action === 'SKIP' || item.action === 'CREATE_NEW') continue
+      const key = normaliseAliasText(item.rawDescription)
+      aliasGroups.set(key, [...(aliasGroups.get(key) ?? []), item])
+    }
     await Promise.all(
-      itemsToProcess
-        .filter(item => item.matchedItemId && item.action !== 'SKIP')
-        .map(item =>
-          saveMatchRule(
-            item.rawDescription,
-            item.matchedItemId!,
-            // Save under the CANONICAL supplier name so the rule applies to every
-            // name variant ("SYSCO Canada, Inc." / "… - Vancouver") next time.
-            offerSupplierName ?? session.supplierName,
-            item.invoicePackQty ? {
-              packQty:  Number(item.invoicePackQty),
-              packSize: Number(item.invoicePackSize),
-              packUOM:  item.invoicePackUOM ?? 'each',
-            } : undefined,
-            item.supplierItemCode,
+      Array.from(aliasGroups.values()).map(async (group) => {
+        for (const item of group) {
+          await saveAlias({
+            rawDescription:   item.rawDescription,
+            inventoryItemId:  item.matchedItemId!,
+            supplierId:       session.supplierId,
+            supplierItemCode: item.supplierItemCode,
+            format:           packTripleOf(item),
+            source:           'APPROVE',
             undo,
-          ).catch(() => {})
-        )
+          }).catch((e) => console.error('[approve] supplier wording failed:', e))
+        }
+      })
     )
-    // Learned rules are the last thing this approval writes.
+    // Learned wordings are the last thing this approval writes.
     await flushUndo()
 
     // ── Re-sync PREP costs + recalculate recipe costs for changed items ──

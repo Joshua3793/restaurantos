@@ -5,18 +5,27 @@
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 
-export type UndoKind = 'OFFER' | 'ITEM' | 'MATCH_RULE' | 'ITEM_CREATED'
+// MATCH_RULE is LEGACY: records written before the alias table (Stage 3) still
+// carry it and must keep parsing, but nothing captures it any more and rollback
+// treats it as a labelled no-op. Supplier wordings are recorded as ALIAS.
+export type UndoKind = 'OFFER' | 'ITEM' | 'MATCH_RULE' | 'ALIAS' | 'ITEM_CREATED'
 export type Canon = Record<string, unknown>
 type Db = Prisma.TransactionClient | typeof prisma
 
 const OFFER_FIELDS = ['packQty', 'packSize', 'packUOM', 'packChain', 'pricing', 'supplierId', 'supplierItemCode', 'isPrimary', 'lastInvoiceSessionId'] as const
 const ITEM_FIELDS = ['packChain', 'pricing', 'densityGPerMl'] as const
+// The field set legacy MATCH_RULE records were written with (InvoiceMatchRule).
+// Kept only so `currentFieldsOnly` still reads those old records.
 const RULE_FIELDS = ['rawDescription', 'supplierName', 'inventoryItemId', 'invoicePackQty', 'invoicePackSize', 'invoicePackUOM', 'supplierItemCode'] as const
+// ItemSupplierAlias. `useCount` is state on purpose: a later invoice that uses
+// the wording again moves it, so the rollback leaves that alias alone
+// ('changed-since') instead of deleting a wording another invoice relied on.
+const ALIAS_FIELDS = ['inventoryItemId', 'supplierId', 'text', 'rawText', 'supplierItemCode', 'packQty', 'packSize', 'packUOM', 'useCount'] as const
 const DECIMAL_FIELDS = new Set(['packQty', 'packSize', 'densityGPerMl', 'invoicePackQty', 'invoicePackSize'])
 
 export const OFFER_SELECT = Object.fromEntries(OFFER_FIELDS.map(f => [f, true])) as Record<(typeof OFFER_FIELDS)[number], true>
 export const ITEM_SELECT = Object.fromEntries(ITEM_FIELDS.map(f => [f, true])) as Record<(typeof ITEM_FIELDS)[number], true>
-export const RULE_SELECT = Object.fromEntries(RULE_FIELDS.map(f => [f, true])) as Record<(typeof RULE_FIELDS)[number], true>
+export const ALIAS_SELECT = Object.fromEntries(ALIAS_FIELDS.map(f => [f, true])) as Record<(typeof ALIAS_FIELDS)[number], true>
 
 /**
  * Plain, sorted, Decimal-free: the same input always canonicalises identically.
@@ -37,7 +46,7 @@ function canon(row: Record<string, unknown>, fields: readonly string[]): Canon {
 
 export type OfferRowLike = Record<string, unknown>
 export type ItemRowLike = Record<string, unknown>
-export type RuleRowLike = Record<string, unknown>
+export type AliasRowLike = Record<string, unknown>
 
 // The columns each kind's records cover TODAY. A record written before a column
 // was retired (`InventoryItem.purchasePrice`, `InventorySupplierPrice.lastPrice`)
@@ -49,6 +58,7 @@ const FIELDS_OF: Record<UndoKind, ReadonlySet<string>> = {
   ITEM: new Set(ITEM_FIELDS),
   ITEM_CREATED: new Set(ITEM_FIELDS),
   MATCH_RULE: new Set(RULE_FIELDS),
+  ALIAS: new Set(ALIAS_FIELDS),
 }
 
 export function currentFieldsOnly(kind: UndoKind, state: Canon): Canon {
@@ -59,7 +69,7 @@ export function currentFieldsOnly(kind: UndoKind, state: Canon): Canon {
 
 export const offerState = (row: OfferRowLike): Canon => canon(row, OFFER_FIELDS)
 export const itemState = (row: ItemRowLike): Canon => canon(row, ITEM_FIELDS)
-export const ruleState = (row: RuleRowLike): Canon => canon(row, RULE_FIELDS)
+export const aliasState = (row: AliasRowLike): Canon => canon(row, ALIAS_FIELDS)
 
 /**
  * What the approve route should record for an offer it just upserted, given
@@ -148,17 +158,17 @@ export class UndoCollector {
     const idsFor = (kinds: UndoKind[]) => all.filter(e => kinds.includes(e.kind)).map(e => e.targetId)
     const offerIds = idsFor(['OFFER'])
     const itemIds = idsFor(['ITEM', 'ITEM_CREATED'])
-    const ruleIds = idsFor(['MATCH_RULE'])
+    const aliasIds = idsFor(['ALIAS'])
 
-    const [offers, items, rules] = await Promise.all([
+    const [offers, items, aliases] = await Promise.all([
       offerIds.length
         ? this.db.inventorySupplierPrice.findMany({ where: { id: { in: offerIds } }, select: { id: true, ...OFFER_SELECT } })
         : Promise.resolve([]),
       itemIds.length
         ? this.db.inventoryItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, ...ITEM_SELECT } })
         : Promise.resolve([]),
-      ruleIds.length
-        ? this.db.invoiceMatchRule.findMany({ where: { id: { in: ruleIds } }, select: { id: true, ...RULE_SELECT } })
+      aliasIds.length
+        ? this.db.itemSupplierAlias.findMany({ where: { id: { in: aliasIds } }, select: { id: true, ...ALIAS_SELECT } })
         : Promise.resolve([]),
     ])
 
@@ -167,10 +177,13 @@ export class UndoCollector {
         const r = offers.find((o: { id: string }) => o.id === e.targetId)
         return r ? offerState(r) : null
       }
-      if (e.kind === 'MATCH_RULE') {
-        const r = rules.find((o: { id: string }) => o.id === e.targetId)
-        return r ? ruleState(r) : null
+      if (e.kind === 'ALIAS') {
+        const r = aliases.find((o: { id: string }) => o.id === e.targetId)
+        return r ? aliasState(r) : null
       }
+      // Nothing captures MATCH_RULE any more; an entry of that kind has no
+      // row to read and is never written.
+      if (e.kind === 'MATCH_RULE') return null
       const r = items.find((o: { id: string }) => o.id === e.targetId)
       return r ? itemState(r) : null
     }

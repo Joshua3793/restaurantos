@@ -227,7 +227,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 // DELETE /api/invoices/sessions/[id]
 // Deletes the session and rolls back what its approval wrote — supplier offers,
-// item prices, learned matches and items it created — in ONE transaction, from
+// item prices, learned supplier wordings and items it created — in ONE transaction, from
 // the undo records the approve route left behind. A row someone has edited since
 // the approval is never overwritten; it comes back in `skipped` saying why.
 // Sessions approved before those records existed fall back to today's
