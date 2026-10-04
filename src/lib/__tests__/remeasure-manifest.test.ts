@@ -44,17 +44,13 @@ function fixture(): Loaded {
     ],
     counts: [
       {
-        id: 'c-case', countedQty: 3, selectedUom: 'case', countedQtyBase: 36, priceAtCount: 40 / 12,
+        id: 'c-case', countedQty: 3, selectedUom: 'case', countedQtyBase: 36, expectedQty: 30, priceAtCount: 40 / 12,
         snapshot: { id: 'snap-1', qtyOnHand: 36, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 120 },
       },
       {
-        id: 'c-skip', countedQty: null, selectedUom: 'case', countedQtyBase: null, skipped: true, priceAtCount: 40 / 12,
+        id: 'c-skip', countedQty: null, selectedUom: 'case', countedQtyBase: null, skipped: true, expectedQty: 10, priceAtCount: 40 / 12,
         snapshot: { id: 'snap-th', qtyOnHand: 10, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 400 / 12 },
       },
-    ],
-    countSessions: [
-      { lineId: 'c-case', sessionDate: '2026-09-01T00:00:00Z', revenueCenterId: 'rc-bar', rcIsDefault: false, skipped: false, countedQty: 3 },
-      { lineId: 'c-skip', sessionDate: '2026-09-08T00:00:00Z', revenueCenterId: null, rcIsDefault: false, skipped: true, countedQty: null },
     ],
     allocations: [{ revenueCenterId: 'rc-bar', quantity: 36 }],
     sessions: [
@@ -107,10 +103,11 @@ describe('buildManifest', () => {
   it('captures the frozen receipt, count, snapshot, allocation, session total and transfer', () => {
     expect(m.receipts).toEqual([{ id: 'r-case', old: 24 }])
     expect(m.counts).toEqual([
-      { id: 'c-case', old: 36, priceAtCount: 40 / 12 },
-      // Its frozen quantity is empty and stays so — only its price is restated,
-      // so only its price is recorded (no `old`: undo must not write that field).
-      { id: 'c-skip', priceAtCount: 40 / 12 },
+      { id: 'c-case', old: 36, priceAtCount: 40 / 12, expectedQty: 30 },
+      // Its frozen quantity is empty and stays so — only its price and expected
+      // quantity are restated, so only those are recorded (no `old`: undo must
+      // not write that field).
+      { id: 'c-skip', priceAtCount: 40 / 12, expectedQty: 10 },
     ])
     expect(m.snapshots).toEqual([
       { id: 'snap-1', before: { qtyOnHand: 36, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 120 } },
@@ -155,8 +152,8 @@ describe('writtenRows — what apply writes', () => {
   if ('error' in plan) throw new Error(plan.error)
   const w = writtenRows(plan, input)
 
-  it('a stock baseline no count sets is scaled and WRITTEN, never skipped', () => {
-    // No unscoped count: stockOnHand 36 each → 36 × 150 g.
+  it('every stock baseline is converted by the factor and WRITTEN', () => {
+    // stockOnHand 36 each → 36 × 150 g.
     expect(w.stockOnHand).toBeCloseTo(5400, 9)
     expect(w.lastCountQty).toBeCloseTo(5400, 9)
     expect(w.allocations).toEqual([{ revenueCenterId: 'rc-bar', old: 36, next: 5400 }])
@@ -177,10 +174,16 @@ describe('writtenRows — what apply writes', () => {
     expect(s.pricePerBaseUnit).toBeCloseTo(40 / 12 / 150, 12)
   })
 
-  it('the receipt re-derives through its own supplier box', () => {
+  it('the receipt the old measure could read is converted by the factor', () => {
     expect(w.receipts).toHaveLength(1)
     expect(w.receipts[0].next).toBeCloseTo(3600, 9)
-    expect(w.receipts[0].scaled).toBe(false)
+    expect(w.receipts[0]).toMatchObject({ how: 'converted', scaled: false })
+  })
+
+  it('every count line\'s expected quantity is written in the new base', () => {
+    const lines = applyWrites(plan, input, AFTER).filter((x) => x.table === 'countLine')
+    expect(lines.find((l) => l.id === 'c-case')!.data.expectedQty).toBe(4500)
+    expect(lines.find((l) => l.id === 'c-skip')!.data.expectedQty).toBe(1500)
   })
 })
 
@@ -250,8 +253,8 @@ describe('undoWrites', () => {
   it('restores every frozen row', () => {
     expect(w.receipts).toEqual([{ id: 'r-case', data: { receivedQtyBase: 24 } }])
     expect(w.counts).toEqual([
-      { id: 'c-case', data: { countedQtyBase: 36, priceAtCount: 40 / 12 } },
-      { id: 'c-skip', data: { priceAtCount: 40 / 12 } },
+      { id: 'c-case', data: { countedQtyBase: 36, priceAtCount: 40 / 12, expectedQty: 30 } },
+      { id: 'c-skip', data: { priceAtCount: 40 / 12, expectedQty: 10 } },
     ])
     expect(w.snapshots).toEqual([
       { id: 'snap-1', data: { qtyOnHand: 36, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 120 } },
@@ -293,7 +296,8 @@ function beforeOf(input: Loaded, table: string, id: string, field: string): unkn
     case 'inventorySupplierPrice': return pick(input.boxes.find((b) => b.id === id))
     case 'invoiceScanItem': return pick(input.receipts.find((r) => r.id === id))
     case 'countLine': return pick(input.counts.find((c) => c.id === id))
-    case 'inventorySnapshot': return pick(input.counts.find((c) => c.snapshot?.id === id)?.snapshot)
+    case 'inventorySnapshot':
+      return pick(input.counts.find((c) => c.snapshot?.id === id)?.snapshot ?? input.straySnapshots?.find((x) => x.id === id))
     case 'stockAllocation': return pick(input.allocations.find((a) => a.revenueCenterId === id))
     case 'countSession': return pick(input.sessions.find((s) => s.id === id))
     case 'stockTransfer': return pick(input.transfers.find((t) => t.id === id))
@@ -310,6 +314,16 @@ describe('applyWrites ⇄ buildManifest ⇄ undoWrites', () => {
       input.item.lastCountQty = null
       input.allocations = [{ revenueCenterId: 'rc-bar', quantity: 0 }]
       input.transfers = [{ id: 't-0', quantity: 0 }]
+      return input
+    }],
+    ['a skipped line holding its expected quantity in the base unit', () => {
+      const input = fixture()
+      input.counts[1] = { ...input.counts[1], countedQty: 10, selectedUom: 'each', countedQtyBase: 10 }
+      return input
+    }],
+    ['a second count value on one count (after a merge)', () => {
+      const input = fixture()
+      input.straySnapshots = [{ id: 'snap-dup', qtyOnHand: 12, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 40 }]
       return input
     }],
   ]
@@ -333,6 +347,29 @@ describe('applyWrites ⇄ buildManifest ⇄ undoWrites', () => {
     })
   }
 
+  it('a skipped line in the base unit writes and records its typed quantity and unit with its frozen base', () => {
+    const input = fixture()
+    input.counts[1] = { ...input.counts[1], countedQty: 10, selectedUom: 'each', countedQtyBase: 10 }
+    const plan = planRemeasure(input)
+    if ('error' in plan) throw new Error(plan.error)
+    const line = (applyWrites(plan, input, AFTER) as Write[]).find((w) => w.table === 'countLine' && w.id === 'c-skip')!
+    expect(line.data).toMatchObject({ countedQtyBase: 1500, countedQty: 1500, selectedUom: 'g', expectedQty: 1500 })
+    expect(buildManifest(plan, input, AFTER).counts.find((c) => c.id === 'c-skip'))
+      .toEqual({ id: 'c-skip', old: 10, countedQty: 10, selectedUom: 'each', priceAtCount: 40 / 12, expectedQty: 10 })
+  })
+
+  it('a second count value on one count is written in the new base and recorded', () => {
+    const input = fixture()
+    input.straySnapshots = [{ id: 'snap-dup', qtyOnHand: 12, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 40 }]
+    const plan = planRemeasure(input)
+    if ('error' in plan) throw new Error(plan.error)
+    const snap = (applyWrites(plan, input, AFTER) as Write[]).find((w) => w.id === 'snap-dup')!
+    expect(snap.table).toBe('inventorySnapshot')
+    expect(snap.data).toMatchObject({ qtyOnHand: 1800, unit: 'g' })
+    expect(buildManifest(plan, input, AFTER).snapshots.find((x) => x.id === 'snap-dup'))
+      .toEqual({ id: 'snap-dup', before: { qtyOnHand: 12, unit: 'each', pricePerBaseUnit: 40 / 12 } })
+  })
+
   it('apply stamps count lines with its own instant, so "edited since" never sees its own writes', () => {
     const input = fixture()
     const plan = planRemeasure(input)
@@ -344,20 +381,16 @@ describe('applyWrites ⇄ buildManifest ⇄ undoWrites', () => {
 })
 
 describe('invalidRefusal', () => {
-  it('the first error as a plain sentence, the full list in details', () => {
-    const r = invalidRefusal([
+  it('one plain sentence on screen; the raw list only in details', () => {
+    const errors = [
       'the price per unit would change — this pack cannot be converted as it is',
-      'Sysco: the chain does not reach the base unit.',
-    ])
+      'Sysco: countUnit "cs" is not a link of the packChain',
+    ]
+    const r = invalidRefusal(errors)
     expect(r.code).toBe('INVALID')
-    expect(r.message).toBe("This change can't be applied: The price per unit would change — this pack cannot be converted as it is.")
-    expect(r.details).toEqual([
-      'the price per unit would change — this pack cannot be converted as it is',
-      'Sysco: the chain does not reach the base unit.',
-    ])
-  })
-  it('never doubles the full stop', () => {
-    expect(invalidRefusal(['bad chain.']).message).toBe("This change can't be applied: Bad chain.")
+    expect(r.message).toBe("This change can't be applied — the new pack or price would not be valid. Check the bridge and try again.")
+    expect(r.message).not.toMatch(/countUnit|packChain|chain/)
+    expect(r.details).toEqual(errors)
   })
 })
 

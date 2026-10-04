@@ -56,21 +56,28 @@ export function changeLines(s: RemeasureSummary): string[] {
   const out: string[] = []
   const n = (v: unknown) => Math.max(0, Number(v) || 0)
 
+  /** " (2 re-read from what was typed)" — only when something was re-read. */
+  const reread = (m: number, from: string) => (m > 0 ? ` (${m} re-read from ${from})` : '')
+
   const counts = n(s.counts?.n)
-  if (counts > 0) out.push(`${counts} ${plural(counts, 'count', 'counts')} will be restated.`)
+  if (counts > 0) {
+    out.push(`${counts} ${plural(counts, 'count', 'counts')} will be converted${reread(n(s.counts?.reread), 'what was typed')}.`)
+  }
 
   const receipts = n(s.receipts?.n)
-  if (receipts > 0) out.push(`${receipts} ${plural(receipts, 'delivery', 'deliveries')} will be restated.`)
+  if (receipts > 0) {
+    out.push(`${receipts} ${plural(receipts, 'delivery', 'deliveries')} will be converted${reread(n(s.receipts?.reread), 'the invoice')}.`)
+  }
 
   const boxes = s.boxes?.length ?? 0
-  if (boxes > 0) out.push(`${boxes} supplier ${plural(boxes, 'box', 'boxes')} will be re-expressed.`)
+  if (boxes > 0) out.push(`${boxes} supplier ${plural(boxes, 'box', 'boxes')} will be converted.`)
 
   const transfers = n(s.transfers)
-  if (transfers > 0) out.push(`${transfers} stock ${plural(transfers, 'transfer', 'transfers')} will be restated.`)
+  if (transfers > 0) out.push(`${transfers} stock ${plural(transfers, 'transfer', 'transfers')} will be converted.`)
 
   const recipes = n(s.recipes)
   out.push(recipes > 0
-    ? `${recipes} ${plural(recipes, 'recipe keeps', 'recipes keep')} costing through the bridge.`
+    ? `${recipes} ${plural(recipes, 'recipe keeps its', 'recipes keep their')} cost.`
     : 'No recipe uses it.')
 
   const wastage = n(s.wastage)
@@ -96,7 +103,16 @@ export function changedAgo(when: string | Date, now: Date = new Date()): string 
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-/** The toast once the change is applied. */
-export function appliedToast(to: Dimension): string {
-  return `Now measured by ${measureWord(to)}. Counts, deliveries and boxes were restated.`
+/** The toast once the change is applied — the new measure, then only the
+ *  kinds of record that actually moved. */
+export function appliedToast(to: Dimension, s?: RemeasureSummary | null): string {
+  const head = `Now measured by ${measureWord(to)}.`
+  const moved = [
+    Number(s?.counts?.n) > 0 ? 'counts' : null,
+    Number(s?.receipts?.n) > 0 ? 'deliveries' : null,
+    (s?.boxes?.length ?? 0) > 0 ? 'boxes' : null,
+  ].filter((x): x is string => !!x)
+  if (moved.length === 0) return head
+  const list = moved.length === 1 ? moved[0] : `${moved.slice(0, -1).join(', ')} and ${moved[moved.length - 1]}`
+  return `${head} ${list.charAt(0).toUpperCase()}${list.slice(1)} were converted.`
 }

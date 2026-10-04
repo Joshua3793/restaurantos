@@ -667,7 +667,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     {item.hasHistory ? (
                       <div className="text-xs text-ink-3 space-y-1.5">
                         <p>Measured by {measureWord(editForm.dimension)} — locked because it has counts, deliveries or recipes.</p>
-                        {canEdit && (
+                        {canEdit && !item.recipe && (
                           <button
                             type="button" onClick={() => setRemeasureOpen(true)}
                             className="px-2.5 py-1 border border-line rounded-[8px] text-[12px] font-medium text-ink-2 hover:border-ink-3 transition-colors"

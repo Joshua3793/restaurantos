@@ -278,7 +278,7 @@ export function RemeasureSheet({ item, onClose, onChanged }: RemeasureSheetProps
         setApplyError(errorOf(d, 'The measure change could not be completed. Nothing was changed.'))
         return
       }
-      toast.show({ type: 'success', title: appliedToast(req.to.dimension) })
+      toast.show({ type: 'success', title: appliedToast(req.to.dimension, (d.summary as RemeasureSummary | undefined) ?? plan.summary) })
       onChanged('applied')
       onClose()
     } catch {

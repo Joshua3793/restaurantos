@@ -16,7 +16,7 @@ class MockRefusal extends Error {
 const SUMMARY = {
   from: { dimension: 'COUNT', unit: 'each', packLabel: 'case (12 each)', priceLabel: '$40.00 per case', countUnit: 'case' },
   to: { dimension: 'MASS', unit: 'g', packLabel: 'case (12 × 150g)', priceLabel: '$40.00 per case', countUnit: 'case' },
-  boxes: [], counts: { n: 1, scaled: 0 }, receipts: { n: 1, scaled: 0 }, transfers: 0, recipes: 0, wastage: 0, warnings: [],
+  boxes: [], counts: { n: 1, converted: 1, reread: 0, scaled: 0 }, receipts: { n: 1, converted: 1, reread: 0, scaled: 0 }, transfers: 0, recipes: 0, wastage: 0, warnings: [],
 }
 const PLAN = { k: 150, summary: SUMMARY, receipts: [{ id: 'r1' }], counts: [{ id: 'c1' }], boxes: [{ id: 'b1' }], transfers: [], sessions: [] }
 

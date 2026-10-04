@@ -19,6 +19,7 @@ import { prisma } from '@/lib/prisma'
 import { PRICING_SELECT, type Dimension } from '@/lib/item-model'
 import {
   planRemeasure, type Bridge, type Measure, type RemeasureInput, type RemeasurePlan, type RemeasureCountLine,
+  type RemeasureCountRow,
 } from '@/lib/remeasure-plan'
 import { isMaterial } from '@/lib/invoice/create-new-repair'
 import { isSafeRowId, lockItemsSql } from '@/lib/item-merge-rows'
@@ -48,6 +49,7 @@ export const REMEASURE_SENTENCE = {
   TOMBSTONE: 'This item was merged into another.',
   OPEN_COUNT: 'This item is on a count that is still open. Finalize or discard it first.',
   STALE: 'Someone changed this item a moment ago. Reload to see their change before changing its measure.',
+  INVALID: "This change can't be applied — the new pack or price would not be valid. Check the bridge and try again.",
   UNDO_ITEM_CHANGED: 'The item has changed since — undo is no longer safe.',
   UNDO_COUNTED: 'A count was recorded since — undo is no longer safe.',
   UNDO_REMEASURED: 'Its measure was changed again since — undo that one first.',
@@ -80,8 +82,13 @@ export interface RemeasureManifest {
   boxes: { id: string; before: { packChain: unknown; pricing: unknown; packQty: number | null; packSize: number | null; packUOM: string | null } }[]
   receipts: { id: string; old: number | null }[]
   /** A key is present exactly when apply wrote that field: `old` = the frozen
-   *  `countedQtyBase`, `priceAtCount` = the count-time price. */
-  counts: { id: string; old?: number | null; priceAtCount?: number | null }[]
+   *  `countedQtyBase`, `priceAtCount` = the count-time price, `countedQty` +
+   *  `selectedUom` = a skipped / mixed-unit line's base quantity and its label,
+   *  `expectedQty` = what the app expected. */
+  counts: {
+    id: string; old?: number | null; priceAtCount?: number | null
+    countedQty?: number | null; selectedUom?: string; expectedQty?: number
+  }[]
   /** `totalValue` is absent on a SKIPPED/THEORETICAL snapshot — apply does not write it. */
   snapshots: { id: string; before: { qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue?: number } }[]
   allocations: { revenueCenterId: string; old: number }[]
@@ -120,14 +127,26 @@ const crossesCount = (plan: RemeasurePlan) =>
  * The rows apply WRITES, and so the rows the manifest records — one predicate
  * for both. Mirrors `applyItem` in scripts/repair-create-new-shape.ts.
  */
+/** The count-line fields apply writes for one planned row — read by apply AND
+ *  the manifest, so the two cannot drift. */
+export function countFieldsWritten(c: RemeasureCountRow) {
+  return {
+    base: isMaterial(c.old, c.next),
+    price: c.priceAtCount != null,
+    typed: !!c.countedQty && !!c.selectedUom,
+    expected: !!c.expectedQty && isMaterial(c.expectedQty.old, c.expectedQty.next),
+  }
+}
+
 export function writtenRows(plan: RemeasurePlan, input: Pick<RemeasureInput, 'sessions'>) {
   const receipts = plan.receipts.filter((r) => isMaterial(r.old, r.next))
-  const countLines = plan.counts.filter((c) => isMaterial(c.old, c.next) || c.priceAtCount != null)
+  const countLines = plan.counts.filter((c) => Object.values(countFieldsWritten(c)).some(Boolean))
   const snapshots = plan.counts.filter((c) => c.snapshot != null)
   const unitOnly = plan.counts.filter((c) => c.snapshot == null && c.snapshotUnitOnly != null)
-  // Every stock baseline is restated — the planner scales one no count sets, so
-  // `next` is never null (the `?? old` only satisfies the shared StockTarget
-  // type). A baseline that does not move (0 stays 0) is not written.
+  const strays = plan.strays ?? []
+  // Every stock baseline is converted, so `next` is never null (the `?? old`
+  // only satisfies the shared StockTarget type). A baseline that does not move
+  // (0 stays 0) is not written.
   const nextOf = (t: { old: number; next: number | null }) => t.next ?? t.old
   const allocations = plan.stock.allocations
     .filter((a) => isMaterial(a.old, nextOf(a)))
@@ -142,7 +161,7 @@ export function writtenRows(plan: RemeasurePlan, input: Pick<RemeasureInput, 'se
   const touched = new Set(input.sessions.filter((s) => s.snapshots.some((sn) => rewritten.has(sn.id))).map((s) => s.id))
   const sessions = plan.sessions.filter((s) => touched.has(s.sessionId) && isMaterial(s.old, s.next))
   const transfers = plan.transfers.filter((t) => isMaterial(t.old, t.next))
-  return { receipts, countLines, snapshots, unitOnly, allocations, stockOnHand, lastCountQty, sessions, transfers }
+  return { receipts, countLines, snapshots, unitOnly, strays, allocations, stockOnHand, lastCountQty, sessions, transfers }
 }
 
 /** The before-values of every row `applyRemeasure` writes. PURE. */
@@ -153,9 +172,10 @@ export function buildManifest(plan: RemeasurePlan, input: RemeasureLoadedInput, 
 
   /** `withValue` — apply rewrites the snapshot's value too (a COUNTED/CARRIED
    *  one); a unit-only restatement leaves the value alone, so it is not recorded. */
-  const snapshotBefore = (lineId: string, snapId: string, withValue: boolean) => {
-    const s = countById.get(lineId)?.snapshot
-    if (!s || s.id !== snapId) throw new Error(`remeasure: no loaded snapshot ${snapId} for count line ${lineId}`)
+  const strayById = new Map((input.straySnapshots ?? []).map((s) => [s.id, s]))
+  const snapshotBefore = (lineId: string | null, snapId: string, withValue: boolean) => {
+    const s: RemeasureCountLine['snapshot'] | undefined = lineId == null ? strayById.get(snapId) : countById.get(lineId)?.snapshot
+    if (!s || s.id !== snapId) throw new Error(`remeasure: no loaded snapshot ${snapId} for count line ${lineId ?? '(none)'}`)
     const qtyOnHand = numOrNull(s.qtyOnHand)
     const pricePerBaseUnit = numOrNull(s.pricePerBaseUnit)
     const totalValue = numOrNull(s.totalValue)
@@ -197,14 +217,21 @@ export function buildManifest(plan: RemeasurePlan, input: RemeasureLoadedInput, 
       },
     })),
     receipts: w.receipts.map((r) => ({ id: r.id, old: r.old })),
-    counts: w.countLines.map((c) => ({
-      id: c.id,
-      ...(isMaterial(c.old, c.next) ? { old: c.old } : {}),
-      ...(c.priceAtCount != null ? { priceAtCount: numOrNull(countById.get(c.id)?.priceAtCount) } : {}),
-    })),
+    counts: w.countLines.map((c) => {
+      const f = countFieldsWritten(c)
+      const src = countById.get(c.id)
+      return {
+        id: c.id,
+        ...(f.base ? { old: c.old } : {}),
+        ...(f.price ? { priceAtCount: numOrNull(src?.priceAtCount) } : {}),
+        ...(f.typed ? { countedQty: numOrNull(src?.countedQty), selectedUom: src?.selectedUom ?? '' } : {}),
+        ...(f.expected ? { expectedQty: numOrNull(src?.expectedQty) ?? 0 } : {}),
+      }
+    }),
     snapshots: [
       ...w.snapshots.map((c) => snapshotBefore(c.id, c.snapshot!.id, true)),
       ...w.unitOnly.map((c) => snapshotBefore(c.id, c.snapshotUnitOnly!.id, false)),
+      ...w.strays.map((x) => snapshotBefore(null, x.id, false)),
     ],
     allocations: w.allocations.map((a) => ({ revenueCenterId: a.revenueCenterId, old: a.old })),
     sessions: w.sessions.map((s) => ({ id: s.sessionId, old: s.old })),
@@ -274,6 +301,8 @@ export function undoWrites(manifest: RemeasureManifest, now: Date) {
       data: {
         ...('old' in c ? { countedQtyBase: c.old ?? null } : {}),
         ...(c.priceAtCount != null ? { priceAtCount: c.priceAtCount } : {}),
+        ...('countedQty' in c ? { countedQty: c.countedQty ?? null, selectedUom: c.selectedUom } : {}),
+        ...('expectedQty' in c ? { expectedQty: c.expectedQty } : {}),
       },
     })),
     snapshots: manifest.snapshots.map((s) => ({ id: s.id, data: { ...s.before } })),
@@ -329,11 +358,14 @@ export function applyWrites(plan: RemeasurePlan, input: RemeasureLoadedInput, no
   }
   for (const r of w.receipts) out.push({ table: 'invoiceScanItem', id: r.id, data: { receivedQtyBase: r.next } })
   for (const c of w.countLines) {
+    const f = countFieldsWritten(c)
     out.push({
       table: 'countLine', id: c.id,
       data: {
-        ...(isMaterial(c.old, c.next) ? { countedQtyBase: c.next } : {}),
-        ...(c.priceAtCount != null ? { priceAtCount: c.priceAtCount } : {}),
+        ...(f.base ? { countedQtyBase: c.next } : {}),
+        ...(f.price ? { priceAtCount: c.priceAtCount } : {}),
+        ...(f.typed ? { countedQty: c.countedQty!.next, selectedUom: c.selectedUom!.next } : {}),
+        ...(f.expected ? { expectedQty: c.expectedQty!.next } : {}),
         updatedAt: now,
       },
     })
@@ -350,6 +382,11 @@ export function applyWrites(plan: RemeasurePlan, input: RemeasureLoadedInput, no
     // restated in the new base, its unit label with them; value unchanged.
     const s = c.snapshotUnitOnly!
     out.push({ table: 'inventorySnapshot', id: s.id, data: { unit: s.unit, qtyOnHand: s.qtyOnHand, pricePerBaseUnit: s.pricePerBaseUnit } })
+  }
+  // A count value no line claims (a second value on one count): converted on
+  // its own number, value unchanged.
+  for (const x of w.strays) {
+    out.push({ table: 'inventorySnapshot', id: x.id, data: { unit: x.unit, qtyOnHand: x.qtyOnHand, pricePerBaseUnit: x.pricePerBaseUnit } })
   }
   for (const al of w.allocations) out.push({ table: 'stockAllocation', id: al.revenueCenterId, data: { quantity: al.next } })
   for (const s of w.sessions) out.push({ table: 'countSession', id: s.sessionId, data: { totalCountedValue: s.next } })
@@ -390,12 +427,11 @@ export function applyWrites(plan: RemeasurePlan, input: RemeasureLoadedInput, no
   return out
 }
 
-/** The planner's errors as one refusal: the first as a plain sentence, every
- *  one of them in `details`. PURE. */
+/** The planner's errors as one refusal: a plain sentence on screen — the raw
+ *  `validateChainItem` text names fields (countUnit, packChain…) — and every
+ *  error, as written, in `details` for the logs. PURE. */
 export function invalidRefusal(errors: string[]): RemeasureRefusal {
-  const first = (errors[0] ?? 'the plan is not valid').trim().replace(/\.+$/, '')
-  const sentence = first.charAt(0).toUpperCase() + first.slice(1)
-  return new RemeasureRefusal('INVALID', `This change can't be applied: ${sentence}.`, errors)
+  return new RemeasureRefusal('INVALID', REMEASURE_SENTENCE.INVALID, errors)
 }
 
 /** Null when the Json column is not a manifest — undo refuses rather than half-apply. */
@@ -467,14 +503,10 @@ export async function loadRemeasureInputs(db: Db, itemId: string): Promise<
   const countRows = await db.countLine.findMany({
     where: { inventoryItemId: itemId },
     select: {
-      id: true, sessionId: true, countedQty: true, selectedUom: true,
+      id: true, sessionId: true, countedQty: true, selectedUom: true, expectedQty: true,
       entries: true, countedQtyBase: true, skipped: true, priceAtCount: true,
-      session: {
-        select: { sessionDate: true, revenueCenterId: true, revenueCenter: { select: { isDefault: true } } },
-      },
     },
-    // Deterministic input order — `latestObserved` breaks a shared sessionDate
-    // by input order (see the script's fetchCountLines).
+    // Deterministic input order — which line takes which count value below.
     orderBy: [{ session: { sessionDate: 'asc' } }, { id: 'asc' }],
   })
 
@@ -536,9 +568,31 @@ export async function loadRemeasureInputs(db: Db, itemId: string): Promise<
     supplierItemCode: l.supplierItemCode ?? null,
   }))
 
-  const snapBySession = new Map(snaps.map((s) => [s.sessionId, s]))
+  // Each line takes its count's value (snapshot). A count can hold more than
+  // one value for the item (a merge moved a line in): a line first takes the
+  // value frozen from it (same quantity), then any one left; a value no line
+  // takes is a stray, converted on its own number — keyed by id, not by count.
+  const snapOf = (s: (typeof snaps)[number]) => ({
+    id: s.id, qtyOnHand: Number(s.qtyOnHand), unit: s.unit,
+    pricePerBaseUnit: Number(s.pricePerBaseUnit), totalValue: Number(s.totalValue),
+  })
+  const taken = new Set<string>()
+  const lineSnap = new Map<string, (typeof snaps)[number]>()
+  const free = (sessionId: string) => snaps.filter((s) => s.sessionId === sessionId && !taken.has(s.id))
+  for (const c of countRows) {
+    if (c.countedQtyBase == null) continue
+    const hit = free(c.sessionId).find((s) => Math.abs(Number(s.qtyOnHand) - Number(c.countedQtyBase)) <= 1e-6)
+    if (hit) { taken.add(hit.id); lineSnap.set(c.id, hit) }
+  }
+  for (const c of countRows) {
+    if (lineSnap.has(c.id)) continue
+    const any = free(c.sessionId)[0]
+    if (any) { taken.add(any.id); lineSnap.set(c.id, any) }
+  }
+  const straySnapshots = snaps.filter((s) => !taken.has(s.id)).map(snapOf)
+
   const counts: RemeasureCountLine[] = countRows.map((c) => {
-    const snap = snapBySession.get(c.sessionId)
+    const snap = lineSnap.get(c.id)
     return {
       id: c.id,
       countedQty: c.countedQty != null ? Number(c.countedQty) : null,
@@ -547,24 +601,10 @@ export async function loadRemeasureInputs(db: Db, itemId: string): Promise<
       countedQtyBase: c.countedQtyBase != null ? Number(c.countedQtyBase) : null,
       skipped: c.skipped,
       priceAtCount: Number(c.priceAtCount),
-      snapshot: snap
-        ? {
-          id: snap.id, qtyOnHand: Number(snap.qtyOnHand), unit: snap.unit,
-          pricePerBaseUnit: Number(snap.pricePerBaseUnit), totalValue: Number(snap.totalValue),
-        }
-        : null,
+      expectedQty: Number(c.expectedQty),
+      snapshot: snap ? snapOf(snap) : null,
     }
   })
-  // ONE entry per count line — the planner skips a line with no session row
-  // when it builds the stock baselines.
-  const countSessions = countRows.map((c) => ({
-    lineId: c.id,
-    sessionDate: c.session.sessionDate,
-    revenueCenterId: c.session.revenueCenterId,
-    rcIsDefault: c.session.revenueCenter?.isDefault ?? false,
-    skipped: c.skipped,
-    countedQty: c.countedQty != null ? Number(c.countedQty) : null,
-  }))
 
   return {
     item: {
@@ -596,7 +636,7 @@ export async function loadRemeasureInputs(db: Db, itemId: string): Promise<
     })),
     receipts,
     counts,
-    countSessions,
+    straySnapshots,
     allocations: allocations.map((a) => ({ revenueCenterId: a.revenueCenterId, quantity: Number(a.quantity) })),
     sessions: sessionRows.map((s) => ({
       id: s.id,

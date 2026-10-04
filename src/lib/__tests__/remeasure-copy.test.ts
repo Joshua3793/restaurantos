@@ -9,8 +9,8 @@ function summary(over: Partial<RemeasureSummary> = {}): RemeasureSummary {
     from: side,
     to: { ...side, dimension: 'MASS', unit: 'g', countUnit: 'case' },
     boxes: [],
-    counts: { n: 0, scaled: 0 },
-    receipts: { n: 0, scaled: 0 },
+    counts: { n: 0, converted: 0, reread: 0, scaled: 0 },
+    receipts: { n: 0, converted: 0, reread: 0, scaled: 0 },
     transfers: 0,
     recipes: 0,
     wastage: 0,
@@ -54,56 +54,75 @@ describe('changeLines', () => {
 
   it('singular wording for one of each', () => {
     expect(changeLines(summary({
-      counts: { n: 1, scaled: 0 },
-      receipts: { n: 1, scaled: 0 },
+      counts: { n: 1, converted: 1, reread: 0, scaled: 0 },
+      receipts: { n: 1, converted: 1, reread: 0, scaled: 0 },
       boxes: [{ supplierName: 'Sysco', isPrimary: true, before: 'a', after: 'b' }],
       transfers: 1,
       recipes: 1,
       wastage: 1,
     }))).toEqual([
-      '1 count will be restated.',
-      '1 delivery will be restated.',
-      '1 supplier box will be re-expressed.',
-      '1 stock transfer will be restated.',
-      '1 recipe keeps costing through the bridge.',
+      '1 count will be converted.',
+      '1 delivery will be converted.',
+      '1 supplier box will be converted.',
+      '1 stock transfer will be converted.',
+      '1 recipe keeps its cost.',
       '1 wastage entry stays as typed.',
     ])
   })
 
-  it('plural wording, then each warning verbatim', () => {
+  it('plural wording, what was re-read, then each warning verbatim', () => {
     const box = { supplierName: 'Sysco', isPrimary: false, before: 'a', after: 'b' }
     expect(changeLines(summary({
-      counts: { n: 4, scaled: 1 },
-      receipts: { n: 3, scaled: 0 },
+      counts: { n: 4, converted: 2, reread: 1, scaled: 1 },
+      receipts: { n: 3, converted: 1, reread: 2, scaled: 0 },
       boxes: [box, box],
       transfers: 2,
       recipes: 5,
       wastage: 6,
-      warnings: ['1 count could not be re-read from what was typed and was scaled instead.'],
+      warnings: ['1 count could not be read in either measure and was scaled by the factor.'],
     }))).toEqual([
-      '4 counts will be restated.',
-      '3 deliveries will be restated.',
-      '2 supplier boxes will be re-expressed.',
-      '2 stock transfers will be restated.',
-      '5 recipes keep costing through the bridge.',
+      '4 counts will be converted (1 re-read from what was typed).',
+      '3 deliveries will be converted (2 re-read from the invoice).',
+      '2 supplier boxes will be converted.',
+      '2 stock transfers will be converted.',
+      '5 recipes keep their cost.',
       '6 wastage entries stay as typed.',
-      '1 count could not be re-read from what was typed and was scaled instead.',
+      '1 count could not be read in either measure and was scaled by the factor.',
     ])
   })
 
   it('zero rows are left out, except recipes', () => {
-    expect(changeLines(summary({ receipts: { n: 2, scaled: 0 } }))).toEqual([
-      '2 deliveries will be restated.',
+    expect(changeLines(summary({ receipts: { n: 2, converted: 2, reread: 0, scaled: 0 } }))).toEqual([
+      '2 deliveries will be converted.',
       'No recipe uses it.',
     ])
+  })
+
+  it('no code words', () => {
+    const all = changeLines(summary({
+      counts: { n: 4, converted: 2, reread: 1, scaled: 1 },
+      receipts: { n: 3, converted: 1, reread: 2, scaled: 0 },
+      boxes: [{ supplierName: 'Sysco', isPrimary: false, before: 'a', after: 'b' }],
+      transfers: 2, recipes: 5, wastage: 6,
+    })).join(' ')
+    expect(all).not.toMatch(/bridge|re-expressed|restated|snapshot/i)
   })
 })
 
 describe('appliedToast', () => {
-  it('says the new measure and what was restated', () => {
-    expect(appliedToast('MASS')).toBe('Now measured by weight. Counts, deliveries and boxes were restated.')
-    expect(appliedToast('VOLUME')).toBe('Now measured by volume. Counts, deliveries and boxes were restated.')
-    expect(appliedToast('COUNT')).toBe('Now measured by pieces. Counts, deliveries and boxes were restated.')
+  it('says the new measure and only what actually changed', () => {
+    const box = { supplierName: 'Sysco', isPrimary: true, before: 'a', after: 'b' }
+    const one = { n: 1, converted: 1, reread: 0, scaled: 0 }
+    expect(appliedToast('MASS', summary({ counts: one, receipts: one, boxes: [box] })))
+      .toBe('Now measured by weight. Counts, deliveries and boxes were converted.')
+    expect(appliedToast('VOLUME', summary({ counts: one, boxes: [box] })))
+      .toBe('Now measured by volume. Counts and boxes were converted.')
+    expect(appliedToast('COUNT', summary({ receipts: one })))
+      .toBe('Now measured by pieces. Deliveries were converted.')
+  })
+  it('nothing else moved: the measure alone', () => {
+    expect(appliedToast('MASS', summary())).toBe('Now measured by weight.')
+    expect(appliedToast('MASS')).toBe('Now measured by weight.')
   })
 })
 

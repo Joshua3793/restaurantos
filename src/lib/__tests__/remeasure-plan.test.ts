@@ -262,14 +262,10 @@ function fixture(): RemeasureInput {
       { id: 'r-lb', rawQty: 1, rawUnit: 'cs', totalQty: 10, totalQtyUOM: 'lb', rateUOM: 'lb', rate: 6.05, rawUnitPrice: 60.5, rawLineTotal: 60.5, receivedQtyBase: 10 },
     ],
     counts: [
-      { id: 'c-case', countedQty: 3, selectedUom: 'case', countedQtyBase: 36, priceAtCount: 40 / 12,
+      { id: 'c-case', countedQty: 3, selectedUom: 'case', countedQtyBase: 36, expectedQty: 30, priceAtCount: 40 / 12,
         snapshot: { id: 'snap-1', qtyOnHand: 36, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 120 } },
       // Entered in lb on a COUNT item: unresolvable then, resolvable under MASS.
-      { id: 'c-lb', countedQty: 5, selectedUom: 'lb', countedQtyBase: 5, priceAtCount: 40 / 12 },
-    ],
-    countSessions: [
-      { lineId: 'c-case', sessionDate: '2026-09-01T00:00:00Z', revenueCenterId: null, rcIsDefault: false, skipped: false, countedQty: 3 },
-      { lineId: 'c-lb', sessionDate: '2026-09-15T00:00:00Z', revenueCenterId: null, rcIsDefault: false, skipped: false, countedQty: 5 },
+      { id: 'c-lb', countedQty: 5, selectedUom: 'lb', countedQtyBase: 5, expectedQty: 4, priceAtCount: 40 / 12 },
     ],
     allocations: [],
     sessions: [
@@ -322,22 +318,21 @@ describe('planRemeasure — COUNT → MASS end to end', () => {
     expect(sysco.before).toEqual({ packChain: [{ unit: 'case', per: 12 }], pricing: { mode: 'PACK', purchasePrice: 40 }, packQty: 12, packSize: 1, packUOM: 'each' })
   })
 
-  it('receipts re-derive through the receiving rule, none scaled', () => {
+  it('a receipt the old measure could read is converted by the factor; one it could not is re-read', () => {
     const rCase = p.receipts.find((r) => r.id === 'r-case')!
     const rLb = p.receipts.find((r) => r.id === 'r-lb')!
     expect(rCase.next).toBeCloseTo(3600, 9)
-    expect(rCase.scaled).toBe(false)
-    expect(rCase.via).not.toBe('scaled')
+    expect(rCase).toMatchObject({ via: 'converted', how: 'converted', scaled: false })
+    // 10 lb billed on a pieces item with no bridge: unreadable then, a weight now.
     expect(rLb.next).toBeCloseTo(4535.92, 9)
-    expect(rLb.via).toBe('billed-weight')
-    expect(rLb.scaled).toBe(false)
+    expect(rLb).toMatchObject({ via: 'billed-weight', how: 'reread', scaled: false })
   })
 
-  it('counts re-derive; the snapshot follows its line and keeps its count-time price', () => {
+  it('a count the old measure could read is converted; "5 lb" on a pieces item is re-read from what was typed', () => {
     const cCase = p.counts.find((c) => c.id === 'c-case')!
     const cLb = p.counts.find((c) => c.id === 'c-lb')!
     expect(cCase.next).toBeCloseTo(5400, 9)
-    expect(cCase.scaled).toBe(false)
+    expect(cCase).toMatchObject({ via: 'converted', how: 'converted', scaled: false })
     expect(cCase.snapshot).toMatchObject({ id: 'snap-1', unit: 'g' })
     expect(cCase.snapshot!.qtyOnHand).toBeCloseTo(5400, 9)
     expect(cCase.snapshot!.totalValue).toBe(120)                      // the stored value, untouched
@@ -345,14 +340,17 @@ describe('planRemeasure — COUNT → MASS end to end', () => {
     expect(cCase.priceAtCount).toBeCloseTo(40 / 12 / 150, 15)
     expect(cLb.priceAtCount).toBeCloseTo(40 / 12 / 150, 15)
     expect(cLb.next).toBeCloseTo(2267.96, 9)
-    expect(cLb.scaled).toBe(false)
-    expect(cLb.needsDecision).toBe(false)
+    expect(cLb).toMatchObject({ how: 'reread', scaled: false, needsDecision: false })
   })
 
-  it('stock baselines come from the latest observed count line', () => {
-    expect(p.stock.stockOnHand.next).toBeCloseTo(2267.96, 9)
-    expect(p.stock.stockOnHand.fromLineId).toBe('c-lb')
-    expect(p.stock.lastCountQty.next).toBeCloseTo(2267.96, 9)
+  it('every count line\'s expected quantity converts by the factor', () => {
+    expect(p.counts.find((c) => c.id === 'c-case')!.expectedQty).toEqual({ old: 30, next: 4500 })
+    expect(p.counts.find((c) => c.id === 'c-lb')!.expectedQty).toEqual({ old: 4, next: 600 })
+  })
+
+  it('stock baselines are converted by the factor — never re-derived from a count', () => {
+    expect(p.stock.stockOnHand).toMatchObject({ old: 60, next: 9000, via: 'converted' })
+    expect(p.stock.lastCountQty).toMatchObject({ old: 60, next: 9000, via: 'converted' })
   })
 
   it('session totals do not move — a remeasure changes the base, not the price history', () => {
@@ -373,8 +371,8 @@ describe('planRemeasure — COUNT → MASS end to end', () => {
       { supplierName: 'Sysco', isPrimary: true, before: 'case (12 each) · $40.00 per case', after: 'case (12 × 150g) · $40.00 per case' },
       { supplierName: 'Snow Cap', isPrimary: false, before: 'case (6 each) · $22.00 per case', after: 'case (6 × 150g) · $22.00 per case' },
     ])
-    expect(p.summary.counts).toEqual({ n: 2, scaled: 0 })
-    expect(p.summary.receipts).toEqual({ n: 2, scaled: 0 })
+    expect(p.summary.counts).toEqual({ n: 2, converted: 1, reread: 1, scaled: 0 })
+    expect(p.summary.receipts).toEqual({ n: 2, converted: 1, reread: 1, scaled: 0 })
     expect(p.summary.transfers).toBe(1)
     expect(p.summary.recipes).toBe(4)
     expect(p.summary.wastage).toBe(2)
@@ -382,20 +380,16 @@ describe('planRemeasure — COUNT → MASS end to end', () => {
   })
 })
 
-describe('planRemeasure — rows the rules cannot re-read are scaled and said', () => {
+describe('planRemeasure — rows neither measure can read are scaled and said', () => {
   it('a count entered in a third dimension is scaled old × k, with the warning', () => {
     const input = fixture()
     // "2 l" of a COUNT item going to weight: nothing bridges litres to grams.
     input.counts.push({ id: 'c-l', countedQty: 2, selectedUom: 'l', entries: [{ unit: 'l', qty: 2 }], countedQtyBase: 2 })
-    input.countSessions.push({ lineId: 'c-l', sessionDate: '2026-09-10T00:00:00Z', revenueCenterId: null, rcIsDefault: false, skipped: false, countedQty: 2 })
     const p = plan(planRemeasure(input))
     const row = p.counts.find((c) => c.id === 'c-l')!
-    expect(row.scaled).toBe(true)
-    expect(row.via).toBe('scaled')
-    expect(row.needsDecision).toBe(false)
-    expect(row.next).toBe(300)
-    expect(p.summary.counts).toEqual({ n: 3, scaled: 1 })
-    expect(p.summary.warnings).toContain('1 count could not be re-read from what was typed and was scaled instead.')
+    expect(row).toMatchObject({ scaled: true, how: 'scaled', via: 'scaled', needsDecision: false, next: 300 })
+    expect(p.summary.counts).toEqual({ n: 3, converted: 1, reread: 1, scaled: 1 })
+    expect(p.summary.warnings).toContain('1 count could not be read in either measure and was scaled by the factor.')
   })
 
   it('a receipt with nothing to read is scaled old × k, with the warning', () => {
@@ -403,49 +397,62 @@ describe('planRemeasure — rows the rules cannot re-read are scaled and said', 
     input.receipts.push({ id: 'r-none', rawQty: 0, receivedQtyBase: 6 })
     const p = plan(planRemeasure(input))
     const row = p.receipts.find((r) => r.id === 'r-none')!
-    expect(row).toMatchObject({ old: 6, next: 900, via: 'scaled', scaled: true })
-    expect(p.summary.receipts).toEqual({ n: 3, scaled: 1 })
-    expect(p.summary.warnings).toContain('1 delivery could not be re-read from the invoice and was scaled instead.')
+    expect(row).toMatchObject({ old: 6, next: 900, via: 'scaled', how: 'scaled', scaled: true })
+    expect(p.summary.receipts).toEqual({ n: 3, converted: 1, reread: 1, scaled: 1 })
+    expect(p.summary.warnings).toContain('1 delivery could not be read in either measure and was scaled by the factor.')
   })
 
-  it('a stale snapshot is left alone and counted', () => {
+  it('plural warnings', () => {
+    const input = fixture()
+    input.receipts.push({ id: 'r-n1', rawQty: 0, receivedQtyBase: 6 }, { id: 'r-n2', rawQty: 0, receivedQtyBase: 2 })
+    input.counts.push(
+      { id: 'c-l1', countedQty: 2, selectedUom: 'l', countedQtyBase: 2 },
+      { id: 'c-l2', countedQty: 1, selectedUom: 'l', countedQtyBase: 1 },
+    )
+    const p = plan(planRemeasure(input))
+    expect(p.summary.warnings).toEqual([
+      '2 counts could not be read in either measure and were scaled by the factor.',
+      '2 deliveries could not be read in either measure and were scaled by the factor.',
+    ])
+  })
+
+  it('a converted count\'s value converts on its own number, even when it does not match its line — no warning', () => {
     const input = fixture()
     input.counts[0].snapshot = { id: 'snap-1', qtyOnHand: 99, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 330 }
     const p = plan(planRemeasure(input))
-    expect(p.counts[0].snapshotMismatch).toBe(true)
-    expect(p.counts[0].snapshot).toBeUndefined()
-    expect(p.summary.warnings).toContain('1 count snapshot was left alone (it no longer matches its count line).')
+    expect(p.counts[0].snapshot).toMatchObject({ id: 'snap-1', qtyOnHand: 14850, unit: 'g', totalValue: 330 })
+    expect(p.counts[0].snapshotMismatch).toBeFalsy()
+    expect(p.summary.warnings).toEqual([])
   })
 
-  it('stock, last count and allocations with no observed count are scaled old × k, and said', () => {
+  it('a re-read count whose value no longer matches it: the value is converted by the factor, and said', () => {
     const input = fixture()
-    input.countSessions = []
+    input.counts[1].snapshot = { id: 'snap-lb', qtyOnHand: 7, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 23.33 }
+    const p = plan(planRemeasure(input))
+    const row = p.counts.find((c) => c.id === 'c-lb')!
+    expect(row.next).toBeCloseTo(2267.96, 9)                // the line is re-read…
+    expect(row.snapshot).toMatchObject({ qtyOnHand: 1050, unit: 'g', totalValue: 23.33 })   // …its value only converted
+    expect(row.snapshotMismatch).toBe(true)
+    expect(p.summary.warnings).toContain('1 count value no longer matches its count and was converted by the factor.')
+    expect(p.summary.warnings.join(' ')).not.toMatch(/snapshot/i)
+  })
+
+  it('stock, last count and every allocation convert by the factor, with no warning', () => {
+    const input = fixture()
     input.allocations = [
       { revenueCenterId: 'rc-bar', quantity: 4 },
       { revenueCenterId: 'rc-kitchen', quantity: '2' },
       { revenueCenterId: 'rc-empty', quantity: 0 },
     ]
     const p = plan(planRemeasure(input))
-    expect(p.stock.stockOnHand).toMatchObject({ old: 60, next: 9000, via: 'scaled' })
-    expect(p.stock.lastCountQty).toMatchObject({ old: 60, next: 9000, via: 'scaled' })
+    expect(p.stock.stockOnHand).toMatchObject({ old: 60, next: 9000, via: 'converted' })
+    expect(p.stock.lastCountQty).toMatchObject({ old: 60, next: 9000, via: 'converted' })
     expect(p.stock.allocations).toEqual([
-      { revenueCenterId: 'rc-bar', old: 4, next: 600, via: 'scaled' },
-      { revenueCenterId: 'rc-kitchen', old: 2, next: 300, via: 'scaled' },
-      { revenueCenterId: 'rc-empty', old: 0, next: 0, via: 'scaled' },
+      { revenueCenterId: 'rc-bar', old: 4, next: 600, via: 'converted' },
+      { revenueCenterId: 'rc-kitchen', old: 2, next: 300, via: 'converted' },
+      { revenueCenterId: 'rc-empty', old: 0, next: 0, via: 'converted' },
     ])
-    expect(p.summary.warnings).toContain('Stock on hand was scaled — no finalized count sets it.')
-    expect(p.summary.warnings).toContain('Stock at 2 revenue centers was scaled — no finalized count sets it.')
-    expect(p.summary.warnings.some((w) => w.includes('left alone —'))).toBe(false)
-  })
-
-  it('one allocation scaled reads in the singular; a counted allocation is re-derived, not scaled', () => {
-    const input = fixture()
-    input.countSessions[1] = { ...input.countSessions[1], revenueCenterId: 'rc-bar', rcIsDefault: false }
-    input.allocations = [{ revenueCenterId: 'rc-bar', quantity: 5 }, { revenueCenterId: 'rc-kitchen', quantity: 1 }]
-    const p = plan(planRemeasure(input))
-    expect(p.stock.allocations[0]).toMatchObject({ revenueCenterId: 'rc-bar', next: expect.closeTo(2267.96, 6), fromLineId: 'c-lb' })
-    expect(p.stock.allocations[1]).toMatchObject({ revenueCenterId: 'rc-kitchen', old: 1, next: 150, via: 'scaled' })
-    expect(p.summary.warnings).toContain('Stock at 1 revenue center was scaled — no finalized count sets it.')
+    expect(p.summary.warnings).toEqual([])
   })
 
   it('an orphan clone receipt is scaled old × k and counted as scaled', () => {
@@ -453,8 +460,30 @@ describe('planRemeasure — rows the rules cannot re-read are scaled and said', 
     input.receipts.push({ id: 'r-orphan', parentLineId: 'gone', rawQty: 1, rawUnit: 'cs', rawLineTotal: 10, receivedQtyBase: 6 })
     const p = plan(planRemeasure(input))
     expect(p.receipts.find((r) => r.id === 'r-orphan')).toMatchObject({ old: 6, next: 900, via: 'scaled', scaled: true })
-    expect(p.summary.receipts).toEqual({ n: 3, scaled: 1 })
-    expect(p.summary.warnings).toContain('1 delivery could not be re-read from the invoice and was scaled instead.')
+    expect(p.summary.receipts).toEqual({ n: 3, converted: 1, reread: 1, scaled: 1 })
+  })
+
+  it('a clone of a scaled parent is scaled old × k too', () => {
+    const input = fixture()
+    input.receipts.push(
+      { id: 'r-none', rawQty: 0, rawLineTotal: 30, receivedQtyBase: 6 },
+      { id: 'r-none-clone', parentLineId: 'r-none', rawQty: 0, rawLineTotal: 15, receivedQtyBase: 3 },
+    )
+    const p = plan(planRemeasure(input))
+    expect(p.receipts.find((r) => r.id === 'r-none-clone')).toMatchObject({ old: 3, next: 450, how: 'scaled', scaled: true })
+  })
+
+  it('a clone of a converted parent is converted old × k; a clone of a re-read parent is its share of the re-read', () => {
+    const input = fixture()
+    input.receipts.push(
+      { id: 'r-case-clone', parentLineId: 'r-case', rawQty: 1, rawUnit: 'cs', rawLineTotal: 40, receivedQtyBase: 13 },
+      { id: 'r-lb-clone', parentLineId: 'r-lb', rawQty: 1, rawUnit: 'cs', rawLineTotal: 30.25, receivedQtyBase: 5 },
+    )
+    const p = plan(planRemeasure(input))
+    expect(p.receipts.find((r) => r.id === 'r-case-clone')).toMatchObject({ old: 13, next: 1950, how: 'converted', scaled: false })
+    const lbClone = p.receipts.find((r) => r.id === 'r-lb-clone')!
+    expect(lbClone.how).toBe('reread')
+    expect(lbClone.next).toBeCloseTo(4535.92 / 2, 9)
   })
 
   it('a skipped / theoretical snapshot scales its expected quantity and its $/base, keeping its value', () => {
@@ -469,7 +498,94 @@ describe('planRemeasure — rows the rules cannot re-read are scaled and said', 
     expect(row.snapshotUnitOnly).toMatchObject({ id: 'snap-skip', unit: 'g', from: 'each', qtyOnHand: 3600 })
     expect(row.snapshotUnitOnly!.pricePerBaseUnit).toBeCloseTo(40 / 12 / 150, 15)
     expect(row.priceAtCount).toBeCloseTo(40 / 12 / 150, 15)
-    expect(p.summary.counts).toEqual({ n: 3, scaled: 0 })
+    expect(p.summary.counts).toEqual({ n: 3, converted: 2, reread: 1, scaled: 0 })
+  })
+
+  it('a skipped line holds its expected quantity in the base unit — both frozen numbers convert, and its unit follows', () => {
+    const input = fixture()
+    // lines/[lineId] route: skipped → countedQty = countedQtyBase = expectedQty (base).
+    input.counts.push({ id: 'c-skip', countedQty: 24, selectedUom: 'each', skipped: true, countedQtyBase: 24, expectedQty: 24, priceAtCount: 40 / 12 })
+    const p = plan(planRemeasure(input))
+    const row = p.counts.find((c) => c.id === 'c-skip')!
+    expect(row).toMatchObject({ old: 24, next: 3600, how: 'converted' })
+    expect(row.countedQty).toEqual({ old: 24, next: 3600 })
+    expect(row.selectedUom).toEqual({ old: 'each', next: 'g' })
+    expect(row.expectedQty).toEqual({ old: 24, next: 3600 })
+  })
+
+  it('a skipped line in a unit other than the base keeps its typed quantity', () => {
+    const input = fixture()
+    input.counts.push({ id: 'c-skip', countedQty: 2, selectedUom: 'case', skipped: true, countedQtyBase: 24, priceAtCount: 40 / 12 })
+    const p = plan(planRemeasure(input))
+    const row = p.counts.find((c) => c.id === 'c-skip')!
+    expect(row.next).toBe(3600)
+    expect(row.countedQty).toBeUndefined()
+    expect(row.selectedUom).toBeUndefined()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Final review — a pack that changed since must not rewrite correct history
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('planRemeasure — the box changed since the row was frozen', () => {
+  /** Today Sysco's case holds 10. The count "3 case" was frozen at 36 and the
+   *  delivery "2 cs" at 24 — when the case held 12. Both are exact history. */
+  const changedPack = (): RemeasureInput => {
+    const input = fixture()
+    input.item.packChain = [{ unit: 'case', per: 10 }]
+    input.item.stockOnHand = 36
+    input.item.lastCountQty = 36
+    input.boxes = [
+      { id: 'box-sysco', supplierId: 'sup-sysco', supplierItemCode: null, supplierName: 'Sysco', isPrimary: true,
+        packChain: [{ unit: 'case', per: 10 }], pricing: { mode: 'PACK', purchasePrice: 40 } },
+    ]
+    input.receipts = [
+      { id: 'r-2cs', rawQty: 2, rawUnit: 'cs', rawUnitPrice: 48, rawLineTotal: 96, receivedQtyBase: 24,
+        supplierId: 'sup-sysco', supplierName: 'Sysco', canonicalName: 'Sysco' },
+    ]
+    input.counts = [
+      { id: 'c-3cs', countedQty: 3, selectedUom: 'case', countedQtyBase: 36, priceAtCount: 4,
+        snapshot: { id: 'snap-3cs', qtyOnHand: 36, unit: 'each', pricePerBaseUnit: 4, totalValue: 144 } },
+    ]
+    input.sessions = [{ id: 'sess', totalCountedValue: 144, snapshots: [{ id: 'snap-3cs', source: 'COUNTED', totalValue: 144 }] }]
+    return input
+  }
+  const p = plan(planRemeasure(changedPack()))
+
+  it('the count stays 36 pieces = 5,400 g, not 30 pieces = 4,500 g', () => {
+    const c = p.counts[0]
+    expect(c.next).toBeCloseTo(5400, 9)
+    expect(c.how).toBe('converted')
+    expect(c.snapshot!.qtyOnHand).toBeCloseTo(5400, 9)
+    expect(c.snapshot!.totalValue).toBe(144)
+  })
+
+  it('the delivery stays 24 pieces = 3,600 g, not 20 pieces = 3,000 g', () => {
+    expect(p.receipts[0].next).toBeCloseTo(3600, 9)
+    expect(p.receipts[0].how).toBe('converted')
+  })
+
+  it('stock follows: 36 pieces = 5,400 g', () => {
+    expect(p.stock.stockOnHand.next).toBeCloseTo(5400, 9)
+    expect(p.stock.lastCountQty.next).toBeCloseTo(5400, 9)
+  })
+
+  it('nothing is called scaled', () => {
+    expect(p.summary.counts).toEqual({ n: 1, converted: 1, reread: 0, scaled: 0 })
+    expect(p.summary.receipts).toEqual({ n: 1, converted: 1, reread: 0, scaled: 0 })
+    expect(p.summary.warnings).toEqual([])
+  })
+})
+
+describe('planRemeasure — count values with no line of their own', () => {
+  it('a second value on one count (after a merge) is converted too', () => {
+    const input = fixture()
+    input.straySnapshots = [{ id: 'snap-dup', qtyOnHand: 12, unit: 'each', pricePerBaseUnit: 40 / 12, totalValue: 40 }]
+    const p = plan(planRemeasure(input))
+    expect(p.strays).toHaveLength(1)
+    expect(p.strays[0]).toMatchObject({ id: 'snap-dup', qtyOnHand: 1800, unit: 'g' })
+    expect(p.strays[0].pricePerBaseUnit).toBeCloseTo(40 / 12 / 150, 15)
   })
 })
 
@@ -515,7 +631,6 @@ describe('planRemeasure — MASS → VOLUME keeps the each-measure, takes the de
     input.boxes = []
     input.receipts = []
     input.counts = []
-    input.countSessions = []
     input.sessions = []
     input.transfers = []
     const p = plan(planRemeasure(input))
@@ -713,7 +828,6 @@ describe('planRemeasure — count-measure links, rounding and the guard', () => 
     input.boxes = []
     input.receipts = []
     input.counts = []
-    input.countSessions = []
     const p = plan(planRemeasure(input))
     expect(p.item.after.packChain).toEqual([{ unit: 'dozen', per: 12 }, { unit: 'each', per: 50 }])
     expect(p.item.after.pricing).toEqual({ mode: 'PACK', purchasePrice: 6 })
@@ -772,9 +886,6 @@ describe('planRemeasure — MASS → COUNT end to end', () => {
     counts: [
       { id: 'c-1', countedQty: 2, selectedUom: 'case', countedQtyBase: 10656, priceAtCount: 50 / 5328,
         snapshot: { id: 's-1', qtyOnHand: 10656, unit: 'g', pricePerBaseUnit: 50 / 5328, totalValue: 100 } },
-    ],
-    countSessions: [
-      { lineId: 'c-1', sessionDate: '2026-09-20T00:00:00Z', revenueCenterId: null, rcIsDefault: false, skipped: false, countedQty: 2 },
     ],
     allocations: [],
     sessions: [{ id: 'sess', totalCountedValue: 100, snapshots: [{ id: 's-1', source: 'COUNTED', totalValue: 100 }] }],
