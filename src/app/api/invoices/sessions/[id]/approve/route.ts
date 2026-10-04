@@ -17,7 +17,8 @@ import { dimensionOf, ratePerBase, rateIsCostable, asChainItem, PRICING_SELECT, 
 import { lineReceivedCountQty, lineReceivedBaseUnits, lineReceived, type LineQtyInput } from '@/lib/invoice/line-qty'
 import { shouldRepriceItem, primaryBoxWrite } from '@/lib/invoice/reprice'
 import { resolveLineFormat, pickOffer, supplierOffers, type OfferFormat } from '@/lib/invoice/line-format'
-import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate, isMeasureUnit } from '@/lib/invoice/approve-format'
+import { packReference, casePricePerBase, freezeFormat, pricingBasisFor, packIsTheQuantity, nonEmptyOfferChain, weightBasisRate } from '@/lib/invoice/approve-format'
+import { weightUnitFor } from '@/lib/invoice/weight-unit'
 import { canonicalUom } from '@/lib/uom'
 import { seedFromScanLine, validateCreateNew, createNewName } from '@/lib/invoice/create-new-seed'
 import { learnAlias } from '@/lib/supplier-matcher'
@@ -347,24 +348,22 @@ async function doApprove(
           // unit — the scan line's rateUOM — not the physical pack unit. A
           // catch-weight item packed in pieces has packUOM='each' (conv 1),
           // which left the rate unconverted and inflated cost 1000×.
-          // Canonical test ('LBS', 'pounds', '#' are all lb) — the same one
-          // `weightBasisRate` and the receiving rule use, so they cannot disagree.
-          const wv = (u: string | null | undefined) => isMeasureUnit(u)
-          // Fallback when the line carries no usable rateUOM: on a line RECEIVED by
-          // weight, the unit the RECEIPT was read in (totalQtyUOM, then the shipped
-          // unit) — that is the denominator the money invariant needs, since
-          // `received.base` came from exactly that unit. Only then the item's own
-          // base unit (a measured base IS the rate denominator for a UOM item).
-          const rateUnit = wv(scanItem.rateUOM) ? scanItem.rateUOM!
-            : (pricedByWeight && wv(scanItem.totalQtyUOM)) ? scanItem.totalQtyUOM!
-            : (pricedByWeight && wv(scanItem.rawUnit)) ? scanItem.rawUnit!
-            : wv(item.baseUnit) ? item.baseUnit!
-            : 'kg'
-          // Store the CANONICAL token ('lb', not the line's 'LB'): every reader
-          // canonicalises before converting (getUnitConv / dimensionOf both go
-          // through canonicalUom), so no computed number moves — but the stored
-          // `pricing.rateUnit` is what the item drawer prints as "$15.98 / lb".
-          resolvedRateUnit = canonicalUom(rateUnit) || rateUnit
+          // weightUnitFor is THE rule (src/lib/invoice/weight-unit.ts): the line's
+          // own printed unit first (rateUOM, then — on a line RECEIVED by weight —
+          // the billed/shipped unit the receipt was read in); only when the line
+          // shows no unit, the unit THIS supplier's box is priced in, then the
+          // item's weight count unit, its base unit, kg. (Cleveland's bison
+          // "15.775 @ $25" was read as grams off the item's base unit.) It returns
+          // the CANONICAL token ('lb', not 'LB') — the stored `pricing.rateUnit` is
+          // what the item drawer prints as "$15.98 / lb".
+          resolvedRateUnit = weightUnitFor({
+            rateUOM:        scanItem.rateUOM,
+            totalQtyUOM:    scanItem.totalQtyUOM,
+            rawUnit:        scanItem.rawUnit,
+            pricedByWeight,
+            boxPricing:     speaks.pricing,
+            item:           { countUnit: item.countUnit, baseUnit: item.baseUnit },
+          }).unit
           // ── Weight↔volume density bridge ────────────────────────────────────
           // A measured rate ($/kg) on an item whose base is the OTHER measured
           // dimension ($/ml) must cross via density (g/ml), not the silent 1:1.
