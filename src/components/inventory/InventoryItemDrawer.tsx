@@ -1,186 +1,24 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { X, Pencil, Loader2, ClipboardCheck, GitMerge } from 'lucide-react'
-import {
-  formatCurrency, formatPricePerBase,
-} from '@/lib/utils'
-import {
-  DIMENSION_BASE, pricePerBaseUnit, basePerUnit, levelBaseUnits,
-  type Dimension, type PackLink, type Pricing,
-} from '@/lib/item-model'
-// cost-basis.ts imports Prisma at runtime — type-only import so it isn't bundled client-side.
-import type { ItemCostBasis } from '@/lib/cost-basis'
-import { convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
-import { canonicalUom, getUnitGroup } from '@/lib/uom'
-import {
-  DIM_UNITS, countUnitOptions, DimensionToggle, PackChainEditor, PricingEditor,
-} from '@/components/inventory/ItemChainEditor'
-import { CategoryBadge } from '@/components/CategoryBadge'
-import { StockStatus } from '@/components/StockStatus'
-import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
-import { SupplierOffersSection } from './SupplierOffersSection'
+import { Loader2 } from 'lucide-react'
+import { DIMENSION_BASE, pricePerBaseUnit, type Dimension } from '@/lib/item-model'
 import { SupplierWordingsSection } from './SupplierWordingsSection'
-import { Combobox } from './Combobox'
 import { QuickCountSheet } from './QuickCountSheet'
-import { MergeItemSheet, MergedItemsRow } from './MergeItemSheet'
-import { RemeasureSheet, RemeasuredRow } from './RemeasureSheet'
-import { measureWord } from '@/lib/remeasure-copy'
-import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
+import { MergeItemSheet } from './MergeItemSheet'
+import { RemeasureSheet } from './RemeasureSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { seesItemMoney, canEditItems } from '@/lib/inventory-redact'
-import { lookupDensity } from '@/lib/density'
+import {
+  Header, HeaderBadges, HeaderFacts, PackChainReadout, PriceBlock, BridgesSection,
+  CostBasisBlock, StockSection, BoxesSection, HistorySection, ItemEditForm,
+  DEFAULT_CHAIN, DEFAULT_PRICING, buildEditForm, chainChanged, chainFromItem, normalizeItem,
+  type EditForm, type InventoryItem, type PriceHistoryRow, type StockMovementsResponse,
+} from './drawer'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-/** Format a 'YYYY-MM-DD' business day for display, with no timezone in the path.
- *  Falls back to an ISO instant for a response predating the dayKey field. */
-function formatDay(dayKey: string | null | undefined, isoFallback?: string | null): string {
-  const key = dayKey ?? (isoFallback ? isoFallback.slice(0, 10) : null)
-  if (!key) return ''
-  return new Date(`${key}T00:00:00Z`).toLocaleDateString('en-CA', {
-    month: 'short', day: 'numeric', timeZone: 'UTC',
-  })
-}
-
-type MovementType = 'SALE' | 'WASTAGE' | 'PREP_IN' | 'PREP_OUT' | 'PURCHASE' | 'TRANSFER'
-
-interface StockMovement {
-  id: string; date: string
-  /** 'YYYY-MM-DD' — already resolved to the restaurant's calendar day. Render this,
-   *  never `date`: business dates are UTC-midnight markers and a local-timezone
-   *  format walks them back a day. */
-  dayKey?: string
-  type: MovementType
-  qty: number; unit: string; description: string
-  unbridged?: { qty: number; unit: string }
-}
-
-interface StockReconciliation {
-  opening: number; additions: number; consumptions: number
-  adjustment: number; theoretical: number; unit: string; movementCount: number
-  unbridgedCount?: number
-}
-
-interface StockMovementsResponse {
-  lastCount: { qty: number; unit: string; date: string | null; dayKey?: string | null }
-  theoretical: { qty: number; unit: string }
-  movements: StockMovement[]
-  reconciliation?: StockReconciliation
-}
-
-interface InventoryItem {
-  id: string; itemName: string; category: string
-  supplier?: { id: string; name: string } | null
-  supplierId?: string | null
-  storageArea?: { id: string; name: string } | null
-  storageAreaId?: string | null
-  purchasePrice: number; baseUnit: string
-  pricePerBaseUnit: number
-  stockOnHand: number
-  allergens?: string[]
-  barcode?: string | null
-  isActive: boolean
-  isStocked?: boolean
-  lastCountDate?: string | null; lastCountQty?: number | null
-  recipe?: { id: string; name: string } | null
-  /** 30-day weighted-average cost basis (null for PREP-linked items — they're never averaged). */
-  costBasis?: ItemCostBasis | null
-  // Chain model (authoritative)
-  dimension?: Dimension | null
-  packChain?: PackLink[] | null
-  pricing?: Pricing | null
-  countUnit?: string | null
-  // Count↔weight bridge
-  eachMeasureQty?: number | string | null
-  eachMeasureUnit?: string | null
-  // Density bridge
-  densityGPerMl?: number | string | null
-  // Edit rules (GET /api/inventory/[id]) — what the drawer may offer to change.
-  /** Counts, deliveries or recipes are recorded in its measure → measure locked. */
-  hasHistory?: boolean
-  /** Supplier boxes — with any, the price and pack live on the box. */
-  offerCount?: number
-  /** Recipes that cost this item only through its "1 each = N g" bridge. */
-  bridgeUsedBy?: { id: string; name: string; type: string }[]
-  /** The row version every save names (a mismatch → 409 STALE). */
-  lastUpdated?: string
-}
-
-interface EditForm {
-  itemName: string; category: string
-  storageAreaId: string; storageAreaName: string
-  // Chain pricing model
-  dimension: Dimension
-  chain: PackLink[]
-  pricing: Pricing
-  countUnit: string
-  isActive: boolean
-  isStocked: boolean
-  allergens: string[]
-  barcode: string | null
-  // Count↔weight bridge
-  eachMeasureQty: number | null
-  eachMeasureUnit: string
-  // Density bridge
-  densityGPerMl: number | null
-}
-
-// Default chain state for a brand-new item.
-const DEFAULT_CHAIN: PackLink[] = [{ unit: 'case', per: 1 }]
-const DEFAULT_PRICING: Pricing = { mode: 'PACK', purchasePrice: 0 }
-
-// Derive the chain-form pieces from an item, falling back to safe defaults so a
-// row missing chain columns still opens cleanly.
-function chainFromItem(item: InventoryItem): Pick<EditForm, 'dimension' | 'chain' | 'pricing' | 'countUnit'> {
-  const dimension = (item.dimension ?? 'COUNT') as Dimension
-  const chain = Array.isArray(item.packChain) && item.packChain.length
-    ? item.packChain.map(l => ({ unit: l.unit, per: Number(l.per) }))
-    : [...DEFAULT_CHAIN]
-  const pricing = item.pricing ?? DEFAULT_PRICING
-  const countUnit = item.countUnit ?? 'each'
-  return { dimension, chain, pricing, countUnit }
-}
-
-/** Did the form change what the item IS or costs (measure, pack, price)? Those
- *  go through the pricing route, never the item edit. Compared field by field so
- *  a key-order or string-number difference is not mistaken for an edit. */
-function chainChanged(item: InventoryItem, f: EditForm): boolean {
-  const c = chainFromItem(item)
-  const priceKey = (p: Pricing) => p.mode === 'PACK'
-    ? `PACK:${Number(p.purchasePrice)}`
-    : `RATE:${Number(p.rate)}:${p.rateUnit}`
-  const chainKey = (ch: PackLink[]) => ch.map(l => `${l.unit}:${Number(l.per)}`).join('|')
-  return c.dimension !== f.dimension
-    || chainKey(c.chain) !== chainKey(f.chain)
-    || priceKey(c.pricing) !== priceKey(f.pricing)
-}
-
-// Build a fresh EditForm (chain pricing + non-pricing fields) from an item.
-// Stock is not on the form: it changes only through a count.
-function buildEditForm(item: InventoryItem): EditForm {
-  const c = chainFromItem(item)
-  return {
-    itemName: item.itemName,
-    category: item.category,
-    storageAreaId: item.storageAreaId || '',
-    storageAreaName: item.storageArea?.name || '',
-    dimension: c.dimension,
-    chain: c.chain,
-    pricing: c.pricing,
-    countUnit: c.countUnit,
-    isActive: item.isActive,
-    isStocked: item.isStocked ?? true,
-    allergens: item.allergens ?? [],
-    barcode: item.barcode ?? null,
-    // Count↔weight bridge. Prisma Decimal arrives as a string — coerce with Number().
-    eachMeasureQty: item.eachMeasureQty != null ? Number(item.eachMeasureQty) : null,
-    eachMeasureUnit: item.eachMeasureUnit ?? 'g',
-    // Density bridge. Prisma Decimal arrives as a string — coerce with Number().
-    densityGPerMl: item.densityGPerMl != null ? Number(item.densityGPerMl) : null,
-  }
-}
+// The item drawer's shell: data loading, edit mode and saving, the sheets, and
+// the order of the sections. Each section lives in ./drawer/ and takes explicit props.
 
 interface Props {
   itemId: string
@@ -188,63 +26,6 @@ interface Props {
   onUpdated?: (updatedItem?: InventoryItem) => void
   zClassName?: string
   initialEditMode?: boolean
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function itemChainDims(item: InventoryItem) {
-  return {
-    dimension: (item.dimension ?? 'COUNT') as string,
-    baseUnit:  item.baseUnit,
-    packChain: (Array.isArray(item.packChain) ? item.packChain : []) as unknown,
-    countUnit: item.countUnit ?? null,
-  }
-}
-
-function normalizeItem(item: InventoryItem): InventoryItem {
-  return { ...item, countUnit: resolveCountUom(itemChainDims(item)) }
-}
-
-// Convert any baseUnit quantity to the item's count unit for display.
-function baseToDisplay(item: InventoryItem, base: number): number {
-  return convertBaseToCountUom(base, resolveCountUom(itemChainDims(item)), itemChainDims(item))
-}
-
-function displayStock(item: InventoryItem): number {
-  return baseToDisplay(item, Number(item.stockOnHand))
-}
-
-// Shows the 30-day weighted-average cost recipes are actually priced on, next to the
-// item's last (stored) price — so a chef can see why a recipe's cost moved without
-// this item's own price block having changed. `last` is the item's pricePerBaseUnit.
-/** What the manager should do about a movement the item could not convert. */
-function unbridgedAdvice(unit: string, baseUnit: string): string {
-  const movement = getUnitGroup(unit)
-  const base = getUnitGroup(baseUnit)
-  if (base === 'Count' && (movement === 'Weight' || movement === 'Volume')) {
-    return 'tell it how much one each weighs (1 each = ? g) in Edit so they count'
-  }
-  const ownUnits = base === 'Weight' ? 'g or kg' : base === 'Volume' ? 'ml or l' : 'each'
-  return `they were logged in ${unit}, which this item cannot convert — log them in ${ownUnits}`
-}
-
-function CostBasisRow({ cb, baseUnit, last }: { cb: ItemCostBasis; baseUnit: string; last: number }) {
-  const label = <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">30-day average</div>
-  if (cb.fallbackReason === 'implausible' && cb.avg) {
-    const ratio = Math.round(Math.max(cb.avg.pricePerBase / last, last / cb.avg.pricePerBase))
-    return <div>{label}<div className="text-[13px] text-red-text mt-1">Average ignored — {ratio}× off the last price; check this item&rsquo;s receipts</div></div>
-  }
-  if (cb.basis !== 'AVG_30D' || !cb.avg) {
-    return <div>{label}<div className="text-[13px] text-ink-3 mt-1">No purchases in 30 days — recipes use the last price.</div></div>
-  }
-  const delta = last > 0 ? Math.round((cb.avg.pricePerBase / last - 1) * 100) : null
-  return (
-    <div>{label}
-      <div className="font-medium text-ink mt-1">{formatPricePerBase(cb.avg.pricePerBase, baseUnit)}
-        <span className="text-ink-3 font-normal"> · {cb.avg.lines} invoice{cb.avg.lines === 1 ? '' : 's'} · {formatCurrency(cb.avg.paid)} for {cb.avg.received.toLocaleString()} {baseUnit}{delta !== null ? ` · ${delta > 0 ? '+' : ''}${delta} % vs last price` : ''}</span>
-      </div>
-    </div>
-  )
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -285,10 +66,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   })
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([])
   const [storageAreas, setStorageAreas] = useState<{ id: string; name: string }[]>([])
-  const [priceHistory, setPriceHistory] = useState<Array<{
-    invoiceDate: string | null; dayKey: string | null; invoiceNumber: string; supplierName: string;
-    qtyPurchased: number | null; unitPrice: number; lineTotal: number | null
-  }>>([])
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryRow[]>([])
   const [stockMovements, setStockMovements] = useState<StockMovementsResponse | null>(null)
 
   useEffect(() => {
@@ -494,385 +272,40 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
           <div className="flex items-center justify-center h-48 text-ink-4 text-sm">Item not found</div>
         ) : (
           <>
-            {/* Header */}
-            <div
-              className="sticky top-0 z-10 bg-paper border-b border-line p-5 flex items-center justify-between gap-2"
-              style={{ paddingTop: 'calc(1.25rem + env(safe-area-inset-top, 0px))' }}
-            >
-              <div className="flex-1 min-w-0">
-                {editMode ? (
-                  <input
-                    value={editForm.itemName}
-                    onChange={e => setEditForm(f => ({ ...f, itemName: e.target.value }))}
-                    disabled={!!item.recipe}
-                    title={item.recipe ? `Named by the recipe ${item.recipe.name}` : undefined}
-                    className="w-full font-semibold text-ink border border-line rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gold disabled:bg-bg disabled:text-ink-3"
-                  />
-                ) : (
-                  <h2 className="font-medium text-ink text-[19px] leading-[1.15] tracking-[-0.02em] truncate">{item.itemName}</h2>
-                )}
-                {item.storageArea && !editMode && <p className="font-mono text-[10.5px] text-ink-4 uppercase tracking-[0.02em] mt-0.5">{item.storageArea.name}</p>}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {editMode ? (
-                  <>
-                    <button
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="px-3 py-1.5 bg-ink text-paper text-[12px] font-medium rounded-[8px] hover:bg-ink-2 disabled:opacity-50 flex items-center gap-1 transition-colors"
-                    >
-                      {saving && <Loader2 size={10} className="animate-spin" />}
-                      Save
-                    </button>
-                    <button onClick={() => setEditMode(false)} className="px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors">Cancel</button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setShowQuick(true)}
-                      aria-label="Count"
-                      disabled={!activeRc}
-                      title={activeRc ? `Quick count (${activeRc.name})` : 'Pick a revenue center to quick-count'}
-                      className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <ClipboardCheck size={12} /><span className="hidden sm:inline">Count</span>
-                    </button>
-                    {/* Merge a duplicate into this one (MANAGER+, non-PREP only).
-                        canMerge default-denies while role is loading and for
-                        STAFF/LEAD; the merge routes still enforce
-                        requireSession('MANAGER') server-side regardless. */}
-                    {canMerge && !item.recipe && (
-                      <button
-                        onClick={() => setMergeOpen(true)}
-                        title="Merge a duplicate item into this one"
-                        className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
-                      >
-                        <GitMerge size={12} /> Merge
-                      </button>
-                    )}
-                    {canEdit && (
-                      <button
-                        onClick={openEdit}
-                        aria-label="Edit"
-                        title="Edit"
-                        className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
-                      >
-                        <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
-                      </button>
-                    )}
-                  </>
-                )}
-                <button onClick={onClose} aria-label="Close" className="w-8 h-8 grid place-items-center rounded-[8px] border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors bg-paper"><X size={16} /></button>
-              </div>
-            </div>
+            <Header
+              item={item}
+              editMode={editMode}
+              nameValue={editForm.itemName}
+              onNameChange={itemName => setEditForm(f => ({ ...f, itemName }))}
+              saving={saving}
+              onSave={handleSave}
+              onCancel={() => setEditMode(false)}
+              activeRc={activeRc}
+              onCount={() => setShowQuick(true)}
+              canMerge={canMerge}
+              onMerge={() => setMergeOpen(true)}
+              canEdit={canEdit}
+              onEdit={openEdit}
+              onClose={onClose}
+            />
 
             {editMode ? (
-              <div className="p-4 space-y-4">
-                {/* Active */}
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={editForm.isActive}
-                    onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
-                    className="w-4 h-4 rounded border-line-2 text-gold focus:ring-gold"
-                  />
-                  <span className="text-sm font-medium text-ink-2">Active</span>
-                  <span className="text-xs text-ink-4">&mdash; uncheck to exclude from inventory totals</span>
-                </label>
-
-                {/* Not stocked (recipe-only) */}
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={!editForm.isStocked}
-                    onChange={e => setEditForm(f => ({ ...f, isStocked: !e.target.checked }))}
-                    className="w-4 h-4 rounded border-line-2 text-gold focus:ring-gold"
-                  />
-                  <span className="text-sm font-medium text-ink-2">Not stocked (recipe-only)</span>
-                  <span className="text-xs text-ink-4">&mdash; e.g. tap water; usable in recipes at $0, hidden from counts &amp; purchasing</span>
-                </label>
-
-                {/* Category */}
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Category</label>
-                  <Combobox
-                    items={categories.map(c => ({ id: c.name, name: c.name }))}
-                    value={editForm.category}
-                    placeholder="Type to search categories…"
-                    onSelect={(_, name) => setEditForm(f => ({ ...f, category: name }))}
-                    onAddNew={async (name) => {
-                      const res = await fetch('/api/categories', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name }),
-                      })
-                      const cat = await res.json()
-                      fetch('/api/categories').then(r => r.json()).then(setCategories)
-                      return { id: cat.name, name: cat.name }
-                    }}
-                  />
-                </div>
-
-                {/* Supplier — read-only: an item's supplier IS its main (primary)
-                    supplier box, so it changes only by making another box main
-                    in the supplier boxes section below. */}
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Supplier</label>
-                  <div className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink-2 bg-bg">{item.supplier?.name ?? '—'}</div>
-                  <p className="mt-1 text-xs text-ink-4">From its main supplier box — make another box main to change it.</p>
-                </div>
-
-                {/* Storage Area */}
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Storage Area</label>
-                  <Combobox
-                    items={storageAreas}
-                    value={editForm.storageAreaName}
-                    placeholder="Type to search storage areas…"
-                    onSelect={(id, name) => setEditForm(f => ({ ...f, storageAreaId: id, storageAreaName: name }))}
-                    onAddNew={async (name) => {
-                      const res = await fetch('/api/storage-areas', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name }),
-                      })
-                      const area = await res.json()
-                      fetch('/api/storage-areas').then(r => r.json()).then(setStorageAreas)
-                      return { id: area.id, name: area.name }
-                    }}
-                  />
-                </div>
-
-                {item.recipe && (
-                  <div className="bg-blue-soft border border-blue-soft rounded-lg px-3 py-2 text-xs text-blue-text flex items-start gap-2">
-                    <span className="text-blue mt-0.5">⟳</span>
-                    <span>Made from the recipe <strong>{item.recipe.name}</strong>: its name, allergens, count unit and price are set there.</span>
-                  </div>
-                )}
-
-                {/* R3 — with a supplier box the price and pack live on the box. */}
-                {!item.recipe && (item.offerCount ?? 0) > 0 && (
-                  <p className="text-xs text-ink-3 bg-bg-2 rounded-lg px-3 py-2">Price and pack come from its supplier boxes — close Edit to see them.</p>
-                )}
-
-                {/* Pricing chain — only an item with no recipe and no supplier box
-                    owns its price. Pricing mode first (top-level choice), then
-                    dimension, then chain. */}
-                {!item.recipe && (item.offerCount ?? 0) === 0 && (
-                  <div className="space-y-3">
-                    <PricingEditor
-                      dimension={editForm.dimension}
-                      pricing={editForm.pricing}
-                      onChange={pricing => setEditForm(f => ({ ...f, pricing }))}
-                    />
-
-                    {/* R4 — the measure is locked once counts, deliveries or recipes use it. */}
-                    {item.hasHistory ? (
-                      <div className="text-xs text-ink-3 space-y-1.5">
-                        <p>Measured by {measureWord(editForm.dimension)} — locked because it has counts, deliveries or recipes.</p>
-                        {canEdit && !item.recipe && (
-                          <button
-                            type="button" onClick={() => setRemeasureOpen(true)}
-                            className="px-2.5 py-1 border border-line rounded-[8px] text-[12px] font-medium text-ink-2 hover:border-ink-3 transition-colors"
-                          >
-                            Change how it&rsquo;s measured
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <DimensionToggle
-                        dimension={editForm.dimension}
-                        onChange={d => setEditForm(f => {
-                          // Switching dimension invalidates pricing rateUnit + may invalidate countUnit.
-                          const pricing: Pricing = f.pricing.mode === 'RATE'
-                            ? { mode: 'RATE', rate: f.pricing.rate, rateUnit: DIM_UNITS[d][0] }
-                            : f.pricing
-                          const opts = countUnitOptions(d, f.chain)
-                          return { ...f, dimension: d, pricing, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
-                        })}
-                      />
-                    )}
-
-                    <PackChainEditor
-                      chain={editForm.chain}
-                      baseUnit={DIMENSION_BASE[editForm.dimension]}
-                      dimension={editForm.dimension}
-                      onChange={chain => setEditForm(f => {
-                        const opts = countUnitOptions(f.dimension, chain)
-                        return { ...f, chain, countUnit: opts.includes(f.countUnit) ? f.countUnit : opts[0] }
-                      })}
-                    />
-                  </div>
-                )}
-
-                {/* Count↔weight bridge — "1 each = N g/ml". On a COUNT item it's
-                    the per-each weight; on a measured item it's how much one
-                    countable each weighs (so count invoices/recipes convert). */}
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">
-                    {editForm.dimension === 'COUNT' ? 'Weight / volume per unit' : 'Weight per each (for count invoices)'}{' '}
-                    <span className="font-normal text-ink-4">(optional)</span>
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="any"
-                      value={editForm.eachMeasureQty ?? ''}
-                      onChange={e => setEditForm(f => ({ ...f, eachMeasureQty: e.target.value === '' ? null : Number(e.target.value) }))}
-                      placeholder="e.g. 1100"
-                      className="flex-1 border border-line rounded-l-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold border-r-0"
-                    />
-                    <select
-                      value={editForm.eachMeasureUnit}
-                      onChange={e => setEditForm(f => ({ ...f, eachMeasureUnit: e.target.value }))}
-                      className="border border-line rounded-r-lg pl-2 pr-1 py-2 text-sm text-ink-2 bg-bg focus:outline-none focus:ring-2 focus:ring-gold"
-                    >
-                      {/* a stored unit outside g/ml (e.g. lb) stays selectable, or a click would silently swap it */}
-                      {editForm.eachMeasureUnit && !['g', 'ml'].includes(editForm.eachMeasureUnit) && (
-                        <option value={editForm.eachMeasureUnit}>{editForm.eachMeasureUnit}</option>
-                      )}
-                      <option value="g">g</option>
-                      <option value="ml">ml</option>
-                    </select>
-                  </div>
-                  <p className="text-[10.5px] text-ink-4 mt-1">
-                    {editForm.dimension === 'COUNT'
-                      ? 'Lets weight-format invoices receive as units and weight-based recipes cost correctly.'
-                      : 'Lets count-format invoices (e.g. "70 each") be received and costed against this item.'}
-                  </p>
-                </div>
-
-                {/* Density bridge — weight↔volume conversion for measured items */}
-                {editForm.dimension !== 'COUNT' && (
-                  <div>
-                    <label className="block text-xs font-medium text-ink-3 mb-1">
-                      Density (weight ↔ volume bridge) <span className="font-normal text-ink-4">(optional)</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-ink-2">1 ml =</span>
-                      <input
-                        type="number" inputMode="decimal" min="0" step="any"
-                        value={editForm.densityGPerMl ?? ''}
-                        onChange={e => setEditForm(f => ({ ...f, densityGPerMl: e.target.value === '' ? null : Number(e.target.value) }))}
-                        placeholder={String(lookupDensity(editForm.itemName ?? '').gPerMl)}
-                        className="flex-1 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
-                      />
-                      <span className="text-sm text-ink-3">g</span>
-                    </div>
-                    <p className="text-[10.5px] text-ink-4 mt-1">
-                      Lets a weight invoice ($/kg) price this {editForm.dimension === 'VOLUME' ? 'volume' : 'weight'} item across weight↔volume at the right density. Blank = the library default ({lookupDensity(editForm.itemName ?? '').gPerMl} g/ml, an estimate) is used until you set it here.
-                    </p>
-                  </div>
-                )}
-
-                {/* Count unit + stock. R2 — stock is read-only here: it changes
-                    only through a count (or receipts, wastage, transfers). */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-ink-3 mb-1">Count unit</label>
-                    <select value={editForm.countUnit} onChange={e => setEditForm(f => ({ ...f, countUnit: e.target.value }))}
-                      disabled={!!item.recipe}
-                      className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold bg-white disabled:bg-bg disabled:text-ink-3">
-                      {/* a stored count unit outside the options stays selectable, or the select would swap it */}
-                      {!countUnitOptions(editForm.dimension, editForm.chain).includes(editForm.countUnit) && (
-                        <option value={editForm.countUnit}>{editForm.countUnit}</option>
-                      )}
-                      {countUnitOptions(editForm.dimension, editForm.chain).map(u => <option key={u} value={u}>{u}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div className="block text-xs font-medium text-ink-3 mb-1">Stock</div>
-                    <div className="flex items-center gap-2">
-                      <span className="flex-1 min-w-0 text-sm text-ink-2 py-2 truncate">
-                        On hand: {parseFloat(displayStock(item).toFixed(2)).toLocaleString()} {resolveCountUom(itemChainDims(item)) || item.baseUnit}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowQuick(true)}
-                        disabled={!activeRc}
-                        title={activeRc ? `Count it now (${activeRc.name})` : 'Pick a revenue center to count'}
-                        className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <ClipboardCheck size={12} /> Count now
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Barcode */}
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Barcode</label>
-                  <input
-                    type="text"
-                    value={editForm.barcode ?? ''}
-                    onChange={e => setEditForm(f => ({ ...f, barcode: e.target.value || null }))}
-                    placeholder="Scan or type barcode"
-                    className="w-full border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
-
-                {/* Allergens */}
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-2">Allergens (Health Canada Big 9)</label>
-                  <AllergenToggles
-                    disabled={!!item.recipe}
-                    active={new Set(editForm.allergens)}
-                    onToggle={key => setEditForm(f => ({
-                      ...f,
-                      allergens: f.allergens.includes(key)
-                        ? f.allergens.filter(x => x !== key)
-                        : [...f.allergens, key],
-                    }))}
-                  />
-                </div>
-
-                {/* Live preview */}
-                {(() => {
-                  const isPrep = !!item.recipe
-                  const ci = {
-                    dimension: editForm.dimension,
-                    baseUnit: DIMENSION_BASE[editForm.dimension],
-                    packChain: editForm.chain,
-                    pricing: editForm.pricing,
-                    countUnit: editForm.countUnit,
-                    // Bridges — without them a bridged RATE (e.g. $/lb on an `each`
-                    // item) previews at $0 even though it prices fine once saved.
-                    eachMeasure: editForm.eachMeasureQty != null
-                      ? { qty: editForm.eachMeasureQty, unit: editForm.eachMeasureUnit }
-                      : null,
-                    densityGPerMl: editForm.densityGPerMl,
-                  }
-                  const ppbu = isPrep ? Number(item.pricePerBaseUnit ?? 0) : pricePerBaseUnit(ci)
-                  const perCount = basePerUnit(ci, editForm.countUnit)
-                  return (
-                    <div className={`rounded-lg p-3 space-y-1.5 ${isPrep ? 'bg-blue-soft' : 'bg-gold-soft'}`}>
-                      <div className={`text-xs font-semibold uppercase tracking-wide ${isPrep ? 'text-blue-text' : 'text-gold-2'}`}>
-                        {isPrep ? 'Recipe-derived cost' : 'Live preview'}
-                      </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>Price:</span>
-                        <span className={`text-lg font-bold ${isPrep ? 'text-blue-text' : 'text-gold-2'}`}>{formatPricePerBase(ppbu, ci.baseUnit)}</span>
-                      </div>
-                      <div className={`text-xs ${isPrep ? 'text-blue' : 'text-gold-2'}`}>
-                        1 {editForm.countUnit} = {perCount.toLocaleString()} {ci.baseUnit}
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
+              <ItemEditForm
+                item={item}
+                editForm={editForm}
+                setEditForm={setEditForm}
+                categories={categories}
+                onCategoriesChange={setCategories}
+                storageAreas={storageAreas}
+                onStorageAreasChange={setStorageAreas}
+                canEdit={canEdit}
+                activeRc={activeRc}
+                onCount={() => setShowQuick(true)}
+                onRemeasure={() => setRemeasureOpen(true)}
+              />
             ) : (
               <div className="p-4 space-y-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <CategoryBadge category={item.category} />
-                  <StockStatus stock={displayStock(item)} />
-                  {item.allergens && item.allergens.length > 0 && item.allergens.map(a => (
-                    <span key={a} className="px-2 py-0.5 rounded-full text-[11px] bg-gold-soft text-gold-2 font-medium">⚠ {a}</span>
-                  ))}
-                  {item.isActive
-                    ? <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-soft text-green-text font-medium">Active</span>
-                    : <span className="px-2 py-0.5 rounded-full text-[11px] bg-bg-2 text-ink-4 font-medium">Inactive</span>
-                  }
-                </div>
+                <HeaderBadges item={item} />
 
                 {(() => {
                   const c = chainFromItem(item)
@@ -887,303 +320,51 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                     densityGPerMl: item.densityGPerMl != null ? Number(item.densityGPerMl) : null,
                   }
                   const ppb = pricePerBaseUnit(ci)
-                  const lv = levelBaseUnits(c.chain)
-                  const dimLabel = c.dimension === 'MASS' ? 'Weight' : c.dimension === 'VOLUME' ? 'Volume' : 'Count'
                   return (
-                <div className="grid grid-cols-2 gap-3 text-[13px]">
-                  {(() => {
-                    const rows: [string, string][] = item.recipe ? [
-                      ['Supplier',      item.supplier?.name || '—'],
-                      ['Storage area',  item.storageArea?.name || '—'],
-                      ['Linked recipe', item.recipe.name],
-                      ['Dimension',     `${dimLabel} · ${ci.baseUnit}`],
-                      ['Count unit',    c.countUnit],
-                    ] : [
-                      ['Supplier',       item.supplier?.name || '—'],
-                      ['Storage area',   item.storageArea?.name || '—'],
-                      ['Dimension',      `${dimLabel} · ${ci.baseUnit}`],
-                      ...(seesMoney ? [['Pricing', c.pricing.mode === 'RATE' ? `Rate · per ${canonicalUom(c.pricing.rateUnit)}` : 'Per pack'] as [string, string]] : []),
-                      ['Count unit',     c.countUnit],
-                      ...(item.barcode ? [['Barcode', item.barcode] as [string, string]] : []),
-                    ]
-                    return rows.map(([label, value]) => (
-                      <div key={label} className="bg-paper border border-line rounded-[10px] p-3">
-                        <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">{label}</div>
-                        <div className="font-medium text-ink mt-1 tracking-[-0.005em]">{value}</div>
-                      </div>
-                    ))
-                  })()}
-
-                  {/* Pack chain readout */}
-                  <div className="bg-paper border border-line rounded-[10px] p-3 col-span-2">
-                    <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em] mb-1.5">Pack chain</div>
-                    <div className="space-y-1">
-                      {c.chain.map((link, i) => (
-                        <div key={i} className="flex items-center justify-between text-[12px]">
-                          <span className="font-medium text-ink">1 {link.unit}</span>
-                          <span className="font-mono text-ink-3 tabular-nums">
-                            = {Number(link.per).toLocaleString()} {i === c.chain.length - 1 ? ci.baseUnit : c.chain[i + 1]?.unit}
-                            <span className="text-ink-4"> &nbsp;({(lv[link.unit] ?? 0).toLocaleString()} {ci.baseUnit})</span>
-                          </span>
-                        </div>
-                      ))}
+                    <div className="grid grid-cols-2 gap-3 text-[13px]">
+                      <HeaderFacts item={item} c={c} baseUnit={ci.baseUnit} seesMoney={seesMoney} />
+                      <PackChainReadout chain={c.chain} baseUnit={ci.baseUnit} />
+                      <PriceBlock item={item} c={c} ci={ci} ppb={ppb} seesMoney={seesMoney} />
+                      <BridgesSection canEdit={canEdit} isRecipe={!!item.recipe} onRemeasure={() => setRemeasureOpen(true)} />
+                      <CostBasisBlock item={item} baseUnit={ci.baseUnit} last={ppb} seesMoney={seesMoney} />
                     </div>
-                  </div>
-
-                  {seesMoney && (
-                  <div className={`rounded-[10px] p-3 col-span-2 border ${item.recipe ? 'bg-blue-soft border-blue-soft' : 'bg-gold-soft border-[#fcd34d]'}`}>
-                    {item.recipe && (
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.02em] bg-blue-soft text-blue-text px-1.5 py-0.5 rounded-full">Recipe</span>
-                        <span className="text-[11px] text-blue-text font-medium">{item.recipe.name}</span>
-                      </div>
-                    )}
-                    <div className={`font-mono text-[10px] font-semibold uppercase tracking-[0.04em] ${item.recipe ? 'text-blue' : 'text-gold-2'}`}>
-                      Price
-                    </div>
-                    <div className={`font-mono text-[17px] font-semibold tabular-nums mt-1 tracking-[-0.01em] ${item.recipe ? 'text-blue-text' : 'text-gold-2'}`}>
-                      {formatPricePerBase(ppb, ci.baseUnit)}
-                    </div>
-                    <div className={`font-mono text-[11px] mt-1.5 tracking-[0] ${item.recipe ? 'text-blue' : 'text-[#92722f]'}`}>
-                      {c.pricing.mode === 'RATE'
-                        ? <>{formatCurrency(c.pricing.rate)} / {canonicalUom(c.pricing.rateUnit)}</>
-                        : <>{formatCurrency(c.pricing.purchasePrice)} per {c.chain[0]?.unit ?? 'pack'} &nbsp;|&nbsp; 1 {c.countUnit} = {basePerUnit(ci, c.countUnit).toLocaleString()} {ci.baseUnit}</>
-                      }
-                    </div>
-                  </div>
-                  )}
-
-                  {/* The way into "Change how it's measured" without entering Edit
-                      (MANAGER+; a recipe-made item is measured by its recipe). */}
-                  {canEdit && !item.recipe && (
-                    <div className="col-span-2 -mt-1.5 text-right">
-                      <button
-                        type="button" onClick={() => setRemeasureOpen(true)}
-                        className="text-[12px] text-ink-3 underline underline-offset-2 hover:text-ink-2"
-                      >
-                        Change how it&rsquo;s measured
-                      </button>
-                    </div>
-                  )}
-
-                  {/* What recipes actually cost this item at — the 30-day weighted average,
-                      shown next to (not instead of) the price block above. PREP items have
-                      no costBasis: their cost comes from the recipe, never an average. */}
-                  {seesMoney && !item.recipe && item.costBasis && (
-                    <div className="bg-paper border border-line rounded-[10px] p-3 col-span-2">
-                      <CostBasisRow cb={item.costBasis} baseUnit={ci.baseUnit} last={ppb} />
-                    </div>
-                  )}
-                </div>
                   )
                 })()}
 
-                {/* Revenue-center distribution — elevated: assigning stock to an RC
-                    is a primary task, so it sits right under the price, above the
-                    stock log. */}
-                {revenueCenters.length > 1 && (
-                  <RcAllocationPanel
-                    itemId={item.id}
-                    stockOnHand={displayStock(item)}
-                    countUOM={resolveCountUom(itemChainDims(item)) || item.baseUnit}
-                    defaultRcId={defaultRcId}
-                    toDisplay={(base) => baseToDisplay(item, base)}
-                    readOnly={!canEdit}
-                    onPulled={() => {
-                      fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(setItem)
-                      onUpdated?.()
-                    }}
-                  />
-                )}
+                <StockSection
+                  item={item}
+                  showRcPanel={revenueCenters.length > 1}
+                  defaultRcId={defaultRcId}
+                  canEdit={canEdit}
+                  onPulled={() => {
+                    fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(setItem)
+                    onUpdated?.()
+                  }}
+                  stockMovements={stockMovements}
+                />
 
-                {/* Stock Overview */}
-                <div className="space-y-2">
-                  <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em]">Stock</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-paper border border-line rounded-[10px] p-3">
-                      <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Last count</div>
-                      <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
-                        {stockMovements
-                          ? `${stockMovements.lastCount.qty.toFixed(2)} ${stockMovements.lastCount.unit}`
-                          : '—'}
-                      </div>
-                      <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
-                        {stockMovements?.lastCount.date
-                          ? formatDay(stockMovements.lastCount.dayKey, stockMovements.lastCount.date)
-                          : 'Never counted'}
-                      </div>
-                    </div>
-                    <div className="bg-bg-2 border border-line rounded-[10px] p-3">
-                      <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.04em]">Theoretical stock</div>
-                      <div className="font-mono text-[15px] font-semibold text-ink tabular-nums mt-1">
-                        {stockMovements
-                          ? `${stockMovements.theoretical.qty.toFixed(2)} ${stockMovements.theoretical.unit}`
-                          : '—'}
-                      </div>
-                      <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">Estimated current</div>
-                    </div>
-                  </div>
-
-                  {/* Reconciliation strip — the drawer's whole promise on one line:
-                      last count + additions − consumptions = theoretical. Sent as
-                      server-side totals because the list below shows only the most
-                      recent dozen movements, so adding up what's on screen would
-                      never reach the figure printed above it. */}
-                  {stockMovements?.reconciliation && (() => {
-                    const r = stockMovements.reconciliation!
-                    const n = (v: number) => Math.abs(v).toFixed(2)
-                    return (
-                      <div className="bg-paper border border-line rounded-[10px] px-3 py-2">
-                        <div className="flex items-center flex-wrap gap-x-2 gap-y-1 font-mono text-[11.5px] tabular-nums">
-                          <span className="text-ink-3">{n(r.opening)}</span>
-                          <span className="text-green">+{n(r.additions)}</span>
-                          <span className="text-red">−{n(r.consumptions)}</span>
-                          {r.adjustment !== 0 && (
-                            <span className="text-gold">{r.adjustment > 0 ? '+' : '−'}{n(r.adjustment)}</span>
-                          )}
-                          <span className="text-ink-4">=</span>
-                          <span className="font-semibold text-ink">{n(r.theoretical)} {r.unit}</span>
-                        </div>
-                        <div className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.04em] mt-1">
-                          Last count · added · used{r.adjustment !== 0 ? ' · unexplained' : ''} · on hand
-                        </div>
-                        {r.adjustment !== 0 && (
-                          <div className="text-[11px] text-gold-2 mt-1.5 leading-snug">
-                            {r.adjustment > 0
-                              ? `${n(r.adjustment)} ${r.unit} more was used than this item was ever counted or recorded receiving — stock ran to zero, so production or deliveries are going unlogged.`
-                              : `${n(r.adjustment)} ${r.unit} of the opening balance is not backed by a physical count.`}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-
-                  {/* Movement Log */}
-                  {stockMovements && stockMovements.movements.length > 0 && (
-                    <div className="space-y-0.5 mt-1">
-                      {stockMovements.movements.slice(0, 12).map(m => {
-                        const isPositive = m.qty >= 0
-                        // A transfer is a theoretical move between RCs — net-zero globally, so
-                        // it reads as neutral (no +/− framing) in this all-RC drawer view.
-                        const isTransfer = m.type === 'TRANSFER'
-                        const typeConfig: Record<MovementType, { label: string; color: string }> = {
-                          SALE:     { label: 'Sale',        color: 'text-red' },
-                          WASTAGE:  { label: 'Wastage',     color: 'text-gold' },
-                          PREP_IN:  { label: 'Prep (used)', color: 'text-blue' },
-                          PREP_OUT: { label: 'Prep (yield)',color: 'text-green' },
-                          PURCHASE: { label: 'Purchase',    color: 'text-blue' },
-                          TRANSFER: { label: 'Transfer',    color: 'text-ink-3' },
-                        }
-                        const cfg = typeConfig[m.type] ?? { label: m.type, color: 'text-ink-3' }
-                        return (
-                          <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-bg text-[12px] transition-colors">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={`shrink-0 font-medium ${cfg.color}`}>{cfg.label}</span>
-                              <span className="text-ink-4 truncate">{m.description}</span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 ml-2 font-mono tabular-nums">
-                              {m.unbridged ? (
-                                <span className="font-semibold text-gold-2" title={`Not counted — ${unbridgedAdvice(m.unbridged.unit, item.baseUnit ?? 'each')}`}>
-                                  {m.unbridged.qty.toFixed(2)} {m.unbridged.unit} · not counted
-                                </span>
-                              ) : (
-                                <span className={`font-semibold ${isTransfer ? 'text-ink-3' : isPositive ? 'text-green' : 'text-red'}`}>
-                                  {isTransfer ? '' : isPositive ? '+' : ''}{m.qty.toFixed(2)} {m.unit}
-                                </span>
-                              )}
-                              <span className="text-ink-4 w-14 text-right">
-                                {formatDay(m.dayKey, m.date)}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })}
-                      {stockMovements.movements.length > 12 && (
-                        <div className="font-mono text-[10.5px] text-ink-4 text-center pt-1">
-                          + {stockMovements.movements.length - 12} earlier movement{stockMovements.movements.length - 12 === 1 ? '' : 's'} since the last count
-                        </div>
-                      )}
-                      {(stockMovements.reconciliation?.unbridgedCount ?? 0) > 0 && (
-                        <div className="font-mono text-[10.5px] text-gold-2 text-center pt-1">
-                          {stockMovements.reconciliation!.unbridgedCount} movement{stockMovements.reconciliation!.unbridgedCount === 1 ? '' : 's'} not counted — {(() => {
-                            const firstUnbridged = stockMovements.movements.find(m => m.unbridged)
-                            return firstUnbridged?.unbridged
-                              ? unbridgedAdvice(firstUnbridged.unbridged.unit, item.baseUnit ?? 'each')
-                              : 'tell it how much one each weighs (1 each = ? g) in Edit so they count'
-                          })()}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {stockMovements && stockMovements.movements.length === 0 && (
-                    <div className="text-[12px] text-ink-4 text-center py-2">No movements recorded</div>
-                  )}
-                </div>
-
-                {/* Supplier boxes — prices, so LEAD+; adding, editing, removing a box or
-                    switching the main one re-prices the item, so MANAGER+. Shown even
-                    with no boxes so a manager can add the first one. A recipe-made item
-                    has no boxes (its price comes from the recipe). Every box write can
-                    move the item's version and price, so it re-fetches the item. */}
-                {seesMoney && !item.recipe && (
-                  <SupplierOffersSection
-                    // A measure change (or its undo) re-expresses every box — re-mount
-                    // so the list re-loads and no box form stays open in the old measure.
-                    key={`offers-${measureTick}`}
-                    itemId={item.id}
-                    itemName={item.itemName}
-                    baseUnit={item.baseUnit ?? null}
-                    dimension={(item.dimension ?? 'COUNT') as Dimension}
-                    itemChain={chainFromItem(item).chain}
-                    itemPricing={chainFromItem(item).pricing}
-                    itemLastUpdated={item.lastUpdated ?? null}
-                    eachMeasureQty={item.eachMeasureQty ?? null}
-                    eachMeasureUnit={item.eachMeasureUnit ?? null}
-                    onRepriced={refreshItem}
-                    canSetPrimary={canEdit}
-                    canEdit={canEdit}
-                    onChanged={refreshItem}
-                  />
-                )}
+                <BoxesSection
+                  item={item}
+                  seesMoney={seesMoney}
+                  canEdit={canEdit}
+                  measureTick={measureTick}
+                  onRefresh={refreshItem}
+                />
 
                 {/* How each supplier writes this item on its invoices (W7) — MANAGER+. */}
                 {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} refreshKey={mergeTick} />}
 
-                {/* Merges into this item, each with its Undo (the Merge button is in the header). */}
-                {canMerge && !item.recipe && (
-                  <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={refreshItem} />
-                )}
-
-                {/* Measure changes on this item, each with its Undo. */}
-                {canEdit && !item.recipe && (
-                  <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={() => afterRemeasure('measure')} />
-                )}
-
-                {/* Price History */}
-                {seesMoney && priceHistory.length > 0 && (
-                  <div className="mt-2">
-                    <div className="font-mono text-[10.5px] font-semibold text-ink-3 uppercase tracking-[0.04em] mb-2">Price history</div>
-                    <div className="space-y-1.5">
-                      {priceHistory.map((h, i) => (
-                        <div key={i} className="flex items-center justify-between bg-paper border border-line rounded-[10px] px-3 py-2 text-[12px]">
-                          <div className="min-w-0">
-                            <div className="font-medium text-ink truncate">{h.supplierName}</div>
-                            <div className="font-mono text-[10.5px] text-ink-4 mt-0.5">
-                              {formatDay(h.dayKey, h.invoiceDate) || 'Undated'}
-                              {h.invoiceNumber ? ` · #${h.invoiceNumber}` : ''}
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0 ml-3 font-mono tabular-nums">
-                            <div className="font-semibold text-ink">{formatCurrency(h.unitPrice)}</div>
-                            <div className="text-ink-4 text-[10.5px]">
-                              {h.lineTotal != null ? `${formatCurrency(h.lineTotal)} total` : '—'}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <HistorySection
+                  item={item}
+                  canMerge={canMerge}
+                  canEdit={canEdit}
+                  seesMoney={seesMoney}
+                  mergeTick={mergeTick}
+                  measureTick={measureTick}
+                  onMergesChanged={refreshItem}
+                  onRemeasureChanged={() => afterRemeasure('measure')}
+                  priceHistory={priceHistory}
+                />
               </div>
             )}
 
