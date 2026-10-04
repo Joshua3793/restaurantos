@@ -22,6 +22,8 @@ import { SupplierOffersSection } from './SupplierOffersSection'
 import { Combobox } from './Combobox'
 import { QuickCountSheet } from './QuickCountSheet'
 import { MergeItemSheet, MergedItemsRow } from './MergeItemSheet'
+import { RemeasureSheet, RemeasuredRow } from './RemeasureSheet'
+import { measureWord } from '@/lib/remeasure-copy'
 import { AllergenBadges, AllergenToggles } from '@/components/AllergenBadges'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -154,8 +156,6 @@ function chainChanged(item: InventoryItem, f: EditForm): boolean {
     || priceKey(c.pricing) !== priceKey(f.pricing)
 }
 
-const MEASURE_WORD: Record<Dimension, string> = { MASS: 'weight', VOLUME: 'volume', COUNT: 'each' }
-
 // Build a fresh EditForm (chain pricing + non-pricing fields) from an item.
 // Stock is not on the form: it changes only through a count.
 function buildEditForm(item: InventoryItem): EditForm {
@@ -269,6 +269,8 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
   const [showQuick, setShowQuick] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [mergeTick, setMergeTick] = useState(0)
+  const [remeasureOpen, setRemeasureOpen] = useState(false)
+  const [measureTick, setMeasureTick] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editForm, setEditForm] = useState<EditForm>({
@@ -441,6 +443,31 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
     const p = fetch(`/api/inventory/${item.id}`).then(r => r.json()).then(d => { setItem(normalizeItem(d)) })
     onUpdated?.()
     return p
+  }
+
+  // A measure change (or its undo) rewrites the item's measure, pack, price,
+  // bridge, stock and every frozen count/receipt — so besides the shared
+  // refetch, the stock panel is re-read (its units changed) and an open edit
+  // form takes the new measure + bridge, or its Save would write the old ones
+  // straight back over the change.
+  async function afterRemeasure(): Promise<void> {
+    if (!item) return
+    setMeasureTick(t => t + 1)
+    const [fresh, sm] = await Promise.all([
+      fetch(`/api/inventory/${item.id}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/inventory/${item.id}/stock-movements`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ])
+    onUpdated?.()
+    if (sm) setStockMovements(sm)
+    if (!fresh) return
+    const n = normalizeItem(fresh)
+    setItem(n)
+    const b = buildEditForm(n)
+    setEditForm(f => ({
+      ...f,
+      dimension: b.dimension, chain: b.chain, pricing: b.pricing, countUnit: b.countUnit,
+      eachMeasureQty: b.eachMeasureQty, eachMeasureUnit: b.eachMeasureUnit, densityGPerMl: b.densityGPerMl,
+    }))
   }
 
   return (
@@ -630,9 +657,17 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
 
                     {/* R4 — the measure is locked once counts, deliveries or recipes use it. */}
                     {item.hasHistory ? (
-                      <p className="text-xs text-ink-3">
-                        Measured in {MEASURE_WORD[editForm.dimension]} — locked because it has counts, deliveries or recipes. (Change how it&rsquo;s measured: coming next.)
-                      </p>
+                      <div className="text-xs text-ink-3 space-y-1.5">
+                        <p>Measured by {measureWord(editForm.dimension)} — locked because it has counts, deliveries or recipes.</p>
+                        {canEdit && (
+                          <button
+                            type="button" onClick={() => setRemeasureOpen(true)}
+                            className="px-2.5 py-1 border border-line rounded-[8px] text-[12px] font-medium text-ink-2 hover:border-ink-3 transition-colors"
+                          >
+                            Change how it&rsquo;s measured
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <DimensionToggle
                         dimension={editForm.dimension}
@@ -909,6 +944,19 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   </div>
                   )}
 
+                  {/* The way into "Change how it's measured" without entering Edit
+                      (MANAGER+; a recipe-made item is measured by its recipe). */}
+                  {canEdit && !item.recipe && (
+                    <div className="col-span-2 -mt-1.5 text-right">
+                      <button
+                        type="button" onClick={() => setRemeasureOpen(true)}
+                        className="text-[12px] text-ink-3 underline underline-offset-2 hover:text-ink-2"
+                      >
+                        Change how it&rsquo;s measured
+                      </button>
+                    </div>
+                  )}
+
                   {/* What recipes actually cost this item at — the 30-day weighted average,
                       shown next to (not instead of) the price block above. PREP items have
                       no costBasis: their cost comes from the recipe, never an average. */}
@@ -1091,6 +1139,11 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={refreshItem} />
                 )}
 
+                {/* Measure changes on this item, each with its Undo. */}
+                {canEdit && !item.recipe && (
+                  <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={afterRemeasure} />
+                )}
+
                 {/* Price History */}
                 {seesMoney && priceHistory.length > 0 && (
                   <div className="mt-2">
@@ -1140,6 +1193,21 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 rcName={activeRc?.name ?? null}
                 onClose={() => setMergeOpen(false)}
                 onMerged={() => { setMergeTick(t => t + 1); refreshItem() }}
+              />
+            )}
+
+            {remeasureOpen && (
+              <RemeasureSheet
+                item={{
+                  id: item.id, itemName: item.itemName,
+                  dimension: (item.dimension ?? 'COUNT') as Dimension, baseUnit: item.baseUnit ?? 'each',
+                  packChain: item.packChain ?? [], pricing: item.pricing ?? null, countUnit: item.countUnit ?? null,
+                  eachMeasureQty: item.eachMeasureQty ?? null, eachMeasureUnit: item.eachMeasureUnit ?? null,
+                  densityGPerMl: item.densityGPerMl ?? null,
+                  lastUpdated: item.lastUpdated ?? null,
+                }}
+                onClose={() => setRemeasureOpen(false)}
+                onChanged={afterRemeasure}
               />
             )}
           </>
