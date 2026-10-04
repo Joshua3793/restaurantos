@@ -15,6 +15,10 @@ const STATUS: Record<string, number> = {
   INVALID: 400,
 }
 
-export function refusalResponse(e: { code: string; message: string }) {
-  return NextResponse.json({ error: e.message, code: e.code }, { status: STATUS[e.code] ?? 400 })
+/** `details` (INVALID only): every planner error, when `error` carries the first. */
+export function refusalResponse(e: { code: string; message: string; details?: string[] }) {
+  return NextResponse.json(
+    { error: e.message, code: e.code, ...(e.details?.length ? { details: e.details } : {}) },
+    { status: STATUS[e.code] ?? 400 },
+  )
 }

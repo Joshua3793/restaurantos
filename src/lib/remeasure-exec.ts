@@ -34,7 +34,8 @@ export type RemeasureRefusalCode =
   | 'NEEDS_BRIDGE' | 'STALE' | 'INVALID' | 'UNDO_UNSAFE'
 
 export class RemeasureRefusal extends Error {
-  constructor(public code: RemeasureRefusalCode, message: string) {
+  /** `details` — every planner error, when `message` only carries the first. */
+  constructor(public code: RemeasureRefusalCode, message: string, public details?: string[]) {
     super(message)
     this.name = 'RemeasureRefusal'
   }
@@ -52,6 +53,8 @@ export const REMEASURE_SENTENCE = {
   UNDO_REMEASURED: 'Its measure was changed again since — undo that one first.',
   UNDO_RECEIVED: 'A delivery was received since — undo is no longer safe.',
   UNDO_MOVED: 'Stock was moved since — undo is no longer safe.',
+  UNDO_MERGED: 'Another item was merged into it since — undo is no longer safe.',
+  UNDO_BOX_ADDED: 'A supplier box was added since — undo is no longer safe.',
 } as const
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,8 +79,11 @@ export interface RemeasureManifest {
   }
   boxes: { id: string; before: { packChain: unknown; pricing: unknown; packQty: number | null; packSize: number | null; packUOM: string | null } }[]
   receipts: { id: string; old: number | null }[]
-  counts: { id: string; old: number | null; priceAtCount: number | null }[]
-  snapshots: { id: string; before: { qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue: number } }[]
+  /** A key is present exactly when apply wrote that field: `old` = the frozen
+   *  `countedQtyBase`, `priceAtCount` = the count-time price. */
+  counts: { id: string; old?: number | null; priceAtCount?: number | null }[]
+  /** `totalValue` is absent on a SKIPPED/THEORETICAL snapshot — apply does not write it. */
+  snapshots: { id: string; before: { qtyOnHand: number; unit: string; pricePerBaseUnit: number; totalValue?: number } }[]
   allocations: { revenueCenterId: string; old: number }[]
   sessions: { id: string; old: number }[]
   transfers: { id: string; old: number }[]
@@ -145,17 +151,20 @@ export function buildManifest(plan: RemeasurePlan, input: RemeasureLoadedInput, 
   const countById = new Map(input.counts.map((c) => [c.id, c]))
   const item = input.item
 
-  const snapshotBefore = (lineId: string, snapId: string) => {
+  /** `withValue` — apply rewrites the snapshot's value too (a COUNTED/CARRIED
+   *  one); a unit-only restatement leaves the value alone, so it is not recorded. */
+  const snapshotBefore = (lineId: string, snapId: string, withValue: boolean) => {
     const s = countById.get(lineId)?.snapshot
     if (!s || s.id !== snapId) throw new Error(`remeasure: no loaded snapshot ${snapId} for count line ${lineId}`)
     const qtyOnHand = numOrNull(s.qtyOnHand)
     const pricePerBaseUnit = numOrNull(s.pricePerBaseUnit)
     const totalValue = numOrNull(s.totalValue)
     // All NOT NULL columns: a missing one is a loader bug, never a 0 to restore.
-    if (qtyOnHand == null || pricePerBaseUnit == null || totalValue == null) {
+    if (qtyOnHand == null || pricePerBaseUnit == null || (withValue && totalValue == null)) {
       throw new Error(`remeasure: snapshot ${snapId} was loaded without its quantity, price or value`)
     }
-    return { id: snapId, before: { qtyOnHand, unit: s.unit ?? '', pricePerBaseUnit, totalValue } }
+    const before = { qtyOnHand, unit: s.unit ?? '', pricePerBaseUnit }
+    return { id: snapId, before: withValue ? { ...before, totalValue: totalValue! } : before }
   }
 
   return {
@@ -188,10 +197,14 @@ export function buildManifest(plan: RemeasurePlan, input: RemeasureLoadedInput, 
       },
     })),
     receipts: w.receipts.map((r) => ({ id: r.id, old: r.old })),
-    counts: w.countLines.map((c) => ({ id: c.id, old: c.old, priceAtCount: numOrNull(countById.get(c.id)?.priceAtCount) })),
+    counts: w.countLines.map((c) => ({
+      id: c.id,
+      ...(isMaterial(c.old, c.next) ? { old: c.old } : {}),
+      ...(c.priceAtCount != null ? { priceAtCount: numOrNull(countById.get(c.id)?.priceAtCount) } : {}),
+    })),
     snapshots: [
-      ...w.snapshots.map((c) => snapshotBefore(c.id, c.snapshot!.id)),
-      ...w.unitOnly.map((c) => snapshotBefore(c.id, c.snapshotUnitOnly!.id)),
+      ...w.snapshots.map((c) => snapshotBefore(c.id, c.snapshot!.id, true)),
+      ...w.unitOnly.map((c) => snapshotBefore(c.id, c.snapshotUnitOnly!.id, false)),
     ],
     allocations: w.allocations.map((a) => ({ revenueCenterId: a.revenueCenterId, old: a.old })),
     sessions: w.sessions.map((s) => ({ id: s.sessionId, old: s.old })),
@@ -203,26 +216,35 @@ export function buildManifest(plan: RemeasurePlan, input: RemeasureLoadedInput, 
 /**
  * Why an undo is no longer safe, or null. PURE.
  *
- * The three required facts are the plan's. The optional ones close the gaps
- * the item's own `lastUpdated` cannot see — writes that land in the NEW base
- * without touching the item row, which a replay of the old values would leave
- * stranded: a box edited since (a non-main box edit does not bump the item),
- * a delivery approved since (a non-main supplier's invoice freezes its receipt
- * without re-pricing the item), and stock moved between revenue centers since.
+ * The optional facts close the gaps the item's own `lastUpdated` cannot see —
+ * writes that land in the NEW base without touching the item row, which a
+ * replay of the old values would leave stranded: a box edited or added since
+ * (a non-main box edit does not bump the item), another item merged into it
+ * since (the merge re-pointed rows already in the new base), the item on a
+ * count that is still open (its lines freeze in the new base), a count line
+ * written since, a delivery approved since (a non-main supplier's invoice
+ * freezes its receipt without re-pricing the item), and stock moved between
+ * revenue centers since.
+ *
+ * A later measure change is NOT a fact here: it always bumps the item's
+ * `lastUpdated`, so the first check already refuses — `listRemeasures` names it.
  */
 export function undoBlocker(
   manifest: RemeasureManifest,
   now: {
-    itemLastUpdated: Date; countLinesSince: number; remeasuresSince: number
-    boxesChanged?: number; receiptsSince?: number; transfersSince?: number
+    itemLastUpdated: Date; countLinesSince: number
+    boxesChanged?: number; boxesAdded?: number; mergesSince?: number; inOpenCount?: boolean
+    receiptsSince?: number; transfersSince?: number
   },
 ): string | null {
   if (now.itemLastUpdated.toISOString() !== manifest.afterLastUpdated) return REMEASURE_SENTENCE.UNDO_ITEM_CHANGED
   if ((now.boxesChanged ?? 0) > 0) return REMEASURE_SENTENCE.UNDO_ITEM_CHANGED
+  if ((now.mergesSince ?? 0) > 0) return REMEASURE_SENTENCE.UNDO_MERGED
+  if ((now.boxesAdded ?? 0) > 0) return REMEASURE_SENTENCE.UNDO_BOX_ADDED
+  if (now.inOpenCount) return REMEASURE_SENTENCE.OPEN_COUNT
   if (now.countLinesSince > 0) return REMEASURE_SENTENCE.UNDO_COUNTED
   if ((now.receiptsSince ?? 0) > 0) return REMEASURE_SENTENCE.UNDO_RECEIVED
   if ((now.transfersSince ?? 0) > 0) return REMEASURE_SENTENCE.UNDO_MOVED
-  if (now.remeasuresSince > 0) return REMEASURE_SENTENCE.UNDO_REMEASURED
   return null
 }
 
@@ -240,18 +262,140 @@ export function undoWrites(manifest: RemeasureManifest, now: Date) {
         packQty: b.before.packQty,
         packSize: b.before.packSize,
         packUOM: b.before.packUOM,
+        // Stamped like apply stamps it: an open drawer's box edit (Stage 2b
+        // checks a box's lastUpdated) must not save over the restored box.
+        lastUpdated: now,
       },
     })),
     receipts: manifest.receipts.map((r) => ({ id: r.id, data: { receivedQtyBase: r.old } })),
+    // Only the fields apply wrote — their keys are present in the manifest.
     counts: manifest.counts.map((c) => ({
       id: c.id,
-      data: { countedQtyBase: c.old, ...(c.priceAtCount != null ? { priceAtCount: c.priceAtCount } : {}) },
+      data: {
+        ...('old' in c ? { countedQtyBase: c.old ?? null } : {}),
+        ...(c.priceAtCount != null ? { priceAtCount: c.priceAtCount } : {}),
+      },
     })),
     snapshots: manifest.snapshots.map((s) => ({ id: s.id, data: { ...s.before } })),
     allocations: manifest.allocations.map((a) => ({ revenueCenterId: a.revenueCenterId, data: { quantity: a.old } })),
     sessions: manifest.sessions.map((s) => ({ id: s.id, data: { totalCountedValue: s.old } })),
     transfers: manifest.transfers.map((t) => ({ id: t.id, data: { quantity: t.old } })),
   }
+}
+
+export type RemeasureTable =
+  | 'inventorySupplierPrice' | 'invoiceScanItem' | 'countLine' | 'inventorySnapshot'
+  | 'stockAllocation' | 'countSession' | 'stockTransfer' | 'inventoryItem'
+
+/** One row write. A `stockAllocation`'s `id` is its revenue center (the row is
+ *  keyed by revenue center × item). */
+export interface RemeasureWrite { table: RemeasureTable; id: string; data: Record<string, unknown> }
+
+/** `undoWrites` as the flat, ordered list the executor runs. PURE. */
+export function undoWriteList(manifest: RemeasureManifest, now: Date): RemeasureWrite[] {
+  const w = undoWrites(manifest, now)
+  return [
+    ...w.boxes.map((b): RemeasureWrite => ({ table: 'inventorySupplierPrice', id: b.id, data: b.data })),
+    ...w.receipts.map((r): RemeasureWrite => ({ table: 'invoiceScanItem', id: r.id, data: r.data })),
+    ...w.counts.map((c): RemeasureWrite => ({ table: 'countLine', id: c.id, data: c.data })),
+    ...w.snapshots.map((s): RemeasureWrite => ({ table: 'inventorySnapshot', id: s.id, data: s.data })),
+    ...w.allocations.map((a): RemeasureWrite => ({ table: 'stockAllocation', id: a.revenueCenterId, data: a.data })),
+    ...w.sessions.map((s): RemeasureWrite => ({ table: 'countSession', id: s.id, data: s.data })),
+    ...w.transfers.map((t): RemeasureWrite => ({ table: 'stockTransfer', id: t.id, data: t.data })),
+    { table: 'inventoryItem', id: w.item.id, data: w.item.data },
+  ]
+}
+
+/**
+ * Every write `applyRemeasure` makes, in order. PURE — the executor runs this
+ * list as is, and `buildManifest` records a before-value for exactly these
+ * fields (the symmetry test pins both directions).
+ *
+ * `now` stamps the item and every box (`lastUpdated`) and every count line
+ * (`updatedAt` — set explicitly, so the "count line written since the change"
+ * undo check never sees apply's own writes).
+ */
+export function applyWrites(plan: RemeasurePlan, input: RemeasureLoadedInput, now: Date): RemeasureWrite[] {
+  const w = writtenRows(plan, input)
+  const out: RemeasureWrite[] = []
+
+  // Boxes — every one: the dimension moved under all of them. The human pack
+  // format no longer describes the rewritten chain, so it is cleared.
+  for (const b of plan.boxes) {
+    out.push({
+      table: 'inventorySupplierPrice', id: b.id,
+      data: { packChain: b.packChain, pricing: b.pricing, packQty: null, packSize: null, packUOM: null, lastUpdated: now },
+    })
+  }
+  for (const r of w.receipts) out.push({ table: 'invoiceScanItem', id: r.id, data: { receivedQtyBase: r.next } })
+  for (const c of w.countLines) {
+    out.push({
+      table: 'countLine', id: c.id,
+      data: {
+        ...(isMaterial(c.old, c.next) ? { countedQtyBase: c.next } : {}),
+        ...(c.priceAtCount != null ? { priceAtCount: c.priceAtCount } : {}),
+        updatedAt: now,
+      },
+    })
+  }
+  for (const c of w.snapshots) {
+    const s = c.snapshot!
+    out.push({
+      table: 'inventorySnapshot', id: s.id,
+      data: { qtyOnHand: s.qtyOnHand, unit: s.unit, pricePerBaseUnit: s.pricePerBaseUnit, totalValue: s.totalValue },
+    })
+  }
+  for (const c of w.unitOnly) {
+    // A SKIPPED / THEORETICAL snapshot: its expected quantity and $/base
+    // restated in the new base, its unit label with them; value unchanged.
+    const s = c.snapshotUnitOnly!
+    out.push({ table: 'inventorySnapshot', id: s.id, data: { unit: s.unit, qtyOnHand: s.qtyOnHand, pricePerBaseUnit: s.pricePerBaseUnit } })
+  }
+  for (const al of w.allocations) out.push({ table: 'stockAllocation', id: al.revenueCenterId, data: { quantity: al.next } })
+  for (const s of w.sessions) out.push({ table: 'countSession', id: s.sessionId, data: { totalCountedValue: s.next } })
+  for (const t of w.transfers) out.push({ table: 'stockTransfer', id: t.id, data: { quantity: t.next } })
+
+  // The item: every field the manifest records, so undo restores exactly what
+  // apply wrote. The bridge the change went through is WRITTEN onto the item
+  // (recipe lines and counts in the old unit keep resolving through it); the
+  // other bridge, and a stock baseline that does not move, are written back as
+  // loaded — no-op writes that keep apply and undo to the same field set.
+  const it = input.item
+  const after = plan.item.after
+  const bridge = crossesCount(plan)
+    ? {
+      eachMeasureQty: plan.item.eachMeasure?.qty ?? null,
+      eachMeasureUnit: plan.item.eachMeasure?.unit ?? null,
+      densityGPerMl: numOrNull(it.densityGPerMl),
+    }
+    : {
+      eachMeasureQty: numOrNull(it.eachMeasureQty),
+      eachMeasureUnit: it.eachMeasureUnit ?? null,
+      densityGPerMl: plan.item.densityGPerMl ?? null,
+    }
+  out.push({
+    table: 'inventoryItem', id: it.id,
+    data: {
+      dimension: after.dimension,
+      baseUnit: after.baseUnit,
+      packChain: after.packChain,
+      pricing: after.pricing,
+      countUnit: after.countUnit,
+      stockOnHand: w.stockOnHand ?? numOrNull(it.stockOnHand) ?? 0,
+      lastCountQty: w.lastCountQty ?? numOrNull(it.lastCountQty),
+      ...bridge,
+      lastUpdated: now,
+    },
+  })
+  return out
+}
+
+/** The planner's errors as one refusal: the first as a plain sentence, every
+ *  one of them in `details`. PURE. */
+export function invalidRefusal(errors: string[]): RemeasureRefusal {
+  const first = (errors[0] ?? 'the plan is not valid').trim().replace(/\.+$/, '')
+  const sentence = first.charAt(0).toUpperCase() + first.slice(1)
+  return new RemeasureRefusal('INVALID', `This change can't be applied: ${sentence}.`, errors)
 }
 
 /** Null when the Json column is not a manifest — undo refuses rather than half-apply. */
@@ -272,6 +416,11 @@ function parseManifest(json: unknown): RemeasureManifest | null {
 type Db = Prisma.TransactionClient | typeof prisma
 
 const dec = (v: unknown): string | null => (v == null ? null : String(v))
+
+/** The item's lines on a count that is not finalized — apply AND undo refuse
+ *  while there is one (its lines freeze in whatever base the item has now). */
+const openCountLines = (db: Db, itemId: string) =>
+  db.countLine.count({ where: { inventoryItemId: itemId, session: { status: { not: 'FINALIZED' } } } })
 
 /**
  * Everything the planner reads about one item, plus the facts the refusals
@@ -354,9 +503,7 @@ export async function loadRemeasureInputs(db: Db, itemId: string): Promise<
   const transfers = await db.stockTransfer.findMany({ where: { inventoryItemId: itemId }, select: { id: true, quantity: true } })
   const recipeLines = await db.recipeIngredient.count({ where: { inventoryItemId: itemId } })
   const wastageRows = await db.wastageLog.count({ where: { inventoryItemId: itemId } })
-  const openLines = await db.countLine.count({
-    where: { inventoryItemId: itemId, session: { status: { not: 'FINALIZED' } } },
-  })
+  const openLines = await openCountLines(db, itemId)
 
   // Clone→parent key, identical to the script / backfill-received-qty-base:
   // parentSessionId|rawDescription|sortOrder. Two parents at one key make every
@@ -477,7 +624,7 @@ function refuseUnlessChangeable(loaded: Loaded | null): asserts loaded is Loaded
 function planOrRefuse(input: RemeasureLoadedInput): RemeasurePlan {
   const r = planRemeasure(input)
   if ('error' in r) throw new RemeasureRefusal(r.code, r.error)
-  if (r.errors.length > 0) throw new RemeasureRefusal('INVALID', r.errors.join('; '))
+  if (r.errors.length > 0) throw invalidRefusal(r.errors)
   return r
 }
 
@@ -506,6 +653,38 @@ function asStale(e: unknown, sentence: string, code: RemeasureRefusalCode): unkn
   return e
 }
 
+/** Run one planned write through the transaction client. Json columns carry
+ *  plain JSON (or `Prisma.DbNull`, from undo) — the cast is the only typing. */
+async function execWrite(tx: Prisma.TransactionClient, itemId: string, w: RemeasureWrite): Promise<void> {
+  const data = w.data as never
+  switch (w.table) {
+    case 'inventorySupplierPrice': await tx.inventorySupplierPrice.update({ where: { id: w.id }, data }); return
+    case 'invoiceScanItem': await tx.invoiceScanItem.update({ where: { id: w.id }, data }); return
+    case 'countLine': await tx.countLine.update({ where: { id: w.id }, data }); return
+    case 'inventorySnapshot': await tx.inventorySnapshot.update({ where: { id: w.id }, data }); return
+    case 'stockAllocation':
+      await tx.stockAllocation.update({
+        where: { revenueCenterId_inventoryItemId: { revenueCenterId: w.id, inventoryItemId: itemId } }, data,
+      })
+      return
+    case 'countSession': await tx.countSession.update({ where: { id: w.id }, data }); return
+    case 'stockTransfer': await tx.stockTransfer.update({ where: { id: w.id }, data }); return
+    case 'inventoryItem': await tx.inventoryItem.update({ where: { id: w.id }, data }); return
+  }
+}
+
+/** Re-cost the recipes that use the item and drop the theoretical cache. Runs
+ *  AFTER the commit: the change is already saved, so a failure here is logged
+ *  and never reported as "nothing was changed". */
+async function afterCommit(itemId: string, what: string): Promise<void> {
+  try {
+    await propagatePrepCostChanges([itemId])
+    invalidateTheoreticalCache()
+  } catch (e) {
+    console.error(`[remeasure] ${what} committed, but re-costing ${itemId} failed`, e)
+  }
+}
+
 const json = (v: unknown) => v as Prisma.InputJsonValue
 
 export async function applyRemeasure(a: {
@@ -529,85 +708,15 @@ export async function applyRemeasure(a: {
       }
       const input = inputOf(loaded, a.to, a.bridge)
       const plan = planOrRefuse(input)
+      // ONE instant: the item's and every box's lastUpdated, every count line's
+      // updatedAt, the manifest's afterLastUpdated and the row's changedAt —
+      // so every "since the change" check compares against the same moment.
       const now = new Date()
-      const w = writtenRows(plan, input)
 
-      // Boxes — every one: the dimension moved under all of them. The human pack
-      // format no longer describes the rewritten chain, so it is cleared.
-      for (const b of plan.boxes) {
-        await tx.inventorySupplierPrice.update({
-          where: { id: b.id },
-          data: {
-            packChain: json(b.packChain), pricing: json(b.pricing),
-            packQty: null, packSize: null, packUOM: null,
-            lastUpdated: now,
-          },
-        })
-      }
-      for (const r of w.receipts) {
-        await tx.invoiceScanItem.update({ where: { id: r.id }, data: { receivedQtyBase: r.next } })
-      }
-      for (const c of w.countLines) {
-        await tx.countLine.update({
-          where: { id: c.id },
-          data: {
-            ...(isMaterial(c.old, c.next) ? { countedQtyBase: c.next } : {}),
-            ...(c.priceAtCount != null ? { priceAtCount: c.priceAtCount } : {}),
-          },
-        })
-      }
-      for (const c of w.snapshots) {
-        const s = c.snapshot!
-        await tx.inventorySnapshot.update({
-          where: { id: s.id },
-          data: { qtyOnHand: s.qtyOnHand, unit: s.unit, pricePerBaseUnit: s.pricePerBaseUnit, totalValue: s.totalValue },
-        })
-      }
-      for (const c of w.unitOnly) {
-        // A SKIPPED / THEORETICAL snapshot: its expected quantity and $/base
-        // restated in the new base, its unit label with them; value unchanged.
-        const s = c.snapshotUnitOnly!
-        await tx.inventorySnapshot.update({
-          where: { id: s.id },
-          data: { unit: s.unit, qtyOnHand: s.qtyOnHand, pricePerBaseUnit: s.pricePerBaseUnit },
-        })
-      }
-      for (const al of w.allocations) {
-        await tx.stockAllocation.update({
-          where: { revenueCenterId_inventoryItemId: { revenueCenterId: al.revenueCenterId, inventoryItemId: a.itemId } },
-          data: { quantity: al.next },
-        })
-      }
-      for (const s of w.sessions) {
-        await tx.countSession.update({ where: { id: s.sessionId }, data: { totalCountedValue: s.next } })
-      }
-      for (const t of w.transfers) {
-        await tx.stockTransfer.update({ where: { id: t.id }, data: { quantity: t.next } })
-      }
-
-      const after = plan.item.after
-      // The bridge the change went through is WRITTEN onto the item, so recipe
-      // lines and counts in the old unit keep resolving through it.
-      const bridgeData = crossesCount(plan)
-        ? { eachMeasureQty: plan.item.eachMeasure?.qty ?? null, eachMeasureUnit: plan.item.eachMeasure?.unit ?? null }
-        : { densityGPerMl: plan.item.densityGPerMl ?? null }
-      await tx.inventoryItem.update({
-        where: { id: a.itemId },
-        data: {
-          dimension: after.dimension,
-          baseUnit: after.baseUnit,
-          packChain: json(after.packChain),
-          pricing: json(after.pricing),
-          countUnit: after.countUnit,
-          ...(w.stockOnHand != null ? { stockOnHand: w.stockOnHand } : {}),
-          ...(w.lastCountQty != null ? { lastCountQty: w.lastCountQty } : {}),
-          ...bridgeData,
-          lastUpdated: now,
-        },
-      })
+      for (const w of applyWrites(plan, input, now)) await execWrite(tx, a.itemId, w)
 
       const row = await tx.itemRemeasure.create({
-        data: { itemId: a.itemId, changedBy: a.userId, manifest: json(buildManifest(plan, input, now)) },
+        data: { itemId: a.itemId, changedBy: a.userId, changedAt: now, manifest: json(buildManifest(plan, input, now)) },
         select: { id: true },
       })
       return { remeasureId: row.id, plan }
@@ -616,8 +725,7 @@ export async function applyRemeasure(a: {
     throw asStale(e, REMEASURE_SENTENCE.STALE, 'STALE')
   }
 
-  await propagatePrepCostChanges([a.itemId])
-  invalidateTheoreticalCache()
+  await afterCommit(a.itemId, 'measure change')
   return out
 }
 
@@ -627,8 +735,10 @@ export async function applyRemeasure(a: {
 
 type RemeasureRow = { id: string; itemId: string; changedAt: Date; manifest: unknown }
 
-/** The "since the change" facts `undoBlocker` judges. */
+/** The "since the change" facts `undoBlocker` judges. Sequential: `db` may be
+ *  an interactive transaction client (one connection). */
 async function sinceFacts(db: Db, row: RemeasureRow, manifest: RemeasureManifest) {
+  const since = { gt: row.changedAt }
   const item = await db.inventoryItem.findUnique({ where: { id: row.itemId }, select: { lastUpdated: true } })
   // Apply stamped every box with the same instant as the item; a box that is
   // gone or carries another stamp was edited (or removed) since.
@@ -637,38 +747,44 @@ async function sinceFacts(db: Db, row: RemeasureRow, manifest: RemeasureManifest
     ? await db.inventorySupplierPrice.findMany({ where: { id: { in: boxIds } }, select: { lastUpdated: true } })
     : []
   const boxesChanged = boxIds.length - boxesNow.filter((b) => b.lastUpdated.toISOString() === manifest.afterLastUpdated).length
+  // A box the change never saw — added since, or moved in by a merge.
+  const boxesAdded = await db.inventorySupplierPrice.count({
+    where: { inventoryItemId: row.itemId, ...(boxIds.length ? { id: { notIn: boxIds } } : {}) },
+  })
+  const mergesSince = await db.itemMerge.count({ where: { survivorId: row.itemId, undoneAt: null, mergedAt: since } })
+  const inOpenCount = (await openCountLines(db, row.itemId)) > 0
+  // A count line created or edited since. Apply stamps the lines it rewrites
+  // with `changedAt` itself, so its own writes are not "since".
+  const countLinesSince = await db.countLine.count({ where: { inventoryItemId: row.itemId, updatedAt: since } })
   const receiptsSince = await db.invoiceScanItem.count({
-    where: { matchedItemId: row.itemId, approved: true, session: { status: 'APPROVED', approvedAt: { gt: row.changedAt } } },
+    where: { matchedItemId: row.itemId, approved: true, session: { status: 'APPROVED', approvedAt: since } },
   })
-  const transfersSince = await db.stockTransfer.count({ where: { inventoryItemId: row.itemId, createdAt: { gt: row.changedAt } } })
-  // CountSession has no createdAt — `startedAt` (default now()) is when it began.
-  const countLinesSince = await db.countLine.count({
-    where: { inventoryItemId: row.itemId, session: { startedAt: { gt: row.changedAt } } },
-  })
-  const remeasuresSince = await db.itemRemeasure.count({
-    where: { itemId: row.itemId, undoneAt: null, changedAt: { gt: row.changedAt } },
-  })
-  return { item, countLinesSince, remeasuresSince, boxesChanged, receiptsSince, transfersSince }
+  const transfersSince = await db.stockTransfer.count({ where: { inventoryItemId: row.itemId, createdAt: since } })
+  return { item, countLinesSince, boxesChanged, boxesAdded, mergesSince, inOpenCount, receiptsSince, transfersSince }
 }
+
+const UNREADABLE = 'This change’s record cannot be read, so it cannot be reversed.'
 
 async function blockerFor(db: Db, row: RemeasureRow): Promise<string | null> {
   const manifest = parseManifest(row.manifest)
-  if (!manifest) return 'This change’s record cannot be read, so it cannot be reversed.'
+  if (!manifest) return UNREADABLE
   const { item, ...f } = await sinceFacts(db, row, manifest)
   if (!item) return REMEASURE_SENTENCE.UNDO_ITEM_CHANGED
   return undoBlocker(manifest, { itemLastUpdated: item.lastUpdated, ...f })
 }
 
-/** The item's measure changes that have not been undone, newest first. */
+/** The item's measure changes that have not been undone, newest first. Only
+ *  the newest can be undone — each later change restated the rows an older
+ *  one would replay — so only the newest is judged against the database. */
 export async function listRemeasures(itemId: string): Promise<RemeasureChange[]> {
   const rows = await prisma.itemRemeasure.findMany({
     where: { itemId, undoneAt: null },
     orderBy: { changedAt: 'desc' },
   })
   const out: RemeasureChange[] = []
-  for (const r of rows) {
+  for (const [i, r] of rows.entries()) {
     const m = parseManifest(r.manifest)
-    const reason = await blockerFor(prisma, r)
+    const reason = i === 0 ? await blockerFor(prisma, r) : REMEASURE_SENTENCE.UNDO_REMEASURED
     out.push({
       id: r.id,
       changedAt: r.changedAt,
@@ -686,7 +802,7 @@ export async function undoRemeasure(id: string): Promise<void> {
   const row = await prisma.itemRemeasure.findUnique({ where: { id } })
   if (!row || row.undoneAt) throw new RemeasureRefusal('NOT_FOUND', REMEASURE_SENTENCE.CHANGE_NOT_FOUND)
   const manifest = parseManifest(row.manifest)
-  if (!manifest) throw new RemeasureRefusal('UNDO_UNSAFE', 'This change’s record cannot be read, so it cannot be reversed.')
+  if (!manifest) throw new RemeasureRefusal('UNDO_UNSAFE', UNREADABLE)
   if (!isSafeRowId(manifest.itemId)) throw new RemeasureRefusal('UNDO_UNSAFE', REMEASURE_SENTENCE.UNDO_ITEM_CHANGED)
 
   try {
@@ -699,37 +815,16 @@ export async function undoRemeasure(id: string): Promise<void> {
       const fresh = await tx.itemRemeasure.findUnique({ where: { id }, select: { undoneAt: true } })
       if (!fresh || fresh.undoneAt) throw new RemeasureRefusal('NOT_FOUND', REMEASURE_SENTENCE.CHANGE_NOT_FOUND)
       const blocked = await blockerFor(tx, row)
+      if (blocked === REMEASURE_SENTENCE.OPEN_COUNT) throw new RemeasureRefusal('OPEN_COUNT', blocked)
       if (blocked) throw new RemeasureRefusal('UNDO_UNSAFE', blocked)
 
       const now = new Date()
-      const w = undoWrites(manifest, now)
-      for (const b of w.boxes) {
-        await tx.inventorySupplierPrice.update({
-          where: { id: b.id },
-          data: { ...b.data, packChain: b.data.packChain as Prisma.InputJsonValue, pricing: b.data.pricing as Prisma.InputJsonValue, lastUpdated: now },
-        })
-      }
-      for (const r of w.receipts) await tx.invoiceScanItem.update({ where: { id: r.id }, data: r.data })
-      for (const c of w.counts) await tx.countLine.update({ where: { id: c.id }, data: c.data })
-      for (const s of w.snapshots) await tx.inventorySnapshot.update({ where: { id: s.id }, data: s.data })
-      for (const al of w.allocations) {
-        await tx.stockAllocation.update({
-          where: { revenueCenterId_inventoryItemId: { revenueCenterId: al.revenueCenterId, inventoryItemId: manifest.itemId } },
-          data: al.data,
-        })
-      }
-      for (const s of w.sessions) await tx.countSession.update({ where: { id: s.id }, data: s.data })
-      for (const t of w.transfers) await tx.stockTransfer.update({ where: { id: t.id }, data: t.data })
-      await tx.inventoryItem.update({
-        where: { id: w.item.id },
-        data: { ...w.item.data, packChain: json(w.item.data.packChain), pricing: json(w.item.data.pricing) },
-      })
+      for (const w of undoWriteList(manifest, now)) await execWrite(tx, manifest.itemId, w)
       await tx.itemRemeasure.update({ where: { id }, data: { undoneAt: now } })
     }, { maxWait: 10_000, timeout: 120_000 })
   } catch (e) {
     throw asStale(e, REMEASURE_SENTENCE.UNDO_ITEM_CHANGED, 'UNDO_UNSAFE')
   }
 
-  await propagatePrepCostChanges([manifest.itemId])
-  invalidateTheoreticalCache()
+  await afterCommit(manifest.itemId, 'undo')
 }

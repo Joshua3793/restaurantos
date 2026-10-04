@@ -50,7 +50,12 @@ function parseMeasure(body: unknown): { to: Measure; bridge: Bridge } | null {
 // GET /api/inventory/:id/remeasure → the measure changes that have not been undone.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession('MANAGER') } catch (e) { return authFail(e) }
-  return NextResponse.json({ changes: await listRemeasures(params.id) })
+  try {
+    return NextResponse.json({ changes: await listRemeasures(params.id) })
+  } catch (e) {
+    console.error('[remeasure] list failed', e)
+    return NextResponse.json({ error: 'Could not load the measure history.' }, { status: 500 })
+  }
 }
 
 // POST /api/inventory/:id/remeasure

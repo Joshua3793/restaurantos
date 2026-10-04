@@ -10,7 +10,7 @@ import { ROLE_RANK } from '@/lib/roles'
 type Role = keyof typeof ROLE_RANK
 
 class MockRefusal extends Error {
-  constructor(public code: string, message: string) { super(message); this.name = 'RemeasureRefusal' }
+  constructor(public code: string, message: string, public details?: string[]) { super(message); this.name = 'RemeasureRefusal' }
 }
 
 const SUMMARY = {
@@ -82,6 +82,15 @@ describe('GET /api/inventory/[id]/remeasure', () => {
     expect(body.changes).toHaveLength(1)
     expect(body.changes[0]).toMatchObject({ id: 'rm1', canUndo: true, reason: null, from: { dimension: 'COUNT' }, to: { dimension: 'MASS' } })
   })
+
+  it('a failed load is a 500 that says so', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    listRemeasures.mockRejectedValueOnce(new Error('db down'))
+    const res = await route.GET(req(null), ctx)
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Could not load the measure history.' })
+    spy.mockRestore()
+  })
 })
 
 describe('POST /api/inventory/[id]/remeasure — preview', () => {
@@ -124,6 +133,15 @@ describe('POST /api/inventory/[id]/remeasure — preview', () => {
     const res = await route.POST(req(TO_WEIGHT), ctx)
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Tell the app how much one piece weighs first — for example 1 each = 150 g.', code: 'NEEDS_BRIDGE' })
+  })
+
+  it('INVALID carries the first error as its sentence and the full list in details', async () => {
+    previewRemeasure.mockRejectedValueOnce(new MockRefusal('INVALID', "This change can't be applied: Bad chain.", ['bad chain.', 'Sysco: worse chain']))
+    const res = await route.POST(req(TO_WEIGHT), ctx)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: "This change can't be applied: Bad chain.", code: 'INVALID', details: ['bad chain.', 'Sysco: worse chain'],
+    })
   })
 
   it('an unknown error is a 500 that says nothing changed', async () => {
