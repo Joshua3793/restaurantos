@@ -499,7 +499,9 @@ export function planStockRewrite(a: {
   item: { stockOnHand?: unknown; lastCountQty?: unknown }
   allocations: { revenueCenterId: string; quantity: unknown }[]
   countLines: StockCountRow[]
-  rewrite: ItemRewrite
+  /** Not read — the baselines are the corrected `next` of the counts that wrote
+   *  them. Typed as just a dimension so a COUNT target (a remeasure) fits. */
+  rewrite: { dimension: Dimension }
 }): StockRewrite {
   const globalRows = a.countLines.filter((r) => !r.revenueCenterId || r.rcIsDefault === true)
   const globalBest = latestObserved(globalRows)

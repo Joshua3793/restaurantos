@@ -11,6 +11,9 @@ const SCAN = ['app/api', 'lib']
 const ALLOWED = [
   'lib/item-model.ts', 'lib/cost-basis.ts', 'lib/offer-price.ts', 'lib/primary-offer.ts',
   'lib/supplier-offers.ts', 'lib/item-model-form.ts', 'lib/inventory-import.ts',
+  // A pricing rewrite (a measure change): it must hold the engine's own $/base
+  // fixed across the change, so it reads the engine, not a cost basis.
+  'lib/remeasure-plan.ts',
 ]
 const ALLOWED_PREFIXES = ['lib/invoice/']
 const MONEY = ['pricePerBaseUnit', 'withPpb', 'lineCost', 'stockValue']
