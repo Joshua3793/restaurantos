@@ -28,6 +28,7 @@ import { fmtCount, countGap, GAP_CLASS } from '@/lib/count-labels'
 import { atLeast } from '@/lib/roles'
 import { canEditItems } from '@/lib/inventory-redact'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { ListSkeleton } from '@/components/ui/ListSkeleton'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -300,6 +301,10 @@ export default function CountPage() {
   // ── Global state ──────────────────────────────────────────────────────────
   const [view,          setView]          = useState<View>('list')
   const [sessions,      setSessions]      = useState<Session[]>([])
+  // False until the first sessions / areas load lands — the landing shows a
+  // skeleton until then instead of flashing "No count sessions yet".
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
+  const [areasLoaded,    setAreasLoaded]    = useState(false)
   const [active,        setActive]        = useState<Session | null>(null)
   // Mirror of `active` for use inside event listeners registered once (avoids a stale closure).
   const activeRef = useRef<Session | null>(null)
@@ -400,6 +405,7 @@ export default function CountPage() {
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/count/sessions?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setSessions(Array.isArray(data) ? data : [])
+    setSessionsLoaded(true)
   }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   const loadSession = useCallback(async (id: string): Promise<Session | null> => {
@@ -422,6 +428,7 @@ export default function CountPage() {
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
     const data = await fetch(`/api/count/areas?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
     setCountAreas(Array.isArray(data) ? data : [])
+    setAreasLoaded(true)
   }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { loadSessions(); loadCountAreas() }, [loadSessions, loadCountAreas])
@@ -1490,7 +1497,9 @@ export default function CountPage() {
           </div>
         </div>
 
-        {sessions.length === 0 ? (
+        {!sessionsLoaded ? (
+          <ListSkeleton rows={6} label="Loading counts…" />
+        ) : sessions.length === 0 ? (
           <div className="text-center py-20 text-ink-3">
             <ClipboardList size={40} className="mx-auto mb-4 opacity-20" />
             <p className="font-semibold text-ink text-base mb-1">No count sessions yet</p>
@@ -1685,7 +1694,7 @@ export default function CountPage() {
                       </button>
                     )
                   })}
-                  {countAreas.length === 0 && (
+                  {areasLoaded && countAreas.length === 0 && (
                     <div className="col-span-full bg-paper border border-line rounded-xl px-4 py-12 text-center font-mono text-[12px] text-ink-4">No storage areas with items</div>
                   )}
                 </div>
@@ -1767,7 +1776,7 @@ export default function CountPage() {
                     </button>
                   )
                 })}
-                {countAreas.length === 0 && <div className="px-3.5 py-8 text-center font-mono text-[11px] text-ink-4">No storage areas with items</div>}
+                {areasLoaded && countAreas.length === 0 && <div className="px-3.5 py-8 text-center font-mono text-[11px] text-ink-4">No storage areas with items</div>}
               </div>
               <button disabled={!!startingArea} onClick={startFullCount}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-line-2 text-ink-2 text-[13px] font-medium active:bg-bg-2 disabled:opacity-60">
