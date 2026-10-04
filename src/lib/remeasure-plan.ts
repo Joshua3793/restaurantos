@@ -6,16 +6,23 @@
  * else follows from it:
  *   • chains keep their containers (case, bag, each…) and collapse their measure
  *     links into them, so a case still holds what it held;
- *   • prices keep their $/base — `pricePerBaseUnit(after) × k = pricePerBaseUnit(before)`;
- *   • frozen rows (receipts, counts, snapshots, stock baselines) are RE-DERIVED
- *     through the receiving / count rules against the corrected item — the same
- *     planners the create-new repair uses — and only a row those rules cannot
- *     read is scaled `old × k`, and counted as such in the summary.
+ *   • prices keep their $/base — `pricePerBaseUnit(after) × k = pricePerBaseUnit(before)` —
+ *     except a RATE printed in another dimension than the old one ($3.49/lb on a
+ *     pieces item), which is a fact on the invoice and is kept as printed;
+ *   • frozen QUANTITIES (receipts, counts, snapshot quantities) are RE-DERIVED
+ *     through the receiving / count rules against the corrected item — each
+ *     receipt through its OWN supplier's box, exactly as approve and the stock
+ *     reader read it — and only a row those rules cannot read is scaled
+ *     `old × k`, and counted as such in the summary;
+ *   • frozen PRICES (snapshot $/base and value, `priceAtCount`) are history: the
+ *     base changes, the money does not — $/base ÷ k, value unchanged;
+ *   • nothing is left in the old unit: a stock baseline no count sets is scaled.
  *
  * Nothing invented. Pure + client-safe — no Prisma, no I/O.
  */
 
 import { canonicalUom, convertQty, unitKind, UNIT_FACTORS } from '@/lib/uom'
+import { pickOffer, resolveLineFormat, type OfferFormat } from '@/lib/invoice/line-format'
 import {
   asChainItem, dimensionOf, pricePerBaseUnit, validateChainItem, DIMENSION_BASE,
   type ChainItem, type Dimension, type EachMeasure, type PackLink, type Pricing,
@@ -23,7 +30,7 @@ import {
 import {
   planReceiptRefreeze, planCountRefreeze, planStockRewrite, planSessionTotals, isMaterial,
   type ReceiptLine, type CountLineRow, type ReceiptRefreezeRow, type CountRefreezeRow,
-  type StockRewrite, type StockCountRow, type SessionSnapshotRow, type SessionTotalRow,
+  type StockRewrite, type StockCountRow, type StockTarget, type SessionSnapshotRow, type SessionTotalRow,
 } from '@/lib/invoice/create-new-repair'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
 
@@ -44,6 +51,11 @@ export interface RemeasureError { error: string; code: RemeasureErrorCode }
 
 export interface RemeasureBoxInput {
   id: string
+  /** Offers join on `supplierId` (`pickOffer`): a box without it is never the
+   *  box a receipt resolves to, so its receipts read through the item. */
+  supplierId?: string | null
+  /** This supplier's SKU — picks among one supplier's several boxes. */
+  supplierItemCode?: string | null
   supplierName: string | null
   isPrimary: boolean
   packChain: unknown
@@ -51,6 +63,38 @@ export interface RemeasureBoxInput {
   packQty?: unknown
   packSize?: unknown
   packUOM?: string | null
+}
+
+/** An approved line, plus the supplier ref of its session — the same three
+ *  fields (and SKU) approve / the stock reader hand to `pickOffer`. A line with
+ *  none of them (an unlinked session) reads through the corrected item. */
+export interface RemeasureReceiptLine extends ReceiptLine {
+  supplierId?: string | null
+  supplierName?: string | null
+  canonicalName?: string | null
+  supplierItemCode?: string | null
+}
+
+/** A count line with what finalize froze from it: the snapshot's own price and
+ *  value, and the line's `priceAtCount` — all in the OLD base. The loader must
+ *  pass `pricePerBaseUnit` / `totalValue` (both NOT NULL in the schema); a row
+ *  without them falls back to today's ppb, which is NOT count-time history. */
+export interface RemeasureCountLine extends Omit<CountLineRow, 'snapshot'> {
+  snapshot?: {
+    id: string
+    qtyOnHand: number | string
+    unit?: string | null
+    pricePerBaseUnit?: number | string | null
+    totalValue?: number | string | null
+  } | null
+  priceAtCount?: number | string | null
+}
+
+/** A planned count row. `snapshotUnitOnly` (a SKIPPED / THEORETICAL snapshot)
+ *  carries its expected quantity and $/base re-expressed in the new base. */
+export type RemeasureCountRow = Omit<CountRefreezeRow, 'snapshotUnitOnly'> & {
+  scaled: boolean
+  snapshotUnitOnly?: { id: string; unit: string; from: string; qtyOnHand: number; pricePerBaseUnit: number }
 }
 
 export interface RemeasureInput {
@@ -64,10 +108,11 @@ export interface RemeasureInput {
   to: Measure
   bridge: Bridge
   boxes: RemeasureBoxInput[]
-  /** Approved lines, with `parentLineId` resolved for RC clones. */
-  receipts: ReceiptLine[]
+  /** Approved lines, with `parentLineId` resolved for RC clones and the
+   *  session's supplier ref. */
+  receipts: RemeasureReceiptLine[]
   /** Count lines, with the finalize snapshot attached. */
-  counts: CountLineRow[]
+  counts: RemeasureCountLine[]
   countSessions: {
     lineId: string
     sessionDate: Date | string
@@ -113,7 +158,7 @@ export interface RemeasurePlan {
     pricing: Pricing
   }[]
   receipts: (ReceiptRefreezeRow & { scaled: boolean })[]
-  counts: (CountRefreezeRow & { scaled: boolean })[]
+  counts: RemeasureCountRow[]
   stock: StockRewrite
   sessions: SessionTotalRow[]
   transfers: { id: string; old: number; next: number }[]
@@ -128,13 +173,23 @@ export interface RemeasurePlan {
 
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6
 
+/** `round6` for values >= 1 only: below 1, six decimals is a relative error big
+ *  enough to move a price (1 each = 0.001 oz => 0.0283495 g, not 0.02835). */
+const roundPer = (x: number) => (Math.abs(x) >= 1 ? round6(x) : x)
+
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
   return Number.isFinite(n) ? n : 0
 }
 
-/** A link the change keeps: a container (case, bag…) or a piece (`each`). */
-const isContainer = (unit: string) => unitKind(unit) === 'container' || canonicalUom(unit) === 'each'
+/** A link the change keeps: a container (case, bag…) or any count unit (each,
+ *  dozen, pair) — a count of things survives a change of base. */
+const isContainer = (unit: string) => unitKind(unit) === 'container' || dimensionOf(unit) === 'COUNT'
+
+/** A RATE quoted in another dimension than the item's own ($/lb on a pieces
+ *  item, bridged by the each-measure): a printed price, kept as printed. */
+const printedCrossRate = (ci: ChainItem): boolean =>
+  ci.pricing?.mode === 'RATE' && dimensionOf(ci.pricing.rateUnit ?? '') !== ci.dimension
 
 /** Base units in one `unit` of its own dimension; 1 for each and for anything
  *  the table does not know. */
@@ -199,7 +254,7 @@ export function rewriteChain(chain: PackLink[], fromDim: Dimension, to: Measure,
   }
 
   if (kept.length === 0) {
-    if (fromDim === 'COUNT') return [{ unit: 'each', per: round6(k) }]
+    if (fromDim === 'COUNT') return [{ unit: 'each', per: roundPer(k) }]
     // The pack no longer exists — a bare measure of the new dimension.
     return [{ unit: to.unit, per: toBase(to.unit) }]
   }
@@ -213,13 +268,13 @@ export function rewriteChain(chain: PackLink[], fromDim: Dimension, to: Measure,
   if (fromDim === 'COUNT') {
     // Old base = each. An innermost each becomes "1 each = k"; otherwise a piece
     // link is appended under the innermost container.
-    if (canonicalUom(inner.unit) === 'each') inner.per = round6(inner.per * k)
-    else out.push({ unit: 'each', per: round6(k) })
+    if (canonicalUom(inner.unit) === 'each') inner.per = roundPer(inner.per * k)
+    else out.push({ unit: 'each', per: roundPer(k) })
     return out
   }
 
   // Measured → anything: the innermost container held old base; express it in new base.
-  inner.per = round6(inner.per * k)
+  inner.per = roundPer(inner.per * k)
   return out
 }
 
@@ -228,8 +283,13 @@ export function rewriteChain(chain: PackLink[], fromDim: Dimension, to: Measure,
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Same $/base after conversion. PACK stays PACK unless the chain collapsed to a
- *  bare measure (then the pack no longer exists and the price becomes a RATE). */
+ *  bare measure (then the pack no longer exists and the price becomes a RATE).
+ *  A RATE whose unit is NOT in the old dimension is a printed price ($3.49/lb on
+ *  a pieces item) and is returned as printed, whatever the bridge. */
 export function rewritePricing(before: ChainItem, afterChain: PackLink[], to: Measure, k: number): Pricing {
+  if (before.pricing?.mode === 'RATE' && printedCrossRate(before)) {
+    return { mode: 'RATE', rate: before.pricing.rate, rateUnit: before.pricing.rateUnit }
+  }
   const collapsed = before.dimension !== 'COUNT' && !(before.packChain ?? []).some((l) => isContainer(l.unit))
   if (before.pricing?.mode === 'PACK' && !collapsed) return before.pricing
   const ppbNew = pricePerBaseUnit(before) / k
@@ -278,9 +338,14 @@ export function priceLabel(ci: ChainItem): string {
 /** $/base × k must equal the old $/base. A chain whose purchase unit was itself
  *  a measure link above a container would break that silently — refuse it. The
  *  tolerance is looser than the constraint's 1e-9 only to absorb `round6` on a
- *  small `per`; a real mistake is off by a whole factor. */
+ *  `per` >= 1; a real mistake is off by a whole factor. Compares like with like
+ *  (the item with itself, a box with itself). Exempt: a printed cross-dimension
+ *  RATE (kept as printed, so its $/base follows the new bridge by design), and an
+ *  unpriced row (nothing to hold fixed — `validateChainItem` judges the result). */
 function priceMoved(before: ChainItem, after: ChainItem, k: number): boolean {
+  if (printedCrossRate(before)) return false
   const a = pricePerBaseUnit(before)
+  if (!(a > 0)) return false
   const b = pricePerBaseUnit(after) * k
   return Math.abs(a - b) > Math.max(Math.abs(a), Math.abs(b)) * 1e-6
 }
@@ -307,8 +372,8 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
     ? before.densityGPerMl ?? null
     : Number(input.bridge.densityGPerMl)
 
-  let afterChain = rewriteChain(before.packChain, before.dimension, to, k)
-  let afterPricing = rewritePricing(before, afterChain, to, k)
+  const ownChain = rewriteChain(before.packChain, before.dimension, to, k)
+  const ownPricing = rewritePricing(before, ownChain, to, k)
 
   // ── Boxes ──────────────────────────────────────────────────────────────────
   const errors: string[] = []
@@ -323,13 +388,16 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
     const pricing = rewritePricing(boxCi, packChain, to, k)
     return { box, boxCi, packChain, pricing }
   })
-  // The item equals its main box (src/lib/primary-offer.ts): identical maths
-  // anyway — this guarantees byte-equality.
-  const primary = boxes.find((b) => b.box.isPrimary)
-  if (primary) {
-    afterChain = primary.packChain
-    afterPricing = primary.pricing
+  // The guard compares like with like: the item's OWN rewrite against the item…
+  if (priceMoved(before, { ...boxBase, packChain: ownChain, pricing: ownPricing }, k)) {
+    errors.push('the price per unit would change — this pack cannot be converted as it is')
   }
+
+  // …and only then does the item take its main box's values
+  // (src/lib/primary-offer.ts: the item equals its main box).
+  const primary = boxes.find((b) => b.box.isPrimary)
+  const afterChain = primary ? primary.packChain : ownChain
+  const afterPricing = primary ? primary.pricing : ownPricing
 
   const countUnit = rewriteCountUnit(input.item.countUnit, afterChain, to)
   const after: ChainItem & { countUnit: string } = {
@@ -341,7 +409,6 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
 
   const opts = { requirePositivePrice: input.item.isStocked }
   errors.push(...validateChainItem(after, opts))
-  if (priceMoved(before, after, k)) errors.push('the price per unit would change — this pack cannot be converted as it is')
   for (const b of boxes) {
     const name = b.box.supplierName ?? 'A supplier'
     const boxAfter: ChainItem = { ...after, packChain: b.packChain, pricing: b.pricing }
@@ -352,19 +419,97 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
   const ppb = pricePerBaseUnit(after)
 
   // ── Receipts ───────────────────────────────────────────────────────────────
-  const receipts = planReceiptRefreeze(input.receipts, after).map((r) => {
-    const unread = r.via === 'none' || (r.next === 0 && (r.old ?? 0) !== 0)
+  // Each line through ITS supplier's rewritten box — the same
+  // `resolveLineFormat(item, pickOffer(offers, ref))` approve and the stock
+  // reader use (CLAUDE.md "One item, many suppliers"). FALLBACK: a line with no
+  // supplier ref (an unlinked session), or whose supplier has no box, reads
+  // through the corrected item — exactly as those readers do.
+  const offers: (OfferFormat & { id: string })[] = boxes.map((b) => ({
+    id: b.box.id,
+    supplierId: b.box.supplierId ?? null,
+    supplierName: b.box.supplierName,
+    supplierItemCode: b.box.supplierItemCode ?? null,
+    isPrimary: b.box.isPrimary,
+    packChain: b.packChain,
+    pricing: b.pricing,
+  }))
+  const ITEM = ''
+  const formatOf = new Map<string, ChainItem>([[ITEM, after]])
+  const keyOf = (l: RemeasureReceiptLine): string => {
+    const offer = pickOffer(offers, {
+      supplierId: l.supplierId ?? null,
+      supplierName: l.supplierName ?? null,
+      canonicalName: l.canonicalName ?? null,
+      itemCode: l.supplierItemCode ?? null,
+    })
+    if (!offer) return ITEM
+    if (!formatOf.has(offer.id)) formatOf.set(offer.id, resolveLineFormat(after, offer))
+    return offer.id
+  }
+  // A clone is a share of its parent, so it goes in its parent's group
+  // (`planReceiptRefreeze` needs the pair in one call). An orphan clone goes
+  // wherever its own ref points — it is scaled below either way.
+  const groupOf = new Map<string, string>()
+  for (const l of input.receipts) if (!l.parentLineId) groupOf.set(l.id, keyOf(l))
+  const groups = new Map<string, RemeasureReceiptLine[]>()
+  for (const l of input.receipts) {
+    const key = groupOf.get(l.parentLineId ?? l.id) ?? keyOf(l)
+    const g = groups.get(key)
+    if (g) g.push(l)
+    else groups.set(key, [l])
+  }
+  const refrozen = new Map<string, ReceiptRefreezeRow>()
+  for (const [key, lines] of groups) {
+    for (const r of planReceiptRefreeze(lines, formatOf.get(key)!)) refrozen.set(r.id, r)
+  }
+  const receipts = input.receipts.map((l) => {
+    const r = refrozen.get(l.id)!
+    const unread = r.via === 'none'
+      || r.via.startsWith('orphan clone')
+      || (r.next === 0 && (r.old ?? 0) !== 0)
     return unread
       ? { ...r, next: (r.old ?? 0) * k, via: 'scaled', scaled: true }
       : { ...r, scaled: false }
   })
 
   // ── Counts ─────────────────────────────────────────────────────────────────
-  const counts = planCountRefreeze(input.counts, after, ppb).map((c) => {
-    if (!c.needsDecision) return { ...c, scaled: false }
-    const next = (c.old ?? 0) * k
-    const row: CountRefreezeRow & { scaled: boolean } = { ...c, next, via: 'scaled', needsDecision: false, scaled: true }
-    if (c.snapshot) row.snapshot = { ...c.snapshot, qtyOnHand: next, totalValue: next * ppb }
+  // Quantities re-derive (or scale); prices are history — the count-time $/base
+  // ÷ k and the stored value, never today's ppb.
+  const countIn = new Map(input.counts.map((c) => [c.id, c]))
+  const counts: RemeasureCountRow[] = planCountRefreeze(input.counts, after, ppb).map((c) => {
+    const src = countIn.get(c.id)!
+    const row: RemeasureCountRow = { ...c, snapshotUnitOnly: undefined, priceAtCount: undefined, scaled: false }
+    delete row.snapshotUnitOnly
+    delete row.priceAtCount
+    if (c.needsDecision) {
+      row.next = (c.old ?? 0) * k
+      row.via = 'scaled'
+      row.needsDecision = false
+      row.scaled = true
+    }
+    if (src.priceAtCount != null) row.priceAtCount = num(src.priceAtCount) / k
+    if (row.snapshot && src.snapshot) {
+      const oldPpb = src.snapshot.pricePerBaseUnit
+      const oldValue = src.snapshot.totalValue
+      const pricePerBaseUnit = oldPpb != null ? num(oldPpb) / k : row.snapshot.pricePerBaseUnit
+      row.snapshot = {
+        ...row.snapshot,
+        qtyOnHand: row.next,
+        pricePerBaseUnit,
+        totalValue: oldValue != null ? num(oldValue) : row.next * pricePerBaseUnit,
+      }
+    }
+    // A SKIPPED / THEORETICAL snapshot holds an EXPECTED quantity in the old
+    // base — not re-derivable, so it is scaled with its $/base (value unchanged).
+    if ((src.skipped || src.countedQty == null) && src.snapshot) {
+      row.snapshotUnitOnly = {
+        id: src.snapshot.id,
+        unit: after.baseUnit,
+        from: String(src.snapshot.unit ?? ''),
+        qtyOnHand: num(src.snapshot.qtyOnHand) * k,
+        pricePerBaseUnit: src.snapshot.pricePerBaseUnit != null ? num(src.snapshot.pricePerBaseUnit) / k : ppb,
+      }
+    }
     return row
   })
 
@@ -384,12 +529,20 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
       rcIsDefault: s.rcIsDefault,
     })
   }
-  const stock = planStockRewrite({
+  const derived = planStockRewrite({
     item: input.item,
     allocations: input.allocations,
     countLines,
     rewrite: { dimension: to.dimension },
   })
+  // Nothing is left in the old unit: a baseline no observed count sets is scaled.
+  const scaleIfLeft = <T extends StockTarget>(t: T): T =>
+    t.next == null ? { ...t, next: t.old * k, via: 'scaled' } : t
+  const stock: StockRewrite = {
+    stockOnHand: scaleIfLeft(derived.stockOnHand),
+    lastCountQty: scaleIfLeft(derived.lastCountQty),
+    allocations: derived.allocations.map(scaleIfLeft),
+  }
 
   // ── Sessions + transfers ───────────────────────────────────────────────────
   const sessions = planSessionTotals(
@@ -398,7 +551,7 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
   )
   const transfers = input.transfers.map((t) => {
     const old = num(t.quantity)
-    return { id: t.id, old, next: round6(old * k) }
+    return { id: t.id, old, next: roundPer(old * k) }
   })
 
   // ── Summary ────────────────────────────────────────────────────────────────
@@ -415,8 +568,12 @@ export function planRemeasure(input: RemeasureInput): RemeasurePlan | RemeasureE
   if (mismatched > 0) {
     warnings.push(`${mismatched} count ${plural(mismatched, 'snapshot was', 'snapshots were')} left alone (${plural(mismatched, 'it no longer matches its', 'they no longer match their')} count line).`)
   }
-  if (stock.stockOnHand.next == null && stock.stockOnHand.old !== 0) {
-    warnings.push('Stock on hand was left alone — no finalized count sets it.')
+  if (stock.stockOnHand.via === 'scaled' && stock.stockOnHand.old !== 0) {
+    warnings.push('Stock on hand was scaled — no finalized count sets it.')
+  }
+  const allocScaled = stock.allocations.filter((a) => a.via === 'scaled' && a.old !== 0).length
+  if (allocScaled > 0) {
+    warnings.push(`Stock at ${allocScaled} revenue ${plural(allocScaled, 'center', 'centers')} was scaled — no finalized count sets it.`)
   }
 
   const line = (c: ChainItem) => `${packLabel(c)} · ${priceLabel(c)}`
