@@ -74,10 +74,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     throw e
   }
 
-  const item = await prisma.inventoryItem.findUnique({
-    where: { id: params.id },
-    select: { id: true, baseUnit: true, dimension: true, packChain: true, countUnit: true },
-  })
+  // The ledger doesn't need the display fields — fetch both at once.
+  const [item, ledger] = await Promise.all([
+    prisma.inventoryItem.findUnique({
+      where: { id: params.id },
+      select: { id: true, baseUnit: true, dimension: true, packChain: true, countUnit: true },
+    }),
+    buildItemLedger(params.id, null),
+  ])
   if (!item) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Resolve the display unit exactly like the drawer header does: a stored
@@ -89,7 +93,6 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const displayUnit = resolveCountUom({ ...dims, countUnit: item.countUnit ?? item.baseUnit })
   const toDisplay = (qtyInBase: number): number => convertBaseToCountUom(qtyInBase, displayUnit, dims)
 
-  const ledger = await buildItemLedger(params.id, null)
   if (!ledger) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const movements: StockMovement[] = ledger.events.map(e => ({

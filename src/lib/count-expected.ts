@@ -91,6 +91,33 @@ type RecipeForExpansion = {
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
+ * `onlyItems` — the builders' optional narrowing: read only the source rows that
+ * can move one of these items. Every item's ledger is independent (one event list
+ * per item, run on its own), so dropping rows that cannot touch an asked-for item
+ * changes nothing for that item — it only skips reading the rest of the kitchen.
+ * The drawer asks about ONE item; without this each ask read every sale, receipt
+ * and prep log since the count, once per revenue center.
+ *
+ * Above this many items the narrowing filter costs more than it saves (a long IN
+ * list inside relation filters), so the full read is used — same result.
+ */
+const NARROW_MAX = 50
+
+function narrowTo(onlyItems?: string[]): string[] | null {
+  return onlyItems && onlyItems.length > 0 && onlyItems.length <= NARROW_MAX ? onlyItems : null
+}
+
+/** A recipe ingredient that draws one of `ids` — directly, or through its sub-recipe's item. */
+function ingredientTouches(ids: string[]) {
+  return {
+    OR: [
+      { inventoryItemId: { in: ids } },
+      { linkedRecipe: { inventoryItemId: { in: ids } } },
+    ],
+  }
+}
+
+/**
  * `until` closes the window at the top. A count is a statement about one date, so
  * its expected quantities must reflect the world on THAT date — movements after it
  * belong to the next period. Without an upper bound, re-syncing a session weeks
@@ -228,9 +255,14 @@ export async function buildConsumptionMap(
   cutoff?: Map<string, Date>,
   until?: Date,
   sink?: LedgerSink,
+  onlyItems?: string[],
 ): Promise<Map<string, number>> {
+  const only = narrowTo(onlyItems)
   const lineItems = await prisma.saleLineItem.findMany({
     where: {
+      // expandRecipeIngredients charges a recipe's direct items and its sub-recipes'
+      // own items — never deeper — so this is exactly the set of lines that can move them.
+      ...(only ? { recipe: { ingredients: { some: ingredientTouches(only) } } } : {}),
       sale: {
         // A period sale (date..endDate) is relevant if ANY part of its range falls
         // in the window — match on either bound, then gate per-item by its end below.
@@ -288,8 +320,10 @@ export async function buildPurchaseMap(
   cutoff?: Map<string, Date>,
   until?: Date,
   sink?: LedgerSink,
+  onlyItems?: string[],
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
+  const only = narrowTo(onlyItems)
 
   const scanItems = await prisma.invoiceScanItem.findMany({
     where: {
@@ -314,7 +348,7 @@ export async function buildPurchaseMap(
       // received its first stock. Excluding it dropped every invoice-created item's
       // opening receipt (showed 0 on-hand despite being bought).
       action: { in: ['UPDATE_PRICE', 'ADD_SUPPLIER', 'CREATE_NEW'] },
-      matchedItemId: { not: null },
+      matchedItemId: only ? { in: only } : { not: null },
       // NOT filtered on rawQty: a per-weight line can carry the billed weight in
       // totalQty with no container count at all. Excluding those credited zero
       // stock for goods that were bought and paid for.
@@ -487,13 +521,16 @@ export async function buildTransferMap(
   finalizedAt?: Map<string, Date>,
   until?: Date,
   sink?: LedgerSink,
+  onlyItems?: string[],
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>()
   if (!rcId) return map
+  const only = narrowTo(onlyItems)
 
   const transfers = await prisma.stockTransfer.findMany({
     where: {
       createdAt: { gte: since },
+      ...(only ? { inventoryItemId: { in: only } } : {}),
       OR: [{ fromRcId: rcId }, { toRcId: rcId }],
     },
     select: {
@@ -562,21 +599,22 @@ export async function computeExpectedForItem(
 
   let isDefaultRc = false
   let baseStock = Number(item.stockOnHand)
-  if (rcId) {
-    const rc = await prisma.revenueCenter.findUnique({
+  // RC, allocation and finalize reads are independent — one round trip, not three.
+  const [rc, alloc, finalizedAt] = await Promise.all([
+    prisma.revenueCenter.findUnique({
       where: { id: rcId },
       select: { isDefault: true },
-    })
-    isDefaultRc = !!rc?.isDefault
-    if (!isDefaultRc) {
-      const alloc = await prisma.stockAllocation.findUnique({
-        where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId: itemId } },
-        select: { quantity: true },
-      })
-      // Never-counted RC falls back to 0, not the warehouse total.
-      baseStock = alloc ? Number(alloc.quantity) : 0
-    }
-  }
+    }),
+    prisma.stockAllocation.findUnique({
+      where: { revenueCenterId_inventoryItemId: { revenueCenterId: rcId, inventoryItemId: itemId } },
+      select: { quantity: true },
+    }),
+    // finalizedAt orders same-day prep AND transfers against the count moment.
+    buildCountFinalizedMap([itemId]),
+  ])
+  isDefaultRc = !!rc?.isDefault
+  // Never-counted RC falls back to 0, not the warehouse total.
+  if (!isDefaultRc) baseStock = alloc ? Number(alloc.quantity) : 0
 
   // Never-counted item → epoch window so its full purchase/prep history is applied
   // (these buildXMap calls pass no cutoff, so inWindow includes every event within
@@ -589,20 +627,18 @@ export async function computeExpectedForItem(
   const cutoff = new Map<string, Date>()
   if (item.lastCountDate) cutoff.set(itemId, item.lastCountDate)
 
-  // finalizedAt orders same-day prep AND transfers against the count moment.
-  const finalizedAt = await buildCountFinalizedMap([itemId])
-  // A sink only wants THIS item's events; the maps are per-item-keyed anyway, so
-  // filter at the sink rather than narrowing every query.
+  // A sink only wants THIS item's events — the reads are narrowed to it, and the
+  // sink filter still drops the other items those rows also move.
   const ledger = new MovementLedger()
   const itemSink = teeSink(ledger, sink && {
     push: (e: LedgerEvent) => { if (e.itemId === itemId) sink.push(e) },
   })
   await Promise.all([
-    buildConsumptionMap(since, rcId, cutoff, undefined, itemSink),
-    buildPurchaseMap(since, rcId, cutoff, undefined, itemSink),
+    buildConsumptionMap(since, rcId, cutoff, undefined, itemSink, [itemId]),
+    buildPurchaseMap(since, rcId, cutoff, undefined, itemSink, [itemId]),
     buildWastageMap(since, [itemId], rcId, cutoff, undefined, itemSink),
-    buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, itemSink),
-    buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, itemSink),
+    buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, itemSink, [itemId]),
+    buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, itemSink, [itemId]),
   ])
 
   const { expected, shortfall } = ledger.balance(itemId, baseStock)
@@ -632,9 +668,22 @@ export async function buildPrepMap(
   finalizedAt?: Map<string, Date>,
   until?: Date,
   sink?: LedgerSink,
+  onlyItems?: string[],
 ): Promise<{ consumption: Map<string, number>; output: Map<string, number> }> {
+  const only = narrowTo(onlyItems)
   const logs = await prisma.prepLog.findMany({
     where: {
+      // A log moves its recipe's own item (output) and the items its ingredients draw.
+      ...(only ? {
+        prepItem: {
+          linkedRecipe: {
+            OR: [
+              { inventoryItemId: { in: only } },
+              { ingredients: { some: ingredientTouches(only) } },
+            ],
+          },
+        },
+      } : {}),
       status: { in: ['DONE', 'PARTIAL'] },
       actualPrepQty: { not: null },
       logDate: { gte: since },
@@ -812,29 +861,38 @@ export async function getTheoreticalBalanceMap(
   const hasUncounted = items.some(i => !i.lastCountDate)
   const since = hasUncounted ? new Date(0) : earliest
 
+  // The RC baseline reads don't depend on the movements — start them now so they
+  // ride alongside instead of after (each is a database round trip).
+  const baselineP = rcId && ids.length > 0
+    ? Promise.all([
+        prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { isDefault: true } }),
+        prisma.stockAllocation.findMany({
+          where: { revenueCenterId: rcId, inventoryItemId: { in: ids } },
+          select: { inventoryItemId: true, quantity: true },
+        }),
+      ])
+    : null
+  // Awaited below; this only keeps an early throw elsewhere from leaving it unhandled.
+  baselineP?.catch(() => {})
   // finalizedAt orders same-day prep AND transfers against the count moment.
   const finalizedAt = since ? await buildCountFinalizedMap(ids) : new Map<string, Date>()
   const ledger = new MovementLedger()
   const sink = teeSink(ledger, trace?.sink)
   if (since) {
     await Promise.all([
-      buildConsumptionMap(since, rcId, cutoff, undefined, sink),
-      buildPurchaseMap(since, rcId, cutoff, undefined, sink),
+      buildConsumptionMap(since, rcId, cutoff, undefined, sink, ids),
+      buildPurchaseMap(since, rcId, cutoff, undefined, sink, ids),
       buildWastageMap(since, ids, rcId, cutoff, undefined, sink),
-      buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, sink),
-      buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, sink),
+      buildPrepMap(since, rcId, cutoff, finalizedAt, undefined, sink, ids),
+      buildTransferMap(since, rcId, cutoff, finalizedAt, undefined, sink, ids),
     ])
   }
 
   const stockAllocationMap = new Map<string, number>()
   let isDefaultRc = false
-  if (rcId && ids.length > 0) {
-    const rc = await prisma.revenueCenter.findUnique({ where: { id: rcId }, select: { isDefault: true } })
+  if (baselineP) {
+    const [rc, allocs] = await baselineP
     isDefaultRc = !!rc?.isDefault
-    const allocs = await prisma.stockAllocation.findMany({
-      where: { revenueCenterId: rcId, inventoryItemId: { in: ids } },
-      select: { inventoryItemId: true, quantity: true },
-    })
     for (const a of allocs) stockAllocationMap.set(a.inventoryItemId, Number(a.quantity))
   }
 
