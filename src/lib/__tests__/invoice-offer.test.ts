@@ -57,3 +57,31 @@ describe('reconcileOffer prices the draft WITH the matched item', () => {
     expect(r.oldPpb).toBeNull()
   })
 })
+
+describe('chainFromOcr — a count pack size is eaches per pack', () => {
+  const line = (packQty: number, packSize: number, packUOM: string): OfferInput => ({
+    pricingMode: 'per_case', qtyShipped: 1, qtyShippedUOM: 'cs',
+    packQty, packSize, packUOM, unitPrice: 87.55, rate: null, rateUOM: null,
+    totalQty: null, totalQtyUOM: 'each', isCatchweight: false,
+  })
+
+  it('Sysco brioche "1 × 8 each" is 1 cs = 8 each, not 1', () => {
+    const d = buildOffer(line(1, 8, 'each'))
+    expect(d.packChain).toEqual([{ unit: 'cs', per: 8 }])
+    expect(d.receivedBase).toBe(8)
+  })
+
+  it('"2 × 6 ea" is 12 each, kept as 2 packs of 6', () => {
+    const d = buildOffer(line(2, 6, 'ea'))
+    expect(d.packChain).toEqual([{ unit: 'cs', per: 2 }, { unit: 'pack', per: 6 }])
+    expect(d.receivedBase).toBe(12)
+  })
+
+  it('"24 × 1 each" keeps its old shape', () => {
+    expect(buildOffer(line(24, 1, 'each')).packChain).toEqual([{ unit: 'cs', per: 24 }, { unit: 'each', per: 1 }])
+  })
+
+  it('"1 × 2 dozen" is 24 each', () => {
+    expect(buildOffer(line(1, 2, 'dozen')).receivedBase).toBe(24)
+  })
+})

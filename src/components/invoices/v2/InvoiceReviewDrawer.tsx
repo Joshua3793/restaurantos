@@ -1705,7 +1705,19 @@ export function InvoiceReviewDrawer({
             ?? null
           }
           onClose={() => setAdoptingForItem(null)}
-          onSaved={() => { setAdoptingForItem(null); if (session) refreshSession(session.id) }}
+          onSaved={() => {
+            // The approve preflight's refusal described the box as it WAS — the
+            // box just changed, so the live decision judges the line again.
+            const lineId = adoptingForItem.id
+            setServerBlocks(prev => {
+              if (!prev.has(lineId)) return prev
+              const next = new Map(prev)
+              next.delete(lineId)
+              return next
+            })
+            setAdoptingForItem(null)
+            if (session) refreshSession(session.id)
+          }}
         />
       )}
 
