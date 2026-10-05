@@ -35,8 +35,8 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 
 | Page (`src/app/`) | API prefix / notes |
 |---|---|
-| `/today` | mobile home — role-routes to `TodayManager`/`TodayChef` (`src/components/mobile/today/`); desktop bounces to `/pass` (manager) or `/count` (staff) |
-| `/pass` (MANAGER+) | manager dashboard — aggregates `/api/insights/*`, `/api/reports/*`, `/api/prep/items`, `/api/invoices/alerts` |
+| `/today` | mobile home — MANAGER+ get `StartMobile` (`src/components/start/`), staff get `TodayChef` (`src/components/mobile/today/`); desktop managers bounce to `/pass` |
+| `/pass` (MANAGER+) | the start page (`StartDesktop`) — service clock + To Do progress, a ranked "Needs you" list, last night's note, yesterday + WTD food cost, running low. Rules in `src/lib/start-page.ts`; data from `useStartData` (prep items, temps, invoice alerts/kpis, counts, cost-chrome, eod handover/orders). KPI depth lives in Reports, not here |
 | `/inventory` | `/api/inventory`, `/api/categories`, `/api/suppliers`, `/api/storage-areas` |
 | `/invoices` | `/api/invoices/sessions` (multi-step upload → OCR → review → approve) |
 | `/recipes` (PREP) | `/api/recipes?type=PREP` |
