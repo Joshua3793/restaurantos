@@ -35,7 +35,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 
 | Page (`src/app/`) | API prefix / notes |
 |---|---|
-| `/today` | mobile home — MANAGER+ get `StartMobile` (`src/components/start/`), staff get `TodayChef` (`src/components/mobile/today/`); desktop managers bounce to `/pass` |
+| `/today` | home — MANAGER+ get `StartMobile`, staff get `CookStart` (both `src/components/start/`; desktop managers bounce to `/pass`). `CookStart` is the posted To Do cut to the cook: a login linked to a crew row (`Cook.userId`, via `GET /api/prep/me`) sees its own jobs + urgent unassigned ones; an unlinked/shared login sees every posted job with the cook's name. Rules in `src/lib/cook-start.ts`; order comes from `runSheetGroups`. No money. Rows deep-link to `/prep?item=<id>` (opens the drawer) |
 | `/pass` (MANAGER+) | the start page (`StartDesktop`) — service clock + To Do progress, a ranked "Needs you" list, last night's note, yesterday + WTD food cost, running low. Rules in `src/lib/start-page.ts`; data from `useStartData` (prep items, temps, invoice alerts/kpis, counts, cost-chrome, eod handover/orders). KPI depth lives in Reports, not here |
 | `/inventory` | `/api/inventory`, `/api/categories`, `/api/suppliers`, `/api/storage-areas` |
 | `/invoices` | `/api/invoices/sessions` (multi-step upload → OCR → review → approve) |
@@ -51,8 +51,9 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | `/signals` (MANAGER+) | `/api/signals` (+ `/refresh`) |
 | `/end-of-day` (MANAGER+) | `/api/eod/*` (checklist, close, orders, handover, email, summary) |
 | `/temps` | `/api/temps/units`, `/api/temps/readings` |
+| (cook start page) opening checklist | `/api/open-checklist` (GET any session — seeds `DEFAULT_OPENING_ITEMS` the first time a FOOD RC's list is opened; POST/PATCH/DELETE/reorder ADMIN) + `/api/open-checklist/[id]/tick` (PUT any cook in a writable RC). `OpenCheckItem`/`OpenCheckTick` — one tick row per item per Pacific business day; untick deletes it. Edited at `/setup/open-checklist` (same `ChecklistSetup` editor as the EOD list). No money |
 | `/wastage` | `/api/wastage` |
-| `/setup/*` (ADMIN) | hub with 9 sub-pages: categories, storage-areas, suppliers, revenue-centers, users, uom, toast, eod-checklist, general |
+| `/setup/*` (ADMIN) | hub with 10 sub-pages: categories, storage-areas, suppliers, revenue-centers, users, uom, toast, open-checklist, eod-checklist, general |
 
 ### Key data flows
 

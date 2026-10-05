@@ -821,6 +821,7 @@ model RevenueCenter {
   userScopes        UserScope[]
   defaultForLocations Location[]      @relation("LocationDefaultRC")
   eodCheckItems     EodCheckItem[]    @relation("EodCheckItemRC")
+  openCheckItems    OpenCheckItem[]   @relation("OpenCheckItemRC")
   eodCloses         EodClose[]        @relation("EodCloseRC")
   services          Service[]         @relation("ServiceRC")
   tipPeriods        TipPeriod[]       @relation("TipPeriodRC")
@@ -1134,6 +1135,41 @@ model EodClose {
 
   @@unique([revenueCenterId, businessDate])
   @@index([revenueCenterId, status])
+}
+
+// The opening checklist — what the kitchen does before doors (sanitiser
+// buckets, hand sinks, fryer oil…). Cooks tick it on their start page; a manager
+// edits it in /setup/open-checklist. Deliberately its own tables, not a phase on
+// EodCheckItem: the close flow reads EodCheckItem in several places and must
+// never pick up morning items. No money lives here.
+model OpenCheckItem {
+  id              String          @id @default(uuid())
+  revenueCenterId String
+  section         String
+  title           String
+  meta            String?
+  sortOrder       Int             @default(0)
+  // "Must be done before doors" — painted red on the cook screen until ticked.
+  isBlocker       Boolean         @default(false)
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  revenueCenter   RevenueCenter   @relation("OpenCheckItemRC", fields: [revenueCenterId], references: [id])
+  ticks           OpenCheckTick[]
+
+  @@index([revenueCenterId, isActive])
+}
+
+// One row = that item was done on that business day. Unticking deletes the row.
+model OpenCheckTick {
+  id           String        @id @default(uuid())
+  itemId       String
+  businessDate String        // 'YYYY-MM-DD' restaurant-local (Pacific) day — see businessDateLocal
+  doneByName   String?
+  doneAt       DateTime      @default(now())
+  item         OpenCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, businessDate])
 }
 
 model EodCheckEntry {

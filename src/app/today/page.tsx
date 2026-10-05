@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { StartMobile } from '@/components/start/StartMobile'
-import { TodayChef } from '@/components/mobile/today/TodayChef'
+import { CookStart } from '@/components/start/CookStart'
 import { atLeast } from '@/lib/roles'
 
 export default function TodayPage() {
@@ -41,7 +41,7 @@ export default function TodayPage() {
         isManager ? 'md:hidden' : ''
       }`}
     >
-      {isManager ? <StartMobile /> : <TodayChef />}
+      {isManager ? <StartMobile /> : <CookStart />}
     </div>
   )
 }
