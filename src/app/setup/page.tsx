@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import {
-  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, Banknote,
+  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, Banknote, Sunrise,
 } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -23,6 +23,7 @@ const cards: Card[] = [
   { href: '/setup/uom',             label: 'UOM & conversions',icon: Ruler,    description: 'Unit-of-measure groups, custom conversions, inspector.',          built: true },
   { href: '/setup/general',         label: 'General',          icon: Bell,     description: 'Email digest schedule, notifications, brand.',                    built: true },
   { href: '/setup/toast',           label: 'Toast integration',icon: Link2,    description: 'Connect Toast sales; map menu items to recipes.',                 built: true },
+  { href: '/setup/open-checklist',  label: 'Opening checklist',    icon: Sunrise,        description: 'Before-doors jobs cooks tick on their start page.', built: true },
   { href: '/setup/eod-checklist',   label: 'End-of-day checklist', icon: ClipboardCheck, description: 'Close-down checklist items per revenue center.', built: true },
 ]
 

@@ -51,8 +51,9 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | `/signals` (MANAGER+) | `/api/signals` (+ `/refresh`) |
 | `/end-of-day` (MANAGER+) | `/api/eod/*` (checklist, close, orders, handover, email, summary) |
 | `/temps` | `/api/temps/units`, `/api/temps/readings` |
+| (cook start page) opening checklist | `/api/open-checklist` (GET any session — seeds `DEFAULT_OPENING_ITEMS` the first time a FOOD RC's list is opened; POST/PATCH/DELETE/reorder ADMIN) + `/api/open-checklist/[id]/tick` (PUT any cook in a writable RC). `OpenCheckItem`/`OpenCheckTick` — one tick row per item per Pacific business day; untick deletes it. Edited at `/setup/open-checklist` (same `ChecklistSetup` editor as the EOD list). No money |
 | `/wastage` | `/api/wastage` |
-| `/setup/*` (ADMIN) | hub with 9 sub-pages: categories, storage-areas, suppliers, revenue-centers, users, uom, toast, eod-checklist, general |
+| `/setup/*` (ADMIN) | hub with 10 sub-pages: categories, storage-areas, suppliers, revenue-centers, users, uom, toast, open-checklist, eod-checklist, general |
 
 ### Key data flows
 

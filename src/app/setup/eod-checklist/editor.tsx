@@ -22,8 +22,10 @@ export function ChecklistItemRow({
   onDelete,
   onMoveUp,
   onMoveDown,
+  blockerShort = 'Blocker',
 }: {
   item: ChecklistItem
+  blockerShort?: string
   isFirst: boolean
   isLast: boolean
   onEdit: () => void
@@ -57,7 +59,7 @@ export function ChecklistItemRow({
           <span className="text-sm font-medium text-ink truncate">{item.title}</span>
           {item.isBlocker && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-red-text bg-red-soft px-1.5 py-0.5 rounded-full">
-              <ShieldAlert size={9} /> Blocker
+              <ShieldAlert size={9} /> {blockerShort}
             </span>
           )}
         </div>
@@ -86,8 +88,10 @@ export function SectionBlock({
   onEdit,
   onDelete,
   onMove,
+  blockerShort,
 }: {
   section: string
+  blockerShort?: string
   items: ChecklistItem[]
   onEdit: (item: ChecklistItem) => void
   onDelete: (item: ChecklistItem) => void
@@ -107,6 +111,7 @@ export function SectionBlock({
             onDelete={() => onDelete(item)}
             onMoveUp={() => onMove(item, 'up')}
             onMoveDown={() => onMove(item, 'down')}
+            blockerShort={blockerShort}
           />
         ))}
       </div>
@@ -130,7 +135,9 @@ export function ItemFormModal({
   sections,
   onClose,
   onSave,
+  blockerLabel = 'Blocker (must be completed before close-out)',
 }: {
+  blockerLabel?: string
   initial: ChecklistItem | null
   sections: string[]
   onClose: () => void
@@ -206,7 +213,7 @@ export function ItemFormModal({
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={form.isBlocker}
                 onChange={e => f('isBlocker', e.target.checked)} className="rounded border-line-2" />
-              <span className="text-sm text-ink-2">Blocker (must be completed before close-out)</span>
+              <span className="text-sm text-ink-2">{blockerLabel}</span>
             </label>
 
             {error && <p className="text-xs text-red-text">{error}</p>}
@@ -233,7 +240,9 @@ export function ItemFormModal({
 export function QuickAddForm({
   sections,
   onAdd,
+  blockerShort = 'Blocker',
 }: {
+  blockerShort?: string
   sections: string[]
   onAdd: (data: ItemFormData) => Promise<string | void>
 }) {
@@ -289,7 +298,7 @@ export function QuickAddForm({
         <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
           <input type="checkbox" checked={form.isBlocker}
             onChange={e => f('isBlocker', e.target.checked)} className="rounded border-line-2" />
-          <span className="text-xs text-ink-3">Blocker</span>
+          <span className="text-xs text-ink-3">{blockerShort}</span>
         </label>
         <button type="submit" disabled={saving}
           className="flex items-center gap-1.5 bg-ink text-paper [&_svg]:text-gold px-3 py-2 rounded-lg text-sm font-semibold hover:bg-ink-2 disabled:opacity-50 shrink-0">
