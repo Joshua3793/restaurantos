@@ -22,7 +22,7 @@ import { X, AlertTriangle, Loader2, ArrowRight } from 'lucide-react'
 import type { ScanItem } from '@/components/invoices/types'
 import { buildOffer, scanItemToOfferInput } from '@/lib/invoice/offer'
 import { adoptTarget, adoptBlocked, type AdoptBox } from '@/lib/invoice/adopt-target'
-import { dimensionOf, type PackLink } from '@/lib/item-model'
+import { dimensionOf, levelBaseUnits, type PackLink } from '@/lib/item-model'
 import { canonicalUom } from '@/lib/uom'
 import { ActButton } from './atoms'
 
@@ -82,7 +82,19 @@ export function AdoptFormatModal({
   const newChain = offer.packChain as PackLink[]
   // Count unit: the chain's outer container, canonicalised so it reads "case",
   // never the raw OCR abbreviation "cs" (and never a bare base unit).
-  const countUnit = canonicalUom(newChain[0]?.unit ?? offer.baseUnit)
+  // validateChainItem accepts only a chain level as spelled in the chain, or a
+  // unit in the item's measure — so "case" against a chain saying "cs" was
+  // refused ("countUnit must be a chain level…"). An item staying in its measure
+  // keeps the unit staff count it in (xanthan gum: kg); otherwise the outer
+  // container, spelled the way the chain spells it when the tidy name differs.
+  const topUnit = newChain[0]?.unit ?? offer.baseUnit
+  // A container name ("case") is only kept when the new chain spells it exactly.
+  const oldCount: string | null = item?.countUnit ?? null
+  const keepCount = !!oldCount && (
+    oldCount in levelBaseUnits(newChain) || oldCount === offer.baseUnit
+    || (offer.dimension !== 'COUNT' && dimensionOf(oldCount) === offer.dimension)
+  )
+  const countUnit = keepCount ? oldCount! : topUnit
   // Human pack label from the OCR pack fields ("1 × 5 lb"), NOT the base-unit
   // chain — rendering the leaf's per (grams) against the container unit produced
   // the nonsensical "2267.96 cs".
