@@ -74,9 +74,17 @@ export function chainFromOcr(
       return [{ unit: topUnit, per: count }]
     }
     // Explicit count present (e.g. 8 × 1100 g) → use packQty directly; never divide.
-    const leafPer = 1
-    const leafUnit = 'each'
-    if (packQty > 1) return [{ unit: topUnit, per: packQty }, { unit: leafUnit, per: leafPer }]
+    // When the SIZE is itself a count ("1 × 8 each", "2 × 6 ea", "1 × 2 dozen"),
+    // it is eaches per pack and multiplies in — the same total invoicePackBaseTotal
+    // reads. Dropping it saved Sysco's 8-bun brioche case as 1 cs = 1 each, so
+    // "use this invoice's case" wrote back the very pack the check disputed.
+    const sizeEach = dimensionOf(packUOM) === 'COUNT' ? packSize * getUnitConv(packUOM) : 1
+    const leafPer = sizeEach > 0 ? sizeEach : 1
+    if (packQty > 1) {
+      return leafPer === 1
+        ? [{ unit: topUnit, per: packQty }, { unit: 'each', per: 1 }]
+        : [{ unit: topUnit, per: packQty }, { unit: 'pack', per: leafPer }]
+    }
     return [{ unit: topUnit, per: leafPer }]
   }
 
