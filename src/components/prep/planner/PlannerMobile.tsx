@@ -68,9 +68,7 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
   )
 }
 
-export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers, searching = false }: {
-  /** A search is narrowing the pool — at-par suggestions then show inline. */
-  searching?: boolean
+export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
   items: PrepItemRich[]
   allItems: PrepItemRich[]
   /** Items switched off the prep list — the collapsed group under the suggestions. */
@@ -172,7 +170,7 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
             </div>
             {groupPills([['urgency', 'Step'], ['station', 'Station'], ['category', 'Category']])}
             <SuggestionList items={items} hidden={hidden} groupBy={groupBy} stations={stations} cooks={cooks} ord={draftOrd}
-              ctx={ctx} nowMin={nowMin} locked={locked} searching={searching}
+              ctx={ctx} nowMin={nowMin} locked={locked}
               onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
           </>
         ) : (
