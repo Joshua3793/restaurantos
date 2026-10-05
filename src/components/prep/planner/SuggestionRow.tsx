@@ -2,7 +2,7 @@
 // Smart Prep v2 — left-pane suggestion row (design PPSuggRow). The urgency step
 // is computed live from stock; the evidence is a stock bar and the on-hand/par
 // numbers, written out ("1.9 of 25 kg"), with the plain reason as the tooltip.
-import { AlertTriangle, Check, Plus, Flame, Clock } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, Plus, Flame, Clock } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import {
   PLAN_URG_META, effectiveUrgency, suggestedDraftQty,
@@ -88,9 +88,15 @@ export function SuggestionRow({ item, locked, longLead = false, onOpen, onAdd, o
       <span className="flex items-center gap-2.5">
         {!onList && (
           <span className="text-right leading-[1.15] whitespace-nowrap">
-            <span className={`block font-mono text-[11.5px] font-bold ${sugg > 0 ? 'text-ink' : 'text-green'}`}>
-              {sugg <= 0 ? 'at par' : nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)}
-            </span>
+            {sugg <= 0 ? (
+              <span className="inline-flex items-center gap-1 font-mono text-[10.5px] font-bold text-green-text bg-green-soft px-1.5 py-[2px] rounded-full">
+                <CheckCircle2 size={11} strokeWidth={2.4} /> at par
+              </span>
+            ) : (
+              <span className="block font-mono text-[11.5px] font-bold text-ink">
+                {nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)}
+              </span>
+            )}
             {sugg > 0 && nb != null && nb > 0 && (
               <span className="block font-mono text-[9.5px] text-ink-4">{fmtQ(batchesToQty(item, nb), item.unit)}</span>
             )}

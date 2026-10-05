@@ -2019,7 +2019,6 @@ export default function PrepPage() {
                 post={plan.post}
                 hidden={hiddenItems}
                 handlers={plannerHandlers}
-                searching={search.trim() !== ''}
               />
             </>
           )}

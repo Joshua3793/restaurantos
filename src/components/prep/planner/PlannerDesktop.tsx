@@ -202,7 +202,7 @@ export function PlannerDesktop({
               <div className="py-14 text-center font-mono text-[10.5px] text-ink-4">NO ITEMS MATCH</div>
             )}
             <SuggestionList items={pool} hidden={hidden} groupBy={suggBy} stations={stations} cooks={cooks} ord={draftOrd}
-              ctx={ctx} nowMin={nowMin} locked={locked} searching={search.trim() !== ''}
+              ctx={ctx} nowMin={nowMin} locked={locked}
               onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
           </div>
         </div>
