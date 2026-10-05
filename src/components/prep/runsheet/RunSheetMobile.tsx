@@ -6,8 +6,8 @@
 // queue, kitchen mode = the step ladder, and a collapsible Done.
 //
 // Same ordering as the desktop RunSheet: every row is re-timed against its
-// STEP (withLadderTimes) and the kitchen ladder is runSheetGroups — late to
-// start, then the four steps. There is no Time / Priority toggle any more; the
+// STEP (withLadderTimes) and the kitchen ladder is runSheetGroups — the four
+// steps, no clock and no late flag. There is no Time / Priority toggle any more; the
 // hero is simply the first row of that order for the picked cook. The prototype's
 // horizontal-scrolling in-progress rail is gone: an item being worked on stays
 // in the queue as a WorkingRowMobile.
@@ -23,11 +23,10 @@ import { RestRowMobile } from './RestRowMobile'
 import { WorkingRowMobile } from './WorkingRowMobile'
 import { NextUpHero } from './NextUpHero'
 import { GroupHead } from './GroupHead'
-import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { IcCheck } from '@/components/prep/icons'
 import { fmtClock, fmtMins, fmtQty, postedWhenLabel } from '@/lib/prep-runsheet'
-import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META, onStation } from '@/lib/prep-plan'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, PLAN_URG_META, onStation } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'station' | 'kitchen'
@@ -143,12 +142,6 @@ export function RunSheetMobile({
     if (!member?.homeStation && myTodo.length === 0 && todoAll.length > 0) setMode('kitchen')
   }, [cooks.length, member, myTodo.length, todoAll.length])
 
-  // Kitchen-mode badge = late-to-start count across the whole brigade.
-  // Same test as the ladder's "Late to start" section (see RunSheet.lateN).
-  const lateN = useMemo(
-    () => [...todoAll, ...waitingAll].filter(i => lateToStart(i, nowMin)).length,
-    [todoAll, waitingAll, nowMin],
-  )
   const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
   // The service caption on the NOW line. Same derivation as the desktop RunSheet's
@@ -188,8 +181,7 @@ export function RunSheetMobile({
   const claimTap = (item: PrepItemRich) => onClaim(item, item.assignedCook?.id === cook ? null : cook)
 
   // A row only says what its section doesn't: the station only when the kitchen
-  // has more than one; the deadline only outside the step groups (whose header
-  // already states it) — i.e. on My station's "Coming up" queue.
+  // has more than one.
   const multiStation = useMemo(() => new Set(items.flatMap(i => i.stations)).size > 1, [items])
 
   const rows = (list: PrepItemRich[], kitchen: boolean) => (
@@ -198,10 +190,8 @@ export function RunSheetMobile({
         <RunRowMobile
           key={i.id}
           item={i}
-          nowMin={nowMin}
           kitchen={kitchen}
           showStation={multiStation}
-          showDeadline={!kitchen}
           cook={member}
           onClaim={claimTap}
           onOpenRecipe={onOpenRecipe}
@@ -212,24 +202,14 @@ export function RunSheetMobile({
     </div>
   )
 
-  // kitchen mode: the step ladder across the whole brigade — late to start,
-  // NOW line, then the four steps captioned with their deadline for the day.
+  // kitchen mode: the step ladder across the whole brigade — the four steps.
   const renderKitchen = () => {
-    const groups = runSheetGroups(todoAll, ctx, nowMin)
-    const lateG = groups.find(g => g.late)
-    const stepG = groups.filter(g => !g.late)
+    const stepG = runSheetGroups(todoAll)
     return (
       <>
-        {lateG && (
-          <>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={lowStock(lateG.rows)} />
-            {rows(lateG.rows, true)}
-          </>
-        )}
-        <div className="my-3.5"><NowLine nowMin={nowMin} /></div>
         {stepG.map(g => (
           <div key={g.key}>
-            <GroupHead dot={PLAN_URG_META[g.urg!].dotClass} title={g.label} count={g.rows.length} sub={[g.sub, lowStock(g.rows)].filter(Boolean).join(' · ') || null} />
+            <GroupHead dot={PLAN_URG_META[g.urg!].dotClass} title={g.label} count={g.rows.length} sub={lowStock(g.rows)} />
             {rows(g.rows, true)}
           </div>
         ))}
@@ -274,7 +254,7 @@ export function RunSheetMobile({
         onPick={pickMode}
         options={[
           { id: 'station', label: 'My station' },
-          { id: 'kitchen', label: 'Kitchen', badge: lateN || null, badgeTone: lateN ? 'red' : undefined },
+          { id: 'kitchen', label: 'Kitchen' },
         ]}
       />
 

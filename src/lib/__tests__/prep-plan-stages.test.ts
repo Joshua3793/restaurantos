@@ -130,18 +130,18 @@ describe('rest rows — a resting job sits in the ladder at its ready time', () 
     expect(isLateToStart({ ...mk('t', null), startByMinutes: 400 }, 420, null)).toBe(false)
   })
 
-  it('runSheetGroups keeps a ready rest row in its step and lifts only an overdue one', () => {
+  it('runSheetGroups keeps every rest row in its step; only the overdue one is late', () => {
     const rows = withLadderTimes([
       mk('ready',   { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(-4320) }, { manualPriorityOverride: 'CLOSE' }),
       mk('overdue', { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(-4320 - 90) }, { manualPriorityOverride: 'CLOSE' }),
       mk('resting', { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(-60) }, { manualPriorityOverride: 'CLOSE' }),
       mk('aioli',   null, { manualPriorityOverride: 'CLOSE', activeMinutes: 45, passiveMinutes: 0, linkedRecipe: null }),      // startBy 915
     ], ctx, now)
-    const gs = runSheetGroups(rows, ctx, 420)
+    const gs = runSheetGroups(rows)
     expect(gs.map(g => [g.key, g.rows.map(r => r.id)])).toEqual([
-      ['LATE',  ['overdue']],
-      ['CLOSE', ['ready', 'aioli', 'resting']],   // readyAt 420 · start-by 915 · readyAt in 3d
+      ['CLOSE', ['overdue', 'ready', 'aioli', 'resting']],   // readyAt 330 · 420 · start-by 915 · readyAt in 3d
     ])
+    expect(rows.filter(r => isLateToStart(r, 420, ctx)).map(r => r.id)).toEqual(['overdue'])
   })
 
   it('ladderOrder sorts a rest row by its ready time against ordinary start-bys', () => {

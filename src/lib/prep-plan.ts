@@ -874,7 +874,7 @@ export function withLadderTimes<T extends LadderItem>(
 }
 
 /**
- * Late to start — the ONE test the Late to start section, the station-header
+ * Late to start — the ONE test the row's red "late" label, the station-header
  * caption and the mobile Kitchen badge share. A rest row is late only once it
  * is `overdue` (past readyAt + REST_GRACE_MINUTES); merely ready is not late.
  */
@@ -883,7 +883,7 @@ export function lateToStart(t: LadderItem, nowMin: number): boolean {
   return t.startByMinutes != null && t.startByMinutes < nowMin
 }
 
-/** `lateToStart` gated on a day context — without one there is no "Late to start" section. */
+/** `lateToStart` gated on a day context — without one nothing is labelled late. */
 export function isLateToStart(t: LadderItem, nowMin: number, ctx: PlanDayContext | null): boolean {
   return ctx != null && lateToStart(t, nowMin)
 }
@@ -891,38 +891,30 @@ export function isLateToStart(t: LadderItem, nowMin: number, ctx: PlanDayContext
 const orInf = (v: number | null | undefined) => (v == null ? Infinity : v)
 const cmpNum = (a: number, b: number) => (a === b ? 0 : a < b ? -1 : 1)
 
-/** Deadline → start-by → the chef's listOrder → name. Nulls sink. */
+/** Deadline → the chef's listOrder → start-by → name. Nulls sink. The chef's
+ *  order wins inside a step; start-by only orders what the chef didn't. */
 export function ladderOrder(a: LadderItem, b: LadderItem): number {
   return cmpNum(orInf(a.deadlineMinutes), orInf(b.deadlineMinutes))
-    || cmpNum(orInf(a.startByMinutes), orInf(b.startByMinutes))
     || cmpNum(draftListOrder(a), draftListOrder(b))
+    || cmpNum(orInf(a.startByMinutes), orInf(b.startByMinutes))
     || a.name.localeCompare(b.name)
 }
 
-export interface LadderGroup<T> extends PlanGroup<T> { late?: boolean }
-
 /**
- * The run sheet's sections: rows already late to start (any step) lifted above
- * the NOW line, then the four steps in order, each captioned with its deadline
- * for the day. Rows inside a section follow `ladderOrder`.
+ * The run sheet's sections: the four steps in order — the step IS the
+ * priority, with no clock on it. Rows inside a section follow `ladderOrder`.
+ * (There used to be a "Late to start" section and "by 09:00" captions; the
+ * deadlines were pinned to doors, so once service opened most of the list
+ * read late and the chef's order was lost.)
  */
-export function runSheetGroups<T extends LadderItem>(
-  rows: T[],
-  ctx: PlanDayContext | null,
-  nowMin: number,
-): Array<LadderGroup<T>> {
-  const isLate = (t: T) => isLateToStart(t, nowMin, ctx)
-  const late = rows.filter(isLate).sort(ladderOrder)
-  const rest = rows.filter(t => !isLate(t))
-  const groups: Array<LadderGroup<T>> = []
-  if (late.length) groups.push({ key: 'LATE', label: 'Late to start', late: true, rows: late })
+export function runSheetGroups<T extends LadderItem>(rows: T[]): Array<PlanGroup<T>> {
+  const groups: Array<PlanGroup<T>> = []
   for (const u of PLAN_URG_ORDER_LOCAL) {
-    const g = rest.filter(t => effectiveUrgency(t) === u).sort(ladderOrder)
+    const g = rows.filter(t => effectiveUrgency(t) === u).sort(ladderOrder)
     if (!g.length) continue
     groups.push({
       key: u,
       label: PLAN_URG_META[u].label,
-      sub: ctx ? `by ${fmtDeadline(urgencyDeadline(u, ctx), fmtClock)}` : undefined,
       urg: u,
       rows: g,
     })

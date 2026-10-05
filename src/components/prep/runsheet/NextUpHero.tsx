@@ -1,12 +1,12 @@
 'use client'
 // Prep run-sheet — mobile "next up" hero card.
 // Ported from mobile.jsx's MHero. Dark full-width card leading the station
-// queue: start-by countdown, name, make/hands-on/ready-for line, then either
+// queue: its step, name, make/hands-on line, then either
 // a gold Start-now button or a BLOCKED notice, plus a Recipe/scale-batch link.
 import { AlertTriangle, Zap, BookOpen, ArrowRight, Hourglass } from 'lucide-react'
-import { draftQty, fmtDeadline } from '@/lib/prep-plan'
+import { draftQty, effectiveUrgency, PLAN_URG_META } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
-import { fmtClock, fmtStartBy, fmtMins, fmtQty, runState, minutesBetween } from '@/lib/prep-runsheet'
+import { fmtStartBy, fmtMins, fmtQty, minutesBetween } from '@/lib/prep-runsheet'
 import { stageLabel, restPhaseName } from '@/lib/prep-stages'
 import { ChefNote } from './atoms'
 
@@ -53,7 +53,6 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
         {rest.stage.note ? `${rest.stage.note} · ` : ''}
         {rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`}
         {' · '}{stageLabel(rest.index, rest.total, rest.stage)}
-        {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
       <ChefNote note={item.todayLog?.note} surface="dark" className="mt-3" />
       {rest.next && (
@@ -94,47 +93,30 @@ export function NextUpHero({
   if (item.rest && onStage) {
     return <RestHero item={item} nowMin={nowMin} nowMs={nowMs ?? Date.now()} onStage={onStage} onOpenRecipe={onOpenRecipe} />
   }
-  const sb = item.startByMinutes
   const blocked = item.isBlocked || !!item.blockedReason
-  const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
-  const overdue = state === 'overdue'
-  const late = sb != null ? nowMin - sb : 0
+  const step = PLAN_URG_META[effectiveUrgency(item)]
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const active = item.activeMinutes ?? 0
   const passive = item.passiveMinutes ?? 0
 
   return (
     <div className="bg-ink text-paper rounded-2xl px-[17px] py-4 mt-3.5">
-      <div className="flex items-baseline justify-between gap-2.5">
-        <span className="font-mono text-[9.5px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP · START BY</span>
-        {overdue ? (
-          <span className="font-mono text-[9.5px] font-bold bg-red text-white px-2 py-0.5 rounded-full tracking-[0.03em]">
-            {fmtMins(late)} LATE
-          </span>
-        ) : (
-          <span className="font-mono text-[9.5px] text-[#a1a1aa]">{sb != null ? `in ${fmtMins(-late)}` : '—'}</span>
-        )}
+      {/* No start-by clock: the step and the chef's order say what comes next. */}
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[9.5px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP</span>
+        <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-paper">
+          <span className="w-[7px] h-[7px] rounded-full" style={{ background: step.hex }} />
+          {step.label}
+        </span>
       </div>
 
-      <div className="flex items-end gap-3 mt-2">
-        <span
-          className={`font-mono text-[34px] font-semibold tracking-[-0.03em] leading-none ${
-            overdue ? 'text-[#fca5a5]' : 'text-paper'
-          }`}
-        >
-          {sb != null ? fmtStartBy(sb) : '—'}
-        </span>
-        <span className="min-w-0 pb-px">
-          <span className="block text-[17px] font-semibold tracking-[-0.02em] break-words">
-            {item.name}
-          </span>
-        </span>
+      <div className="mt-2 text-[20px] font-semibold tracking-[-0.02em] leading-tight break-words">
+        {item.name}
       </div>
 
       <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-[9px] leading-[1.5]">
         make <b className="text-gold font-semibold">{fmtQty(qty, item.unit)}</b> · {fmtMins(active)} hands-on
         {passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}
-        {item.deadlineMinutes != null ? ` · by ${fmtDeadline(item.deadlineMinutes, fmtClock)}` : ''}
       </div>
 
       <ChefNote note={item.todayLog?.note} surface="dark" className="mt-3" />

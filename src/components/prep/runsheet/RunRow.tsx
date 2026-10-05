@@ -1,26 +1,19 @@
 'use client'
 // Prep run-sheet — desktop ladder row.
 // Ported from desktop.jsx's DRow (+ its inline claim popover, now the shared
-// ClaimPopover atom). Grid: 64px start-by | 1fr task | auto assignee | auto action.
+// ClaimPopover atom). Grid: 1fr task | auto assignee + action. No start-by
+// clock: the step and the chef's order say what comes next.
 import { useRef, useState } from 'react'
 import { Zap, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, RunwayBar, UrgencyDot, DeadlineChip, ChefNote } from './atoms'
-import { fmtClock, fmtQty, runState, startBySub } from '@/lib/prep-runsheet'
-import { draftQty, batchLabel } from '@/lib/prep-plan'
-
-const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
-  blocked: 'border-l-gold',
-  overdue: 'border-l-red',
-  soon: 'border-l-ink',
-  later: 'border-l-line-2',
-}
+import { StationTag, RunwayBar, UrgencyDot, ChefNote } from './atoms'
+import { fmtQty } from '@/lib/prep-runsheet'
+import { draftQty, batchLabel, effectiveUrgency, PLAN_URG_META } from '@/lib/prep-plan'
 
 export function RunRow({
   item,
-  nowMin,
   cooks,
   onStart,
   onOpenRecipe,
@@ -28,10 +21,8 @@ export function RunRow({
   onRemove,
   dense = false,
   showStation = true,
-  showDeadline = true,
 }: {
   item: PrepItemRich
-  nowMin: number
   cooks: Cook[]
   onStart: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
@@ -42,24 +33,18 @@ export function RunRow({
   dense?: boolean
   /** Off when every item is on one station, or the list is already filtered to one. */
   showStation?: boolean
-  /** Off under a step header that already states the deadline — the chip then
-   *  appears only when the chef's posted deadline really moved. */
-  showDeadline?: boolean
 }) {
   const [claimOpen, setClaimOpen] = useState(false)
   const claimAnchor = useRef<HTMLDivElement>(null)
 
-  const sb = item.startByMinutes
-  const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
-  const sub = sb != null ? startBySub(sb, nowMin) : null
+  // Left accent = the item's step colour; gold when something blocks it.
+  const accent = item.blockedReason ? undefined : PLAN_URG_META[effectiveUrgency(item)].hex
   // Planned qty: the chef's posted requiredQty wins, then the live suggestion.
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const batch = batchLabel(item, qty)
 
   // Below lg (iPad portrait, and landscape before the sidebar docks) the row
-  // stacks: start-by + name on the first line, the claim/Start cluster on
-  // a second. Keeping all four columns on one line at that width squeezed the
-  // name column to ~140px and broke long names over seven lines.
+  // stacks: name on the first line, the claim/Start cluster on a second.
   return (
     // The card sits inside a wrapper so Remove can hang in the gutter BESIDE it
     // rather than inside the action cluster. The gutter is reserved by the row
@@ -67,36 +52,11 @@ export function RunRow({
     // the bar without ever overflowing the sheet.
     <div className="relative">
     <div
-      className={`grid grid-cols-[64px_minmax(0,1fr)] lg:grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 bg-paper border border-line border-l-[3px] rounded-[11px] relative ${
+      className={`grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 bg-paper border border-line border-l-[3px] rounded-[11px] relative ${
         dense ? 'py-2 px-4' : 'py-[13px] px-4'
-      } ${ACCENT_CLASS[state]}`}
+      } ${item.blockedReason ? 'border-l-gold' : ''}`}
+      style={accent ? { borderLeftColor: accent } : undefined}
     >
-      {/* start-by time */}
-      <div className="self-start lg:self-center">
-        {sb != null ? (
-          <>
-            <div
-              className={`font-mono text-[14px] font-semibold tracking-[-0.01em] ${
-                state === 'overdue' ? 'text-red' : 'text-ink'
-              }`}
-            >
-              {fmtClock(sb)}
-            </div>
-            {sub?.text && (
-              <div
-                className={`font-mono text-[9px] mt-0.5 whitespace-nowrap uppercase ${
-                  sub.late ? 'text-red-text' : 'text-ink-4'
-                }`}
-              >
-                {sub.text}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="font-mono text-[14px] font-semibold text-ink-4">—</div>
-        )}
-      </div>
-
       {/* task — the name owns its own line and NEVER truncates (it is the one
           thing a cook has to be able to read). Everything else wraps beneath it,
           so a narrow frame (iPad portrait/landscape, split desktop) costs a row
@@ -116,7 +76,6 @@ export function RunRow({
           <span className="font-mono text-[11px] text-ink-3">{batch ? `${fmtQty(qty, item.unit)} · ${batch}` : fmtQty(qty, item.unit)}</span>
           {showStation && item.station && <StationTag>{item.station}</StationTag>}
           {!dense && <RunwayBar activeMin={item.activeMinutes} passiveMin={item.passiveMinutes} passiveNote={item.passiveNote} />}
-          <DeadlineChip item={item} onlyIfMoved={!showDeadline || dense} />
         </div>
         <ChefNote note={item.todayLog?.note} compact={dense} className="mt-2" />
       </div>
@@ -125,7 +84,7 @@ export function RunRow({
           name on a narrow frame. A stock-out / blocked item is NOT gated: the
           urgency dot flags the risk and the drawer spells it out, but the cook can
           still start it (uncounted stock, or prepping toward a later restock). */}
-      <div className="col-start-2 lg:col-start-3 flex items-center gap-[7px] justify-start lg:justify-end">
+      <div className="col-start-1 lg:col-start-2 flex items-center gap-[7px] justify-start lg:justify-end">
         <div ref={claimAnchor} className="relative shrink-0">
           <AssigneeChip cook={item.assignedCook} compact onClick={() => setClaimOpen(o => !o)} />
           {claimOpen && (

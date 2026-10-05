@@ -9,8 +9,9 @@
 //
 // The ladder is ONE ordering, derived from the step the chef dialled in Smart
 // Prep: every posted row gets its step deadline for the day and a start-by
-// counted back from THAT (withLadderTimes), sections are "Late to start" plus
-// the four steps (runSheetGroups), and rows inside a section follow deadline →
+// counted back from THAT (withLadderTimes), sections are the four steps
+// (runSheetGroups — no clock and no late flag on the To Do; the step and the
+// chef's order say what comes next), and rows inside a section follow deadline →
 // start-by → the chef's listOrder. The old Time / Priority toggle ordered by
 // `service − times` and by the 3-level priority — two numbers the planner never
 // used, which is why the To Do could not show the plan that was posted. The prototype's DSidebar (the app
@@ -26,10 +27,9 @@ import { RunRow } from './RunRow'
 import { RestRow } from './RestRow'
 import { WorkingRow } from './WorkingRow'
 import { GroupHead } from './GroupHead'
-import { NowLine } from './NowLine'
 import { Segmented } from './atoms'
 import { fmtClock, fmtMins, fmtQty, postedWhenLabel } from '@/lib/prep-runsheet'
-import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, lateToStart, PLAN_URG_META, onStation } from '@/lib/prep-plan'
+import { planDayContext, withLadderTimes, runSheetGroups, ladderOrder, PLAN_URG_META, onStation } from '@/lib/prep-plan'
 import { serviceStatus, formatServiceStatus, type RcService } from '@/lib/service-hours'
 
 type Mode = 'kitchen' | 'station'
@@ -237,7 +237,7 @@ export function RunSheet({
   // kitchen has more than one and the list isn't already narrowed to one; the
   // deadline only under a station header (a step header already states it).
   const showStation = stations.length > 1 && mode === 'kitchen' && stFilter === 'all' && group !== 'station'
-  const rowProps = { nowMin, cooks, onStart, onOpenRecipe, onClaim, onRemove, showStation, showDeadline: group === 'station' }
+  const rowProps = { cooks, onStart, onOpenRecipe, onClaim, onRemove, showStation }
   const rows = (list: PrepItemRich[]) => (
     <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
       {list.map(i => <RunRow key={i.id} item={i} {...rowProps} />)}
@@ -249,36 +249,25 @@ export function RunSheet({
       return stations.map(s => {
         const grp = todo.filter(i => onStation(i, s))
         if (!grp.length) return null
-        const late = grp.filter(i => lateToStart(i, nowMin)).length
         return (
           <div key={s}>
-            <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={[late ? `${late} late to start` : null, lowStock(grp)].filter(Boolean).join(' · ') || null} />
+            <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={lowStock(grp)} />
             {rows(grp)}
           </div>
         )
       })
     }
-    // steps (default): late to start → NOW line → the four steps, each captioned
-    // with its deadline for the day. Rows inside follow ladderOrder.
-    const groups = runSheetGroups(todo, ctx, nowMin)
-    const lateG = groups.find(g => g.late)
-    const stepG = groups.filter(g => !g.late)
+    // steps (default): the four steps in order. Rows inside follow ladderOrder.
+    const stepG = runSheetGroups(todo)
     return (
       <>
-        {lateG && (
-          <div>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={["won't make its step unless started now", lowStock(lateG.rows)].filter(Boolean).join(' · ')} />
-            {rows(lateG.rows)}
-          </div>
-        )}
-        <div className="my-[18px]"><NowLine nowMin={nowMin} /></div>
         {stepG.map(g => (
           <div key={g.key}>
             <GroupHead
               dot={PLAN_URG_META[g.urg!].dotClass}
               title={g.label}
               count={g.rows.length}
-              sub={[g.sub, `${handsOn(g.rows)} hands-on`, lowStock(g.rows)].filter(Boolean).join(' · ')}
+              sub={[`${handsOn(g.rows)} hands-on`, lowStock(g.rows)].filter(Boolean).join(' · ')}
             />
             {rows(g.rows)}
           </div>

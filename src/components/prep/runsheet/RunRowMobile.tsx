@@ -1,27 +1,19 @@
 'use client'
 // Prep run-sheet — mobile compact row.
 // Ported from mobile.jsx's MRow. Compact layout vs. the desktop RunRow.tsx
-// ladder: 44px start-by column | task (name+qty, single meta line) | assignee
-// chip (kitchen mode only) | Start/Lock action button.
+// ladder: assignee chip (kitchen mode only) | task (name+qty, single meta line)
+// | Start/Lock action button. No start-by clock: the step and the chef's order
+// say what comes next.
 import { Zap, X } from 'lucide-react'
-import { draftQty, batchLabel } from '@/lib/prep-plan'
+import { draftQty, batchLabel, effectiveUrgency, PLAN_URG_META } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
 import { UrgencyDot, ChefNote } from './atoms'
-import { fmtMins, fmtQty, fmtClock, runState, startBySub } from '@/lib/prep-runsheet'
-import { fmtDeadline, postedDeadlineMoved } from '@/lib/prep-plan'
-
-const ACCENT_CLASS: Record<ReturnType<typeof runState>, string> = {
-  blocked: 'border-l-gold',
-  overdue: 'border-l-red',
-  soon: 'border-l-ink',
-  later: 'border-l-line-2',
-}
+import { fmtMins, fmtQty } from '@/lib/prep-runsheet'
 
 export function RunRowMobile({
   item,
-  nowMin,
   dense = false,
   kitchen = false,
   cook,
@@ -30,16 +22,12 @@ export function RunRowMobile({
   onStart,
   onRemove,
   showStation = true,
-  showDeadline = true,
 }: {
   item: PrepItemRich
-  nowMin: number
   dense?: boolean
   kitchen?: boolean
   /** Off when every item is on one station. */
   showStation?: boolean
-  /** Off under a step header that already states the deadline (a real move still shows). */
-  showDeadline?: boolean
   // Currently-viewing cook. Not read directly here — claim-toggle logic
   // (assign to me vs. unassign) lives in the parent's onClaim handler, same
   // split as the prototype's `claimTap`. Accepted for interface parity.
@@ -50,10 +38,8 @@ export function RunRowMobile({
   /** Take this item straight off the kitchen's list. Omitted for non-planners. */
   onRemove?: (item: PrepItemRich) => void
 }) {
-  const sb = item.startByMinutes
-  const state = runState({ startBy: sb, blockedReason: item.blockedReason }, nowMin)
-  const overdue = state === 'overdue'
-  const sub = sb != null ? startBySub(sb, nowMin) : null
+  // Left accent = the item's step colour; gold when something blocks it.
+  const accent = item.blockedReason ? undefined : PLAN_URG_META[effectiveUrgency(item)].hex
   const qty = draftQty(item) || (item.targetToday ?? item.parLevel)
   const active = item.activeMinutes ?? 0
   const passive = item.passiveMinutes ?? 0
@@ -62,20 +48,13 @@ export function RunRowMobile({
   // line whenever the item was blocked; it now lives in the item drawer (the
   // urgency dot beside the name carries it as a tooltip), so the row keeps its
   // one useful meta line and the name keeps its width.
-  const dl = item.deadlineMinutes
-  const liveBy = dl != null ? fmtDeadline(dl, fmtClock) : null
-  const postedBy = item.todayLog?.dueTime ?? null
-  const moved = liveBy != null && postedDeadlineMoved(liveBy, postedBy)
   const batch = batchLabel(item, qty)
-  // ONE meta line: amount, time, then only what the section header doesn't
-  // already say (the station when there is more than one; the deadline when the
-  // header isn't a step, or when the chef's posted deadline really moved).
+  // ONE meta line: amount, time, then the station when there is more than one.
   const metaText = [
     batch ? `${fmtQty(qty, item.unit)} · ${batch}` : fmtQty(qty, item.unit),
     // no timing on the recipe → say nothing rather than "0m"
     active > 0 || passive > 0 ? `${fmtMins(active)}${passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}` : null,
     kitchen && showStation && item.station ? item.station : null,
-    liveBy && (showDeadline || moved) ? `by ${liveBy}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -89,40 +68,16 @@ export function RunRowMobile({
     <div
       className={`bg-paper border border-line border-l-[3px] rounded-[11px] ${
         dense ? 'py-2 px-3' : 'py-[11px] px-[13px]'
-      } ${ACCENT_CLASS[state]}`}
+      } ${item.blockedReason ? 'border-l-gold' : ''}`}
+      style={accent ? { borderLeftColor: accent } : undefined}
     >
     <div className="flex items-center gap-3">
-      {/* start-by time — and, in kitchen mode, the claim button under it: the
-          time column has height to spare, the name column has no width to spare. */}
-      <div className="w-11 shrink-0">
-        {sb != null ? (
-          <>
-            <div
-              className={`font-mono text-[12.5px] font-semibold tracking-[-0.01em] ${
-                overdue ? 'text-red' : 'text-ink'
-              }`}
-            >
-              {fmtClock(sb)}
-            </div>
-            {sub?.text && (
-              <div
-                className={`font-mono text-[8.5px] mt-px whitespace-nowrap ${
-                  sub.late ? 'text-red-text' : 'text-ink-4'
-                }`}
-              >
-                {sub.text}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="font-mono text-[12.5px] font-semibold text-ink-4">—</div>
-        )}
-        {kitchen && (
-          <div className="mt-1.5">
-            <AssigneeChip cook={item.assignedCook} size="sm" compact onClick={() => onClaim(item)} />
-          </div>
-        )}
-      </div>
+      {/* kitchen mode: the claim button leads the row */}
+      {kitchen && (
+        <div className="shrink-0">
+          <AssigneeChip cook={item.assignedCook} size="sm" compact onClick={() => onClaim(item)} />
+        </div>
+      )}
 
       {/* task — the name wraps rather than truncating; it is the one thing a cook
           must always be able to read. */}
@@ -135,7 +90,6 @@ export function RunRowMobile({
         </div>
         <div className={`font-mono text-[9.5px] text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
           {metaText}
-          {moved && <span className="text-gold-2"> · posted by {postedBy}</span>}
         </div>
       </div>
 

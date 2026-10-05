@@ -276,17 +276,18 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
     expect(row.deadlineMinutes).toBe(960)
   })
 
-  it('orders by deadline, then start-by, then the chef’s listOrder, then name', () => {
+  it('orders by deadline, then the chef’s listOrder, then start-by, then name', () => {
     const rows = withLadderTimes([
       mk('z', 'Zucchini', 'MID', 0),                                          // MID → deadline 660, startBy 660
       mk('p', 'Pickle Apples', 'MID', 120, { todayLog: { listOrder: 1 } }),   // startBy 540
-      mk('s', 'Corn Salsa', 'MID', 120, { todayLog: { listOrder: 0 } }),      // startBy 540 — chef put it first
+      mk('s', 'Corn Salsa', 'MID', 30, { todayLog: { listOrder: 0 } }),       // startBy 630 — chef put it first anyway
+      mk('b', 'Beef Tallow', 'MID', 140),                                     // startBy 520, no listOrder
       mk('a', 'Aioli', 'CLOSE', 45),                                          // CLOSE, deadline 960
     ], ctx)
-    expect([...rows].sort(ladderOrder).map(r => r.id)).toEqual(['s', 'p', 'z', 'a'])
+    expect([...rows].sort(ladderOrder).map(r => r.id)).toEqual(['s', 'p', 'b', 'z', 'a'])
   })
 
-  it('sections are the steps, with the late rows lifted above the NOW line', () => {
+  it('sections are only the steps, with no clock — a late row stays in its step', () => {
     const rows = withLadderTimes([
       mk('brisket', 'Smoked Brisket', 'CLOSE', 2880),   // startBy 960−2880 → 2 days ago: late
       mk('salsa', 'Corn Salsa', 'MID', 120),            // startBy 540 — in 1h30
@@ -294,26 +295,20 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
       mk('out', 'Stock out', null, 30),                 // onHand 0 → PASS, startBy 510
       mk('ahead', 'Building ahead', null, 30, { onHand: 8 }), // TMRW
     ], ctx)
-    const gs = runSheetGroups(rows, ctx, 450)
+    const gs = runSheetGroups(rows)
     expect(gs.map(g => [g.key, g.rows.map(r => r.id)])).toEqual([
-      ['LATE',  ['brisket']],
       ['PASS',  ['out']],
       ['MID',   ['salsa']],
-      ['CLOSE', ['aioli']],
+      ['CLOSE', ['brisket', 'aioli']],
       ['TMRW',  ['ahead']],
     ])
-    expect(gs[0].late).toBe(true)
-    expect(gs[1].sub).toBe('by 09:00')
-    expect(gs[2].sub).toBe('by 11:00')
-    expect(gs[3].sub).toBe('by 16:00')
-    expect(gs[4].sub).toBe('by TMRW 09:00')
+    expect(gs.every(g => g.sub === undefined)).toBe(true)
   })
 
-  it('without a day context there is no late section and no deadlines — just the steps', () => {
+  it('without a day context the steps are the same', () => {
     const rows = withLadderTimes([mk('a', 'A', 'CLOSE', 45), mk('b', 'B', 'PASS', 30)], null)
-    const gs = runSheetGroups(rows, null, 450)
+    const gs = runSheetGroups(rows)
     expect(gs.map(g => g.key)).toEqual(['PASS', 'CLOSE'])
-    expect(gs[0].sub).toBeUndefined()
   })
 })
 
