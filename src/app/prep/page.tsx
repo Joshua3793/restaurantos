@@ -1559,6 +1559,20 @@ export default function PrepPage() {
     setDrawerItem(null); setDrawerDetail(null); setDrawerRecipe(null); setDrawerRecipeLoading(false); setDrawerProgress(null)
   }, [])
 
+  // Deep link from the cook's start page: /prep?item=<prepItemId> opens that
+  // job's drawer once the list has loaded, then drops the param so a refresh
+  // or Back does not reopen it.
+  const deepLinkDone = useRef(false)
+  useEffect(() => {
+    if (deepLinkDone.current || items.length === 0) return
+    const id = new URLSearchParams(window.location.search).get('item')
+    deepLinkDone.current = true
+    if (!id) return
+    const hit = items.find(i => i.id === id)
+    if (hit) openDrawer(hit)
+    router.replace('/prep')
+  }, [items, openDrawer, router])
+
   // ── Cook-along progress persistence ──────────────────────────────────────
   const writeProgress = (logId: string, next: PrepProgress) => {
     progressRef.current.set(logId, next)
