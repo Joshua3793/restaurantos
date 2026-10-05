@@ -901,15 +901,13 @@ export function ladderOrder(a: LadderItem, b: LadderItem): number {
 }
 
 /**
- * The run sheet's sections: the four steps in order, each captioned with its
- * deadline for the day. Rows inside a section follow `ladderOrder`. There is no
- * "Late to start" section — once doors had opened it swallowed most of the
- * list; a late row stays in its step and carries a red "late" label instead.
+ * The run sheet's sections: the four steps in order — the step IS the
+ * priority, with no clock on it. Rows inside a section follow `ladderOrder`.
+ * (There used to be a "Late to start" section and "by 09:00" captions; the
+ * deadlines were pinned to doors, so once service opened most of the list
+ * read late and the chef's order was lost.)
  */
-export function runSheetGroups<T extends LadderItem>(
-  rows: T[],
-  ctx: PlanDayContext | null,
-): Array<PlanGroup<T>> {
+export function runSheetGroups<T extends LadderItem>(rows: T[]): Array<PlanGroup<T>> {
   const groups: Array<PlanGroup<T>> = []
   for (const u of PLAN_URG_ORDER_LOCAL) {
     const g = rows.filter(t => effectiveUrgency(t) === u).sort(ladderOrder)
@@ -917,7 +915,6 @@ export function runSheetGroups<T extends LadderItem>(
     groups.push({
       key: u,
       label: PLAN_URG_META[u].label,
-      sub: ctx ? `by ${fmtDeadline(urgencyDeadline(u, ctx), fmtClock)}` : undefined,
       urg: u,
       rows: g,
     })

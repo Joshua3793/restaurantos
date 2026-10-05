@@ -137,7 +137,7 @@ describe('rest rows — a resting job sits in the ladder at its ready time', () 
       mk('resting', { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(-60) }, { manualPriorityOverride: 'CLOSE' }),
       mk('aioli',   null, { manualPriorityOverride: 'CLOSE', activeMinutes: 45, passiveMinutes: 0, linkedRecipe: null }),      // startBy 915
     ], ctx, now)
-    const gs = runSheetGroups(rows, ctx)
+    const gs = runSheetGroups(rows)
     expect(gs.map(g => [g.key, g.rows.map(r => r.id)])).toEqual([
       ['CLOSE', ['overdue', 'ready', 'aioli', 'resting']],   // readyAt 330 · 420 · start-by 915 · readyAt in 3d
     ])

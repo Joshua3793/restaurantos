@@ -4,7 +4,7 @@ import {
   suggestedDraftQty, whyLabel, applyStatusToItem, draftQty,
   batchYield, batchCount, batchesToQty, suggestedBatches, fmtBatch, batchLabel,
   planDayContext, urgencyDeadline, fmtDeadline, planSchedule, stationLoad, planGroups,
-  ladderTimes, withLadderTimes, ladderOrder, runSheetGroups, isLateToStart,
+  ladderTimes, withLadderTimes, ladderOrder, runSheetGroups,
   isLiveLog, pickLiveLogs, type LiveLogRow, undoDraftFlag,
   ANY_STATION, stationKey, stationLabel, onStation, crewFor,
 } from '../prep-plan'
@@ -287,7 +287,7 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
     expect([...rows].sort(ladderOrder).map(r => r.id)).toEqual(['s', 'p', 'b', 'z', 'a'])
   })
 
-  it('sections are only the steps — a late row stays in its step', () => {
+  it('sections are only the steps, with no clock — a late row stays in its step', () => {
     const rows = withLadderTimes([
       mk('brisket', 'Smoked Brisket', 'CLOSE', 2880),   // startBy 960−2880 → 2 days ago: late
       mk('salsa', 'Corn Salsa', 'MID', 120),            // startBy 540 — in 1h30
@@ -295,25 +295,20 @@ describe('the unified ladder — the To Do reads the plan the chef posted', () =
       mk('out', 'Stock out', null, 30),                 // onHand 0 → PASS, startBy 510
       mk('ahead', 'Building ahead', null, 30, { onHand: 8 }), // TMRW
     ], ctx)
-    const gs = runSheetGroups(rows, ctx)
+    const gs = runSheetGroups(rows)
     expect(gs.map(g => [g.key, g.rows.map(r => r.id)])).toEqual([
       ['PASS',  ['out']],
       ['MID',   ['salsa']],
       ['CLOSE', ['brisket', 'aioli']],
       ['TMRW',  ['ahead']],
     ])
-    expect(isLateToStart(rows.find(r => r.id === 'brisket')!, 450, ctx)).toBe(true)
-    expect(gs[0].sub).toBe('by 09:00')
-    expect(gs[1].sub).toBe('by 11:00')
-    expect(gs[2].sub).toBe('by 16:00')
-    expect(gs[3].sub).toBe('by TMRW 09:00')
+    expect(gs.every(g => g.sub === undefined)).toBe(true)
   })
 
-  it('without a day context there are no deadlines — just the steps', () => {
+  it('without a day context the steps are the same', () => {
     const rows = withLadderTimes([mk('a', 'A', 'CLOSE', 45), mk('b', 'B', 'PASS', 30)], null)
-    const gs = runSheetGroups(rows, null)
+    const gs = runSheetGroups(rows)
     expect(gs.map(g => g.key)).toEqual(['PASS', 'CLOSE'])
-    expect(gs[0].sub).toBeUndefined()
   })
 })
 
