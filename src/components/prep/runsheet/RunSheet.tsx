@@ -9,8 +9,8 @@
 //
 // The ladder is ONE ordering, derived from the step the chef dialled in Smart
 // Prep: every posted row gets its step deadline for the day and a start-by
-// counted back from THAT (withLadderTimes), sections are "Late to start" plus
-// the four steps (runSheetGroups), and rows inside a section follow deadline →
+// counted back from THAT (withLadderTimes), sections are the four steps
+// (runSheetGroups; a late row keeps its step and wears a red "late" label), and rows inside a section follow deadline →
 // start-by → the chef's listOrder. The old Time / Priority toggle ordered by
 // `service − times` and by the 3-level priority — two numbers the planner never
 // used, which is why the To Do could not show the plan that was posted. The prototype's DSidebar (the app
@@ -252,26 +252,18 @@ export function RunSheet({
         const late = grp.filter(i => lateToStart(i, nowMin)).length
         return (
           <div key={s}>
-            <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={[late ? `${late} late to start` : null, lowStock(grp)].filter(Boolean).join(' · ') || null} />
+            <GroupHead dot="bg-ink-3" title={s} count={grp.length} sub={[late ? `${late} late` : null, lowStock(grp)].filter(Boolean).join(' · ') || null} />
             {rows(grp)}
           </div>
         )
       })
     }
-    // steps (default): late to start → NOW line → the four steps, each captioned
-    // with its deadline for the day. Rows inside follow ladderOrder.
-    const groups = runSheetGroups(todo, ctx, nowMin)
-    const lateG = groups.find(g => g.late)
-    const stepG = groups.filter(g => !g.late)
+    // steps (default): NOW line → the four steps, each captioned with its
+    // deadline for the day. Rows inside follow ladderOrder.
+    const stepG = runSheetGroups(todo, ctx)
     return (
       <>
-        {lateG && (
-          <div>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={["won't make its step unless started now", lowStock(lateG.rows)].filter(Boolean).join(' · ')} />
-            {rows(lateG.rows)}
-          </div>
-        )}
-        <div className="my-[18px]"><NowLine nowMin={nowMin} /></div>
+        <div className="mb-[18px]"><NowLine nowMin={nowMin} /></div>
         {stepG.map(g => (
           <div key={g.key}>
             <GroupHead

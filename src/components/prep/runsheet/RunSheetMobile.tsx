@@ -6,8 +6,8 @@
 // queue, kitchen mode = the step ladder, and a collapsible Done.
 //
 // Same ordering as the desktop RunSheet: every row is re-timed against its
-// STEP (withLadderTimes) and the kitchen ladder is runSheetGroups — late to
-// start, then the four steps. There is no Time / Priority toggle any more; the
+// STEP (withLadderTimes) and the kitchen ladder is runSheetGroups — the four
+// steps, a late row labelled in place. There is no Time / Priority toggle any more; the
 // hero is simply the first row of that order for the picked cook. The prototype's
 // horizontal-scrolling in-progress rail is gone: an item being worked on stays
 // in the queue as a WorkingRowMobile.
@@ -144,7 +144,7 @@ export function RunSheetMobile({
   }, [cooks.length, member, myTodo.length, todoAll.length])
 
   // Kitchen-mode badge = late-to-start count across the whole brigade.
-  // Same test as the ladder's "Late to start" section (see RunSheet.lateN).
+  // Same test as the row's red "late" label.
   const lateN = useMemo(
     () => [...todoAll, ...waitingAll].filter(i => lateToStart(i, nowMin)).length,
     [todoAll, waitingAll, nowMin],
@@ -212,21 +212,13 @@ export function RunSheetMobile({
     </div>
   )
 
-  // kitchen mode: the step ladder across the whole brigade — late to start,
-  // NOW line, then the four steps captioned with their deadline for the day.
+  // kitchen mode: the step ladder across the whole brigade — NOW line, then
+  // the four steps captioned with their deadline for the day.
   const renderKitchen = () => {
-    const groups = runSheetGroups(todoAll, ctx, nowMin)
-    const lateG = groups.find(g => g.late)
-    const stepG = groups.filter(g => !g.late)
+    const stepG = runSheetGroups(todoAll, ctx)
     return (
       <>
-        {lateG && (
-          <>
-            <GroupHead dot="bg-red" title={lateG.label} count={lateG.rows.length} sub={lowStock(lateG.rows)} />
-            {rows(lateG.rows, true)}
-          </>
-        )}
-        <div className="my-3.5"><NowLine nowMin={nowMin} /></div>
+        <div className="mb-3.5"><NowLine nowMin={nowMin} /></div>
         {stepG.map(g => (
           <div key={g.key}>
             <GroupHead dot={PLAN_URG_META[g.urg!].dotClass} title={g.label} count={g.rows.length} sub={[g.sub, lowStock(g.rows)].filter(Boolean).join(' · ') || null} />

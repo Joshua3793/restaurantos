@@ -8,7 +8,7 @@ import { draftQty, batchLabel } from '@/lib/prep-plan'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip } from './assignee'
-import { UrgencyDot, ChefNote } from './atoms'
+import { UrgencyDot, ChefNote, LateTag } from './atoms'
 import { fmtMins, fmtQty, fmtClock, runState, startBySub } from '@/lib/prep-runsheet'
 import { fmtDeadline, postedDeadlineMoved } from '@/lib/prep-plan'
 
@@ -132,6 +132,7 @@ export function RunRowMobile({
           <div className="text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0">
             {item.name}
           </div>
+          <LateTag item={item} nowMin={nowMin} />
         </div>
         <div className={`font-mono text-[9.5px] text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
           {metaText}

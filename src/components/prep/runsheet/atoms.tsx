@@ -4,7 +4,7 @@
 // tokens replace the prototype's hex palette; mono via `font-mono`.
 import { AlertTriangle, MessageSquareText } from 'lucide-react'
 import { fmtMins, fmtClock } from '@/lib/prep-runsheet'
-import { effectiveUrgency, whyLabel, fmtDeadline, postedDeadlineMoved } from '@/lib/prep-plan'
+import { effectiveUrgency, whyLabel, fmtDeadline, postedDeadlineMoved, lateToStart } from '@/lib/prep-plan'
 
 // ─── StationTag ──────────────────────────────────────────────────────────
 // Small neutral "STATION" chip (PTTag).
@@ -19,6 +19,17 @@ export function StationTag({ children }: { children: React.ReactNode }) {
 // ─── StageChip ───────────────────────────────────────────────────────────
 // "MIX · 1/5" — where a staged job is in its chain. Blue-grey when the stage
 // is unattended (the job is resting), ink+gold when hands-on.
+/** Red "late" pill beside the name — its start-by has passed and nobody has
+ *  started it. Replaces the old "Late to start" section: the row keeps its step. */
+export function LateTag({ item, nowMin }: { item: import('@/components/prep/types').PrepItemRich; nowMin: number }) {
+  if (!lateToStart(item, nowMin)) return null
+  return (
+    <span className="shrink-0 font-mono text-[9px] font-bold uppercase tracking-[0.05em] bg-red-soft text-red-text px-1.5 py-[1px] rounded-full">
+      late
+    </span>
+  )
+}
+
 export function StageChip({ label, passive }: { label: string; passive?: boolean }) {
   return (
     <span className={`font-mono text-[9px] font-semibold tracking-[0.04em] uppercase px-[6px] py-[2px] rounded-[4px] whitespace-nowrap ${

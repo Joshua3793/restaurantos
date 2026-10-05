@@ -7,7 +7,7 @@ import { Zap, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { AssigneeChip, ClaimPopover } from './assignee'
-import { StationTag, RunwayBar, UrgencyDot, DeadlineChip, ChefNote } from './atoms'
+import { StationTag, RunwayBar, UrgencyDot, DeadlineChip, ChefNote, LateTag } from './atoms'
 import { fmtClock, fmtQty, runState, startBySub } from '@/lib/prep-runsheet'
 import { draftQty, batchLabel } from '@/lib/prep-plan'
 
@@ -111,6 +111,7 @@ export function RunRow({
           >
             {item.name}
           </span>
+          <LateTag item={item} nowMin={nowMin} />
         </div>
         <div className="flex items-center gap-x-3.5 gap-y-1 flex-wrap mt-1">
           <span className="font-mono text-[11px] text-ink-3">{batch ? `${fmtQty(qty, item.unit)} · ${batch}` : fmtQty(qty, item.unit)}</span>
