@@ -45,7 +45,7 @@ function prep(s: string): string {
 const key = (kind: string, id: string) => `${kind}:${id}`
 
 /** Active candidates only; a merged one is swapped for its (active) target. */
-function resolveCandidates(all: Candidate[]): { list: Candidate[]; byKey: Map<string, Candidate> } {
+export function resolveCandidates(all: Candidate[]): { list: Candidate[]; byKey: Map<string, Candidate> } {
   const raw = new Map<string, Candidate>()
   for (const cand of all) raw.set(key(cand.kind, cand.id), cand)
 

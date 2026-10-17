@@ -94,7 +94,7 @@ const ITEM_DIM: Record<AmountItem['dimension'], UnitDimension> = {
 }
 
 /** "cloves" -> "clove", "bunches" -> "bunch". */
-function singular(word: string): string {
+export function singular(word: string): string {
   const w = word.trim().toLowerCase()
   if (/(ch|sh|x|ss)es$/.test(w)) return w.slice(0, -2)
   if (w.endsWith('s') && !w.endsWith('ss') && w.length > 1) return w.slice(0, -1)
