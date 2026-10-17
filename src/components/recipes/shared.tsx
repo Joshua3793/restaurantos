@@ -6,6 +6,7 @@ import { formatCurrency, formatUnitPrice, formatQtyUnit } from '@/lib/utils'
 import { UOM_GROUPS, getUnitGroup, convertQty, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
 import { computeBakersPercents } from '@/lib/bakers-percent'
 import { portionsPerBatch } from '@/lib/recipe-portions'
+import { ingredientNeedsQty, opensQtyEditor } from '@/lib/recipe-line'
 import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
@@ -711,7 +712,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   /** Recipe is on AVG_30D and this line's own cost came from the last price — show the contrast tag. */
   showLastPriceTag?: boolean
 }) {
-  const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
+  const [editingQty, setEditingQty] = useState(() => opensQtyEditor(ing))
   const [editingPct, setEditingPct] = useState(false)
   const [allergenOpen, setAllergenOpen] = useState(false)
   const { role } = useUser()
@@ -777,7 +778,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
     ? UOM_GROUPS.filter(g => g.label === baseUnitGroup)
     : UOM_GROUPS
 
-  const needsQty = ing.ingredientType === 'inventory' && (!ing.qtyBase || ing.qtyBase === 0)
+  const needsQty = ingredientNeedsQty(ing)
   const pctValue = isBase ? 100 : (baseIsSet ? autoPercent : (ing.recipePercent ?? null))
   const pctBarColor = isBase ? 'bg-gold' : 'bg-ink'
   const isCustom = ing.ingredientType === 'custom'
