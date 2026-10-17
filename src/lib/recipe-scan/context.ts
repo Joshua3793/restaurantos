@@ -5,7 +5,8 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { normaliseAliasText } from '@/lib/alias-text'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
-import { PRICING_SELECT, asChainItem, lineCost, pricePerBaseUnit, type ChainItem } from '@/lib/item-model'
+import { PRICING_SELECT, asChainItem } from '@/lib/item-model'
+import { lastCost, type ChainRow } from '@/lib/cost-basis'
 import { similarity } from '@/lib/recipe-match'
 import { convertQtyBridged, dimensionallyCostable } from '@/lib/uom'
 import { resolveCandidates, type Candidate } from './match'
@@ -16,8 +17,6 @@ import type { DraftData } from './types'
 
 /** A candidate as the picker shows it: plus the unit its amounts are saved in. */
 export type ScanCandidate = Candidate & { baseUnit: string }
-
-type ChainRow = Parameters<typeof asChainItem>[0]
 
 function amountItemOf(row: ChainRow): AmountItem {
   const c = asChainItem(row)
@@ -149,14 +148,18 @@ export function searchCandidates<T extends Candidate>(q: string, all: T[], limit
 
 export type LineCosts = Record<string, { lineCost: number | null; unpriced: boolean }>
 
-/** One line's cost against a priced chain; null when the amount is unknown or cannot be costed. */
-export function costOfLine(chain: ChainItem, qty: number | null, unit: string | null): number | null {
+/**
+ * One line's cost against a priced row (LAST basis, the same $/base the picker
+ * shows); null when the amount is unknown or cannot be costed against the item.
+ */
+export function costOfLine(row: ChainRow, qty: number | null, unit: string | null): number | null {
   if (qty === null || !Number.isFinite(qty)) return null
+  const chain = asChainItem(row)
   const u = unit || chain.baseUnit
   if (!dimensionallyCostable(u, chain.baseUnit, chain.eachMeasure)) return null
   const inBase = convertQtyBridged(qty, u, chain.baseUnit, chain.eachMeasure, chain.densityGPerMl)
   if (!Number.isFinite(inBase)) return null
-  return lineCost(chain, inBase, chain.baseUnit)
+  return inBase * lastCost(row)
 }
 
 /** Live cost of every line, read from the linked item's (or prep recipe's item's) current pricing. */
@@ -178,15 +181,15 @@ export async function draftCosts(d: DraftData): Promise<LineCosts> {
         })
       : Promise.resolve([]),
   ])
-  const chains = new Map<string, ChainItem>()
-  for (const it of items) chains.set(`item:${it.id}`, asChainItem(it))
-  for (const r of recipes) if (r.inventoryItem) chains.set(`recipe:${r.id}`, asChainItem(r.inventoryItem))
+  const rows = new Map<string, ChainRow>()
+  for (const it of items) rows.set(`item:${it.id}`, it)
+  for (const r of recipes) if (r.inventoryItem) rows.set(`recipe:${r.id}`, r.inventoryItem)
 
   const out: LineCosts = {}
   for (const l of d.lines) {
-    const chain = l.link ? chains.get(`${l.link.kind}:${l.link.id}`) : undefined
-    if (!chain) { out[l.key] = { lineCost: null, unpriced: false }; continue }
-    out[l.key] = { lineCost: costOfLine(chain, l.qty, l.unit), unpriced: pricePerBaseUnit(chain) === 0 }
+    const row = l.link ? rows.get(`${l.link.kind}:${l.link.id}`) : undefined
+    if (!row) { out[l.key] = { lineCost: null, unpriced: false }; continue }
+    out[l.key] = { lineCost: costOfLine(row, l.qty, l.unit), unpriced: lastCost(row) === 0 }
   }
   return out
 }
