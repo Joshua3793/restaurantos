@@ -1,7 +1,7 @@
 'use client'
 import React, { useEffect, useState, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { formatCurrency, formatUnitPrice, formatPricePerBase, CATEGORY_COLORS, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
+import { formatCurrency, formatUnitPrice, formatPricePerBase, categoryDot, PACK_UOMS, COUNT_UOMS, BASE_UNITS, PURCHASE_UNITS, QTY_UOMS, calcPricePerBaseUnit, calcConversionFactor, deriveBaseUnit, getUnitDimension, compatibleCountUnits, isMeasuredUnit } from '@/lib/utils'
 import { convertCountQtyToBase, convertBaseToCountUom, getCountableUoms, resolveCountUom, formatPurchaseDisplay } from '@/lib/count-uom'
 import { matchesPill, isCountedThisWeek, type InventoryPill } from '@/lib/inventory-pills'
 import { stockInHandQty, stockInHandValue, stockInHandKpis } from '@/lib/stock-in-hand'
@@ -1832,6 +1832,7 @@ function InventoryPageInner() {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: categoryDot(cat) }} />
                     <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.06em]">{cat}</span>
                     <span className="font-mono text-[10.5px] text-gold-2/80">· {rows.length} items{belowPar > 0 ? ` · ${belowPar} below par` : ''}</span>
                   </div>
@@ -1903,6 +1904,7 @@ function InventoryPageInner() {
                             {collapsed
                               ? <ChevronRight size={10} className="text-gold-2" />
                               : <ChevronDown size={10} className="text-gold-2" />}
+                            <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: categoryDot(cat) }} />
                             <span className="font-mono text-[11.5px] text-gold-2 font-semibold tracking-[0.02em]">{cat}</span>
                             <span className="font-mono text-[11px] text-gold-2">· {rows.length} items</span>
                           </div>

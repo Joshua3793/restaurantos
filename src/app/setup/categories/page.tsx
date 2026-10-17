@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, Check, X, Tag } from 'lucide-react'
-import { CATEGORY_COLORS } from '@/lib/utils'
+import { CategoryBadge } from '@/components/CategoryBadge'
 
 interface Category {
   id: string
@@ -107,7 +107,6 @@ export default function CategoriesPage() {
         {cats.length === 0 && <div className="text-center py-12 text-ink-4">No categories yet</div>}
         {cats.map(cat => {
           const pct = totalValue > 0 ? (cat.totalValue / totalValue) * 100 : 0
-          const colors = CATEGORY_COLORS[cat.name] || 'bg-bg-2 text-ink-2'
           return (
             <div key={cat.id} className="px-4 py-3 flex items-center gap-3">
               <Tag size={14} className="text-ink-4 shrink-0" />
@@ -126,9 +125,7 @@ export default function CategoriesPage() {
                 </>
               ) : (
                 <>
-                  <span className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-semibold w-16 justify-center shrink-0 ${colors}`}>
-                    {cat.name}
-                  </span>
+                  <span className="w-20 shrink-0"><CategoryBadge category={cat.name} /></span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-ink-3">{cat.count} item{cat.count !== 1 ? 's' : ''}</span>
