@@ -46,7 +46,7 @@ const PREP_LINKED: Record<string, any> = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const base = (id: string, over: any) => ({
-  id, name: id, type: 'PREP', categoryId: 'c', category: { name: 'c', color: null }, inventoryItemId: null,
+  id, name: id, type: 'PREP', categoryId: 'c', category: { name: 'c', color: null }, inventoryItemId: null, revenueCenterId: null,
   baseYieldQty: '1000', yieldUnit: 'g', portionSize: null, portionUnit: null, menuPrice: null, isActive: true, notes: null,
   steps: [], activeMinutes: null, passiveMinutes: null, passiveNote: null, stages: [], method: [], createdAt: new Date(), updatedAt: new Date(),
   baseIngredientId: null, prepItems: [], ...over,
@@ -172,5 +172,16 @@ describe('fetchRecipeWithCost basis', () => {
     const r = await fetchRecipeWithCost('plate', { basis: 'AVG_30D' })
     expect(r!.ingredients[0]).toMatchObject({ pricePerBaseUnit: 0.005, lineCost: 0.5, costBasis: 'LAST' })
     scanFindMany.mockReset()
+  })
+})
+
+describe('fetchRecipeWithCost carries the recipe\'s kitchen', () => {
+  it('returns revenueCenterId so the recipe panel shows the right kitchen', async () => {
+    graph.dough = base('dough', { revenueCenterId: 'rc-kitchen', ingredients: [invIng('i1', 'flour', '1000', 'g')] })
+    expect((await fetchRecipeWithCost('dough'))!.revenueCenterId).toBe('rc-kitchen')
+  })
+  it('a shared recipe returns null, not a missing field', async () => {
+    const r = await fetchRecipeWithCost('dough')
+    expect(r).toHaveProperty('revenueCenterId', null)
   })
 })
