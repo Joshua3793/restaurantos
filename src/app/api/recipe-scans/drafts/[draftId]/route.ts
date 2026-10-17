@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { rematchDraft } from '@/lib/recipe-scan/build-draft'
-import { draftCosts, loadDraftContext } from '@/lib/recipe-scan/context'
+import { draftCosts, loadDraftContext, type ScanCandidate } from '@/lib/recipe-scan/context'
 import { isDraftData } from '@/lib/recipe-scan/save-rules'
 import type { DraftData } from '@/lib/recipe-scan/types'
 
@@ -30,7 +30,9 @@ async function guard(): Promise<NextResponse | null> {
 
 // GET /api/recipe-scans/drafts/[draftId] — the draft to review, re-matched on
 // load (stale links dropped, a sibling saved since gets linked), with live
-// line costs and the scan's files for the original viewer.
+// line costs, the scan's files for the original viewer, what each linked
+// item/prep is (`links`, keyed `kind:id`: its unit, how it's bought) and the
+// PREP recipe names already taken (`existingNames`, for the Save blockers).
 export async function GET(_req: NextRequest, { params }: { params: { draftId: string } }) {
   const denied = await guard()
   if (denied) return denied
@@ -40,6 +42,8 @@ export async function GET(_req: NextRequest, { params }: { params: { draftId: st
   if (!isDraftData(draft.data)) return NextResponse.json({ error: 'This draft is damaged — scan the recipe again.' }, { status: 500 })
 
   let data: DraftData = draft.data
+  const links: Record<string, { baseUnit: string | null; boughtAs: string; supplier: string | null; amount: ScanCandidate['amount'] }> = {}
+  let existingNames: string[] = []
   if (draft.status === 'OPEN') {
     const ctx = await loadDraftContext({
       revenueCenterId: draft.scan.revenueCenterId,
@@ -53,11 +57,18 @@ export async function GET(_req: NextRequest, { params }: { params: { draftId: st
         data: { data: next as unknown as Prisma.InputJsonValue },
       })
     }
+    const byKey = new Map((ctx.candidates as ScanCandidate[]).map(c => [`${c.kind}:${c.id}`, c]))
+    for (const l of data.lines) {
+      if (!l.link) continue
+      const c = byKey.get(`${l.link.kind}:${l.link.id}`)
+      if (c) links[`${c.kind}:${c.id}`] = { baseUnit: c.baseUnit, boughtAs: c.boughtAs, supplier: c.supplier, amount: c.amount }
+    }
+    existingNames = (await prisma.recipe.findMany({ where: { type: 'PREP' }, select: { name: true } })).map(r => r.name)
   }
 
   const costs = await draftCosts(data)
   return NextResponse.json(
-    { ...draft, data, costs },
+    { ...draft, data, costs, links, existingNames },
     { headers: { 'Cache-Control': 'no-store' } },
   )
 }

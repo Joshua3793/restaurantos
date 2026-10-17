@@ -16,8 +16,12 @@ import { rematchDraft, type DraftContext } from './build-draft'
 import { isDraftData } from './save-rules'
 import type { DraftData } from './types'
 
-/** A candidate as the picker shows it: plus the unit its amounts are saved in. */
-export type ScanCandidate = Candidate & { baseUnit: string }
+/**
+ * A candidate as the picker shows it: plus the unit its amounts are saved in,
+ * and what an amount converts into (so a pick on the review screen converts
+ * "200 ml" or "3 cloves" exactly as the matcher would).
+ */
+export type ScanCandidate = Candidate & { baseUnit: string; amount: AmountItem | null }
 
 function amountItemOf(row: ChainRow): AmountItem {
   const c = asChainItem(row)
@@ -70,6 +74,7 @@ export async function loadCandidates(): Promise<{ candidates: ScanCandidate[]; i
       boughtAs: formatPurchaseDisplay(it),
       supplier: it.supplierPrices[0]?.supplier.name ?? null,
       baseUnit: it.baseUnit,
+      amount: amountItemOf(it),
     })
     amountItems.set(it.id, amountItemOf(it))
   }
@@ -80,6 +85,7 @@ export async function loadCandidates(): Promise<{ candidates: ScanCandidate[]; i
       boughtAs: `PREP · ${r.category.name}`,
       supplier: null,
       baseUnit: r.inventoryItem?.baseUnit ?? r.yieldUnit,
+      amount: r.inventoryItem ? amountItemOf(r.inventoryItem) : null,
     })
     if (r.inventoryItem) amountItems.set(r.id, amountItemOf(r.inventoryItem))
   }
