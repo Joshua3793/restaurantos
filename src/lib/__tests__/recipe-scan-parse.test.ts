@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import * as XLSX from 'xlsx'
-import { parseExtraction, NotARecipeError } from '../recipe-scan/parse'
+import { parseExtraction, requireRecipes, NotARecipeError, ScanTooLongError } from '../recipe-scan/parse'
 import { sheetToText } from '../recipe-scan/to-text'
 
 const step = (over: Record<string, unknown> = {}) => ({
@@ -32,7 +32,7 @@ describe('parseExtraction', () => {
     expect(out[1].ingredients[0].estimate).toBeNull()
   })
 
-  it('drops empty recipes and throws NotARecipeError when none left', () => {
+  it('drops empty recipes and returns [] when none are left', () => {
     const kept = parseExtraction({ recipes: [
       { name: 'Empty', ingredients: [], steps: [] },
       { name: 'Real', ingredients: [{ raw: '1 egg', qty: 1, unit: 'each', name: 'egg' }], steps: [] },
@@ -41,7 +41,6 @@ describe('parseExtraction', () => {
     expect(parseExtraction({ recipes: [{ name: 'Empty', ingredients: [], steps: [] }] })).toEqual([])
     expect(parseExtraction(null)).toEqual([])
     expect(parseExtraction({})).toEqual([])
-    expect(NotARecipeError.prototype).toBeInstanceOf(Error)
   })
 
   it('clamps minutes and coerces numeric strings', () => {
@@ -65,6 +64,27 @@ describe('parseExtraction', () => {
       name: 'X', ingredients: [{ name: 'butter', qty: 1, unit: 'kg' }], steps: [],
     }] })
     expect(r.ingredients[0].raw).toBe('butter')
+  })
+})
+
+describe('requireRecipes', () => {
+  const good = { recipes: [{ name: 'Real', ingredients: [{ raw: '1 egg', qty: 1, unit: 'each', name: 'egg' }], steps: [] }] }
+
+  it('throws NotARecipeError for an empty list or a missing tool block', () => {
+    expect(() => requireRecipes({ recipes: [] }, 'tool_use')).toThrow(NotARecipeError)
+    expect(() => requireRecipes(undefined, 'tool_use')).toThrow(NotARecipeError)
+    expect(() => requireRecipes({ recipes: [{ name: 'E', ingredients: [], steps: [] }] })).toThrow(NotARecipeError)
+  })
+
+  it('throws ScanTooLongError on a cut-off answer, whatever the input', () => {
+    expect(() => requireRecipes(good, 'max_tokens')).toThrow(ScanTooLongError)
+    expect(() => requireRecipes(undefined, 'max_tokens')).toThrow(ScanTooLongError)
+    expect(() => requireRecipes({ recipes: [] }, 'max_tokens')).toThrow('Too much to read in one go')
+  })
+
+  it('returns recipes for a valid payload', () => {
+    expect(requireRecipes(good, 'tool_use').map(r => r.name)).toEqual(['Real'])
+    expect(requireRecipes(good, null)).toHaveLength(1)
   })
 })
 

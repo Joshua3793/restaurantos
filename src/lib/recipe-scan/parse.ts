@@ -9,6 +9,13 @@ export class NotARecipeError extends Error {
   }
 }
 
+export class ScanTooLongError extends Error {
+  constructor(message = 'Too much to read in one go — try fewer pages.') {
+    super(message)
+    this.name = 'ScanTooLongError'
+  }
+}
+
 const MAX_MINUTES = 1440
 
 function str(v: unknown): string {
@@ -94,4 +101,15 @@ export function parseExtraction(input: unknown): ExtractedRecipe[] {
     })
   }
   return out
+}
+
+/**
+ * The decision after the reader answers: a cut-off answer (max_tokens) is
+ * never trusted, and an answer with no usable recipe is "not a recipe".
+ */
+export function requireRecipes(input: unknown, stopReason?: string | null): ExtractedRecipe[] {
+  if (stopReason === 'max_tokens') throw new ScanTooLongError()
+  const recipes = parseExtraction(input)
+  if (recipes.length === 0) throw new NotARecipeError()
+  return recipes
 }

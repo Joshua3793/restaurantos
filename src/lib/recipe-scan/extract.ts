@@ -3,7 +3,7 @@
 // (thinking is incompatible with a forced tool_choice).
 import Anthropic from '@anthropic-ai/sdk'
 import { compressImageForClaude, resolveAnthropicKey } from '@/lib/invoice-ocr'
-import { NotARecipeError, parseExtraction } from './parse'
+import { NotARecipeError, requireRecipes } from './parse'
 import type { ExtractedRecipe } from './types'
 
 export const RECIPE_SCAN_MODEL = 'claude-sonnet-5-5'
@@ -91,7 +91,7 @@ const RECORD_RECIPES_TOOL = {
   },
 }
 
-/** Reads photos, a PDF and/or pasted text. Throws NotARecipeError when nothing usable comes back. */
+/** Reads photos, a PDF and/or pasted text. Throws ScanTooLongError when the answer was cut off, NotARecipeError when nothing usable comes back. */
 export async function extractRecipes(
   src: { images?: Buffer[]; pdf?: Buffer; text?: string },
 ): Promise<ExtractedRecipe[]> {
@@ -127,7 +127,6 @@ export async function extractRecipes(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const block = (message.content as any[]).find(b => b.type === 'tool_use' && b.name === 'record_recipes')
-  const recipes = parseExtraction(block?.input)
-  if (recipes.length === 0) throw new NotARecipeError()
-  return recipes
+  // Throws ScanTooLongError on a cut-off answer, NotARecipeError when empty.
+  return requireRecipes(block?.input, message.stop_reason)
 }
