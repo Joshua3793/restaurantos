@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe } from '@/lib/recipeCosts'
+import { computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe, unionAllergens } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
-import { PRICING_SELECT, dimensionOf } from '@/lib/item-model'
+import { PRICING_SELECT } from '@/lib/item-model'
+import { linkPrepInventoryItem } from '@/lib/prep-recipe-item'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopedRcWhere, resolveLocationRcIds, assertRcWritable } from '@/lib/rc-scope'
@@ -187,10 +188,7 @@ export async function GET(req: NextRequest) {
       foodCostPct,
       dimensionConflicts,
       usedInCount: recipe._count.usedInRecipes,
-      allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => [
-        ...(ing.inventoryItem?.allergens ?? []),
-        ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
-      ]))),
+      allergens: unionAllergens(ingredients),
       basisSummary,
     })
   }
@@ -262,34 +260,8 @@ export async function POST(req: NextRequest) {
 
   // Auto-sync PREP recipes to Inventory
   if (type === 'PREP') {
-    const existing = await prisma.inventoryItem.findFirst({
-      where: { itemName: name, category: 'PREPD' },
-    })
-
-    const invItem = existing
-      ? await prisma.inventoryItem.update({
-          where: { id: existing.id },
-          data: { baseUnit: canonYield, lastUpdated: new Date() },
-        })
-      : await prisma.inventoryItem.create({
-          data: {
-            itemName: name,
-            category: 'PREPD',
-            baseUnit: canonYield,
-            stockOnHand: 0,
-            // Chain placeholder — syncPrepToInventory fills in the real cost/yield.
-            dimension: dimensionOf(canonYield),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            packChain: [{ unit: canonYield, per: parseFloat(baseYieldQty) || 1 }] as any,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            pricing: { mode: 'PACK', purchasePrice: 0 } as any,
-            countUnit: canonYield,
-          },
-        })
-
-    await prisma.recipe.update({
-      where: { id: recipe.id },
-      data: { inventoryItemId: invItem.id },
+    const invItem = await linkPrepInventoryItem(prisma, {
+      recipeId: recipe.id, name, yieldUnit: canonYield, baseYieldQty: parseFloat(baseYieldQty),
     })
 
     // Initialise the linked item from the recipe (near no-op at create — no ingredients yet —

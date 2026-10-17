@@ -7,7 +7,7 @@ const OCR_MODEL = 'claude-sonnet-4-6'
 
 // Claude Code's shell sets ANTHROPIC_API_KEY="" which dotenv won't override.
 // Fall back to reading the .env file directly so local dev always works.
-function resolveAnthropicKey(): string {
+export function resolveAnthropicKey(): string {
   if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY
   try {
     const envPath = path.resolve(process.cwd(), '.env')
@@ -38,7 +38,7 @@ const API_IMAGE_LIMIT = 5 * 1024 * 1024
 
 // Claude API limit is 5MB per image. Phone photos are often 8–15MB.
 // Compress using sharp (native, excluded from webpack via serverExternalPackages).
-async function compressImageForClaude(
+export async function compressImageForClaude(
   base64Data: string,
   learning = false
 ): Promise<{ data: string; mediaType: 'image/jpeg' }> {

@@ -259,6 +259,9 @@ model Recipe {
   // One Method, with waits: MethodStep[] (see src/lib/recipe-method.ts). The
   // run-sheet chain is DERIVED from it (methodToChain). null = no method authored.
   method          Json?
+  // Recipe Scan provenance: the scan this recipe was saved from (null = typed in by hand).
+  sourceScanId    String?
+  sourceScan      RecipeScan?        @relation(fields: [sourceScanId], references: [id], onDelete: SetNull)
   prepItems       PrepItem[]         @relation("PrepItemRecipe")
   category        RecipeCategory     @relation(fields: [categoryId], references: [id])
   inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
@@ -281,9 +284,67 @@ model RecipeIngredient {
   notes           String?
   customName      String?
   recipePercent   Decimal?
+  allergens       String[]       @default([])
   inventoryItem   InventoryItem? @relation("RecipeIngredientInventory", fields: [inventoryItemId], references: [id])
   linkedRecipe    Recipe?        @relation("RecipeAsIngredient", fields: [linkedRecipeId], references: [id])
   recipe          Recipe         @relation("RecipeToIngredients", fields: [recipeId], references: [id], onDelete: Cascade)
+}
+
+// ── Recipe Scan: photo/PDF/Word/Excel -> costed PREP recipe ──────────────────
+model RecipeScan {
+  id              String            @id @default(uuid())
+  status          String            @default("UPLOADING") // UPLOADING | READING | READY | ERROR
+  error           String?
+  createdById     String
+  revenueCenterId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  files           RecipeScanFile[]
+  drafts          RecipeScanDraft[]
+  recipes         Recipe[]
+}
+
+model RecipeScanFile {
+  id        String     @id @default(uuid())
+  scanId    String
+  fileName  String
+  fileType  String
+  fileUrl   String
+  sortOrder Int        @default(0)
+  scan      RecipeScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
+
+model RecipeScanDraft {
+  id            String     @id @default(uuid())
+  scanId        String
+  index         Int
+  title         String
+  data          Json // DraftData
+  status        String     @default("OPEN") // OPEN | SAVED | DISCARDED
+  savedRecipeId String?    @unique
+  updatedAt     DateTime   @updatedAt
+  scan          RecipeScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
+
+// Recipe wording ("sherry vin") learned as an item/recipe — recipe wording, not supplier wording.
+model RecipeTextAlias {
+  id              String   @id @default(cuid())
+  text            String   @unique // normaliseAliasText(raw)
+  inventoryItemId String?
+  linkedRecipeId  String?
+  useCount        Int      @default(1)
+  lastUsed        DateTime @default(now())
+}
+
+// "1 clove of Garlic Peeled = 5 g"
+model ItemCountMeasure {
+  id              String  @id @default(cuid())
+  inventoryItemId String
+  word            String // singular, lower-case: "clove", "bunch", "handful"
+  qty             Decimal
+  unit            String // a canonical unit in the item's dimension
+
+  @@unique([inventoryItemId, word])
 }
 
 model CountSession {
