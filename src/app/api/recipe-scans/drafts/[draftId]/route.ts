@@ -20,6 +20,16 @@ const DRAFT_SELECT = {
   },
 } as const
 
+/**
+ * The autosave reply: the draft without the scan's files. When the cloud upload
+ * failed the files are data: URLs (megabytes), and the review screen only reads
+ * `costs` from this reply — the original viewer gets the files from GET.
+ */
+const DRAFT_PATCH_SELECT = {
+  ...DRAFT_SELECT,
+  scan: { select: { id: true, status: true, revenueCenterId: true, drafts: DRAFT_SELECT.scan.select.drafts } },
+} as const
+
 async function guard(): Promise<NextResponse | null> {
   try { await requireSession('MANAGER'); return null }
   catch (e) {
@@ -74,7 +84,8 @@ export async function GET(_req: NextRequest, { params }: { params: { draftId: st
 }
 
 // PATCH /api/recipe-scans/drafts/[draftId] { data: DraftData } — autosave from
-// the review screen. Only an OPEN draft can change.
+// the review screen. Only an OPEN draft can change. The reply has the costs and
+// the draft, but not the scan's files (see DRAFT_PATCH_SELECT).
 export async function PATCH(req: NextRequest, { params }: { params: { draftId: string } }) {
   const denied = await guard()
   if (denied) return denied
@@ -96,7 +107,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { draftId: s
     return NextResponse.json({ error: 'This draft is already saved or discarded.' }, { status: 409 })
   }
 
-  const draft = await prisma.recipeScanDraft.findUnique({ where: { id: params.draftId }, select: DRAFT_SELECT })
+  const draft = await prisma.recipeScanDraft.findUnique({ where: { id: params.draftId }, select: DRAFT_PATCH_SELECT })
   const costs = await draftCosts(data)
   return NextResponse.json({ ...draft, data, costs }, { headers: { 'Cache-Control': 'no-store' } })
 }
