@@ -73,6 +73,12 @@ export function parseQty(text: string): number | null {
     (d ? `${d} ` : '') + UNICODE_FRACTIONS[f])
   const first = readOne(s)
   if (!first) return null
+  // "1-1/2" is one and a half, not a range from 1 to 1/2.
+  const consumed = s.slice(0, s.length - first.rest.length)
+  const hy = /^-(\d+)\/(\d+)(?!\d)/.exec(first.rest)
+  if (hy && /^\d+$/.test(consumed) && Number(hy[2]) > 0) {
+    return fin(first.value + Number(hy[1]) / Number(hy[2]))
+  }
   const m = /^\s*(?:-|–|—|to)\s*(.*)$/.exec(first.rest)
   if (m) {
     const second = readOne(m[1])
@@ -123,8 +129,9 @@ function unitDef(unit: string): { canon: string; dim: UnitDimension } | null {
 }
 
 function bridgeOf(item: AmountItem): { qty: number; unit: string } | null {
-  return validQty(item.eachMeasureQty) && item.eachMeasureUnit
-    ? { qty: item.eachMeasureQty, unit: item.eachMeasureUnit }
+  const u = item.eachMeasureUnit ? unitDef(item.eachMeasureUnit) : null
+  return validQty(item.eachMeasureQty) && u
+    ? { qty: item.eachMeasureQty, unit: u.canon }
     : null
 }
 
@@ -142,17 +149,17 @@ function intoItem(
   const from = unitDef(unit)
   const to = unitDef(item.baseUnit)
   if (!from || !to) return { ok: false, qty: 0, crossed: false }
-  if (!dimensionallyCostable(unit, item.baseUnit, bridge)) return { ok: false, qty: 0, crossed: false }
+  if (!dimensionallyCostable(from.canon, to.canon, bridge)) return { ok: false, qty: 0, crossed: false }
   const density = item.densityGPerMl && item.densityGPerMl > 0 ? item.densityGPerMl : null
   const measured = (d: UnitDimension) => d === 'weight' || d === 'volume'
   const crossed = measured(from.dim) && measured(to.dim) && from.dim !== to.dim && !density
-  const out = convertQtyBridged(qty, unit, item.baseUnit, bridge, density)
+  const out = convertQtyBridged(qty, from.canon, to.canon, bridge, density)
   if (!Number.isFinite(out)) return { ok: false, qty: 0, crossed: false }
   return { ok: true, qty: tidy(out), crossed }
 }
 
 function crossReason(unit: string, item: AmountItem): string {
-  const u = canonicalUom(unit) || unit
+  const u = unitDef(unit)?.canon ?? (canonicalUom(unit) || unit)
   return item.dimension === 'MASS'
     ? `${u} for a weighed item — check`
     : `${u} for a measured-volume item — check`
@@ -187,7 +194,7 @@ export function resolveAmount(
     // Measured amount for a counted item with no each-measure to go through.
     return {
       qty: null, unit: null, status: 'CHECK',
-      reason: `${num(qty)} ${rawUnit} — this item is counted, how many?`,
+      reason: `${num(qty)} ${def.canon} — this item is counted, how many?`,
     }
   }
 
@@ -225,7 +232,7 @@ export function resolveAmount(
     if (r.ok) {
       return {
         qty: r.qty, unit: item.baseUnit, status: 'CHECK',
-        reason: `${label} — about ${num(est.qty)} ${canonicalUom(est.unit) || est.unit}, check`,
+        reason: `${label} — about ${num(est.qty)} ${unitDef(est.unit)?.canon ?? est.unit}, check`,
       }
     }
   }

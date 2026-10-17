@@ -24,6 +24,14 @@ describe('parseQty', () => {
     expect(parseQty('')).toBeNull()
     expect(parseQty('Infinity')).toBeNull()
   })
+  it('reads 1-1/2 as one and a half, but keeps fraction ranges', () => {
+    expect(parseQty('1-1/2')).toBe(1.5)
+    expect(parseQty('1-1/2 cups')).toBe(1.5)
+    expect(parseQty('2-3/4')).toBe(2.75)
+    expect(parseQty('1/2-3/4')).toBe(0.625)
+    expect(parseQty('2-3')).toBe(2.5)
+    expect(parseQty('1-1/0')).toBe(1)
+  })
   it('a dangling range keeps the first number', () => {
     expect(parseQty('2-')).toBe(2)
   })
@@ -116,4 +124,34 @@ describe('resolveAmount', () => {
   it('an unmatched line with no amount is still NO_MATCH', () =>
     expect(resolveAmount({ raw: 'salt', qty: null, unit: null, name: 'salt' }, null, null))
       .toEqual({ qty: null, unit: null, status: 'NO_MATCH', reason: null }))
+
+  it('plural measure units convert like their singular on a volume item', () => {
+    expect(resolveAmount({ raw: '2 tablespoons oil', qty: 2, unit: 'tablespoons', name: 'oil' }, litre, null))
+      .toEqual({ qty: 29.5736, unit: 'ml', status: 'MATCHED', reason: null })
+    expect(resolveAmount({ raw: '2 teaspoons oil', qty: 2, unit: 'teaspoons', name: 'oil' }, litre, null))
+      .toEqual({ qty: 9.85784, unit: 'ml', status: 'MATCHED', reason: null })
+    expect(resolveAmount({ raw: '250 millilitres oil', qty: 250, unit: 'millilitres', name: 'oil' }, litre, null))
+      .toEqual({ qty: 250, unit: 'ml', status: 'MATCHED', reason: null })
+  })
+  it('plural measure units on an item with an each-measure are not read as counts', () => {
+    // onion: 150 g each. a volume on a weighed item is the flagged 1:1 passthrough, never 300 g.
+    expect(resolveAmount({ raw: '2 tablespoons parsley', qty: 2, unit: 'tablespoons', name: 'parsley' }, onion, null))
+      .toEqual({ qty: 2, unit: 'g', status: 'CHECK', reason: 'tbsp for a weighed item — check' })
+    expect(resolveAmount({ raw: '2 teaspoons parsley', qty: 2, unit: 'teaspoons', name: 'parsley' }, onion, null).status).toBe('CHECK')
+    expect(resolveAmount({ raw: '100 millilitres x', qty: 100, unit: 'millilitres', name: 'x' }, onion, null))
+      .toEqual({ qty: 100, unit: 'g', status: 'CHECK', reason: 'ml for a weighed item — check' })
+  })
+  it('plural measure units on a counted item with an each-measure do not use the bridge wrongly', () => {
+    const r = resolveAmount({ raw: '2 tablespoons x', qty: 2, unit: 'tablespoons', name: 'x' }, egg, null)
+    expect(r).toEqual({ qty: null, unit: null, status: 'CHECK', reason: '2 tbsp — this item is counted, how many?' })
+  })
+  it('plural units in a learned measure or estimate convert too', () => {
+    expect(resolveAmount({ raw: '2 cans', qty: 2, unit: 'can', name: 'x' }, litre, { word: 'can', qty: 2, unit: 'tablespoons' }))
+      .toEqual({ qty: 59.1472, unit: 'ml', status: 'MATCHED', reason: null })
+    expect(resolveAmount({ raw: '1 bunch', qty: 1, unit: 'bunch', name: 'x', estimate: { qty: 2, unit: 'tablespoons' } }, litre, null))
+      .toEqual({ qty: 29.5736, unit: 'ml', status: 'CHECK', reason: '1 bunch — about 2 tbsp, check' })
+  })
+  it('a plural unit in the item each-measure is understood', () =>
+    expect(resolveAmount({ raw: '2 onions', qty: 2, unit: 'each', name: 'onion' }, { ...onion, eachMeasureUnit: 'grams' }, null))
+      .toEqual({ qty: 300, unit: 'g', status: 'MATCHED', reason: null }))
 })
