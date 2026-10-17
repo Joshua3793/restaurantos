@@ -336,6 +336,30 @@ describe('custom line allergens reach the recipe', () => {
   })
 })
 
+describe('fetchRecipeWithCost — scanned recipes', () => {
+  // The recipe panel loads from GET /api/recipes/[id], which returns this
+  // hand-built object; the "See original" button reads sourceScanId off it.
+  const base = {
+    id: 'r1', name: 'Romesco', type: 'PREP', categoryId: 'c1', category: { name: 'Sauces', color: null },
+    inventoryItemId: null, baseYieldQty: 1000, yieldUnit: 'g', portionSize: null, portionUnit: null,
+    menuPrice: null, isActive: true, notes: null, steps: [], activeMinutes: null, passiveMinutes: null,
+    passiveNote: null, stages: null, method: null, createdAt: new Date(), updatedAt: new Date(),
+    baseIngredientId: null, prepItems: [], ingredients: [],
+  }
+
+  it('carries sourceScanId so the See original button can show', async () => {
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue({ ...base, sourceScanId: 'scan1' }) } })
+    const r = await fetchRecipeWithCost('r1')
+    expect(r!.sourceScanId).toBe('scan1')
+  })
+
+  it('a recipe that was not scanned has sourceScanId null', async () => {
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue({ ...base, sourceScanId: null }) } })
+    const r = await fetchRecipeWithCost('r1')
+    expect(r!.sourceScanId).toBeNull()
+  })
+})
+
 describe('computeRecipeCost — unpriced lines', () => {
   const freeItem = { ...oilItem, itemName: 'Smoked Paprika', pricing: { mode: 'PACK', purchasePrice: 0 } }
 

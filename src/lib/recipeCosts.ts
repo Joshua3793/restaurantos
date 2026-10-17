@@ -96,6 +96,9 @@ export interface RecipeWithCost {
   prep: RecipePrep | null
   /** Which basis this recipe's lines were costed on, and how the lines split. */
   basisSummary: { basis: CostBasis; avgLines: number; lastLines: number }
+  /** The recipe scan this recipe was saved from (null = typed by hand). The
+   *  recipe panel's "See original" button reads it. */
+  sourceScanId: string | null
 }
 
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
@@ -520,6 +523,7 @@ export async function fetchRecipeWithCost(
         }
       : null,
     basisSummary,
+    sourceScanId: recipe.sourceScanId ?? null,
   }
 
   ctx?.memo.set(id, result)
