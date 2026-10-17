@@ -1,5 +1,6 @@
 // Recipe Scan: read photos / a PDF / pasted text with Claude and return
-// structured recipes. One call, one tool. Claude Sonnet 5.5 rejects a forced
+// structured recipes. One call, one tool (plus at most one re-read when a
+// method comes back empty). Claude Sonnet 5.5 rejects a forced
 // tool_choice ("tool"/"any" → 400), so the choice is "auto" and the system
 // prompt + closing instruction tell it to always call record_recipes; a reply
 // without the tool call reads as "no recipe" (requireRecipes). The tool is
@@ -109,7 +110,7 @@ export const RECORD_RECIPES_TOOL = {
   },
 }
 
-/** Reads photos, a PDF and/or pasted text. Throws ScanTooLongError when the answer was cut off, NotARecipeError when nothing usable comes back. */
+/** Reads photos, a PDF and/or pasted text. Throws ScanTooLongError when the answer was cut off, NotARecipeError when nothing usable comes back. A recipe read with ingredients but no method is re-read once. */
 export async function extractRecipes(
   src: { images?: Buffer[]; pdf?: Buffer; text?: string },
 ): Promise<ExtractedRecipe[]> {
@@ -132,6 +133,47 @@ export async function extractRecipes(
   content.push({ type: 'text', text: 'Record every recipe above with record_recipes.' })
 
   const client = new Anthropic({ apiKey })
+  const first = await readOnce(client, content)
+  // Throws ScanTooLongError on a cut-off answer, NotARecipeError when empty.
+  const recipes = requireRecipes(first.input, first.stopReason)
+
+  // The reader sometimes records the ingredients and drops the whole method.
+  // Ask once more, naming the recipes, and keep whichever read has more steps.
+  const missing = recipes.filter(r => r.ingredients.length > 0 && r.steps.length === 0)
+  if (missing.length === 0) return recipes
+  console.warn(`[recipe-scan] no method read for ${missing.length} recipe(s); asking once more`)
+  let again: ExtractedRecipe[]
+  try {
+    const second = await readOnce(client, [...content, { type: 'text', text: missingStepsNote(missing) }])
+    again = requireRecipes(second.input, second.stopReason)
+  } catch (e) {
+    console.warn(`[recipe-scan] second read failed, keeping the first: ${e instanceof Error ? e.message : String(e)}`)
+    return recipes
+  }
+  return keepMoreSteps(recipes, again)
+}
+
+export function missingStepsNote(missing: ExtractedRecipe[]): string {
+  const names = missing.map(r => `"${r.name}"`).join(', ')
+  return `Your last reading recorded no method steps for ${names}. Look again for the method: record every recipe again with record_recipes and include every method step the files give. Do not invent steps that are not there.`
+}
+
+const nameKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+
+/** Per recipe of the first read, the second read's version when it has more steps (matched by name, else by position when both reads found the same number). */
+export function keepMoreSteps(first: ExtractedRecipe[], second: ExtractedRecipe[]): ExtractedRecipe[] {
+  const used = new Set<number>()
+  return first.map((r, i) => {
+    let j = second.findIndex((s, k) => !used.has(k) && nameKey(s.name) === nameKey(r.name))
+    if (j < 0 && second.length === first.length && !used.has(i)) j = i
+    if (j < 0) return r
+    used.add(j)
+    return second[j].steps.length > r.steps.length ? second[j] : r
+  })
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readOnce(client: Anthropic, content: any[]): Promise<{ input: unknown; stopReason: string | null }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const message: any = await client.messages.stream({
     model: RECIPE_SCAN_MODEL,
@@ -150,6 +192,5 @@ export async function extractRecipes(
     // out of room (max_tokens). Log it so drift away from the tool shows up.
     console.warn(`[recipe-scan] reply had no record_recipes call (stop_reason: ${message.stop_reason ?? 'unknown'})`)
   }
-  // Throws ScanTooLongError on a cut-off answer, NotARecipeError when empty.
-  return requireRecipes(block?.input, message.stop_reason)
+  return { input: block?.input, stopReason: message.stop_reason ?? null }
 }

@@ -249,7 +249,9 @@ export function MethodReview({ method, guessed, onChange }: Props) {
       </div>
 
       {method.length === 0 && (
-        <p className="px-4 py-5 text-[13px] text-ink-3">No method was read from the page. Add the steps, or save without one.</p>
+        <div role="status" className="mx-3 md:mx-4 my-3 px-3 py-2.5 rounded-[10px] bg-gold-soft text-gold-2 text-[13px] font-medium">
+          No method was read — add the steps, or discard and scan again.
+        </div>
       )}
 
       {runs.map((run, r) => (
