@@ -68,6 +68,8 @@ export interface RecipeWithCost {
   categoryName: string
   categoryColor: string | null
   inventoryItemId: string | null
+  /** The kitchen the recipe belongs to; null = shared by all. The recipe panel's Revenue Center select reads it. */
+  revenueCenterId: string | null
   baseYieldQty: number
   yieldUnit: string
   portionSize: number | null
@@ -489,6 +491,7 @@ export async function fetchRecipeWithCost(
     categoryName: recipe.category.name,
     categoryColor: recipe.category.color,
     inventoryItemId: recipe.inventoryItemId,
+    revenueCenterId: recipe.revenueCenterId ?? null,
     baseYieldQty: Number(recipe.baseYieldQty),
     yieldUnit: recipe.yieldUnit,
     portionSize: recipe.portionSize !== null ? Number(recipe.portionSize) : null,
