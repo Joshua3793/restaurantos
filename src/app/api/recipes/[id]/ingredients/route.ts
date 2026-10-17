@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { resyncPrepRecipe } from '@/lib/recipeCosts'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
+import { requireSession, AuthError } from '@/lib/auth'
+import { parseAllergenKeys } from '@/lib/allergens'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json()
-  const { inventoryItemId, linkedRecipeId, qtyBase, unit, notes, recipePercent, customName } = body
+  const { inventoryItemId, linkedRecipeId, qtyBase, unit, notes, recipePercent, customName, allergens } = body
 
   const hasInv = !!inventoryItemId
   const hasLinked = !!linkedRecipeId
@@ -20,6 +22,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { error: 'Provide exactly one of inventoryItemId, linkedRecipeId, or customName' },
       { status: 400 }
     )
+  }
+
+  // Hand-tagged allergens: custom lines only (a linked line inherits its item's),
+  // and only MANAGER+ may write them. This route has no auth for its other
+  // fields today — that is left exactly as it was; only this field is gated.
+  let allergenKeys: string[] = []
+  if (allergens !== undefined) {
+    try { await requireSession('MANAGER') }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+    if (!hasCustom) {
+      return NextResponse.json({ error: 'allergens can only be set on a custom line' }, { status: 400 })
+    }
+    const parsed = parseAllergenKeys(allergens)
+    if (!parsed) return NextResponse.json({ error: 'allergens must be an array of known allergen names' }, { status: 400 })
+    allergenKeys = parsed
   }
 
   // Custom lines carry a free-form unit and are never costed → skip UOM validation.
@@ -44,6 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       inventoryItemId: inventoryItemId || null,
       linkedRecipeId: linkedRecipeId || null,
       customName: hasCustom ? customName.trim() : null,
+      allergens: allergenKeys,
       qtyBase: qtyBase !== undefined && qtyBase !== null && qtyBase !== '' ? parseFloat(qtyBase) : 0,
       unit: storedUnit,
       sortOrder,

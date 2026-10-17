@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { resyncPrepRecipe } from '@/lib/recipeCosts'
 import { assertKnownUnit, UnitError } from '@/lib/uom'
+import { requireSession, AuthError } from '@/lib/auth'
+import { parseAllergenKeys } from '@/lib/allergens'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,7 +12,7 @@ export async function PATCH(
   { params }: { params: { id: string; ingredientId: string } }
 ) {
   const body = await req.json()
-  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId, customName } = body
+  const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId, customName, allergens } = body
 
   // Load the existing row to know whether it's a custom line (free-form unit) and
   // whether this PATCH is promoting it to a costed line.
@@ -34,6 +36,24 @@ export async function PATCH(
     if (!trimmed) return NextResponse.json({ error: 'customName cannot be empty' }, { status: 400 })
   }
 
+  // Hand-tagged allergens: custom lines only (a linked line inherits its item's —
+  // rejected with 400 rather than silently dropped), MANAGER+ only. The route's
+  // other fields keep their existing (unauthenticated) behaviour.
+  let allergenKeys: string[] | undefined
+  if (allergens !== undefined) {
+    try { await requireSession('MANAGER') }
+    catch (e) {
+      if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+    if (!isCustomAfter) {
+      return NextResponse.json({ error: 'allergens can only be set on a custom line' }, { status: 400 })
+    }
+    const parsed = parseAllergenKeys(allergens)
+    if (!parsed) return NextResponse.json({ error: 'allergens must be an array of known allergen names' }, { status: 400 })
+    allergenKeys = parsed
+  }
+
   // Validate the unit only for costed lines. Custom lines store the unit raw.
   let unitToStore: string | undefined
   if (unit !== undefined) {
@@ -54,6 +74,10 @@ export async function PATCH(
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(recipePercent !== undefined ? { recipePercent: recipePercent !== null ? parseFloat(recipePercent) : null } : {}),
       ...(customName !== undefined && !promoting ? { customName: customName.trim() } : {}),
+      ...(allergenKeys !== undefined ? { allergens: allergenKeys } : {}),
+      // A line that becomes costed inherits its allergens from the item/prep, so
+      // any hand-tagged ones it carried as a custom line are cleared.
+      ...(promoting ? { allergens: [] } : {}),
       // Substituting with an inventory item — clears linkedRecipeId and any customName.
       ...(substituteInv && !substituteLinked ? { inventoryItemId, linkedRecipeId: null, customName: null } : {}),
       // Substituting with a linked recipe — clears inventoryItemId and any customName.
@@ -61,7 +85,7 @@ export async function PATCH(
     },
   })
 
-  const costAffecting = qtyBase !== undefined || unit !== undefined || promoting
+  const costAffecting = qtyBase !== undefined || unit !== undefined || promoting || allergenKeys !== undefined
   if (costAffecting) await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient PATCH] resync', e))
 
   return NextResponse.json({ ok: true })

@@ -39,6 +39,18 @@ export interface IngredientWithCost {
   dimensionConflict: boolean
   /** Which price this line was costed at: the 30-day average or the last price. */
   costBasis: CostBasis
+  /**
+   * True when the line is linked to an item (or prep) and the per-base-unit price
+   * it was costed at is 0 — "No price yet", not a real $0. Independent of qty (a
+   * priced item with no amount is NOT unpriced) and never true for a custom line,
+   * which is deliberately uncosted.
+   */
+  unpriced: boolean
+}
+
+/** Every allergen across a recipe's computed lines (item, linked prep, hand-tagged custom). */
+export function unionAllergens(lines: Array<{ allergens: string[] }>): string[] {
+  return Array.from(new Set(lines.flatMap(l => l.allergens)))
 }
 
 /** The recipe's line settings, read off its prep task row (null = no row). */
@@ -108,6 +120,8 @@ export function computeRecipeCost(
       inventoryItemId: string | null
       linkedRecipeId: string | null
       customName?: string | null
+      /** Hand-tagged allergens — only meaningful on a custom (unlinked) line. */
+      allergens?: string[]
       inventoryItem: ({ itemName: string; baseUnit: string; allergens?: string[]; densityGPerMl?: unknown } & Parameters<typeof asChainItem>[0]) | null
       linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
@@ -166,7 +180,9 @@ export function computeRecipeCost(
       pricePerBaseUnit   = 0
       lineCostQty        = 0
       ingredientBaseUnit = ing.unit
-      // dimensionConflict stays false; allergens stays []
+      // dimensionConflict stays false. A custom line has no item to inherit from,
+      // so the allergens a manager hand-tagged on it are the line's allergens.
+      allergens          = ing.allergens ?? []
     }
 
     return {
@@ -188,6 +204,7 @@ export function computeRecipeCost(
       allergens,
       dimensionConflict,
       costBasis,
+      unpriced: ingredientType !== 'custom' && pricePerBaseUnit === 0,
     }
   })
 
@@ -456,12 +473,10 @@ export async function fetchRecipeWithCost(
     ingredients: ingredientsWithLinked,
   }, { prices: ctx?.prices })
 
-  const allergens = Array.from(new Set(recipe.ingredients.flatMap(ing => [
-    ...(ing.inventoryItem?.allergens ?? []),
-    // Linked PREP allergens come off its synced InventoryItem, which carries the
-    // recipe's full (incl. nested) allergen set — see syncPrepToInventory.
-    ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
-  ])))
+  // Each line already carries its own allergens: its item's, a linked PREP's
+  // synced set (which carries that recipe's full incl. nested set — see
+  // syncPrepToInventory), or the ones hand-tagged on a custom line.
+  const allergens = unionAllergens(ingredients)
 
   const result: RecipeWithCost = {
     id: recipe.id,
@@ -656,7 +671,7 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       const outId = outputItemOf.get(recipeId)
       if (!outId) continue
       const before = await prisma.inventoryItem.findUnique({
-        where: { id: outId }, select: { ...PRICING_SELECT },
+        where: { id: outId }, select: { ...PRICING_SELECT, allergens: true },
       })
       try {
         await syncPrepToInventory(recipeId)
@@ -665,13 +680,20 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
         continue
       }
       const after = await prisma.inventoryItem.findUnique({
-        where: { id: outId }, select: { ...PRICING_SELECT },
+        where: { id: outId }, select: { ...PRICING_SELECT, allergens: true },
       })
 
       const a = before ? lastCost(before) : 0
       const b = after ? lastCost(after) : 0
-      const moved = a === 0 ? b !== 0 : Math.abs(a - b) / Math.abs(a) > 1e-6
-      if (moved) { movedOutputs.add(outId); queue.push(outId) }
+      const priceMoved = a === 0 ? b !== 0 : Math.abs(a - b) / Math.abs(a) > 1e-6
+      // A changed allergen set must also reach the recipes built on this prep, so a
+      // hand-tagged allergen on a sub-prep surfaces on every parent.
+      const allergensMoved =
+        [...(before?.allergens ?? [])].sort().join('|') !== [...(after?.allergens ?? [])].sort().join('|')
+      // movedOutputs feeds cost alerts, so it stays price-only; the queue also
+      // follows an allergen change.
+      if (priceMoved) movedOutputs.add(outId)
+      if (priceMoved || allergensMoved) queue.push(outId)
     }
   }
 

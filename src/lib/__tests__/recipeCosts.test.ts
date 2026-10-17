@@ -4,7 +4,8 @@ import { describe, it, expect, vi } from 'vitest'
 // under test never touch it, so stub it out.
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
-import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor } from '@/lib/recipeCosts'
+import { prisma } from '@/lib/prisma'
+import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor, unionAllergens, fetchRecipeWithCost, syncPrepToInventory } from '@/lib/recipeCosts'
 import type { ItemCostBasis } from '@/lib/cost-basis'
 
 /** $24/case of 12,000 ml → $0.002/ml */
@@ -279,5 +280,107 @@ describe('computeRecipeCost — cost basis', () => {
     const out = computeRecipeCost(recipe([ing({ id: 'c', customName: 'pinch of love', qtyBase: 1, unit: 'g' })]), { prices: new Map() })
     expect(out.ingredients[0].costBasis).toBe('LAST')
     expect(out.basisSummary).toEqual({ basis: 'LAST', avgLines: 0, lastLines: 1 })
+  })
+})
+
+describe('computeRecipeCost — custom line allergens', () => {
+  it('a custom line carries the allergens hand-tagged on it', () => {
+    const out = computeRecipeCost(recipe([
+      ing({ id: 'c', customName: 'Pimentón', qtyBase: 5, unit: 'g', allergens: ['Sulphites'] }),
+    ]))
+    expect(out.ingredients[0].allergens).toEqual(['Sulphites'])
+    expect(out.ingredients[0].lineCost).toBe(0)
+  })
+
+  it('a custom line with no tags (or a pre-feature row) stays []', () => {
+    const out = computeRecipeCost(recipe([ing({ id: 'c', customName: 'Salt', qtyBase: 1, unit: 'g' })]))
+    expect(out.ingredients[0].allergens).toEqual([])
+  })
+
+  it('unionAllergens merges item, linked-prep and custom allergens without duplicates', () => {
+    const milkItem = { ...oilItem, itemName: 'Cream', allergens: ['Milk'] }
+    const out = computeRecipeCost(recipe([
+      ing({ id: 'a', inventoryItemId: 'x', inventoryItem: milkItem, qtyBase: 10, unit: 'ml' }),
+      ing({ id: 'b', linkedRecipeId: 'r2', linkedRecipe: { name: 'Stock', inventoryItem: { allergens: ['Eggs', 'Milk'] } }, qtyBase: 1, unit: 'ml', _linkedRecipeCostPerUnit: 0.01, _linkedRecipeYieldUnit: 'ml' }),
+      ing({ id: 'c', customName: 'Pimentón', qtyBase: 5, unit: 'g', allergens: ['Sulphites', 'Milk'] }),
+    ]))
+    expect(unionAllergens(out.ingredients).sort()).toEqual(['Eggs', 'Milk', 'Sulphites'])
+  })
+})
+
+describe('custom line allergens reach the recipe', () => {
+  const row = {
+    id: 'r1', name: 'Rub', type: 'PREP', categoryId: 'c1', category: { name: 'Sauces', color: null },
+    inventoryItemId: 'item-r1', baseYieldQty: 1000, yieldUnit: 'g', portionSize: null, portionUnit: null,
+    menuPrice: null, isActive: true, notes: null, steps: [], activeMinutes: null, passiveMinutes: null,
+    passiveNote: null, stages: null, method: null, createdAt: new Date(), updatedAt: new Date(),
+    baseIngredientId: null, prepItems: [],
+    ingredients: [
+      ing({ id: 'a', inventoryItemId: 'x', inventoryItem: oilItem, qtyBase: 100, unit: 'ml' }),
+      ing({ id: 'c', customName: 'Pimentón', qtyBase: 5, unit: 'g', allergens: ['Sulphites'] }),
+    ],
+  }
+
+  it('fetchRecipeWithCost lists it, and syncPrepToInventory writes it onto the prep item', async () => {
+    const update = vi.fn().mockResolvedValue({})
+    Object.assign(prisma, {
+      recipe: { findUnique: vi.fn().mockResolvedValue(row) },
+      inventoryItem: { update },
+    })
+    const r = await fetchRecipeWithCost('r1')
+    expect(r!.allergens).toContain('Sulphites')
+
+    await syncPrepToInventory('r1')
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update.mock.calls[0][0].data.allergens).toContain('Sulphites')
+  })
+})
+
+describe('computeRecipeCost — unpriced lines', () => {
+  const freeItem = { ...oilItem, itemName: 'Smoked Paprika', pricing: { mode: 'PACK', purchasePrice: 0 } }
+
+  it('unpriced item line is flagged', () => {
+    const out = computeRecipeCost(recipe([
+      ing({ id: 'a', inventoryItemId: 'x', inventoryItem: freeItem, qtyBase: 5, unit: 'ml' }),
+      ing({ id: 'b', inventoryItemId: 'y', inventoryItem: oilItem, qtyBase: 5, unit: 'ml' }),
+    ]))
+    expect(out.ingredients[0].unpriced).toBe(true)
+    expect(out.ingredients[0].lineCost).toBe(0)
+    expect(out.ingredients[1].unpriced).toBe(false)
+  })
+
+  it('a priced item with no amount (qty 0) is NOT unpriced', () => {
+    const out = computeRecipeCost(recipe([
+      ing({ id: 'a', inventoryItemId: 'y', inventoryItem: oilItem, qtyBase: 0, unit: 'ml' }),
+    ]))
+    expect(out.ingredients[0].unpriced).toBe(false)
+  })
+
+  it('an item line is unpriced regardless of quantity', () => {
+    const out = computeRecipeCost(recipe([
+      ing({ id: 'a', inventoryItemId: 'x', inventoryItem: freeItem, qtyBase: 0, unit: 'ml' }),
+    ]))
+    expect(out.ingredients[0].unpriced).toBe(true)
+  })
+
+  it('judges the price actually used: an average-basis price rescues a zero spine', () => {
+    const p = new Map([['x', { basis: 'AVG_30D', pricePerBase: 0.5, avg: { pricePerBase: 0.5, paid: 1, received: 1, lines: 1, excluded: 0 } } as ItemCostBasis]])
+    const out = computeRecipeCost(recipe([
+      ing({ id: 'a', inventoryItemId: 'x', inventoryItem: freeItem, qtyBase: 2, unit: 'ml' }),
+    ]), { prices: p })
+    expect(out.ingredients[0].unpriced).toBe(false)
+  })
+
+  it('a linked prep with no cost is unpriced; a priced one is not', () => {
+    const mk = (cost: number) => computeRecipeCost(recipe([
+      ing({ id: 'p', linkedRecipeId: 'r2', linkedRecipe: { name: 'Stock', inventoryItem: null }, qtyBase: 100, unit: 'ml', _linkedRecipeCostPerUnit: cost, _linkedRecipeYieldUnit: 'ml' }),
+    ])).ingredients[0].unpriced
+    expect(mk(0)).toBe(true)
+    expect(mk(0.01)).toBe(false)
+  })
+
+  it('a custom line is never "unpriced" — it is deliberately uncosted', () => {
+    const out = computeRecipeCost(recipe([ing({ id: 'c', customName: 'Salt', qtyBase: 1, unit: 'g' })]))
+    expect(out.ingredients[0].unpriced).toBe(false)
   })
 })

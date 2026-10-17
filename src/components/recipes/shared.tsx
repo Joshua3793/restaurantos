@@ -16,6 +16,9 @@ import { resolveStages, type RecipeStage } from '@/lib/prep-stages'
 import { validateMethod, parseMethod, legacyToMethod, newStepKey, type MethodStep } from '@/lib/recipe-method'
 import { MethodView } from '@/components/recipes/MethodView'
 import { AllergenBadges } from '@/components/AllergenBadges'
+import { ALLERGENS } from '@/lib/allergens'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
 
@@ -80,6 +83,8 @@ export interface IngredientWithCost {
   dimensionConflict?: boolean
   /** Which basis this line's pricePerBaseUnit/lineCost came from. Optional: cached/optimistic rows may lack it. */
   costBasis?: 'AVG_30D' | 'LAST'
+  /** Linked to an item/prep that has no price yet — the $0 is "unknown", not free. */
+  unpriced?: boolean
 }
 
 export interface Recipe {
@@ -632,6 +637,58 @@ function RecipePrintModal({ recipe, onClose }: { recipe: Recipe; onClose: () => 
 }
 
 
+// ─── Unpriced / custom-allergen bits (module scope — never define inside a row) ───
+
+/** Neutral pill: the line is linked to something with no price yet, so its $0 is unknown. */
+function NoPricePill() {
+  return (
+    <span
+      className="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-ink-2 bg-bg-2 px-2 py-0.5 rounded-full not-italic"
+      title="The linked item has no price yet, so this line is counted as $0 until an invoice or a price is added"
+    >
+      No price yet
+    </span>
+  )
+}
+
+/**
+ * Tick chips for the allergens on a custom (unlinked) line. MANAGER+ only —
+ * everyone else sees the read-only badges on the row. Ticks save at once.
+ */
+function CustomAllergenPicker({ value, onChange }: {
+  value: string[]
+  onChange: (next: string[]) => void
+}) {
+  const active = new Set(value)
+  return (
+    <div className="flex flex-wrap gap-1.5 not-italic" role="group" aria-label="Allergens on this line">
+      {ALLERGENS.map(a => {
+        const on = active.has(a.key)
+        return (
+          <button
+            key={a.key}
+            type="button"
+            aria-pressed={on}
+            title={a.label}
+            onClick={() => {
+              const next = new Set(active)
+              if (on) next.delete(a.key); else next.add(a.key)
+              onChange(ALLERGENS.map(x => x.key).filter(k => next.has(k)))
+            }}
+            style={on ? { borderColor: a.hex, backgroundColor: `${a.hex}18`, color: a.hex } : undefined}
+            className={`inline-flex items-center gap-1 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] px-2 py-0.5 rounded-full border transition-colors ${
+              on ? '' : 'border-line bg-bg-2 text-ink-2 hover:border-line-2'
+            }`}
+          >
+            {on && <Check size={9} strokeWidth={3} />}
+            {a.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── IngredientRow ────────────────────────────────────────────────────────────
 const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp, canMoveDown, onUpdate, onDelete, onMoveUp, onMoveDown, onSubstitute, onInventoryClick, isBase, baseIsSet, autoPercent, onSetBase, showLastPriceTag }: {
   ing: IngredientWithCost
@@ -653,6 +710,9 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 }) {
   const [editingQty, setEditingQty] = useState(ing.qtyBase === 0)
   const [editingPct, setEditingPct] = useState(false)
+  const [allergenOpen, setAllergenOpen] = useState(false)
+  const { role } = useUser()
+  const canTagAllergens = role !== null && atLeast(role, 'MANAGER')
   const [qty, setQty] = useState(ing.qtyBase === 0 ? '' : String(ing.qtyBase))
   const [unit, setUnit] = useState(ing.unit)
   const [pct, setPct] = useState(ing.recipePercent !== null ? String(ing.recipePercent) : '')
@@ -763,8 +823,19 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             {needsQty && (
               <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px]">Needs qty</span>
             )}
+            {ing.unpriced && <NoPricePill />}
             {ing.allergens && ing.allergens.length > 0 && (
               <AllergenBadges allergens={ing.allergens} size="xs" />
+            )}
+            {isCustom && canTagAllergens && (
+              <button
+                type="button"
+                onClick={() => setAllergenOpen(o => !o)}
+                aria-expanded={allergenOpen}
+                className="font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-ink-2 bg-bg-2 hover:bg-bg px-2 py-0.5 rounded-full not-italic"
+              >
+                Allergens
+              </button>
             )}
           </div>
         </div>
@@ -858,6 +929,16 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           <button onClick={() => onDelete(ing.id)} className="text-ink-4 hover:text-red"><Trash2 size={12} /></button>
         </div>
       </div>
+
+      {/* Hand-tagged allergens (custom lines, MANAGER+) */}
+      {isCustom && canTagAllergens && allergenOpen && (
+        <div className="px-3 pb-2.5">
+          <CustomAllergenPicker
+            value={ing.allergens ?? []}
+            onChange={next => onUpdate(ing.id, { allergens: next })}
+          />
+        </div>
+      )}
 
       {/* Inline substitute search */}
       {substituting && (
@@ -1258,9 +1339,21 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
       })
     }
 
+    // Hand-tagged allergens on a custom line: show them (and the recipe's total) at once.
+    const newAllergens = Array.isArray(data.allergens) ? (data.allergens as string[]) : undefined
+    if (newAllergens) {
+      setRecipe(prev => {
+        if (!prev) return prev
+        const updatedIngredients = prev.ingredients.map(ing => ing.id === ingId ? { ...ing, allergens: newAllergens } : ing)
+        const union = Array.from(new Set(updatedIngredients.flatMap(i => i.allergens ?? [])))
+        return { ...prev, ingredients: updatedIngredients, allergens: union }
+      })
+    }
+
     const res = await fetch(`/api/recipes/${recipeId}/ingredients/${ingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     if (res.ok) dirtyRef.current = true
-  }, [recipeId])
+    else if (newAllergens) load()   // rejected (e.g. not a manager) — show what is really saved
+  }, [recipeId, load])
 
   const deleteIngredient = useCallback(async (ingId: string) => {
     // Optimistic: remove immediately so the UI feels instant
@@ -2159,6 +2252,7 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
           ? <ChefHat size={11} className="text-green shrink-0" />
           : <Package size={11} className="text-blue shrink-0" />}
         <span className="text-sm text-ink-2 truncate">{ing.ingredientName}</span>
+        {ing.unpriced && <NoPricePill />}
         {ing.allergens && ing.allergens.length > 0 && (
           <AllergenBadges allergens={ing.allergens} size="xs" />
         )}

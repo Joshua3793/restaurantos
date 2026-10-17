@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe } from '@/lib/recipeCosts'
+import { computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe, unionAllergens } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { linkPrepInventoryItem } from '@/lib/prep-recipe-item'
@@ -188,10 +188,7 @@ export async function GET(req: NextRequest) {
       foodCostPct,
       dimensionConflicts,
       usedInCount: recipe._count.usedInRecipes,
-      allergens: Array.from(new Set(recipe.ingredients.flatMap(ing => [
-        ...(ing.inventoryItem?.allergens ?? []),
-        ...(ing.linkedRecipe?.inventoryItem?.allergens ?? []),
-      ]))),
+      allergens: unionAllergens(ingredients),
       basisSummary,
     })
   }

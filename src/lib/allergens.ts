@@ -26,3 +26,13 @@ export const ALLERGENS: AllergenDef[] = [
 ]
 
 export const ALLERGEN_MAP = Object.fromEntries(ALLERGENS.map(a => [a.key, a]))
+
+/**
+ * Validate an `allergens` request value: an array of ALLERGENS keys.
+ * Returns the de-duplicated keys, or null when it is not an array / holds an unknown key.
+ */
+export function parseAllergenKeys(input: unknown): string[] | null {
+  if (!Array.isArray(input)) return null
+  if (!input.every(k => typeof k === 'string' && Object.prototype.hasOwnProperty.call(ALLERGEN_MAP, k))) return null
+  return Array.from(new Set(input as string[]))
+}
