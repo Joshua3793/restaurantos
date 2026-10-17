@@ -133,9 +133,10 @@ export function buildDraft(r: ExtractedRecipe, ctx: DraftContext): DraftData {
 /**
  * Re-open a saved draft: a link to something that is no longer an active item
  * or recipe (deleted, deactivated, merged away) is dropped, then every
- * unmatched line gets another go, so a sibling recipe saved since last time is
- * linked now. A line the chef linked, and any allergens they chose on a line
- * that stays unlinked, are never touched.
+ * unmatched line the chef has not decided on (no allergens chosen) gets another
+ * go, and so does one waiting on a sibling recipe, so a sibling saved since
+ * last time is linked now. A line the chef linked, or kept unlinked on purpose
+ * (allergens chosen), is never touched.
  */
 export function rematchDraft(d: DraftData, ctx: DraftContext): DraftData {
   const live = new Set(resolveCandidates(ctx.candidates).list.map(c => `${c.kind}:${c.id}`))
@@ -148,6 +149,9 @@ export function rematchDraft(d: DraftData, ctx: DraftContext): DraftData {
       delete cur.createdItem
     }
     if (cur.link || cur.status !== 'NO_MATCH') return cur
+    // The chef already decided about this line (allergens chosen = "keep it
+    // uncosted"): leave it alone, unless it is waiting on a sibling recipe.
+    if (cur.allergens !== null && !siblingHints[cur.key]) return cur
 
     const { qty, unit } = readQtyText(cur.qtyText)
     const o = resolveLine({ raw: cur.raw, name: cur.name, qty, unit }, ctx)

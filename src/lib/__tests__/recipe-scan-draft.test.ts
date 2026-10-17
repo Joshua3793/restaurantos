@@ -173,17 +173,35 @@ describe('rematchDraft', () => {
       candidates: [cand('r1', 'Aioli', { kind: 'recipe' }), cand('oil', 'Oil')],
       items: new Map([['r1', volItem], ['oil', volItem]]),
     })
-    const out = rematchDraft({ ...base(), lines: base().lines.map(l => l.key === 'l2' ? { ...l, qtyText: '1 cup' } : l) }, c)
+    const out = rematchDraft(base(), c)
     // vanished item: back to unmatched
     expect(out.lines[0]).toMatchObject({ link: null, status: 'NO_MATCH', qty: null, unit: null, allergens: null })
     // sibling now exists: linked, hint removed
     expect(out.lines[1].link).toEqual({ kind: 'recipe', id: 'r1', name: 'Aioli' })
-    expect(out.lines[1].status).not.toBe('NO_MATCH')
+    expect(out.lines[1].status).toBe('MATCHED')
+    expect(out.lines[1].unit).toBe('ml')
+    expect(out.lines[1].qty).toBeCloseTo(236.6, 1)
     expect(out.siblingHints).toEqual({})
     // hand-chosen allergens survive on a line that stays unlinked
     expect(out.lines[2]).toMatchObject({ link: null, status: 'NO_MATCH', allergens: ['Mustard'] })
     // a line the chef already linked is untouched
     expect(out.lines[3]).toEqual(base().lines[3])
+  })
+
+  it('kept-uncosted line is not relinked', () => {
+    const d = base()
+    d.lines[2] = { ...d.lines[2], allergens: [] }
+    const out = rematchDraft(d, ctx({ candidates: [cand('o2', 'Odd thing')], items: new Map([['o2', massItem]]) }))
+    expect(out.lines[2]).toEqual(d.lines[2])
+    expect(out.lines[2]).toMatchObject({ link: null, status: 'NO_MATCH', allergens: [] })
+  })
+
+  it('kept-uncosted sibling line is relinked when its sibling is saved', () => {
+    const d = base()
+    d.lines[1] = { ...d.lines[1], allergens: ['Egg'] }
+    const out = rematchDraft(d, ctx({ candidates: [cand('r1', 'Aioli', { kind: 'recipe' })], items: new Map([['r1', volItem]]) }))
+    expect(out.lines[1].link).toEqual({ kind: 'recipe', id: 'r1', name: 'Aioli' })
+    expect(out.siblingHints).toEqual({})
   })
 
   it('a link to a merged-away or inactive item is dropped', () => {
