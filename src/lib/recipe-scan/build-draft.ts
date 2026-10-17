@@ -44,7 +44,7 @@ const NUM = '[\\d\\s.,/\\-–—½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]'
 const LEADING_AMOUNT = new RegExp(`^\\s*(?:\\d|\\.\\d|[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])${NUM}*(?:\\bto\\s+${NUM}+)?`, 'i')
 
 /** The number and unit word back out of the text a line was saved with ("3 cloves", "1 1/2 cup"). */
-function readQtyText(qtyText: string): { qty: number | null; unit: string | null } {
+export function readQtyText(qtyText: string): { qty: number | null; unit: string | null } {
   const m = LEADING_AMOUNT.exec(qtyText)
   if (!m) return { qty: null, unit: null }
   const qty = parseQty(qtyText)
