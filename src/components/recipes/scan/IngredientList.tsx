@@ -9,9 +9,10 @@ import { useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Pill } from '@/components/ui/Pill'
 import { UOM_GROUPS, getUnitGroup } from '@/lib/uom'
+import { unitFitsItem } from '@/lib/recipe-scan/amount'
 import type { DraftData, DraftLine } from '@/lib/recipe-scan/types'
 import {
-  applyPick, keepUncosted, confirmLine, canConfirm, setLineAmount, setQtyText, setAllergens, needsYou, linkKey,
+  applyPick, keepUncosted, confirmLine, canConfirm, unitMisfit, setLineAmount, setQtyText, setAllergens, needsYou, linkKey,
   type LineCosts, type LinkInfo, type PickCandidate,
 } from '@/lib/recipe-scan/review'
 import { AllergenChoice } from './AllergenChoice'
@@ -110,8 +111,14 @@ function AmountEditor({ line, info, onAmount }: {
 }) {
   const unit = line.unit || info?.baseUnit || ''
   const itemGroup = info?.baseUnit ? getUnitGroup(info.baseUnit) : null
-  const groups = [...UOM_GROUPS].sort((a, b) => (a.label === itemGroup ? -1 : b.label === itemGroup ? 1 : 0))
-  const known = UOM_GROUPS.some(g => g.units.some(u => u.label === unit))
+  const item = info?.amount ?? null
+  // Only the units that fit how the item is bought (Joshua's rule: amounts go
+  // into the item's own unit) — no "cup" for flour bought by weight.
+  const groups = [...UOM_GROUPS]
+    .map(g => (item ? { ...g, units: g.units.filter(u => unitFitsItem(u.label, item)) } : g))
+    .filter(g => g.units.length > 0)
+    .sort((a, b) => (a.label === itemGroup ? -1 : b.label === itemGroup ? 1 : 0))
+  const known = groups.some(g => g.units.some(u => u.label === unit))
   return (
     <div className="flex items-center gap-1.5">
       <input
@@ -251,11 +258,13 @@ function IngredientRow(p: RowProps) {
               ) : <span className="text-ink-3">Nothing — not costed</span>}
             </KV>
           </div>
-          {p.needAmount && line.status === 'CHECK' && !canConfirm(line) && (
+          {line.status === 'CHECK' && unitMisfit(line, p.info?.amount) ? (
+            <p className="text-[12.5px] text-gold-2 mt-2">{line.unit} doesn&apos;t fit how this is bought — pick a {p.info?.baseUnit ?? 'fitting'} amount.</p>
+          ) : p.needAmount && line.status === 'CHECK' && !canConfirm(line, p.info?.amount) && (
             <p className="text-[12.5px] text-gold-2 mt-2">Add the amount, then confirm.</p>
           )}
           <div className="flex gap-2 mt-2.5 flex-wrap">
-            {line.status === 'CHECK' && canConfirm(line) && <CtaButton kind="ink" label="Confirm" onClick={p.onConfirm} />}
+            {line.status === 'CHECK' && canConfirm(line, p.info?.amount) && <CtaButton kind="ink" label="Confirm" onClick={p.onConfirm} />}
             <CtaButton kind="out" label={linked ? 'Pick another' : 'Pick item'} onClick={p.onPickOpen} />
             {linked && <CtaButton kind="out" label="Keep uncosted" onClick={p.onKeep} />}
           </div>
@@ -348,7 +357,7 @@ export function IngredientList({ data, costs, links, categoryColor, isDesktop, r
           onToggle={() => { setExpanded(e => (e === l.key ? null : l.key)); setNeedAmount(null) }}
           onCta={() => {
             if (l.status === 'CHECK' && l.link) {
-              if (canConfirm(l)) onChange(confirmLine(data, l.key))
+              if (canConfirm(l, infoOf(l)?.amount)) onChange(confirmLine(data, l.key, infoOf(l)?.amount))
               else { setExpanded(l.key); setNeedAmount(l.key) }
               return
             }
@@ -357,8 +366,8 @@ export function IngredientList({ data, costs, links, categoryColor, isDesktop, r
           }}
           onPickOpen={() => { setExpanded(null); setPickerKey(l.key) }}
           onKeep={() => keep(l.key)}
-          onConfirm={() => onChange(confirmLine(data, l.key))}
-          onAmount={(q, u) => onChange(setLineAmount(data, l.key, q, u))}
+          onConfirm={() => onChange(confirmLine(data, l.key, infoOf(l)?.amount))}
+          onAmount={(q, u) => onChange(setLineAmount(data, l.key, q, u, infoOf(l)?.amount))}
           onQtyText={t => onChange(setQtyText(data, l.key, t))}
           onAllergens={a => onChange(setAllergens(data, l.key, a))}
         />

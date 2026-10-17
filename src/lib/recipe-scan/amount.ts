@@ -158,6 +158,18 @@ function intoItem(
   return { ok: true, qty: tidy(out), crossed }
 }
 
+/**
+ * Can an amount in `unit` be costed against this item without guessing?
+ * Weight<->volume needs the item's density; a count against a measured item
+ * needs its each-measure. Used to keep the review screen's unit choices to
+ * the ones that fit how the item is bought.
+ */
+export function unitFitsItem(unit: string | null | undefined, item: AmountItem): boolean {
+  if (!unit) return false
+  const r = intoItem(1, unit, item)
+  return r.ok && !r.crossed
+}
+
 /** Measures spelled out as words read better plural: "2 cups", but "2 tbsp". */
 const WORD_MEASURES = new Set(['cup'])
 

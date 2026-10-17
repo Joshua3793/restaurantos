@@ -69,7 +69,8 @@ const h = vi.hoisted(() => {
     recipeCategory: { findFirst: async ({ where }: Any) => (where.id === 'cat1' ? { id: 'cat1' } : null) },
     inventoryItem: {
       findMany: async ({ where }: Any) => where.id.in.map((iid: string) => ({
-        id: iid, isActive: true, mergedIntoId: null, baseUnit: 'g',
+        id: iid, isActive: true, mergedIntoId: null, baseUnit: iid === 'vin' ? 'ml' : 'g',
+        dimension: iid === 'vin' ? 'VOLUME' : 'MASS', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null,
       })),
       findFirst: async () => null,
       create: async ({ data }: Any) => { const it = { id: id('inv'), ...data }; state.invItems.push(it); return it },
@@ -287,6 +288,15 @@ describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
     const res = await post()
     expect(res.status).toBe(400)
     expect((await res.json()).blockers).toEqual(['1 line needs a check', 'Pick a category'])
+    expect(h.calls.recipeCreate).toHaveLength(0)
+    expect(h.state.draft.status).toBe('OPEN')
+  })
+
+  it('a unit that does not fit how the item is bought is refused', async () => {
+    setDraft(data({ lines: [line({ key: 'l1', raw: '2 cups flour', name: 'flour', qtyText: '2 cups', qty: 2, unit: 'cup', link: { kind: 'item', id: 'flo', name: 'Flour' } })] }))
+    const res = await post()
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('"2 cups flour": cup doesn\'t fit how Flour is bought — pick a g amount.')
     expect(h.calls.recipeCreate).toHaveLength(0)
     expect(h.state.draft.status).toBe('OPEN')
   })

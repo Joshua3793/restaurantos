@@ -67,6 +67,23 @@ describe('line decisions', () => {
     expect(canConfirm(typed.lines[0])).toBe(true)
     expect(confirmLine(typed, 'l1').lines[0]).toMatchObject({ status: 'MATCHED', qty: 250, unit: 'g' })
   })
+  it('a unit that does not fit the item is not taken, and a misfit line cannot be confirmed', () => {
+    const d = draft([line({ raw: '2 cups flour', qtyText: '2 cups', link: { kind: 'item', id: 'f', name: 'Flour' }, status: 'CHECK', qty: null, unit: 'g', reason: '2 cups — how many g?' })])
+    // Choosing "cup" for flour bought by weight is ignored: the unit stays g.
+    const picked = setLineAmount(d, 'l1', 2, 'cup', gramItem)
+    expect(picked.lines[0]).toMatchObject({ qty: 2, unit: 'g' })
+    // A line that already carries a misfit unit is held back until a fitting unit is chosen.
+    const misfit = draft([line({ link: { kind: 'item', id: 'f', name: 'Flour' }, status: 'CHECK', qty: 2, unit: 'cup' })])
+    expect(canConfirm(misfit.lines[0], gramItem)).toBe(false)
+    expect(confirmLine(misfit, 'l1', gramItem).lines[0].status).toBe('CHECK')
+    const fixed = setLineAmount(misfit, 'l1', 240, 'g', gramItem)
+    expect(canConfirm(fixed.lines[0], gramItem)).toBe(true)
+    expect(confirmLine(fixed, 'l1', gramItem).lines[0]).toMatchObject({ status: 'MATCHED', qty: 240, unit: 'g' })
+  })
+  it('with no item details the unit is taken as given', () => {
+    const d = draft([line({ link: { kind: 'item', id: 'f', name: 'Flour' }, status: 'CHECK', qty: null, unit: null })])
+    expect(setLineAmount(d, 'l1', 2, 'cup', null).lines[0]).toMatchObject({ qty: 2, unit: 'cup' })
+  })
   it('a close guess on "to taste" (qty 0) confirms as NO AMOUNT', () => {
     const d = draft([line({ raw: 'salt to taste', qtyText: 'to taste', link: { kind: 'item', id: 's', name: 'Kosher Salt' }, status: 'CHECK', qty: 0, unit: 'g', reason: 'Close guess — check' })])
     expect(confirmLine(d, 'l1').lines[0]).toMatchObject({ status: 'NO_AMOUNT', qty: 0, reason: null })

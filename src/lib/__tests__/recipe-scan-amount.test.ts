@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseQty, resolveAmount, type AmountItem } from '../recipe-scan/amount'
+import { parseQty, resolveAmount, unitFitsItem, type AmountItem } from '../recipe-scan/amount'
 
 describe('parseQty', () => {
   it('reads fractions and ranges', () => {
@@ -177,4 +177,32 @@ describe('resolveAmount', () => {
   it('a plural unit in the item each-measure is understood', () =>
     expect(resolveAmount({ raw: '2 onions', qty: 2, unit: 'each', name: 'onion' }, { ...onion, eachMeasureUnit: 'grams' }, null))
       .toEqual({ qty: 300, unit: 'g', status: 'MATCHED', reason: null }))
+})
+
+describe('unitFitsItem', () => {
+  const flour: AmountItem = { dimension: 'MASS', baseUnit: 'g', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+  const oil: AmountItem = { dimension: 'VOLUME', baseUnit: 'ml', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+  const honey: AmountItem = { dimension: 'MASS', baseUnit: 'g', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: 1.42 }
+  const onion: AmountItem = { dimension: 'MASS', baseUnit: 'g', eachMeasureQty: 150, eachMeasureUnit: 'g', densityGPerMl: null }
+  const lemon: AmountItem = { dimension: 'COUNT', baseUnit: 'each', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+  it('same kind of unit fits', () => {
+    expect(unitFitsItem('kg', flour)).toBe(true); expect(unitFitsItem('g', flour)).toBe(true)
+    expect(unitFitsItem('cup', oil)).toBe(true); expect(unitFitsItem('tablespoons', oil)).toBe(true)
+    expect(unitFitsItem('each', lemon)).toBe(true)
+  })
+  it('a spoon or cup does not fit a weighed item with no density', () => {
+    expect(unitFitsItem('cup', flour)).toBe(false); expect(unitFitsItem('tsp', flour)).toBe(false)
+    expect(unitFitsItem('ml', flour)).toBe(false); expect(unitFitsItem('g', oil)).toBe(false)
+  })
+  it('crossing weight and volume fits once the item has a density', () => {
+    expect(unitFitsItem('tbsp', honey)).toBe(true)
+  })
+  it('a count fits a weighed item only with its each-measure', () => {
+    expect(unitFitsItem('each', onion)).toBe(true); expect(unitFitsItem('each', flour)).toBe(false)
+    expect(unitFitsItem('g', lemon)).toBe(false)
+  })
+  it('missing or unknown units never fit', () => {
+    expect(unitFitsItem(null, flour)).toBe(false); expect(unitFitsItem('', flour)).toBe(false)
+    expect(unitFitsItem('handful', flour)).toBe(false)
+  })
 })

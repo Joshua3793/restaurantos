@@ -13,10 +13,37 @@ import {
 } from '@/lib/recipe-scan/save-rules'
 import { rematchOpenDrafts } from '@/lib/recipe-scan/context'
 import type { DraftLine } from '@/lib/recipe-scan/types'
+import { unitFitsItem, type AmountItem } from '@/lib/recipe-scan/amount'
+import { amountFromBase } from '@/lib/recipe-scan/review'
+import { dimensionOf } from '@/lib/item-model'
 
 export const dynamic = 'force-dynamic'
 
 class AlreadySaved extends Error {}
+
+const AMOUNT_SELECT = {
+  baseUnit: true, dimension: true, eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
+} as const
+
+/** What an amount on a line converts into for this item (Decimals → numbers). */
+function amountOf(row: {
+  baseUnit: string | null
+  dimension?: AmountItem['dimension'] | null
+  eachMeasureQty?: unknown
+  eachMeasureUnit?: string | null
+  densityGPerMl?: unknown
+}): AmountItem | null {
+  if (!row.baseUnit) return null
+  if (!row.dimension) return amountFromBase(row.baseUnit)
+  const num = (v: unknown) => (v == null ? null : Number(v))
+  return {
+    dimension: row.dimension ?? dimensionOf(row.baseUnit),
+    baseUnit: row.baseUnit,
+    eachMeasureQty: num(row.eachMeasureQty),
+    eachMeasureUnit: row.eachMeasureUnit ?? null,
+    densityGPerMl: num(row.densityGPerMl),
+  }
+}
 
 const ALREADY = 'This recipe was already saved from this scan.'
 
@@ -84,25 +111,45 @@ export async function POST(req: NextRequest, { params }: { params: { draftId: st
     itemIds.length
       ? prisma.inventoryItem.findMany({
           where: { id: { in: itemIds } },
-          select: { id: true, isActive: true, mergedIntoId: true, baseUnit: true },
+          select: { id: true, isActive: true, mergedIntoId: true, ...AMOUNT_SELECT },
         })
       : Promise.resolve([]),
     recipeIds.length
       ? prisma.recipe.findMany({
           where: { id: { in: recipeIds } },
-          select: { id: true, type: true, isActive: true, inventoryItem: { select: { baseUnit: true } } },
+          select: { id: true, type: true, isActive: true, inventoryItem: { select: AMOUNT_SELECT } },
         })
       : Promise.resolve([]),
   ])
   const baseUnits = new Map<string, string | null>()
-  for (const it of items) if (it.isActive && !it.mergedIntoId) baseUnits.set(`item:${it.id}`, it.baseUnit)
-  for (const r of recipes) if (r.type === 'PREP' && r.isActive) baseUnits.set(`recipe:${r.id}`, r.inventoryItem?.baseUnit ?? null)
+  const amounts = new Map<string, AmountItem | null>()
+  for (const it of items) {
+    if (!it.isActive || it.mergedIntoId) continue
+    baseUnits.set(`item:${it.id}`, it.baseUnit)
+    amounts.set(`item:${it.id}`, amountOf(it))
+  }
+  for (const r of recipes) {
+    if (r.type !== 'PREP' || !r.isActive) continue
+    baseUnits.set(`recipe:${r.id}`, r.inventoryItem?.baseUnit ?? null)
+    amounts.set(`recipe:${r.id}`, r.inventoryItem ? amountOf(r.inventoryItem) : null)
+  }
   const gone = d.lines.find(l => l.link && !baseUnits.has(`${l.link.kind}:${l.link.id}`))
   if (gone?.link) {
     return NextResponse.json(
       { error: `${gone.link.name} is no longer in the list — pick again for "${gone.raw}".` },
       { status: 409 },
     )
+  }
+  // A unit that doesn't fit how the item is bought ("2 cup" for flour by
+  // weight) would be costed by passing the number straight through. The review
+  // screen doesn't offer such units; this catches anything that slipped by.
+  const misfit = d.lines.find(l => {
+    const item = l.link ? amounts.get(`${l.link.kind}:${l.link.id}`) : null
+    return !!item && typeof l.qty === 'number' && l.qty > 0 && !!l.unit && !unitFitsItem(l.unit, item)
+  })
+  if (misfit?.link) {
+    const msg = `"${misfit.raw}": ${misfit.unit} doesn't fit how ${misfit.link.name} is bought — pick a ${baseUnits.get(`${misfit.link.kind}:${misfit.link.id}`) ?? 'fitting'} amount.`
+    return NextResponse.json({ error: msg, blockers: [msg] }, { status: 400 })
   }
   const baseUnitOf = (l: DraftLine) => (l.link ? baseUnits.get(`${l.link.kind}:${l.link.id}`) ?? null : null)
   const rows = ingredientRows(d, baseUnitOf)

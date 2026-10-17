@@ -6,7 +6,7 @@ import { DIMENSION_BASE, dimensionOf, type Dimension, type PackLink } from '@/li
 import { UNIT_FACTORS, canonicalUom } from '@/lib/uom'
 import type { MethodStep } from '@/lib/recipe-method'
 import { newStepKey } from '@/lib/recipe-method'
-import { resolveAmount, type AmountItem } from './amount'
+import { resolveAmount, unitFitsItem, type AmountItem } from './amount'
 import { readQtyText } from './build-draft'
 import type { DraftData, DraftLine } from './types'
 
@@ -95,13 +95,19 @@ export function keepUncosted(d: DraftData, key: string): DraftData {
  * deliberately "no amount" (qty 0: "salt to taste" matched to a close guess,
  * or the chef cleared the amount). A null amount still needs one.
  */
-export function canConfirm(line: DraftLine): boolean {
+export function canConfirm(line: DraftLine, item?: AmountItem | null): boolean {
   if (line.status !== 'CHECK' || !line.link) return false
-  return (validQty(line.qty) && !!line.unit) || line.qty === 0
+  if (validQty(line.qty) && line.unit) return !item || unitFitsItem(line.unit, item)
+  return line.qty === 0
 }
 
-export function confirmLine(d: DraftData, key: string): DraftData {
-  return mapLine(d, key, line => (canConfirm(line)
+/** The unit on a line that does not fit how its item is bought ("cup" for flour by weight). */
+export function unitMisfit(line: DraftLine, item?: AmountItem | null): boolean {
+  return !!item && !!line.link && validQty(line.qty) && !!line.unit && !unitFitsItem(line.unit, item)
+}
+
+export function confirmLine(d: DraftData, key: string, item?: AmountItem | null): DraftData {
+  return mapLine(d, key, line => (canConfirm(line, item)
     ? { ...line, status: validQty(line.qty) ? 'MATCHED' : 'NO_AMOUNT', reason: null }
     : line))
 }
@@ -111,7 +117,12 @@ export function confirmLine(d: DraftData, key: string): DraftData {
  * normal line; clearing it makes the line "no amount" (saved linked, $0, so
  * it still carries the item's allergens). A CHECK stays a CHECK until confirmed.
  */
-export function setLineAmount(d: DraftData, key: string, qty: number | null, unit: string | null): DraftData {
+export function setLineAmount(
+  d: DraftData, key: string, qty: number | null, unit: string | null, item?: AmountItem | null,
+): DraftData {
+  // A unit that does not fit how the item is bought is not taken: it would be
+  // costed by passing the number straight through ("2 cups" of flour → 2 g).
+  if (unit && item && !unitFitsItem(unit, item)) unit = null
   return mapLine(d, key, line => {
     if (!line.link) return line
     if (validQty(qty)) {
