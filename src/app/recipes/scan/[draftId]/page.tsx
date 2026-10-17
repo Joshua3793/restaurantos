@@ -18,6 +18,7 @@ import { ImageViewerV2 } from '@/components/invoices/v2/ImageViewer'
 import { validateMethod } from '@/lib/recipe-method'
 import { saveBlockers } from '@/lib/recipe-scan/save-rules'
 import type { DraftData } from '@/lib/recipe-scan/types'
+import { singleFlight, type FlightStep, type SingleFlight } from '@/lib/recipe-scan/single-flight'
 import {
   costSummary, timeSummary, needsYou, type LineCosts, type LinkInfo, type MethodState,
 } from '@/lib/recipe-scan/review'
@@ -49,13 +50,14 @@ interface DraftResponse {
   }
 }
 
-type SaveState = 'saved' | 'pending' | 'saving' | 'retrying' | 'locked'
+type SaveState = 'saved' | 'pending' | 'saving' | 'retrying' | 'failed' | 'locked'
 
 const AUTOSAVE_LABEL: Record<SaveState, string> = {
   saved: 'All changes saved to the draft',
   pending: 'Saving…',
   saving: 'Saving…',
   retrying: 'Not saved yet — trying again',
+  failed: 'Not saved',
   locked: 'This draft can no longer change',
 }
 
@@ -141,6 +143,7 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [autosaveError, setAutosaveError] = useState<string | null>(null)
   const [serverBlockers, setServerBlockers] = useState<string[]>([])
   const [showOriginal, setShowOriginal] = useState(false)
   const { setDrawerOpen } = useDrawer()
@@ -153,8 +156,8 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
 
   const dataRef = useRef<DraftData | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const seq = useRef(0)
   const dirty = useRef(false)
+  const keepaliveNext = useRef(false)
   const done = useRef(false) // saved or discarded: autosave stops
 
   // ── Load ──
@@ -191,40 +194,72 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
   }, [draft, rcId])
 
   // ── Autosave ──
-  const flush = useCallback(async () => {
-    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+  // Single-flight (single-flight.ts): at most one PATCH at a time — the server
+  // keeps whichever lands last, so an older copy must never overtake a newer
+  // one. A flush during a flight makes the same run send the newest copy after.
+  // One send; 'stop' ends the run (error / locked), 'done' lets it go round again.
+  const sendOnce = async (): Promise<FlightStep> => {
     const body = dataRef.current
-    if (!body || done.current || !dirty.current) return
+    if (!body || done.current || !dirty.current) return 'stop'
+    const keepalive = keepaliveNext.current
+    keepaliveNext.current = false
     dirty.current = false
-    const mine = ++seq.current
     setSaveState('saving')
+    let res: Response
     try {
-      const res = await fetch(`/api/recipe-scans/drafts/${draftId}`, {
+      res = await fetch(`/api/recipe-scans/drafts/${draftId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: body }),
+        keepalive,
       })
-      if (done.current) return
-      if (res.status === 409) {
-        done.current = true
-        setSaveState('locked')
-        setError('This recipe was already saved or discarded — changes here are not kept.')
-        return
-      }
-      if (!res.ok) throw new Error(String(res.status))
-      const json = await res.json()
-      // Only the newest save, with nothing edited since, paints costs — an older
-      // answer would put back a cost for a line the chef has just changed.
-      if (mine !== seq.current || dirty.current) return
+    } catch {
+      if (!done.current) retryLater() // network: try again
+      return 'stop'
+    }
+    if (done.current) return 'stop'
+    if (res.status === 409) {
+      done.current = true
+      setSaveState('locked')
+      setError('This recipe was already saved or discarded — changes here are not kept.')
+      return 'stop'
+    }
+    if (res.status >= 500) { retryLater(); return 'stop' }
+    if (!res.ok) {
+      // A 4xx won't get better by sending the same copy again: say so and stop.
+      const json = await res.json().catch(() => ({}))
+      dirty.current = true
+      setSaveState('failed')
+      setAutosaveError(json.error ?? 'Could not save your changes to the draft.')
+      return 'stop'
+    }
+    const json = await res.json().catch(() => null)
+    // Paint costs only when this answer is for the copy on screen (nothing
+    // edited since it was sent; a newer copy goes next and paints then).
+    if (json && !dirty.current) {
       setCosts(json.costs ?? {})
       setSaveState('saved')
-    } catch {
-      if (done.current) return
-      dirty.current = true
-      setSaveState('retrying')
-      timer.current = setTimeout(() => { flush() }, RETRY_MS)
+      setAutosaveError(null)
     }
-  }, [draftId])
+    return 'done'
+  }
+  const sendRef = useRef(sendOnce)
+  sendRef.current = sendOnce
+  const flight = useRef<SingleFlight | null>(null)
+  if (!flight.current) flight.current = singleFlight(() => sendRef.current())
+
+  const flush = useCallback((opts: { keepalive?: boolean } = {}): Promise<void> => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    if (opts.keepalive) keepaliveNext.current = true
+    return flight.current!.trigger()
+  }, [])
+
+  function retryLater() {
+    dirty.current = true
+    setSaveState('retrying')
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => { flush() }, RETRY_MS)
+  }
 
   const update = useCallback((next: DraftData) => {
     if (done.current) return
@@ -253,19 +288,15 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
     timer.current = setTimeout(() => { flush() }, AUTOSAVE_MS)
   }, [flush])
 
-  // Leaving the page with an edit not yet sent: send it anyway.
+  // Leaving the page (or the tab) with an edit not yet sent: send it now,
+  // through the same single-flight path (keepalive so it survives an unload).
+  // If a PATCH is already in flight, the follow-up runs when it settles — on an
+  // in-app navigation the run carries on after unmount; on a real unload only
+  // the in-flight copy is guaranteed to arrive.
   useEffect(() => {
     const send = () => {
       if (!dirty.current || done.current || !dataRef.current) return
-      try {
-        fetch(`/api/recipe-scans/drafts/${draftId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: dataRef.current }),
-          keepalive: true,
-        })
-        dirty.current = false
-      } catch { /* best effort */ }
+      flush({ keepalive: true })
     }
     const onHide = () => { if (document.visibilityState === 'hidden') send() }
     window.addEventListener('pagehide', send)
@@ -274,9 +305,8 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
       window.removeEventListener('pagehide', send)
       document.removeEventListener('visibilitychange', onHide)
       send() // in-app navigation away
-      if (timer.current) clearTimeout(timer.current)
     }
-  }, [draftId])
+  }, [flush])
 
   // ── Derived ──
   const blockers = useMemo(() => {
@@ -299,11 +329,15 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
 
   // ── Actions ──
   const save = async () => {
-    const body = dataRef.current
-    if (!body || saving) return
-    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    if (!dataRef.current || saving) return
     setSaving(true)
     setError(null)
+    // The save sends the screen's own copy, so a pending autosave is not needed —
+    // but one already in flight must settle first, or it could land after the save.
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    await flight.current!.current()?.catch(() => {})
+    if (timer.current) { clearTimeout(timer.current); timer.current = null } // a retry it may have queued
+    const body = dataRef.current!
     try {
       const res = await fetch(`/api/recipe-scans/drafts/${draftId}/save`, {
         method: 'POST',
@@ -329,11 +363,15 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
       setError('Could not save the recipe — check the connection.')
     } finally {
       setSaving(false)
+      // Not saved: the edits the save carried still have to reach the draft.
+      if (!done.current && dirty.current) flush()
     }
   }
 
   const discard = async () => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    await flight.current!.current()?.catch(() => {})
+    if (timer.current) { clearTimeout(timer.current); timer.current = null } // a retry it may have queued
     try {
       const res = await fetch(`/api/recipe-scans/drafts/${draftId}`, { method: 'DELETE' })
       if (!res.ok) {
@@ -346,6 +384,9 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
       router.push('/recipes')
     } catch {
       setError('Could not discard this recipe — check the connection.')
+    } finally {
+      // Still here (the discard failed): the pending edits go to the draft after all.
+      if (!done.current && dirty.current) flush()
     }
   }
 
@@ -403,7 +444,9 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
         saving={saving}
         onSave={save}
         onDiscard={discard}
-        autosave={AUTOSAVE_LABEL[saveState]}
+        autosave={saveState === 'failed' && autosaveError
+          ? `Not saved to the draft — ${autosaveError.replace(/\.?$/, '.')} Your next change tries again.`
+          : AUTOSAVE_LABEL[saveState]}
         error={error}
       />
 
