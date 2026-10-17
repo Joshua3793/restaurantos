@@ -252,7 +252,7 @@ export default function AddPersonModal({ payload, actorRole, onClose, onCreated 
       <div className="fixed inset-0 bg-ink/40" onClick={onClose} />
       <div className="relative bg-paper rounded-xl border border-line shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 className="font-fraunces text-[17px] font-semibold text-ink">Add person</h2>
+          <h2 className="text-[17px] font-semibold tracking-[-0.015em] text-ink">Add person</h2>
           <button onClick={onClose} aria-label="Close" className="text-ink-4 hover:text-ink-2"><X size={16} /></button>
         </div>
 

@@ -14,16 +14,16 @@ export function PageHeader({ title, meta, right, cost }: PageHeaderProps) {
   return (
     <div className="flex items-end justify-between gap-4 px-4 py-3">
       <div>
-        <h1 className="text-[28px] font-semibold tracking-[-0.035em] leading-[1.05] text-ink">
+        <h1 className="text-[36px] font-semibold tracking-[-0.04em] leading-none text-ink">
           {title}
         </h1>
         {(meta || cost) && (
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex items-center gap-3 mt-1.5">
             {meta && (
               <p className="font-mono text-[10.5px] uppercase tracking-wider text-ink-3">{meta}</p>
             )}
             {cost && cost.value !== null && (
-              <span className="font-mono text-[10.5px] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full">
+              <span className="font-mono text-[10px] uppercase bg-gold-soft text-gold-2 px-[9px] py-[3px] rounded-full">
                 {cost.label ?? 'FOOD COST'} {cost.value.toFixed(1)}%
               </span>
             )}

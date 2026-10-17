@@ -187,7 +187,7 @@ function MobileUnitRow({ u, readings, onTap }: { u: TempUnit; readings: TempUnit
         </span>
       ) : (
         <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span className="font-mono text-[17px] font-semibold tracking-[-0.02em]" style={{ color: status === 'bad' ? '#b91c1c' : '#09090b' }}>
+          <span className="font-mono text-[17px] font-semibold tracking-[-0.02em]" style={{ color: status === 'bad' ? '#991b1b' : '#09090b' }}>
             {fmtTemp(last!.temp)}°
           </span>
           <span className={`font-mono text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${status === 'bad' ? 'bg-red-soft text-red-text' : 'bg-green-soft text-green-text'}`}>
@@ -526,7 +526,7 @@ function HistoryBody({
             <div key={date} className="mt-[18px]">
               <div className="flex justify-between items-center mb-2 font-mono text-[10px] uppercase tracking-[0.04em]">
                 <span className="text-ink-2">{prettyDate(date)}{date === today ? ' · Today' : ''}</span>
-                <span style={{ color: flags ? '#b91c1c' : '#a1a1aa' }}>{rows.length} · {flags ? `${flags} OUT` : 'ALL OK'}</span>
+                <span style={{ color: flags ? '#991b1b' : '#a1a1aa' }}>{rows.length} · {flags ? `${flags} OUT` : 'ALL OK'}</span>
               </div>
               <div className="bg-paper border border-line rounded-xl overflow-hidden">
                 {rows.map((r, i) => (
@@ -534,7 +534,7 @@ function HistoryBody({
                     <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: TEMP_TYPES[r.unit.type].color }} />
                     <span className="flex-1 text-[13.5px] font-medium tracking-[-0.01em] truncate">{r.unit.name}</span>
                     <span className="font-mono text-[11px] text-ink-3">{r.time}</span>
-                    <span className="font-mono text-[13.5px] font-semibold tracking-[-0.01em] w-14 text-right" style={{ color: isSafe(r.unit, r.temp) === false ? '#b91c1c' : '#09090b' }}>
+                    <span className="font-mono text-[13.5px] font-semibold tracking-[-0.01em] w-14 text-right" style={{ color: isSafe(r.unit, r.temp) === false ? '#991b1b' : '#09090b' }}>
                       {fmtTemp(r.temp)}°C
                     </span>
                     <span className={`font-mono text-[10px] px-2 py-0.5 rounded-full font-medium uppercase ${isSafe(r.unit, r.temp) === false ? 'bg-red-soft text-red-text' : 'bg-green-soft text-green-text'}`}>

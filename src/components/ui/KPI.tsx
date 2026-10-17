@@ -6,6 +6,7 @@ interface KPIProps {
   className?: string
 }
 
+// Controla `.kpi`: white card, r-lg, 18×20 padding, 34px value.
 export function KPI({ label, value, sub, tone = 'default', className = '' }: KPIProps) {
   const valueColor =
     tone === 'alert' ? 'text-red' :
@@ -13,12 +14,12 @@ export function KPI({ label, value, sub, tone = 'default', className = '' }: KPI
     'text-ink'
 
   return (
-    <div className={`border border-line bg-paper rounded-md px-3.5 py-3 ${className}`}>
+    <div className={`border border-line bg-paper rounded-lg px-5 py-[18px] ${className}`}>
       <p className="ui-label">{label}</p>
-      <p className={`text-[22px] font-semibold tracking-[-0.015em] mt-1 ${valueColor}`}>
+      <p className={`text-[34px] font-semibold leading-none tracking-[-0.04em] whitespace-nowrap mt-2 ${valueColor}`}>
         {value}
       </p>
-      {sub && <p className="ui-meta mt-0.5">{sub}</p>}
+      {sub && <p className="ui-meta mt-2">{sub}</p>}
     </div>
   )
 }

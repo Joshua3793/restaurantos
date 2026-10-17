@@ -72,7 +72,7 @@ export default function AccessAuditPanel({ refreshKey }: { refreshKey: number })
   return (
     <div className="bg-paper border border-line rounded-xl overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-        <h2 className="font-fraunces text-base font-semibold text-ink">Access audit</h2>
+        <h2 className="text-base font-semibold tracking-[-0.015em] text-ink">Access audit</h2>
         <select
           value={days}
           onChange={e => setDays(Number(e.target.value))}
