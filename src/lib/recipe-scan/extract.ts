@@ -1,6 +1,8 @@
 // Recipe Scan: read photos / a PDF / pasted text with Claude and return
-// structured recipes. One call, one forced tool, no extended thinking
-// (thinking is incompatible with a forced tool_choice).
+// structured recipes. One call, one tool. Claude Sonnet 5.5 rejects a forced
+// tool_choice ("tool"/"any" → 400), so the choice is "auto" and the system
+// prompt + closing instruction tell it to always call record_recipes; a reply
+// without the tool call reads as "no recipe" (requireRecipes).
 import Anthropic from '@anthropic-ai/sdk'
 import { compressImageForClaude, resolveAnthropicKey } from '@/lib/invoice-ocr'
 import { NotARecipeError, requireRecipes } from './parse'
@@ -120,7 +122,7 @@ export async function extractRecipes(
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
     tools: [RECORD_RECIPES_TOOL],
-    tool_choice: { type: 'tool', name: 'record_recipes' },
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content }],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any)
