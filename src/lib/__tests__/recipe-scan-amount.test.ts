@@ -1,0 +1,119 @@
+import { describe, it, expect } from 'vitest'
+import { parseQty, resolveAmount, type AmountItem } from '../recipe-scan/amount'
+
+describe('parseQty', () => {
+  it('reads fractions and ranges', () => {
+    expect(parseQty('1/2')).toBe(0.5); expect(parseQty('1½')).toBe(1.5)
+    expect(parseQty('2-3')).toBe(2.5); expect(parseQty('250g')).toBe(250)
+    expect(parseQty('a pinch')).toBeNull()
+  })
+  it('reads mixed numbers, decimals, unicode fractions and "to" ranges', () => {
+    expect(parseQty('1 1/2')).toBe(1.5)
+    expect(parseQty('¾')).toBe(0.75)
+    expect(parseQty('1.5 kg')).toBe(1.5)
+    expect(parseQty('2 to 3')).toBe(2.5)
+    expect(parseQty('2–3')).toBe(2.5)
+    expect(parseQty('1,000 g')).toBe(1000)
+  })
+  it('never returns NaN or Infinity for odd text', () => {
+    for (const t of ['', '   ', '1/0', '/', '-', '--', '.', '..', '1/', '/2', 'to', '2 to', '½½', 'NaN', 'Infinity', '1e999', '9'.repeat(400), '0/0', '-3', '1 - ', '2-', '- 2']) {
+      const v = parseQty(t)
+      expect(v === null || Number.isFinite(v)).toBe(true)
+    }
+    expect(parseQty('1/0')).toBeNull()
+    expect(parseQty('')).toBeNull()
+    expect(parseQty('Infinity')).toBeNull()
+  })
+  it('a dangling range keeps the first number', () => {
+    expect(parseQty('2-')).toBe(2)
+  })
+})
+
+describe('resolveAmount', () => {
+  const kg: AmountItem = { dimension: 'MASS', baseUnit: 'g', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+  const litre: AmountItem = { dimension: 'VOLUME', baseUnit: 'ml', eachMeasureQty: null, eachMeasureUnit: null, densityGPerMl: null }
+  const egg: AmountItem = { dimension: 'COUNT', baseUnit: 'each', eachMeasureQty: 50, eachMeasureUnit: 'g', densityGPerMl: null }
+  const onion: AmountItem = { dimension: 'MASS', baseUnit: 'g', eachMeasureQty: 150, eachMeasureUnit: 'g', densityGPerMl: null }
+
+  it('keeps a known compatible unit silently', () =>
+    expect(resolveAmount({ raw: '150 g almonds', qty: 150, unit: 'g', name: 'almonds' }, kg, null))
+      .toEqual({ qty: 150, unit: 'g', status: 'MATCHED', reason: null }))
+  it('converts a count word with the estimate and flags CHECK', () =>
+    expect(resolveAmount({ raw: '3 cloves garlic', qty: 3, unit: 'clove', name: 'garlic', estimate: { qty: 15, unit: 'g' } }, kg, null))
+      .toEqual({ qty: 15, unit: 'g', status: 'CHECK', reason: '3 cloves — about 15 g, check' }))
+  it('uses a learned measure and does not flag', () =>
+    expect(resolveAmount({ raw: '3 cloves garlic', qty: 3, unit: 'clove', name: 'garlic' }, kg, { word: 'clove', qty: 5, unit: 'g' }))
+      .toEqual({ qty: 15, unit: 'g', status: 'MATCHED', reason: null }))
+  it('unmatched lines are left as written', () =>
+    expect(resolveAmount({ raw: '1 tsp pimentón', qty: 1, unit: 'tsp', name: 'pimentón' }, null, null))
+      .toEqual({ qty: null, unit: null, status: 'NO_MATCH', reason: null }))
+  it('no amount stays NO_AMOUNT with qty 0', () =>
+    expect(resolveAmount({ raw: 'salt to taste', qty: null, unit: null, name: 'salt' }, kg, null))
+      .toEqual({ qty: 0, unit: 'g', status: 'NO_AMOUNT', reason: null }))
+  it('count word with no estimate asks', () =>
+    expect(resolveAmount({ raw: '1 bunch dill', qty: 1, unit: 'bunch', name: 'dill' }, kg, null).status).toBe('CHECK'))
+
+  it('bunch without an estimate gives the ask reason and no amount', () =>
+    expect(resolveAmount({ raw: '1 bunch dill', qty: 1, unit: 'bunch', name: 'dill' }, kg, null))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '1 bunch — how much is a bunch?' }))
+  it('plural count words are singularised and asked about', () =>
+    expect(resolveAmount({ raw: '2 bunches dill', qty: 2, unit: 'bunches', name: 'dill' }, kg, null))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '2 bunches — how much is a bunch?' }))
+  it('plural learned word matches the singular learned word', () =>
+    expect(resolveAmount({ raw: '2 cloves garlic', qty: 2, unit: 'cloves', name: 'garlic' }, kg, { word: 'clove', qty: 5, unit: 'g' }))
+      .toEqual({ qty: 10, unit: 'g', status: 'MATCHED', reason: null }))
+  it('converts a learned measure into the item base unit', () =>
+    expect(resolveAmount({ raw: '2 cans', qty: 2, unit: 'can', name: 'tomatoes' }, kg, { word: 'can', qty: 0.4, unit: 'kg' }))
+      .toEqual({ qty: 800, unit: 'g', status: 'MATCHED', reason: null }))
+  it('converts within a dimension into the item base unit', () =>
+    expect(resolveAmount({ raw: '0.5 kg', qty: 0.5, unit: 'kg', name: 'x' }, kg, null))
+      .toEqual({ qty: 500, unit: 'g', status: 'MATCHED', reason: null }))
+  it('volume units convert silently for a volume item', () =>
+    expect(resolveAmount({ raw: '2 tbsp oil', qty: 2, unit: 'tbsp', name: 'oil' }, litre, null))
+      .toEqual({ qty: 29.5736, unit: 'ml', status: 'MATCHED', reason: null }))
+  it('ml on a weighed item with no density flags CHECK', () =>
+    expect(resolveAmount({ raw: '100 ml honey', qty: 100, unit: 'ml', name: 'honey' }, kg, null))
+      .toEqual({ qty: 100, unit: 'g', status: 'CHECK', reason: 'ml for a weighed item — check' }))
+  it('g on a volume item with no density flags CHECK', () =>
+    expect(resolveAmount({ raw: '100 g stock', qty: 100, unit: 'g', name: 'stock' }, litre, null))
+      .toEqual({ qty: 100, unit: 'ml', status: 'CHECK', reason: 'g for a measured-volume item — check' }))
+  it('weight to volume with a density converts silently', () =>
+    expect(resolveAmount({ raw: '100 ml honey', qty: 100, unit: 'ml', name: 'honey' }, { ...kg, densityGPerMl: 1.4 }, null))
+      .toEqual({ qty: 140, unit: 'g', status: 'MATCHED', reason: null }))
+  it('grams of a counted item convert through the each-measure', () =>
+    expect(resolveAmount({ raw: '100 g egg', qty: 100, unit: 'g', name: 'egg' }, egg, null))
+      .toEqual({ qty: 2, unit: 'each', status: 'MATCHED', reason: null }))
+  it('grams of a counted item with no each-measure asks', () => {
+    const r = resolveAmount({ raw: '100 g egg', qty: 100, unit: 'g', name: 'egg' }, { ...egg, eachMeasureQty: null, eachMeasureUnit: null }, null)
+    expect(r.status).toBe('CHECK'); expect(r.qty).toBeNull(); expect(r.unit).toBeNull()
+  })
+  it('bare number on a counted item is that many each', () =>
+    expect(resolveAmount({ raw: '3 eggs', qty: 3, unit: null, name: 'egg' }, egg, null))
+      .toEqual({ qty: 3, unit: 'each', status: 'MATCHED', reason: null }))
+  it('"each" on a weighed item uses the each-measure', () =>
+    expect(resolveAmount({ raw: '2 onions', qty: 2, unit: 'each', name: 'onion' }, onion, null))
+      .toEqual({ qty: 300, unit: 'g', status: 'MATCHED', reason: null }))
+  it('a count word on a counted item with a learned each measure', () =>
+    expect(resolveAmount({ raw: '1 dozen eggs', qty: 1, unit: 'dozen', name: 'egg' }, egg, null))
+      .toEqual({ qty: 12, unit: 'each', status: 'MATCHED', reason: null }))
+  it('estimate in a unit that cannot cost against the item falls back to asking', () => {
+    const r = resolveAmount({ raw: '1 bunch dill', qty: 1, unit: 'bunch', name: 'dill', estimate: { qty: 3, unit: 'each' } }, kg, null)
+    expect(r).toEqual({ qty: null, unit: null, status: 'CHECK', reason: '1 bunch — how much is a bunch?' })
+  })
+  it('a learned measure for a different word is ignored', () =>
+    expect(resolveAmount({ raw: '1 bunch dill', qty: 1, unit: 'bunch', name: 'dill' }, kg, { word: 'clove', qty: 5, unit: 'g' }).status).toBe('CHECK'))
+
+  it('odd quantities never produce NaN', () => {
+    const odd = [NaN, Infinity, -Infinity, -2, 0]
+    for (const q of odd) {
+      const r = resolveAmount({ raw: 'x', qty: q, unit: 'g', name: 'x' }, kg, null)
+      expect(r).toEqual({ qty: 0, unit: 'g', status: 'NO_AMOUNT', reason: null })
+    }
+    const r = resolveAmount({ raw: 'x', qty: 3, unit: 'clove', name: 'x', estimate: { qty: NaN, unit: 'g' } }, kg, { word: 'clove', qty: NaN, unit: 'g' })
+    expect(r.status).toBe('CHECK')
+    expect(r.qty === null || Number.isFinite(r.qty)).toBe(true)
+  })
+  it('an unmatched line with no amount is still NO_MATCH', () =>
+    expect(resolveAmount({ raw: 'salt', qty: null, unit: null, name: 'salt' }, null, null))
+      .toEqual({ qty: null, unit: null, status: 'NO_MATCH', reason: null }))
+})
