@@ -55,6 +55,10 @@ describe('line decisions', () => {
     expect(withAmt.lines[0].status).toBe('CHECK')
     expect(confirmLine(withAmt, 'l1').lines[0]).toMatchObject({ status: 'MATCHED', qty: 15, unit: 'g', reason: null })
   })
+  it('a close guess on "to taste" (qty 0) confirms as NO AMOUNT', () => {
+    const d = draft([line({ raw: 'salt to taste', qtyText: 'to taste', link: { kind: 'item', id: 's', name: 'Kosher Salt' }, status: 'CHECK', qty: 0, unit: 'g', reason: 'Close guess — check' })])
+    expect(confirmLine(d, 'l1').lines[0]).toMatchObject({ status: 'NO_AMOUNT', qty: 0, reason: null })
+  })
   it('an amount on a NO AMOUNT line makes it a normal line; clearing makes it NO AMOUNT', () => {
     const d = draft([line({ link: { kind: 'item', id: 's', name: 'Salt' }, status: 'NO_AMOUNT', qty: 0, unit: 'g' })])
     const a = setLineAmount(d, 'l1', 5, 'g')
@@ -124,7 +128,9 @@ describe('method edits', () => {
     expect(phaseRuns(out.method)[0]).toMatchObject({ phase: 'Roast', start: 0, end: 2 })
   })
   it('splits at a given cursor position', () => {
-    expect(splitStep({ method: M(), guessed: {} }, 3, 5).method.slice(3).map(s => s.text)).toEqual(['Blend', 'Everything.'])
+    expect(splitStep({ method: M(), guessed: {} }, 3, 5).method.slice(3).map(s => s.text)).toEqual(['Blend.', 'Everything.'])
+    const comma = splitStep({ method: [{ key: 'x', text: 'Blend the peppers, almonds and garlic.' }], guessed: {} }, 0, 18)
+    expect(comma.method.map(s => s.text)).toEqual(['Blend the peppers.', 'Almonds and garlic.'])
     expect(defaultSplitAt('one')).toBeNull()
   })
   it('merges with the next step', () => {
@@ -132,6 +138,10 @@ describe('method edits', () => {
     expect(out.method).toHaveLength(3)
     expect(out.method[1]).toMatchObject({ key: 'b', text: 'Peel and seed. Toast the almonds.', minutes: 20, phase: 'Peel & toast' })
     expect(out.guessed).toEqual({ b: { minutes: true } })
+  })
+  it('a mid-sentence merge does not leave a capital in the middle', () => {
+    const out = mergeWithNext({ method: [{ key: 'a', text: 'Blend the peppers' }, { key: 'b', text: 'Almonds too.' }], guessed: {} }, 0)
+    expect(out.method[0].text).toBe('Blend the peppers almonds too.')
   })
   it('deleting the first step of a phase keeps the phase name on the next', () => {
     const out = deleteStep({ method: M(), guessed: {} }, 1)

@@ -65,7 +65,7 @@ function CostCell({ line, cost }: { line: DraftLine; cost: LineCosts[string] | u
   let tone = 'text-red-text'
   if (!line.link) {
     tone = line.allergens === null ? 'text-red-text' : 'text-ink-3'
-  } else if (line.status === 'NO_AMOUNT') {
+  } else if (line.status === 'NO_AMOUNT' || line.qty === 0) {
     sub = 'no amount'; tone = 'text-ink-3'
   } else if (!cost) {
     main = '…'; sub = amount; tone = 'text-ink-3'
@@ -223,7 +223,7 @@ function IngredientRow(p: RowProps) {
 
       {p.expanded && (
         <div className="px-3 md:pl-[58px] md:pr-4 pb-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 border border-line rounded-[10px] bg-paper">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] border border-line rounded-[10px] bg-paper">
             <KV k="Read as">{line.raw}</KV>
             <KV k={linked ? 'Amount' : 'Amount as written'}>
               {linked ? (
@@ -262,13 +262,13 @@ function IngredientRow(p: RowProps) {
         </div>
       )}
 
+      {p.picker}
+
       {!linked && (
         <div className="px-3 md:pl-[58px] md:pr-4 pb-3" onClick={e => e.stopPropagation()}>
           <AllergenChoice value={line.allergens} onChange={p.onAllergens} />
         </div>
       )}
-
-      {p.picker}
     </div>
   )
 }

@@ -134,8 +134,8 @@ export function ReviewHead(p: Props) {
         </div>
       </div>
 
-      <div className="flex flex-col items-stretch md:items-end gap-2 md:max-w-[340px] shrink-0">
-        <div className="flex items-center gap-2 flex-wrap md:justify-end">
+      <div className="flex flex-col items-stretch md:items-end gap-2 md:max-w-[480px] shrink-0">
+        <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:justify-end">
           <CategoryPill categories={p.categories} categoryId={p.categoryId} onCategory={p.onCategory} />
           <span className="flex-1 md:hidden" />
           {confirmDiscard ? (
@@ -144,7 +144,7 @@ export function ReviewHead(p: Props) {
                 type="button"
                 disabled={discarding}
                 onClick={async () => { setDiscarding(true); await p.onDiscard(); setDiscarding(false); setConfirmDiscard(false) }}
-                className="px-3 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-red hover:opacity-90 disabled:opacity-50"
+                className="whitespace-nowrap px-3 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-red hover:opacity-90 disabled:opacity-50"
               >
                 {discarding ? 'Discarding…' : 'Discard recipe'}
               </button>
@@ -169,7 +169,7 @@ export function ReviewHead(p: Props) {
             type="button"
             onClick={p.onSave}
             disabled={disabled}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="whitespace-nowrap w-full md:w-auto justify-center flex items-center gap-1.5 px-4 py-2.5 md:py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <span className="text-gold font-semibold">→</span>
             {p.saving ? 'Saving…' : 'Save recipe'}

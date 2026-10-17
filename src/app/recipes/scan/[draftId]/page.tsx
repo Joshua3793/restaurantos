@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { FileText, X } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
+import { useDrawer } from '@/contexts/DrawerContext'
 import { atLeast } from '@/lib/roles'
 import { useToast } from '@/components/Toast'
 import { ImageViewerV2 } from '@/components/invoices/v2/ImageViewer'
@@ -142,6 +143,13 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
   const [error, setError] = useState<string | null>(null)
   const [serverBlockers, setServerBlockers] = useState<string[]>([])
   const [showOriginal, setShowOriginal] = useState(false)
+  const { setDrawerOpen } = useDrawer()
+  // The full-screen original hides the floating chat button, like any drawer.
+  useEffect(() => {
+    if (!showOriginal) return
+    setDrawerOpen(true)
+    return () => setDrawerOpen(false)
+  }, [showOriginal, setDrawerOpen])
 
   const dataRef = useRef<DraftData | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -205,9 +213,11 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
       }
       if (!res.ok) throw new Error(String(res.status))
       const json = await res.json()
-      if (mine !== seq.current) return // a newer save is on its way
+      // Only the newest save, with nothing edited since, paints costs — an older
+      // answer would put back a cost for a line the chef has just changed.
+      if (mine !== seq.current || dirty.current) return
       setCosts(json.costs ?? {})
-      if (!dirty.current) setSaveState('saved')
+      setSaveState('saved')
     } catch {
       if (done.current) return
       dirty.current = true
@@ -435,7 +445,7 @@ export default function RecipeScanReviewPage({ params }: { params: { draftId: st
       </div>
 
       {showOriginal && !isDesktop && (
-        <div className="fixed inset-0 z-50 bg-paper flex flex-col">
+        <div className="fixed inset-0 z-[60] bg-paper flex flex-col">
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-line pt-safe">
             <span className="font-mono text-[11px] uppercase text-ink-3 truncate">Original · {files[0]?.fileName}</span>
             <button type="button" onClick={() => setShowOriginal(false)} aria-label="Close the original" className="p-1 text-ink-3 hover:text-ink">

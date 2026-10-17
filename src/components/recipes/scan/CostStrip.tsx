@@ -40,8 +40,8 @@ export function CostStrip({ cost, time, yieldUnit, onNextToFix }: Props) {
 
   const notIn = cost.missing
   return (
-    <section className="bg-paper border border-line rounded-lg grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_200px_200px] divide-y md:divide-y-0 md:divide-x divide-line">
-      <div className="p-4 min-w-0">
+    <section className="bg-paper border border-line rounded-lg grid grid-cols-2 md:grid-cols-[minmax(0,1fr)_200px_200px]">
+      <div className="p-4 min-w-0 col-span-2 md:col-span-1 border-b md:border-b-0 md:border-r border-line">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="ui-label">Costed</div>
@@ -70,7 +70,7 @@ export function CostStrip({ cost, time, yieldUnit, onNextToFix }: Props) {
         </div>
       </div>
 
-      <div className="p-4">
+      <div className="p-4 min-w-0 border-r border-line">
         <div className="ui-label">Batch cost{cost.complete ? '' : ' · so far'}</div>
         <div className="text-[22px] font-semibold tracking-[-0.03em] text-ink leading-none mt-1 font-mono">{money(cost.batch)}</div>
         <p className="text-[12px] text-ink-3 mt-1.5 leading-snug">
@@ -82,7 +82,7 @@ export function CostStrip({ cost, time, yieldUnit, onNextToFix }: Props) {
         </p>
       </div>
 
-      <div className="p-4">
+      <div className="p-4 min-w-0">
         <div className="ui-label">Time</div>
         <div className="text-[22px] font-semibold tracking-[-0.03em] text-ink leading-none mt-1 font-mono">
           {time.handsOn}<span className="text-[12px] font-medium text-ink-3 font-sans"> min hands-on</span>

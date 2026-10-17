@@ -90,13 +90,20 @@ export function keepUncosted(d: DraftData, key: string): DraftData {
   })
 }
 
-/** A CHECK line can be confirmed once it has an amount. */
+/**
+ * A CHECK line can be confirmed once it has an amount — or once it is
+ * deliberately "no amount" (qty 0: "salt to taste" matched to a close guess,
+ * or the chef cleared the amount). A null amount still needs one.
+ */
 export function canConfirm(line: DraftLine): boolean {
-  return line.status === 'CHECK' && !!line.link && validQty(line.qty) && !!line.unit
+  if (line.status !== 'CHECK' || !line.link) return false
+  return (validQty(line.qty) && !!line.unit) || line.qty === 0
 }
 
 export function confirmLine(d: DraftData, key: string): DraftData {
-  return mapLine(d, key, line => (canConfirm(line) ? { ...line, status: 'MATCHED', reason: null } : line))
+  return mapLine(d, key, line => (canConfirm(line)
+    ? { ...line, status: validQty(line.qty) ? 'MATCHED' : 'NO_AMOUNT', reason: null }
+    : line))
 }
 
 /**
@@ -307,7 +314,9 @@ export function splitStep(st: MethodState, i: number, at?: number | null): Metho
   const text = s.text
   const cut = at != null && at > 0 && at < text.length ? at : defaultSplitAt(text)
   if (cut == null) return st
-  const a = text.slice(0, cut).trim()
+  // "Blend the peppers," → "Blend the peppers." — each half reads as a step of its own.
+  let a = text.slice(0, cut).trim().replace(/[,;:–—-]+$/, '').trim()
+  if (a && !/[.!?]$/.test(a)) a += '.'
   const b = text.slice(cut).trim()
   if (!a || !b) return st
   const keys = new Set(st.method.map(x => x.key))
@@ -334,7 +343,11 @@ export function mergeWithNext(st: MethodState, i: number): MethodState {
   const n = st.method[i + 1]
   if (!s || !n) return st
   const eff = effectivePhases(st.method)
-  const merged: MethodStep = { key: s.key, text: `${s.text.trim()} ${n.text.trim()}`.trim() }
+  const first = s.text.trim()
+  let second = n.text.trim()
+  // Mid-sentence join ("Blend the peppers" + "Almonds…") keeps reading as one sentence.
+  if (first && !/[.!?]$/.test(first)) second = second.charAt(0).toLowerCase() + second.slice(1)
+  const merged: MethodStep = { key: s.key, text: `${first} ${second}`.trim() }
   const minutes = (s.minutes ?? 0) + (n.minutes ?? 0)
   if (minutes > 0) merged.minutes = minutes
   const wait = n.wait ?? s.wait

@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Loader2, Search, X } from 'lucide-react'
 import { similarity } from '@/lib/recipe-match'
+import { useDrawer } from '@/contexts/DrawerContext'
 import type { DraftLine } from '@/lib/recipe-scan/types'
 import { defaultCreateUnit, type PickCandidate } from '@/lib/recipe-scan/review'
 import { CreateItemForm, type CreatedItem } from './CreateItemForm'
@@ -104,19 +105,23 @@ export function IngredientPicker({ line, mode, revenueCenterId, pill, onPick, on
     return () => clearTimeout(t)
   }, [q])
 
-  // Lock the page behind the phone sheet.
+  // Lock the page behind the phone sheet, and hide the floating chat button over it.
+  const { setDrawerOpen } = useDrawer()
   useEffect(() => {
     if (mode !== 'sheet') return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [mode])
+    setDrawerOpen(true)
+    return () => { document.body.style.overflow = prev; setDrawerOpen(false) }
+  }, [mode, setDrawerOpen])
 
   const closeness = useMemo(() => {
     const m = new Map<string, number>()
-    for (const c of results ?? []) m.set(`${c.kind}:${c.id}`, similarity(line.name || line.raw, c.name))
+    // Closeness to what the chef is searching for (the scanned name to start with).
+    const against = q.trim() || line.name || line.raw
+    for (const c of results ?? []) m.set(`${c.kind}:${c.id}`, similarity(against, c.name))
     return m
-  }, [results, line.name, line.raw])
+  }, [results, q, line.name, line.raw])
 
   const chosen = (results ?? []).find(c => `${c.kind}:${c.id}` === selected) ?? null
   const sheet = mode === 'sheet'
@@ -210,7 +215,7 @@ export function IngredientPicker({ line, mode, revenueCenterId, pill, onPick, on
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end">
+    <div className="fixed inset-0 z-[60] flex items-end">
       <div className="absolute inset-0" style={{ background: 'rgba(9,9,11,.45)' }} onClick={onClose} />
       <div
         role="dialog"

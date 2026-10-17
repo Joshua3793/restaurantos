@@ -5,7 +5,7 @@
 // amber GUESSED pill until the chef edits them; stated ones say "from page".
 // Steps can be edited, reordered, split, merged and deleted; a phase can be
 // renamed or started at any step.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Hourglass, MoreHorizontal, Scissors, Merge, Trash2, Tag, X } from 'lucide-react'
 import { Pill } from '@/components/ui/Pill'
 import { validateMethod, type MethodStep } from '@/lib/recipe-method'
@@ -22,6 +22,13 @@ interface Props {
 }
 
 const pad = (i: number) => String(i + 1).padStart(2, '0')
+
+/** Grow a step's text box to its content, so a long step never hides behind a scrollbar on the phone. */
+function fitHeight(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
 
 function runTotals(steps: MethodStep[]): string {
   const hands = steps.reduce((a, s) => a + (s.minutes ?? 0), 0)
@@ -74,6 +81,8 @@ interface StepProps {
   index: number
   total: number
   guessed: { minutes?: true; wait?: true } | undefined
+  /** The chef changed this step's hands-on time on this visit (so it is no longer "from page"). */
+  edited: boolean
   onPatch: (p: Partial<Pick<MethodStep, 'text' | 'minutes' | 'wait'>>) => void
   onMove: (dir: -1 | 1) => void
   onSplit: (at: number | null) => void
@@ -82,11 +91,27 @@ interface StepProps {
   onNewPhase: () => void
 }
 
-function StepRow({ step, index, total, guessed, onPatch, onMove, onSplit, onMerge, onDelete, onNewPhase }: StepProps) {
+function StepRow({ step, index, total, guessed, edited, onPatch, onMove, onSplit, onMerge, onDelete, onNewPhase }: StepProps) {
   const [open, setOpen] = useState(false)
   const caret = useRef<number | null>(null)
   const last = index === total - 1
   const minutes = step.minutes ?? 0
+
+  const actions = (
+    <>
+      <IconBtn label="Move up" onClick={() => onMove(-1)} disabled={index === 0}><ArrowUp size={12} /></IconBtn>
+      <IconBtn label="Move down" onClick={() => onMove(1)} disabled={last}><ArrowDown size={12} /></IconBtn>
+      <IconBtn label="Split this step" onClick={() => onSplit(caret.current)}><Scissors size={12} />Split</IconBtn>
+      <IconBtn label="Merge with the next step" onClick={onMerge} disabled={last}><Merge size={12} />Merge</IconBtn>
+      {!step.wait && (
+        <IconBtn label="Add a wait after this step" onClick={() => onPatch({ wait: { minutes: 30 } })} disabled={last}>
+          <Hourglass size={12} />Wait
+        </IconBtn>
+      )}
+      <IconBtn label="Start a new phase here" onClick={onNewPhase}><Tag size={12} />Phase</IconBtn>
+      <IconBtn label="Delete this step" onClick={onDelete}><Trash2 size={12} /></IconBtn>
+    </>
+  )
 
   return (
     <div className="group">
@@ -96,7 +121,9 @@ function StepRow({ step, index, total, guessed, onPatch, onMove, onSplit, onMerg
           <textarea
             key={`${step.key}:${step.text}`}
             defaultValue={step.text}
-            rows={Math.max(1, Math.ceil(step.text.length / 70))}
+            rows={1}
+            ref={fitHeight}
+            onInput={e => fitHeight(e.currentTarget)}
             aria-label={`Step ${index + 1}`}
             onSelect={e => { const t = e.target as HTMLTextAreaElement; caret.current = t.selectionStart }}
             onBlur={e => {
@@ -104,7 +131,7 @@ function StepRow({ step, index, total, guessed, onPatch, onMove, onSplit, onMerg
               if (!v) { e.target.value = step.text; return } // a step can't be blank
               if (v !== step.text) onPatch({ text: v })
             }}
-            className="w-full resize-none bg-transparent text-[14px] leading-[1.5] text-ink-2 outline-none rounded-[6px] px-1 -mx-1 py-0.5 border border-transparent hover:border-line focus:border-ink-3 focus:bg-paper"
+            className="w-full resize-none overflow-hidden bg-transparent text-[14px] leading-[1.5] text-ink-2 outline-none rounded-[6px] px-1 -mx-1 py-0.5 border border-transparent hover:border-line focus:border-ink-3 focus:bg-paper"
           />
           <div className="font-mono text-[10.5px] text-ink-3 mt-1 flex gap-2 items-center flex-wrap uppercase">
             <input
@@ -121,8 +148,12 @@ function StepRow({ step, index, total, guessed, onPatch, onMove, onSplit, onMerg
               className="w-[46px] font-mono text-[11px] text-right bg-paper border border-line rounded-[6px] px-1.5 py-0.5 outline-none focus:border-ink-3"
             />
             <span>min hands-on</span>
-            {minutes > 0 && (guessed?.minutes ? <Pill tone="gold">Guessed</Pill> : <span>· from page</span>)}
+            {minutes > 0 && (guessed?.minutes ? <Pill tone="gold">Guessed</Pill> : <span>· {edited ? 'edited' : 'from page'}</span>)}
             {minutes === 0 && <span className="text-ink-4">· untimed</span>}
+            {/* Desktop: the step's tools sit at the end of this line, shown on hover. */}
+            <span className="hidden md:flex items-center gap-0.5 ml-auto normal-case opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              {actions}
+            </span>
           </div>
         </div>
         <div className="flex items-start">
@@ -138,19 +169,9 @@ function StepRow({ step, index, total, guessed, onPatch, onMove, onSplit, onMerg
         </div>
       </div>
 
-      <div className={`${open ? 'flex' : 'hidden'} md:flex flex-wrap items-center gap-0.5 px-3 md:pl-[54px] md:pr-4 -mt-1 pb-1.5 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity`}>
-        <IconBtn label="Move up" onClick={() => onMove(-1)} disabled={index === 0}><ArrowUp size={12} /></IconBtn>
-        <IconBtn label="Move down" onClick={() => onMove(1)} disabled={last}><ArrowDown size={12} /></IconBtn>
-        <IconBtn label="Split this step" onClick={() => onSplit(caret.current)}><Scissors size={12} />Split</IconBtn>
-        <IconBtn label="Merge with the next step" onClick={onMerge} disabled={last}><Merge size={12} />Merge</IconBtn>
-        {!step.wait && (
-          <IconBtn label="Add a wait after this step" onClick={() => onPatch({ wait: { minutes: 30 } })} disabled={last}>
-            <Hourglass size={12} />Wait
-          </IconBtn>
-        )}
-        <IconBtn label="Start a new phase here" onClick={onNewPhase}><Tag size={12} />Phase</IconBtn>
-        <IconBtn label="Delete this step" onClick={onDelete}><Trash2 size={12} /></IconBtn>
-      </div>
+      {open && (
+        <div className="flex md:hidden flex-wrap items-center gap-0.5 px-3 -mt-1 pb-1.5">{actions}</div>
+      )}
 
       {step.wait && (
         <div className="ml-3 mr-3 md:ml-[54px] md:mr-4 mb-2.5 px-3 py-2 border border-dashed border-line-2 rounded-[10px] font-mono text-[11px] text-ink-2 flex items-center gap-2 flex-wrap uppercase">
@@ -194,6 +215,14 @@ function StepRow({ step, index, total, guessed, onPatch, onMove, onSplit, onMerg
 }
 
 export function MethodReview({ method, guessed, onChange }: Props) {
+  const [edited, setEdited] = useState<Set<string>>(() => new Set())
+  const box = useRef<HTMLElement | null>(null)
+  // Text boxes re-fit when the screen width changes (phone rotation, window resize).
+  useEffect(() => {
+    const refit = () => box.current?.querySelectorAll('textarea').forEach(t => fitHeight(t))
+    window.addEventListener('resize', refit)
+    return () => window.removeEventListener('resize', refit)
+  }, [])
   const st: MethodState = { method, guessed: guessed ?? {} }
   const runs = phaseRuns(method)
   const named = runs.filter(r => r.phase).length
@@ -204,7 +233,7 @@ export function MethodReview({ method, guessed, onChange }: Props) {
   const add = () => onChange(addStepAtEnd(st, `Step ${method.length + 1}`))
 
   return (
-    <section className="bg-paper border border-line rounded-lg overflow-hidden">
+    <section ref={box} className="bg-paper border border-line rounded-lg overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-3 md:px-4 py-[13px] border-b border-line">
         <h3 className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink flex items-baseline gap-2">
           Method
@@ -242,7 +271,11 @@ export function MethodReview({ method, guessed, onChange }: Props) {
                 index={i}
                 total={method.length}
                 guessed={guessed?.[step.key]}
-                onPatch={p => onChange(patchStep(st, i, p))}
+                edited={edited.has(step.key)}
+                onPatch={p => {
+                  if ('minutes' in p) setEdited(e => new Set(e).add(step.key))
+                  onChange(patchStep(st, i, p))
+                }}
                 onMove={dir => onChange(moveStep(st, i, dir))}
                 onSplit={at => onChange(splitStep(st, i, at))}
                 onMerge={() => onChange(mergeWithNext(st, i))}
