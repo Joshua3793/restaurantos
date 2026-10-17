@@ -122,7 +122,7 @@ export default function PeopleHubPage() {
     <div className="p-4 md:p-6 space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="font-fraunces text-xl font-semibold text-ink">People</h1>
+          <h1 className="text-xl font-semibold tracking-[-0.025em] text-ink">People</h1>
           <p className="text-[12.5px] text-ink-3 mt-0.5">
             {people.length} {people.length === 1 ? 'person' : 'people'} · {loginCount} with a login · {rosterCount} on the roster
           </p>

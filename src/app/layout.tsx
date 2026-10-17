@@ -4,8 +4,8 @@ import { GeistMono } from 'geist/font/mono'
 import { Fraunces } from 'next/font/google'
 import './globals.css'
 
-// Fraunces — the brand display serif, used for invoice/section titles in the
-// invoice review drawer (Implementation.html §5: "Title: Fraunces 500").
+// Fraunces — Controla's accent serif, italic 500, used ONLY for a person's name
+// in a greeting (and quote marks). Titles are Geist.
 const fraunces = Fraunces({
   subsets: ['latin'],
   weight: ['400', '500', '600'],

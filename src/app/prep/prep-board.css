@@ -13,16 +13,16 @@
   --ink:#09090b; --ink-2:#27272a; --ink-3:#71717a; --ink-4:#a1a1aa;
   --line:#e4e4e7; --line-2:#d4d4d8;
   --gold:#d97706; --gold-2:#b45309; --gold-soft:#fef3c7;
-  --red:#dc2626; --red-text:#b91c1c; --red-soft:#fee2e2;
-  --green:#16a34a; --green-text:#15803d; --green-soft:#dcfce7;
-  --blue:#2563eb; --blue-text:#1d4ed8;
+  --red:#dc2626; --red-text:#991b1b; --red-soft:#fee2e2;
+  --green:#16a34a; --green-text:#166534; --green-soft:#dcfce7;
+  --blue:#2563eb; --blue-text:#1e40af;
 }
 .pb .mono{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;letter-spacing:-0.01em;}
 
 /* ── Slim header ── */
 .pb .head{display:flex;align-items:center;gap:20px;margin-bottom:14px;}
 .pb .head .crumbs{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10px;color:var(--ink-3);letter-spacing:0.04em;display:flex;align-items:center;gap:7px;margin-bottom:4px;}
-.pb .head h1{font-family:var(--font-fraunces),'Fraunces',Georgia,serif;font-size:27px;font-weight:600;letter-spacing:-0.01em;margin:0;line-height:1;}
+.pb .head h1{font-family:var(--font-geist-sans),'Geist',system-ui,sans-serif;font-size:27px;font-weight:600;letter-spacing:-0.035em;margin:0;line-height:1;}
 .pb .head .sub{font-size:12.5px;color:var(--ink-3);margin-top:5px;white-space:nowrap;}
 .pb .head .sub b{color:var(--ink);font-weight:500;}
 .pb .head .htitle{min-width:0;}
@@ -246,7 +246,7 @@
 .pb-drawer .dr-head{padding:18px 20px 14px;border-bottom:1px solid var(--line);}
 .pb-drawer .dr-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
 .pb-drawer .dr-cat{font-family:var(--font-geist-mono),'Geist Mono',ui-monospace,monospace;font-size:10px;color:var(--ink-3);letter-spacing:0.06em;display:flex;align-items:center;gap:8px;margin-bottom:7px;}
-.pb-drawer .dr-title{font-family:var(--font-fraunces),'Fraunces',Georgia,serif;font-size:23px;font-weight:600;letter-spacing:-0.01em;line-height:1.05;}
+.pb-drawer .dr-title{font-family:var(--font-geist-sans),'Geist',system-ui,sans-serif;font-size:23px;font-weight:600;letter-spacing:-0.03em;line-height:1.05;}
 .pb-drawer .dr-close{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--ink-3);border:1px solid var(--line);flex-shrink:0;}
 .pb-drawer .dr-close:hover{background:var(--bg-2);color:var(--ink);}
 .pb-drawer .dr-chips{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;}
@@ -266,7 +266,7 @@
 .pb-drawer .ovr-btn.on.crit{background:var(--red-soft);color:var(--red-text);border-color:#fca5a5;}
 .pb-drawer .ovr-btn.on.low{background:var(--gold-soft);color:var(--gold-2);border-color:#fcd34d;}
 .pb-drawer .ovr-btn.on.par{background:var(--green-soft);color:var(--green-text);border-color:#86efac;}
-.pb-drawer .ovr-btn.on.mid{background:#dbeafe;color:#1d4ed8;border-color:#93c5fd;}
+.pb-drawer .ovr-btn.on.mid{background:#dbeafe;color:var(--blue-text);border-color:#93c5fd;}
 .pb-drawer .steps{display:flex;flex-direction:column;gap:0;}
 .pb-drawer .step{display:flex;gap:11px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:12.5px;color:var(--ink-2);line-height:1.45;}
 .pb-drawer .step:last-child{border-bottom:none;}
@@ -301,7 +301,7 @@
 .pb .skel-row{display:grid;grid-template-columns:14px 1fr 104px 84px 86px;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);}
 .pb .page-empty,.pb .page-error{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 20px;gap:14px;}
 .pb .page-empty .pi{width:54px;height:54px;border-radius:14px;background:var(--bg-2);color:var(--ink-3);display:grid;place-items:center;}
-.pb .page-empty .pt{font-family:var(--font-fraunces),'Fraunces',Georgia,serif;font-size:21px;font-weight:600;}
+.pb .page-empty .pt{font-family:var(--font-geist-sans),'Geist',system-ui,sans-serif;font-size:21px;font-weight:600;letter-spacing:-0.03em;}
 .pb .page-empty .ps{font-size:13px;color:var(--ink-3);max-width:380px;line-height:1.5;}
 .pb .err-banner{display:flex;align-items:center;gap:13px;background:var(--red-soft);border:1px solid #fca5a5;border-radius:11px;padding:14px 16px;margin-bottom:14px;}
 .pb .err-banner .ei{width:34px;height:34px;border-radius:9px;background:#fff;border:1px solid #fca5a5;color:var(--red-text);display:grid;place-items:center;flex-shrink:0;}

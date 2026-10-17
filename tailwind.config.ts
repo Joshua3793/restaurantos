@@ -30,13 +30,13 @@ const config: Config = {
         // Semantic data colors (consistent with Tailwind defaults for fallback)
         red:           '#dc2626',  // red-600
         'red-soft':    '#fee2e2',  // red-100
-        'red-text':    '#b91c1c',  // red-700
+        'red-text':    '#991b1b',  // red-800 (Controla)
         green:         '#16a34a',  // green-600
         'green-soft':  '#dcfce7',  // green-100
-        'green-text':  '#15803d',  // green-700
+        'green-text':  '#166534',  // green-800 (Controla)
         blue:          '#2563eb',  // blue-600
         'blue-soft':   '#dbeafe',  // blue-100
-        'blue-text':   '#1d4ed8',  // blue-700
+        'blue-text':   '#1e40af',  // blue-800 (Controla)
         teal:          '#0d9488',  // teal-600  — Shift Lead
         'teal-soft':   '#ccfbf1',  // teal-100
         'teal-text':   '#0f766e',  // teal-700
@@ -65,7 +65,7 @@ const config: Config = {
         caption: ['11.5px', { lineHeight: '1.45' }],
         body:    ['13.5px', { lineHeight: '1.55' }],
         h2:      ['17px',   { lineHeight: '1.3',  fontWeight: '600' }],
-        h1:      ['28px',   { lineHeight: '1.1',  letterSpacing: '-0.01em', fontWeight: '600' }],
+        h1:      ['36px',   { lineHeight: '1',    letterSpacing: '-0.04em', fontWeight: '600' }],
         display: ['56px',   { lineHeight: '1',    letterSpacing: '-0.02em' }],
       },
     },

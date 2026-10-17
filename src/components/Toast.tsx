@@ -45,13 +45,13 @@ const ToastContext = createContext<ToastContextValue>({
 
 export const useToast = () => useContext(ToastContext)
 
-// ── Accent colors ──────────────────────────────────────────────────────────────
+// ── Accent colors (Controla status-on-dark: ok / bad / warn; info has no blue on dark) ──
 
 const ACCENT: Record<ToastType, string> = {
-  success: '#00ff88',
-  error:   '#ff6b6b',
-  warning: '#ffc700',
-  info:    '#00c4ff',
+  success: '#86efac',
+  error:   '#fca5a5',
+  warning: '#fcd34d',
+  info:    '#d4d4d8',
 }
 
 // ── ToastItem (internal) ───────────────────────────────────────────────────────
