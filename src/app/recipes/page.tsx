@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { X, BookOpen, Search, Link2, Check, Download, SlidersHorizontal } from 'lucide-react'
+import { X, BookOpen, Search, Link2, Check, Download, SlidersHorizontal, ScanLine } from 'lucide-react'
 import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { PREP_YIELD_UNITS } from '@/lib/uom'
@@ -9,6 +9,10 @@ import { useDrawer } from '@/contexts/DrawerContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
+import { ScanCaptureSheet } from '@/components/recipes/scan/ScanCaptureSheet'
+import { ScanReadingList, useRecipeScans } from '@/components/recipes/scan/ScanReadingList'
 
 export default function RecipesPage() {
   return (
@@ -22,6 +26,11 @@ function RecipesInner() {
   const searchParams = useSearchParams()
   const { setDrawerOpen } = useDrawer()
   const { revenueCenters, activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
+  // Recipe Scan is MANAGER+ (the people who edit recipes and see costs).
+  const { role } = useUser()
+  const canScan = role != null && atLeast(role, 'MANAGER')
+  const recipeScans = useRecipeScans(scopeReady && canScan)
+  const [showScan, setShowScan]             = useState(false)
   const [recipes, setRecipes]               = useState<Recipe[]>([])
   // False until the first list response lands — the skeleton shows instead of "No recipes yet".
   const [loaded, setLoaded]                 = useState(false)
@@ -234,6 +243,14 @@ function RecipesInner() {
             <SlidersHorizontal size={13} className="text-ink-3" />
             Edit categories
           </button>
+          {canScan && (
+            <button onClick={() => setShowScan(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors">
+              <ScanLine size={13} className="text-ink-3" />
+              <span className="hidden sm:inline">Scan recipe</span>
+              <span className="sm:hidden">Scan</span>
+            </button>
+          )}
           <button onClick={() => setShowNewForm(true)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors">
             <span className="text-gold font-semibold">+</span>
@@ -242,6 +259,22 @@ function RecipesInner() {
           </button>
         </div>
       </div>
+
+      {/* ── SCANS: reading / ready to review / couldn't read ── */}
+      {canScan && (
+        <ScanReadingList
+          scans={recipeScans.scans}
+          onRetry={recipeScans.startReading}
+          onDiscard={recipeScans.discard}
+        />
+      )}
+      {showScan && (
+        <ScanCaptureSheet
+          activeRcId={activeRcId}
+          onClose={() => setShowScan(false)}
+          onCreated={id => { recipeScans.startReading(id); recipeScans.reload() }}
+        />
+      )}
 
       {/* ── TOOLBAR: search + sort + view ── */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">

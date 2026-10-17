@@ -101,9 +101,13 @@ interface Props {
   /** 1-based page number currently being captured — equals captured count + 1 */
   pageNumber: number
   maxPages:   number
+  /** Top-bar label before the first page is taken. */
+  title?:     string
+  /** File name stem for captured pages ("invoice" → invoice-p1-….jpg). */
+  fileStem?:  string
 }
 
-export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Props) {
+export function CameraCapture({ onCapture, onClose, pageNumber, maxPages, title = 'Scan Invoice', fileStem = 'invoice' }: Props) {
   const videoRef    = useRef<HTMLVideoElement>(null)
   const canvasRef   = useRef<HTMLCanvasElement>(null)
   const fallbackRef = useRef<HTMLInputElement>(null)
@@ -207,12 +211,12 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
     const c = canvasRef.current; if (!c) return
     const dataUrl = c.toDataURL('image/jpeg', 0.92)
     fetch(dataUrl).then(r => r.blob()).then(blob => {
-      const file = new File([blob], `invoice-p${pageNumber}-${Date.now()}.jpg`, { type: 'image/jpeg' })
+      const file = new File([blob], `${fileStem}-p${pageNumber}-${Date.now()}.jpg`, { type: 'image/jpeg' })
       onCapture(file)
       setPreview(null)
       setQuality(null)
     })
-  }, [onCapture, pageNumber])
+  }, [onCapture, pageNumber, fileStem])
 
   const retake = useCallback(() => { setPreview(null); setQuality(null) }, [])
 
@@ -255,7 +259,7 @@ export function CameraCapture({ onCapture, onClose, pageNumber, maxPages }: Prop
               {capturedCount} page{capturedCount !== 1 ? 's' : ''} captured
             </p>
           ) : (
-            <p className="text-white text-sm font-semibold">Scan Invoice</p>
+            <p className="text-white text-sm font-semibold">{title}</p>
           )}
           <p className="text-white/50 text-[11px]">
             Page {pageNumber}{maxPages > 1 ? ` of ${maxPages} max` : ''}

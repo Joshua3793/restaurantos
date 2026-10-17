@@ -3,7 +3,7 @@
 
 import { useState, useCallback } from 'react'
 import { scanDocument } from '@/lib/capacitor'
-import { useUploadThing } from '@/lib/uploadthing-client'
+import { uploadFiles } from '@/lib/uploadthing-client'
 import { compressImageFile } from '@/lib/image-compress'
 
 interface Options {
@@ -21,11 +21,71 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes
 }
 
+export type ScanUploader = 'invoiceUploader' | 'recipeScanUploader'
+
+export interface UploadedScanFile { url: string; fileName: string; fileType: string }
+
+/** Cloud timeout for scanned pages — fail fast so the caller's fallback kicks in (same as InvoiceUploadModal). */
+const PAGE_UPLOAD_TIMEOUT_MS = 8_000
+
+/**
+ * Upload files to UploadThing with a timeout. Resolves to the uploaded files,
+ * or null when the cloud upload failed or timed out (the caller decides on a
+ * fallback). Never throws.
+ */
+export async function uploadToCloud(
+  files: File[],
+  uploader: ScanUploader,
+  timeoutMs: number = PAGE_UPLOAD_TIMEOUT_MS,
+): Promise<UploadedScanFile[] | null> {
+  try {
+    const uploaded = await Promise.race([
+      uploadFiles(uploader, { files }),
+      new Promise<null>((_, rej) =>
+        setTimeout(() => rej(new Error('Cloud upload timed out')), timeoutMs)
+      ),
+    ])
+    if (!uploaded?.length) return null
+    return uploaded.map(f => ({
+      url: f.url,
+      fileName: f.name,
+      fileType: f.type ?? 'image/jpeg',
+    }))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The page-upload half of a native scan, shared by invoices and recipe scans:
+ * turn the scanner's base64 pages into compressed JPEG files and try the
+ * UploadThing CDN. `uploaded` is null when the cloud upload failed — `files`
+ * are still returned so the caller can fall back.
+ */
+export async function uploadScanPages(
+  pages: string[],
+  uploader: ScanUploader,
+): Promise<{ files: File[]; uploaded: UploadedScanFile[] | null }> {
+  // Individual images (not a merged PDF) so the server runs them through the
+  // sharp enhancement pipeline and one combined multi-image OCR call — and bbox
+  // page indexes line up with file order. Done sequentially, one canvas at a
+  // time: rasterizing every page concurrently can transiently hold hundreds of
+  // MB of bitmaps and OOM low-end mobile WebViews.
+  const files: File[] = []
+  for (const [i, raw] of pages.entries()) {
+    const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
+    const bytes = base64ToUint8Array(b64)
+    const file = new File([new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' })],
+      `scan_p${i + 1}.jpg`, { type: 'image/jpeg' })
+    files.push(await compressImageFile(file))
+  }
+  const uploaded = await uploadToCloud(files, uploader)
+  return { files, uploaded }
+}
+
 export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
-
-  const { startUpload } = useUploadThing('invoiceUploader', {})
 
   const triggerScan = useCallback(async () => {
     setIsScanning(true)
@@ -36,20 +96,9 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
       const pages = await scanDocument()
       if (!pages.length) { setIsScanning(false); return }
 
-      // 2. Convert pages to compressed JPEG files. Individual images (not a
-      // merged PDF) so the server runs them through the sharp enhancement
-      // pipeline and one combined multi-image OCR call — and bbox page
-      // indexes line up with file order. Done sequentially, one canvas at a
-      // time: rasterizing every page concurrently can transiently hold
-      // hundreds of MB of bitmaps and OOM low-end mobile WebViews.
-      const pageFiles: File[] = []
-      for (const [i, raw] of pages.entries()) {
-        const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
-        const bytes = base64ToUint8Array(b64)
-        const file = new File([new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' })],
-          `scan_p${i + 1}.jpg`, { type: 'image/jpeg' })
-        pageFiles.push(await compressImageFile(file))
-      }
+      // 2. Convert pages to compressed JPEG files and try the UploadThing CDN
+      //    (8 s timeout, same as InvoiceUploadModal).
+      const { files: pageFiles, uploaded } = await uploadScanPages(pages, 'invoiceUploader')
 
       // 3. Create session
       const sessRes = await fetch('/api/invoices/sessions', {
@@ -63,31 +112,19 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
       }
       const sess = await sessRes.json()
 
-      // 4a. Try UploadThing CDN (8 s timeout, same as InvoiceUploadModal)
+      // 4a. Register the cloud upload on the session
       let uploadOk = false
-      try {
-        const uploaded = await Promise.race([
-          startUpload(pageFiles),
-          new Promise<null>((_, rej) =>
-            setTimeout(() => rej(new Error('Cloud upload timed out')), 8_000)
-          ),
-        ])
-        if (uploaded?.length) {
+      if (uploaded) {
+        try {
           const regRes = await fetch(`/api/invoices/sessions/${sess.id}/upload`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              files: uploaded.map(f => ({
-                url: f.url,
-                fileName: f.name,
-                fileType: f.type ?? 'image/jpeg',
-              })),
-            }),
+            body: JSON.stringify({ files: uploaded }),
           })
           if (regRes.ok) uploadOk = true
+        } catch {
+          // fall through to local fallback
         }
-      } catch {
-        // fall through to local fallback
       }
 
       // 4b. Local fallback — one page per request to stay under the ~4.5 MB
@@ -133,7 +170,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
     } finally {
       setIsScanning(false)
     }
-  }, [activeRcId, onComplete, onGrouping, startUpload])
+  }, [activeRcId, onComplete, onGrouping])
 
   const clearError = () => setScanError(null)
 
