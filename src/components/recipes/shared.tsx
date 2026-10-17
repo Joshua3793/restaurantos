@@ -10,7 +10,7 @@ import {
   Plus, X, ChefHat, BookOpen, UtensilsCrossed, Search, MoreHorizontal,
   ArrowLeft, ChevronDown, ChevronUp, Pencil, Check, Trash2, Copy,
   Link2, Package, ExternalLink, Printer, Star, Share2,
-  Hand, Hourglass, ArrowUp, ArrowDown,
+  Hand, Hourglass, ArrowUp, ArrowDown, FileText, ScanLine,
 } from 'lucide-react'
 import { resolveStages, type RecipeStage } from '@/lib/prep-stages'
 import { validateMethod, parseMethod, legacyToMethod, newStepKey, type MethodStep } from '@/lib/recipe-method'
@@ -21,6 +21,7 @@ import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
+import { ImageViewerV2 } from '@/components/invoices/v2/ImageViewer'
 
 // ─── Dimension-conflict surfaces ───────────────────────────────────────────────
 // An ingredient whose unit is a different physical dimension than the item's base
@@ -126,6 +127,8 @@ export interface Recipe {
   usedInRecipes?: Array<{ id: string; name: string; type: string }>
   allergens?: string[]
   baseIngredientId: string | null
+  /** The scan this recipe was read from (Recipe Scan); null for hand-made recipes. */
+  sourceScanId?: string | null
   /** Line settings off the prep task row (PREP recipes); null when there is no row. */
   prep?: { parLevel: number; shelfLifeDays: number | null; stations: string[] } | null
 }
@@ -983,6 +986,103 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   )
 })
 
+// ─── SeeOriginalSheet — the photo/file a scanned recipe was read from ─────────
+// Full-screen on a phone, a centred modal on desktop. Photos (and a lone PDF)
+// open in the invoice viewer; anything else (several PDFs, Word, Excel) is a
+// plain list of links that open in a new tab. No backdrop-blur on the scrim.
+interface OriginalFile { fileName: string; fileType: string; fileUrl: string }
+
+const isOriginalPhoto = (f: OriginalFile) =>
+  f.fileType.toLowerCase().startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(f.fileName)
+const isOriginalPdf = (f: OriginalFile) =>
+  f.fileType.toLowerCase() === 'application/pdf' || f.fileName.toLowerCase().endsWith('.pdf')
+
+function SeeOriginalSheet({ recipeId, onClose }: { recipeId: string; onClose: () => void }) {
+  const [files, setFiles] = useState<OriginalFile[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/recipes/${recipeId}/original`, { cache: 'no-store' })
+      .then(async r => {
+        if (!r.ok) throw new Error(r.status === 404 ? 'The original is no longer available.' : 'Couldn\u2019t load the original.')
+        return (await r.json()) as { files: OriginalFile[] }
+      })
+      .then(d => { if (!cancelled) setFiles(d.files) })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Couldn\u2019t load the original.') })
+    return () => { cancelled = true }
+  }, [recipeId])
+
+  // Escape closes just this sheet — capture + stop, so the recipe drawer under it stays open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopImmediatePropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+
+  const photos = files ? files.filter(isOriginalPhoto) : []
+  const pdfs = files ? files.filter(isOriginalPdf) : []
+  const viewable = photos.length > 0 ? photos : pdfs.length === 1 && files!.length === 1 ? pdfs : []
+  const rest = files ? files.filter(f => !viewable.includes(f)) : []
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-stretch md:items-center md:justify-center md:p-8 bg-paper md:bg-black/40"
+      onClick={onClose}>
+      <div className="flex flex-col w-full h-full md:h-[88vh] md:max-w-[1000px] bg-paper md:rounded-xl md:border md:border-line md:shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+        role="dialog" aria-label="Original recipe">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-line shrink-0"
+          style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
+          <button onClick={onClose} aria-label="Close"
+            className="w-8 h-8 rounded-[8px] border border-line flex items-center justify-center text-ink-2 hover:border-ink-3 transition-colors bg-paper shrink-0">
+            <X size={16} />
+          </button>
+          <div className="min-w-0">
+            <p className="text-[15px] font-semibold text-ink tracking-[-0.02em] leading-tight">Original</p>
+            <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-4">What this recipe was read from</p>
+          </div>
+        </div>
+
+        {!files && !error && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold" />
+          </div>
+        )}
+        {error && <p className="p-6 text-[13.5px] text-ink-3">{error}</p>}
+        {files && (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {viewable.length > 0 && (
+              <div className="flex flex-1 min-h-0">
+                <ImageViewerV2 files={viewable.map(f => ({ id: f.fileUrl, ...f }))} />
+              </div>
+            )}
+            {rest.length > 0 && (
+              <div className="p-4 flex flex-col gap-2 border-t border-line first:border-t-0 overflow-y-auto">
+                <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">
+                  {viewable.length > 0 ? 'Other files' : 'Original files'}
+                </p>
+                {rest.map(f => (
+                  <a key={f.fileUrl} href={f.fileUrl} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2 text-[13.5px] text-ink hover:text-gold-2">
+                    <FileText size={14} className="text-ink-3 shrink-0" />
+                    <span className="truncate">{f.fileName}</span>
+                    <ExternalLink size={11} className="text-ink-4 shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
+            {files.length === 0 && <p className="p-6 text-[13.5px] text-ink-3">The original is no longer available.</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── RecipePanel ──────────────────────────────────────────────────────────────
 // ─── Method editor (one Method, with waits) ──────────────────────────────────
 // ONE ordered list. A row is an instruction with an optional phase label,
@@ -1174,6 +1274,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
   const [searchResults, setSearchResults] = useState<IngredientSearchResult[]>([])
   const [showSearch, setShowSearch] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
+  const [showOriginal, setShowOriginal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showSaveScale, setShowSaveScale] = useState(false)
   const [newScaleName, setNewScaleName] = useState('')
@@ -1479,6 +1580,13 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
               title="View in Inventory">
               <Link2 size={9} /> Synced <ExternalLink size={8} />
             </a>
+          )}
+          {recipe.sourceScanId && (
+            <button onClick={() => setShowOriginal(true)}
+              className="font-mono text-[10px] uppercase tracking-[0.06em] bg-bg-2 text-ink-3 px-2 py-0.5 rounded-full flex items-center gap-1 hover:text-ink-2 transition-colors"
+              title="See the photo or file this recipe was read from">
+              <ScanLine size={9} /> See original
+            </button>
           )}
         </div>
       </div>
@@ -2035,6 +2143,11 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
 
     {showPrint && typeof document !== 'undefined' && createPortal(
       <RecipePrintModal recipe={recipe} onClose={() => setShowPrint(false)} />,
+      document.body
+    )}
+
+    {showOriginal && recipe.sourceScanId && typeof document !== 'undefined' && createPortal(
+      <SeeOriginalSheet recipeId={recipeId} onClose={() => setShowOriginal(false)} />,
       document.body
     )}
 
