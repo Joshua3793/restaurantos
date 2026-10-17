@@ -79,12 +79,35 @@ describe('resolveAmount', () => {
   it('volume units convert silently for a volume item', () =>
     expect(resolveAmount({ raw: '2 tbsp oil', qty: 2, unit: 'tbsp', name: 'oil' }, litre, null))
       .toEqual({ qty: 29.5736, unit: 'ml', status: 'MATCHED', reason: null }))
-  it('ml on a weighed item with no density flags CHECK', () =>
+  it('ml on a weighed item with no density and no estimate asks for the weight', () =>
     expect(resolveAmount({ raw: '100 ml honey', qty: 100, unit: 'ml', name: 'honey' }, kg, null))
-      .toEqual({ qty: 100, unit: 'g', status: 'CHECK', reason: 'ml for a weighed item — check' }))
-  it('g on a volume item with no density flags CHECK', () =>
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '100 ml — how many g?' }))
+  it('g on a volume item with no density and no estimate asks for the volume', () =>
     expect(resolveAmount({ raw: '100 g stock', qty: 100, unit: 'g', name: 'stock' }, litre, null))
-      .toEqual({ qty: 100, unit: 'ml', status: 'CHECK', reason: 'g for a measured-volume item — check' }))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '100 g — how many ml?' }))
+
+  // Weight <-> volume with no density: never assume water (2 cups flour is not 2 g, nor 473 g).
+  it('2 cups flour on a weighed item uses the reader’s gram estimate and flags CHECK', () =>
+    expect(resolveAmount({ raw: '2 cups flour', qty: 2, unit: 'cups', name: 'flour', estimate: { qty: 240, unit: 'g' } }, kg, null))
+      .toEqual({ qty: 240, unit: 'g', status: 'CHECK', reason: '2 cups — about 240 g, check' }))
+  it('2 cups flour with no estimate asks how many g, with no amount', () =>
+    expect(resolveAmount({ raw: '2 cups flour', qty: 2, unit: 'cup', name: 'flour' }, kg, null))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '2 cups — how many g?' }))
+  it('1 tbsp sugar with an estimate in the wrong family still asks', () =>
+    expect(resolveAmount({ raw: '1 tbsp sugar', qty: 1, unit: 'tbsp', name: 'sugar', estimate: { qty: 15, unit: 'ml' } }, kg, null))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '1 tbsp — how many g?' }))
+  it('an estimate in kg is shown in the item’s own unit', () =>
+    expect(resolveAmount({ raw: '2 cups flour', qty: 2, unit: 'cup', name: 'flour', estimate: { qty: 0.24, unit: 'kg' } }, kg, null))
+      .toEqual({ qty: 240, unit: 'g', status: 'CHECK', reason: '2 cups — about 240 g, check' }))
+  it('grams of a liquid on a volume item uses the ml estimate', () =>
+    expect(resolveAmount({ raw: '200 g cream', qty: 200, unit: 'g', name: 'cream', estimate: { qty: 195, unit: 'ml' } }, litre, null))
+      .toEqual({ qty: 195, unit: 'ml', status: 'CHECK', reason: '200 g — about 195 ml, check' }))
+  it('a count-word estimate across weight/volume is not passed through 1:1', () =>
+    expect(resolveAmount({ raw: '1 bunch parsley', qty: 1, unit: 'bunch', name: 'parsley', estimate: { qty: 2, unit: 'tbsp' } }, kg, null))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '1 bunch — how much is a bunch?' }))
+  it('a learned measure across weight/volume is not passed through 1:1', () =>
+    expect(resolveAmount({ raw: '1 bunch parsley', qty: 1, unit: 'bunch', name: 'parsley' }, kg, { word: 'bunch', qty: 30, unit: 'ml' }))
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '1 bunch — how much is a bunch?' }))
   it('weight to volume with a density converts silently', () =>
     expect(resolveAmount({ raw: '100 ml honey', qty: 100, unit: 'ml', name: 'honey' }, { ...kg, densityGPerMl: 1.4 }, null))
       .toEqual({ qty: 140, unit: 'g', status: 'MATCHED', reason: null }))
@@ -134,12 +157,12 @@ describe('resolveAmount', () => {
       .toEqual({ qty: 250, unit: 'ml', status: 'MATCHED', reason: null })
   })
   it('plural measure units on an item with an each-measure are not read as counts', () => {
-    // onion: 150 g each. a volume on a weighed item is the flagged 1:1 passthrough, never 300 g.
+    // onion: 150 g each. a volume on a weighed item asks for the weight — never 300 g, never 2 g.
     expect(resolveAmount({ raw: '2 tablespoons parsley', qty: 2, unit: 'tablespoons', name: 'parsley' }, onion, null))
-      .toEqual({ qty: 2, unit: 'g', status: 'CHECK', reason: 'tbsp for a weighed item — check' })
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '2 tbsp — how many g?' })
     expect(resolveAmount({ raw: '2 teaspoons parsley', qty: 2, unit: 'teaspoons', name: 'parsley' }, onion, null).status).toBe('CHECK')
     expect(resolveAmount({ raw: '100 millilitres x', qty: 100, unit: 'millilitres', name: 'x' }, onion, null))
-      .toEqual({ qty: 100, unit: 'g', status: 'CHECK', reason: 'ml for a weighed item — check' })
+      .toEqual({ qty: null, unit: null, status: 'CHECK', reason: '100 ml — how many g?' })
   })
   it('plural measure units on a counted item with an each-measure do not use the bridge wrongly', () => {
     const r = resolveAmount({ raw: '2 tablespoons x', qty: 2, unit: 'tablespoons', name: 'x' }, egg, null)
@@ -149,7 +172,7 @@ describe('resolveAmount', () => {
     expect(resolveAmount({ raw: '2 cans', qty: 2, unit: 'can', name: 'x' }, litre, { word: 'can', qty: 2, unit: 'tablespoons' }))
       .toEqual({ qty: 59.1472, unit: 'ml', status: 'MATCHED', reason: null })
     expect(resolveAmount({ raw: '1 bunch', qty: 1, unit: 'bunch', name: 'x', estimate: { qty: 2, unit: 'tablespoons' } }, litre, null))
-      .toEqual({ qty: 29.5736, unit: 'ml', status: 'CHECK', reason: '1 bunch — about 2 tbsp, check' })
+      .toEqual({ qty: 29.5736, unit: 'ml', status: 'CHECK', reason: '1 bunch — about 29.57 ml, check' })
   })
   it('a plural unit in the item each-measure is understood', () =>
     expect(resolveAmount({ raw: '2 onions', qty: 2, unit: 'each', name: 'onion' }, { ...onion, eachMeasureUnit: 'grams' }, null))

@@ -11,7 +11,7 @@ import type { ExtractedRecipe } from './types'
 export const RECIPE_SCAN_MODEL = 'claude-sonnet-5-5'
 const MAX_TOKENS = 16000
 
-const SYSTEM_PROMPT = `You read recipes for a restaurant kitchen and record them with the record_recipes tool. Always call the tool, even if you are unsure; if the files contain no recipe, call it with an empty recipes list.
+export const SYSTEM_PROMPT = `You read recipes for a restaurant kitchen and record them with the record_recipes tool. Always call the tool, even if you are unsure; if the files contain no recipe, call it with an empty recipes list.
 
 Rules:
 - Every separate recipe is its own entry in recipes. A page with an aioli and a pickle brine is two entries.
@@ -22,7 +22,11 @@ Rules:
   - name: the ingredient only, without amount or prep notes ("garlic").
   - qty: the number on the page (a number, not text; 1 1/2 is 1.5; for a range like 2-3 use the middle). null when there is no amount ("to taste", "a pinch of").
   - unit: write a measure as a short standard abbreviation: g, kg, ml, l, tsp, tbsp, cup, oz, lb, each. When the page gives a count word instead, use the singular word: clove, bunch, handful, sprig, pinch, can, slice. null when there is no unit.
-  - estimate: for count words (clove, bunch, handful, sprig, pinch, a whole onion) with no weight on the page, give your best estimate of the TOTAL weight in grams or volume in ml for the WHOLE line, not per unit. Example: "3 cloves garlic" -> estimate { qty: 15, unit: "g" }. Leave estimate null when the line already has a weight or volume, or when you cannot sensibly estimate.
+  - estimate: your best estimate of the TOTAL amount of the WHOLE line (not per unit), in grams (unit "g") or millilitres (unit "ml"). Give one in these three cases:
+    - a count word (clove, bunch, handful, sprig, pinch, a whole onion) with no weight on the page: "3 cloves garlic" -> { qty: 15, unit: "g" }.
+    - a dry or solid ingredient measured by volume (cup, tbsp, tsp) — flour, sugar, salt, rice, nuts, grated cheese, spices, chopped herbs: give its WEIGHT in grams. "2 cups flour" -> { qty: 250, unit: "g" }; "1 tbsp sugar" -> { qty: 12, unit: "g" }.
+    - a liquid measured by weight (g, kg, oz, lb) — water, stock, milk, cream, oil, vinegar, wine: give its VOLUME in ml. "500 g cream" -> { qty: 490, unit: "ml" }.
+    Leave estimate null otherwise (a solid already given by weight, a liquid already given by volume), or when you cannot sensibly estimate.
 - steps: split the method into one action per step, in order. A paragraph with three actions becomes three steps.
   - text: the action in plain words, close to the page's wording.
   - phase: a short name for the stage this step belongs to, taken from the method itself ("Roast", "Peel & toast", "Blend"). Steps in the same stage share the phase name.
@@ -30,7 +34,7 @@ Rules:
   - waitMinutes / waitNote: time the food then sits or cooks unattended (rest, chill, bake, marinate, proof) and what happens in it ("chill in the fridge"). waitStated is true ONLY if the page gives that time; a guess must have waitStated false. null when there is no wait.
 - Do not invent ingredients or steps that are not on the page. Ignore page furniture such as headers, page numbers and photos.`
 
-const RECORD_RECIPES_TOOL = {
+export const RECORD_RECIPES_TOOL = {
   name: 'record_recipes',
   description: 'Record every recipe found in the files, with ingredients and method steps.',
   input_schema: {
@@ -57,7 +61,7 @@ const RECORD_RECIPES_TOOL = {
                   name: { type: 'string', description: 'Ingredient only, no amount or prep.' },
                   estimate: {
                     type: ['object', 'null'],
-                    description: 'Your estimate of the TOTAL weight (g) or volume (ml) of the WHOLE line, not per unit (e.g. 3 cloves garlic -> 15 g). Null when the line already has a weight/volume.',
+                    description: 'TOTAL amount of the WHOLE line, not per unit. Grams for a count word (3 cloves garlic -> 15 g) or a dry/solid good measured by volume (2 cups flour -> 250 g); ml for a liquid measured by weight (500 g cream -> 490 ml). Null otherwise.',
                     properties: {
                       qty: { type: 'number' },
                       unit: { type: 'string', enum: ['g', 'ml'] },

@@ -3,7 +3,7 @@ import { DIMENSION_BASE, validateChainItem, type ChainItem } from '@/lib/item-mo
 import { validateMethod, type MethodStep } from '@/lib/recipe-method'
 import type { DraftData, DraftLine } from '../recipe-scan/types'
 import {
-  applyPick, keepUncosted, confirmLine, setLineAmount, costSummary, timeSummary, formatMinutes,
+  applyPick, keepUncosted, confirmLine, canConfirm, setLineAmount, costSummary, timeSummary, formatMinutes,
   phaseRuns, moveStep, splitStep, mergeWithNext, deleteStep, renamePhase, startPhaseAt, patchStep,
   createItemBody, createdItemAmount, defaultCreateUnit, defaultSplitAt, needsYou,
 } from '../recipe-scan/review'
@@ -54,6 +54,18 @@ describe('line decisions', () => {
     const withAmt = setLineAmount(noAmt, 'l1', 15, 'g')
     expect(withAmt.lines[0].status).toBe('CHECK')
     expect(confirmLine(withAmt, 'l1').lines[0]).toMatchObject({ status: 'MATCHED', qty: 15, unit: 'g', reason: null })
+  })
+  it('a weight-for-cups line with no amount cannot be confirmed until a weight is typed', () => {
+    const d = draft([line({ raw: '2 cups flour', qtyText: '2 cups', link: { kind: 'item', id: 'f', name: 'Flour' }, status: 'CHECK', qty: null, unit: null, reason: '2 cups — how many g?' })])
+    expect(canConfirm(d.lines[0])).toBe(false)
+    expect(confirmLine(d, 'l1').lines[0].status).toBe('CHECK')
+    // Picking a unit first is not "no amount": the line still needs a number.
+    const unitOnly = setLineAmount(d, 'l1', null, 'g')
+    expect(unitOnly.lines[0]).toMatchObject({ qty: null, unit: 'g', status: 'CHECK' })
+    expect(canConfirm(unitOnly.lines[0])).toBe(false)
+    const typed = setLineAmount(unitOnly, 'l1', 250, 'g')
+    expect(canConfirm(typed.lines[0])).toBe(true)
+    expect(confirmLine(typed, 'l1').lines[0]).toMatchObject({ status: 'MATCHED', qty: 250, unit: 'g' })
   })
   it('a close guess on "to taste" (qty 0) confirms as NO AMOUNT', () => {
     const d = draft([line({ raw: 'salt to taste', qtyText: 'to taste', link: { kind: 'item', id: 's', name: 'Kosher Salt' }, status: 'CHECK', qty: 0, unit: 'g', reason: 'Close guess — check' })])

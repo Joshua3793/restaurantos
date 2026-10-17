@@ -117,6 +117,10 @@ export function setLineAmount(d: DraftData, key: string, qty: number | null, uni
     if (validQty(qty)) {
       return { ...line, qty, unit: unit || line.unit, status: line.status === 'NO_AMOUNT' ? 'MATCHED' : line.status }
     }
+    // A CHECK line still waiting for its amount (e.g. "2 cups — how many g?"):
+    // choosing a unit first is not the chef deciding "no amount", so it stays
+    // unconfirmable until a number is typed.
+    if (line.status === 'CHECK' && line.qty === null) return { ...line, unit: unit || line.unit }
     return {
       ...line, qty: 0, unit: unit || line.unit,
       status: line.status === 'CHECK' ? 'CHECK' : 'NO_AMOUNT',

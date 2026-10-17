@@ -158,11 +158,29 @@ function intoItem(
   return { ok: true, qty: tidy(out), crossed }
 }
 
-function crossReason(unit: string, item: AmountItem): string {
-  const u = unitDef(unit)?.canon ?? (canonicalUom(unit) || unit)
-  return item.dimension === 'MASS'
-    ? `${u} for a weighed item — check`
-    : `${u} for a measured-volume item — check`
+/** Measures spelled out as words read better plural: "2 cups", but "2 tbsp". */
+const WORD_MEASURES = new Set(['cup'])
+
+/** "2 cups", "1 tbsp", "100 ml" — a measure as the chef would say it. */
+function measureLabel(qty: number, canon: string): string {
+  return `${num(qty)} ${WORD_MEASURES.has(canon) ? plural(canon, qty) : canon}`
+}
+
+/**
+ * The reader's estimate of the WHOLE line, used only when it is already in the
+ * item's own family (g for a weighed item, ml for a volume item) — an estimate
+ * that would itself have to cross weight<->volume is no help. The reason shows
+ * the amount in the item's own unit, so "0.24 kg" reads "about 240 g".
+ */
+function fromEstimate(ing: ExtractedIngredient, item: AmountItem, label: string): Result | null {
+  const est = ing.estimate
+  if (!est || !validQty(est.qty) || !est.unit) return null
+  const r = intoItem(est.qty, est.unit, item)
+  if (!r.ok || r.crossed) return null
+  return {
+    qty: r.qty, unit: item.baseUnit, status: 'CHECK',
+    reason: `${label} — about ${num(r.qty)} ${item.baseUnit}, check`,
+  }
 }
 
 export function resolveAmount(
@@ -186,10 +204,15 @@ export function resolveAmount(
   // A real measure (g, ml, cup, tsp...) -> the item's own base unit.
   if (def && def.dim !== 'count') {
     const r = intoItem(qty, rawUnit, item)
+    if (r.ok && !r.crossed) return { qty: r.qty, unit: item.baseUnit, status: 'MATCHED', reason: null }
     if (r.ok) {
-      return r.crossed
-        ? { qty: r.qty, unit: item.baseUnit, status: 'CHECK', reason: crossReason(rawUnit, item) }
-        : { qty: r.qty, unit: item.baseUnit, status: 'MATCHED', reason: null }
+      // Weight <-> volume with no density: "2 cups flour" is neither 2 g nor
+      // 473 g. Never assume water — take the reader's estimate in the item's
+      // own family, or ask for the amount with none filled in.
+      const label = measureLabel(qty, def.canon)
+      return fromEstimate(ing, item, label) ?? {
+        qty: null, unit: null, status: 'CHECK', reason: `${label} — how many ${item.baseUnit}?`,
+      }
     }
     // Measured amount for a counted item with no each-measure to go through.
     return {
@@ -218,24 +241,14 @@ export function resolveAmount(
   const label = word ? `${num(qty)} ${plural(word, qty)}` : num(qty)
 
   if (learned && word && singular(learned.word) === word && validQty(learned.qty)) {
+    // A learned measure that would cross weight<->volume with no density is
+    // not used (that would be a 1:1 guess) — fall through to estimate / ask.
     const r = intoItem(qty * learned.qty, learned.unit, item)
-    if (r.ok) {
-      return r.crossed
-        ? { qty: r.qty, unit: item.baseUnit, status: 'CHECK', reason: crossReason(learned.unit, item) }
-        : { qty: r.qty, unit: item.baseUnit, status: 'MATCHED', reason: null }
-    }
+    if (r.ok && !r.crossed) return { qty: r.qty, unit: item.baseUnit, status: 'MATCHED', reason: null }
   }
 
-  const est = ing.estimate
-  if (est && validQty(est.qty) && est.unit) {
-    const r = intoItem(est.qty, est.unit, item)
-    if (r.ok) {
-      return {
-        qty: r.qty, unit: item.baseUnit, status: 'CHECK',
-        reason: `${label} — about ${num(est.qty)} ${unitDef(est.unit)?.canon ?? est.unit}, check`,
-      }
-    }
-  }
+  const estimated = fromEstimate(ing, item, label)
+  if (estimated) return estimated
 
   return {
     qty: null, unit: null, status: 'CHECK',
