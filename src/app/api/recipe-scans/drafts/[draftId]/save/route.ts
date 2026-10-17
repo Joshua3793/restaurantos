@@ -20,12 +20,14 @@ class AlreadySaved extends Error {}
 
 const ALREADY = 'This recipe was already saved from this scan.'
 
-// POST /api/recipe-scans/drafts/[draftId]/save
-// One transaction: claim the draft (OPEN → SAVED, so a double tap makes ONE
+// POST /api/recipe-scans/drafts/[draftId]/save { data: DraftData }
+// The body carries the draft exactly as the review screen shows it, so an
+// autosave still in flight can't make the save use an older copy. One
+// transaction: claim the draft (OPEN → SAVED, so a double tap makes ONE
 // recipe), create the PREP recipe + its PREPD item + every line, and learn the
 // chef's wordings and count weights. Then the usual PREP side effects and a
 // re-match of the scan's other open drafts (a sibling may now exist).
-export async function POST(_req: NextRequest, { params }: { params: { draftId: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { draftId: string } }) {
   let user
   try { user = await requireSession('MANAGER') }
   catch (e) {
@@ -33,15 +35,16 @@ export async function POST(_req: NextRequest, { params }: { params: { draftId: s
     throw e
   }
 
+  const body = await req.json().catch(() => null)
+  const d: unknown = body?.data
+  if (!isDraftData(d)) return NextResponse.json({ error: 'Invalid draft' }, { status: 400 })
+
   const draft = await prisma.recipeScanDraft.findUnique({
     where: { id: params.draftId },
-    select: { id: true, scanId: true, status: true, data: true },
+    select: { id: true, scanId: true, status: true },
   })
   if (!draft) return NextResponse.json({ error: 'Draft not found' }, { status: 404 })
   if (draft.status !== 'OPEN') return NextResponse.json({ error: ALREADY }, { status: 409 })
-
-  const d = draft.data
-  if (!isDraftData(d)) return NextResponse.json({ error: 'This draft is damaged — scan the recipe again.' }, { status: 400 })
   const name = d.name.trim()
 
   const sameName = await prisma.recipe.findMany({
@@ -155,9 +158,10 @@ export async function POST(_req: NextRequest, { params }: { params: { draftId: s
         })
       }
 
+      // The draft keeps exactly what was saved (the body), not an older autosave.
       await tx.recipeScanDraft.update({
         where: { id: draft.id },
-        data: { savedRecipeId: recipe.id, title: name },
+        data: { data: d as unknown as Prisma.InputJsonValue, savedRecipeId: recipe.id, title: name },
       })
       return { recipeId: recipe.id, inventoryItemId: inv.id }
     }, { timeout: 20000 })

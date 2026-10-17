@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { waitUntil } from '@vercel/functions'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
@@ -48,7 +47,9 @@ export async function GET() {
 }
 
 // POST /api/recipe-scans { files: {url,fileName,fileType}[], revenueCenterId }
-// Creates the scan as READING and starts the read in the background.
+// Creates the scan as READING and returns it. The browser then fires
+// POST /api/recipe-scans/[id]/process without waiting (as invoices do) — the
+// same call is the Reading list's Retry.
 export async function POST(req: NextRequest) {
   let user
   try { user = await requireSession('MANAGER') }
@@ -96,20 +97,6 @@ export async function POST(req: NextRequest) {
     },
     select: { id: true, status: true },
   })
-
-  // Fire the read without waiting for it (as invoices do). waitUntil keeps this
-  // function alive long enough for the request to go out; the read itself runs
-  // in its own invocation (maxDuration 300). The manager's cookies go with it so
-  // the process route's own MANAGER guard passes.
-  const processUrl = new URL(`/api/recipe-scans/${scan.id}/process`, req.url)
-  waitUntil(
-    fetch(processUrl, {
-      method: 'POST',
-      headers: { cookie: req.headers.get('cookie') ?? '' },
-    }).then(r => {
-      if (!r.ok) console.error(`[recipe-scan] process ${scan.id} answered ${r.status}`)
-    }).catch(e => console.error(`[recipe-scan] process ${scan.id} did not start`, e)),
-  )
 
   return NextResponse.json(scan, { status: 201 })
 }

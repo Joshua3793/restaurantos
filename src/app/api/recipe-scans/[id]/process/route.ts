@@ -18,8 +18,9 @@ export const maxDuration = 300
 class Skip extends Error {}
 
 // POST /api/recipe-scans/[id]/process — read the files with Claude and write
-// one draft per recipe found. Started by POST /api/recipe-scans; called again
-// by the Reading list's Retry on a scan that couldn't be read.
+// one draft per recipe found. The browser fires this (without waiting) right
+// after POST /api/recipe-scans, and again as the Reading list's Retry on a scan
+// that couldn't be read.
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   try { await requireSession('MANAGER') }
   catch (e) {

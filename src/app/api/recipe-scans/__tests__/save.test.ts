@@ -105,7 +105,10 @@ vi.mock('@/lib/auth', () => ({
 }))
 vi.mock('@/lib/prisma', () => ({ prisma: h.db }))
 vi.mock('@/lib/rc-scope', () => ({ assertRcWritable: vi.fn(async () => undefined) }))
-const recipeCosts = vi.hoisted(() => ({ resyncPrepRecipe: vi.fn(async () => undefined) }))
+const recipeCosts = vi.hoisted(() => ({
+  resyncPrepRecipe: vi.fn(async () => undefined),
+  costContext: vi.fn(), prefetchRecipes: vi.fn(), resolveLinkedRecipes: vi.fn(),
+}))
 vi.mock('@/lib/recipeCosts', () => recipeCosts)
 const prepSync = vi.hoisted(() => ({ syncPrepItemFromRecipe: vi.fn(async () => undefined) }))
 vi.mock('@/lib/prep-sync', () => prepSync)
@@ -132,7 +135,9 @@ function setDraft(d: DraftData) {
   h.state.draft = { id: 'd1', scanId: 'scan1', status: 'OPEN', title: d.name, data: d }
 }
 
-const req = {} as NextRequest
+/** The review screen posts the draft as it shows it. */
+const post = (body: unknown = { data: h.state.draft.data }) =>
+  POST({ json: async () => body } as unknown as NextRequest, ctx)
 const ctx = { params: { draftId: 'd1' } }
 
 beforeEach(() => {
@@ -155,7 +160,7 @@ beforeEach(() => {
 describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
   it('MANAGER only', async () => {
     h.state.role = 'STAFF'
-    const res = await POST(req, ctx)
+    const res = await post()
     expect(res.status).toBe(403)
     expect(h.calls.recipeCreate).toHaveLength(0)
     expect(h.state.draft.status).toBe('OPEN')
@@ -169,7 +174,7 @@ describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
         line({ key: 'l3', raw: '1 cup aioli', name: 'aioli', qtyText: '1 cup', qty: 236.588, unit: 'ml', link: { kind: 'recipe', id: 'r9', name: 'House Aioli' } }),
       ],
     }))
-    const res = await POST(req, ctx)
+    const res = await post()
     expect(res.status).toBe(201)
     const body = await res.json()
     const recipe = h.state.recipes[0]
@@ -204,15 +209,15 @@ describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
   })
 
   it('second save of the same draft is 409', async () => {
-    expect((await POST(req, ctx)).status).toBe(201)
-    expect((await POST(req, ctx)).status).toBe(409)
+    expect((await post()).status).toBe(201)
+    expect((await post()).status).toBe(409)
     expect(h.calls.recipeCreate).toHaveLength(1)
   })
 
   it('second save in a race (both read OPEN) is 409 and makes nothing', async () => {
     h.state.staleRead = { ...h.state.draft }
-    expect((await POST(req, ctx)).status).toBe(201)
-    const res = await POST(req, ctx)
+    expect((await post()).status).toBe(201)
+    const res = await post()
     expect(res.status).toBe(409)
     expect(h.calls.recipeCreate).toHaveLength(1)
     expect(h.state.recipes).toHaveLength(1)
@@ -225,7 +230,7 @@ describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
         link: null, qty: null, unit: null, status: 'NO_MATCH', allergens: ['Sulphites'],
       })],
     }))
-    expect((await POST(req, ctx)).status).toBe(201)
+    expect((await post()).status).toBe(201)
     expect(h.state.ingredients[0]).toMatchObject({
       inventoryItemId: null, linkedRecipeId: null, customName: 'black garlic',
       qtyBase: 3, unit: 'cloves', allergens: ['Sulphites'], notes: '3 cloves black garlic',
@@ -240,14 +245,46 @@ describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
         status: 'NO_AMOUNT', link: { kind: 'item', id: 'salt', name: 'Salt' },
       })],
     }))
-    expect((await POST(req, ctx)).status).toBe(201)
+    expect((await post()).status).toBe(201)
     expect(h.state.ingredients[0]).toMatchObject({ inventoryItemId: 'salt', qtyBase: 0, unit: 'g' })
     expect(h.state.measures.size).toBe(0)
   })
 
+  it('save uses the body data, not the stored data', async () => {
+    // Autosave had not landed yet: the stored draft is one edit behind the screen.
+    const onScreen = data({
+      name: 'Romesco Sauce',
+      lines: [line({ qty: 75, raw: '75 ml sherry vin', qtyText: '75 ml' })],
+    })
+    setDraft(data({ name: 'House Romesco', lines: [line()] }))
+    const res = await post({ data: onScreen })
+    expect(res.status).toBe(201)
+    expect(h.calls.recipeCreate[0].name).toBe('Romesco Sauce')
+    expect(h.state.ingredients[0]).toMatchObject({ qtyBase: 75, notes: '75 ml sherry vin' })
+    // The draft now holds exactly what was saved.
+    expect(h.state.draft.data).toEqual(onScreen)
+    expect(h.state.draft).toMatchObject({ status: 'SAVED', title: 'Romesco Sauce' })
+  })
+
+  it('invalid body is 400 and saves nothing', async () => {
+    for (const body of [null, {}, { data: { lines: [] } }, { data: { ...data(), lines: 'x' } }]) {
+      const res = await post(body)
+      expect(res.status).toBe(400)
+    }
+    expect(h.calls.recipeCreate).toHaveLength(0)
+    expect(h.state.draft.status).toBe('OPEN')
+  })
+
+  it('blockers are checked on the body data', async () => {
+    const res = await post({ data: data({ yieldQty: null }) })
+    expect(res.status).toBe(400)
+    expect((await res.json()).blockers).toEqual(['Add the yield'])
+    expect(h.state.draft.status).toBe('OPEN')
+  })
+
   it('a draft with blockers is refused with the reasons', async () => {
     setDraft(data({ lines: [line({ status: 'CHECK' })], categoryId: null }))
-    const res = await POST(req, ctx)
+    const res = await post()
     expect(res.status).toBe(400)
     expect((await res.json()).blockers).toEqual(['1 line needs a check', 'Pick a category'])
     expect(h.calls.recipeCreate).toHaveLength(0)
@@ -256,7 +293,7 @@ describe('POST /api/recipe-scans/drafts/[draftId]/save', () => {
 
   it('a name already in the Recipe Book is refused', async () => {
     h.state.existingNames = ['house romesco']
-    const res = await POST(req, ctx)
+    const res = await post()
     expect(res.status).toBe(400)
     expect((await res.json()).blockers).toEqual(['A recipe called House Romesco already exists'])
   })

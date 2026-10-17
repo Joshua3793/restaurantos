@@ -6,9 +6,10 @@ import { prisma } from '@/lib/prisma'
 import { normaliseAliasText } from '@/lib/alias-text'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
 import { PRICING_SELECT, asChainItem } from '@/lib/item-model'
-import { lastCost, type ChainRow } from '@/lib/cost-basis'
+import { itemCosts, type ChainRow } from '@/lib/cost-basis'
+import { costContext, prefetchRecipes, resolveLinkedRecipes } from '@/lib/recipeCosts'
 import { similarity } from '@/lib/recipe-match'
-import { convertQtyBridged, dimensionallyCostable } from '@/lib/uom'
+import { convertQty, convertQtyBridged, dimensionallyCostable } from '@/lib/uom'
 import { resolveCandidates, type Candidate } from './match'
 import { singular, type AmountItem } from './amount'
 import { rematchDraft, type DraftContext } from './build-draft'
@@ -148,21 +149,60 @@ export function searchCandidates<T extends Candidate>(q: string, all: T[], limit
 
 export type LineCosts = Record<string, { lineCost: number | null; unpriced: boolean }>
 
+/** An item line's price: the row (for its units and bridges) and its $/base on the recipe basis. */
+export interface ItemPrice { row: ChainRow; pricePerBase: number }
+/** A prep-recipe line's price: cost per one `yieldUnit` of that prep, as the recipe page costs it. */
+export interface RecipePrice { costPerUnit: number; yieldUnit: string }
+
 /**
- * One line's cost against a priced row (LAST basis, the same $/base the picker
- * shows); null when the amount is unknown or cannot be costed against the item.
+ * One item line's cost — the same conversion `computeRecipeCost` makes; null
+ * when the amount is unknown or cannot be costed against the item (never a silent $0).
  */
-export function costOfLine(row: ChainRow, qty: number | null, unit: string | null): number | null {
+export function costOfLine(row: ChainRow, pricePerBase: number, qty: number | null, unit: string | null): number | null {
   if (qty === null || !Number.isFinite(qty)) return null
   const chain = asChainItem(row)
   const u = unit || chain.baseUnit
   if (!dimensionallyCostable(u, chain.baseUnit, chain.eachMeasure)) return null
   const inBase = convertQtyBridged(qty, u, chain.baseUnit, chain.eachMeasure, chain.densityGPerMl)
   if (!Number.isFinite(inBase)) return null
-  return inBase * lastCost(row)
+  return inBase * pricePerBase
 }
 
-/** Live cost of every line, read from the linked item's (or prep recipe's item's) current pricing. */
+/** Price every line from prices already looked up. Pure. */
+export function priceLines(
+  d: DraftData,
+  items: Map<string, ItemPrice>,
+  recipes: Map<string, RecipePrice>,
+): LineCosts {
+  const out: LineCosts = {}
+  for (const l of d.lines) {
+    const item = l.link?.kind === 'item' ? items.get(l.link.id) : undefined
+    const recipe = l.link?.kind === 'recipe' ? recipes.get(l.link.id) : undefined
+    if (item) {
+      out[l.key] = { lineCost: costOfLine(item.row, item.pricePerBase, l.qty, l.unit), unpriced: item.pricePerBase === 0 }
+    } else if (recipe) {
+      let lineCost: number | null = null
+      if (l.qty !== null && Number.isFinite(l.qty)) {
+        const u = l.unit || recipe.yieldUnit
+        if (dimensionallyCostable(u, recipe.yieldUnit)) {
+          const q = convertQty(l.qty, u, recipe.yieldUnit)
+          if (Number.isFinite(q)) lineCost = q * recipe.costPerUnit
+        }
+      }
+      out[l.key] = { lineCost, unpriced: recipe.costPerUnit === 0 }
+    } else {
+      out[l.key] = { lineCost: null, unpriced: false }
+    }
+  }
+  return out
+}
+
+/**
+ * Live cost of every line on the SAME basis the recipe page uses after save:
+ * items on the 30-day average (`itemCosts(…, 'AVG_30D')`), linked preps by
+ * recursing into the prep (`costContext` + `resolveLinkedRecipes`), never a
+ * stored number.
+ */
 export async function draftCosts(d: DraftData): Promise<LineCosts> {
   const itemIds = new Set<string>()
   const recipeIds = new Set<string>()
@@ -170,28 +210,45 @@ export async function draftCosts(d: DraftData): Promise<LineCosts> {
     if (l.link?.kind === 'item') itemIds.add(l.link.id)
     else if (l.link?.kind === 'recipe') recipeIds.add(l.link.id)
   }
-  const [items, recipes] = await Promise.all([
-    itemIds.size
-      ? prisma.inventoryItem.findMany({ where: { id: { in: [...itemIds] } }, select: { id: true, ...PRICING_SELECT } })
-      : Promise.resolve([]),
-    recipeIds.size
-      ? prisma.recipe.findMany({
-          where: { id: { in: [...recipeIds] } },
-          select: { id: true, inventoryItem: { select: { ...PRICING_SELECT } } },
-        })
-      : Promise.resolve([]),
-  ])
-  const rows = new Map<string, ChainRow>()
-  for (const it of items) rows.set(`item:${it.id}`, it)
-  for (const r of recipes) if (r.inventoryItem) rows.set(`recipe:${r.id}`, r.inventoryItem)
 
-  const out: LineCosts = {}
-  for (const l of d.lines) {
-    const row = l.link ? rows.get(`${l.link.kind}:${l.link.id}`) : undefined
-    if (!row) { out[l.key] = { lineCost: null, unpriced: false }; continue }
-    out[l.key] = { lineCost: costOfLine(row, l.qty, l.unit), unpriced: lastCost(row) === 0 }
+  const items = new Map<string, ItemPrice>()
+  if (itemIds.size) {
+    const [rows, prices] = await Promise.all([
+      prisma.inventoryItem.findMany({ where: { id: { in: [...itemIds] } }, select: { id: true, ...PRICING_SELECT } }),
+      itemCosts([...itemIds], 'AVG_30D'),
+    ])
+    for (const r of rows) {
+      const p = prices.get(r.id)
+      if (p) items.set(r.id, { row: r, pricePerBase: p.pricePerBase })
+    }
   }
-  return out
+
+  const recipes = new Map<string, RecipePrice>()
+  if (recipeIds.size) {
+    const rows = await prisma.recipe.findMany({
+      where: { id: { in: [...recipeIds] } },
+      select: { id: true, yieldUnit: true, inventoryItem: { select: { ...PRICING_SELECT } } },
+    })
+    // One context, linked preps costed sequentially (resolveLinkedRecipes'
+    // own rule), exactly as the recipe routes cost a linked prep line.
+    const ctx = await costContext('AVG_30D', [])
+    await prefetchRecipes(ctx, rows.map(r => r.id))
+    const resolved = await resolveLinkedRecipes(
+      rows.map(r => ({
+        linkedRecipeId: r.id,
+        unit: r.inventoryItem?.baseUnit ?? r.yieldUnit,
+        linkedRecipe: { yieldUnit: r.yieldUnit, inventoryItem: r.inventoryItem },
+      })),
+      ctx,
+    )
+    for (const r of resolved) {
+      if (r.linkedRecipeId) {
+        recipes.set(r.linkedRecipeId, { costPerUnit: r._linkedRecipeCostPerUnit, yieldUnit: r._linkedRecipeYieldUnit })
+      }
+    }
+  }
+
+  return priceLines(d, items, recipes)
 }
 
 /**
