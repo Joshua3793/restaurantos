@@ -3,14 +3,13 @@
 // categories — and price a draft's lines at read time (never stored).
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { normaliseAliasText } from '@/lib/alias-text'
 import { formatPurchaseDisplay } from '@/lib/count-uom'
 import { PRICING_SELECT, asChainItem } from '@/lib/item-model'
 import { itemCosts, type ChainRow } from '@/lib/cost-basis'
 import { costContext, prefetchRecipes, resolveLinkedRecipes } from '@/lib/recipeCosts'
 import { similarity } from '@/lib/recipe-match'
 import { convertQty, convertQtyBridged, dimensionallyCostable } from '@/lib/uom'
-import { resolveCandidates, type Candidate } from './match'
+import { matchText, resolveCandidates, type Candidate } from './match'
 import { singular, type AmountItem } from './amount'
 import { rematchDraft, type DraftContext } from './build-draft'
 import { isDraftData } from './save-rules'
@@ -131,21 +130,31 @@ export async function loadDraftContext(opts: {
   }
 }
 
-/** Picker search: live candidates whose name contains the words, then the closest by word overlap. */
+/**
+ * Picker search: live candidates whose name contains the words, then any that
+ * share a word with the search. Both sides are compared in the matcher's form
+ * (accents folded, plurals singular), so "toasted almonds" still surfaces
+ * "Almond Whole" through the shared head noun.
+ */
 export function searchCandidates<T extends Candidate>(q: string, all: T[], limit = 20): T[] {
   const { list } = resolveCandidates(all)
   const live = list as T[]
-  const nq = normaliseAliasText(q)
+  const nq = matchText(q)
   if (!nq) {
     return [...live].sort((a, b) => b.usedInRecipes - a.usedInRecipes || a.name.localeCompare(b.name)).slice(0, limit)
   }
   const words = nq.split(' ')
+  // Words that carry meaning: "of", "a", "&" never make an item a hit on their own.
+  const keyWords = Array.from(new Set(words.filter(w => w.length > 2)))
   const scored = live.map(c => {
-    const n = normaliseAliasText(c.name)
+    const n = matchText(c.name)
+    const nameWords = new Set(n.split(' '))
+    const shared = keyWords.filter(w => nameWords.has(w)).length
     const score = n === nq ? 3
       : n.includes(nq) ? 2
       : words.every(w => n.includes(w)) ? 1.5
-      : similarity(nq, n)
+      // Any shared word surfaces the item (0.5–1.0 by how many of the search's words it shares).
+      : Math.max(shared > 0 ? 0.5 + 0.5 * (shared / keyWords.length) : 0, similarity(nq, n))
     return { c, score }
   }).filter(s => s.score >= 0.3)
   scored.sort((a, b) =>

@@ -30,17 +30,32 @@ const HIGH_AT = 0.85
 const MEDIUM_AT = 0.5
 const MAX_OPTIONS = 5
 
+/** -ies words whose singular keeps the -ie (cookies -> cookie, not "cooky"). */
+const IE_SINGULARS = new Set(['cookie', 'brownie', 'veggie', 'smoothie', 'calorie', 'pie', 'genie', 'hoagie', 'rookie', 'birdie', 'pixie', 'movie', 'zombie', 'tie', 'lie'])
+
 function singular(w: string): string {
   if (w.length <= 3 || !w.endsWith('s')) return w
   if (/(ss|us|is)$/.test(w)) return w
+  if (w.endsWith('ies')) {
+    if (IE_SINGULARS.has(w.slice(0, -1)) || w.length <= 4) return w.slice(0, -1) // cookies, pies
+    return `${w.slice(0, -3)}y` // cherries, anchovies, berries
+  }
+  // -ves -> -f / -fe only for the words that really take it; olives, cloves
+  // and chives just drop the s.
+  if (/(?:lea|loa|hal|cal|shel|wol|thie|scar|whar)ves$/.test(w)) return `${w.slice(0, -3)}f` // leaves, halves
+  if (/(?:kni|wi)ves$/.test(w)) return `${w.slice(0, -3)}fe` // knives
   if (/(o|x|ch|sh|z)es$/.test(w)) return w.slice(0, -2) // tomatoes, peaches
   return w.slice(0, -1) // olives, lentils
 }
 
-/** Accent-folded, lower-cased, singularised words joined by single spaces. */
-function prep(s: string): string {
+/**
+ * Accent-folded, lower-cased, singularised words joined by single spaces —
+ * the form both the matcher and the picker search compare on.
+ */
+export function matchText(s: string): string {
   return normaliseAliasText(s).split(' ').filter(Boolean).map(singular).join(' ')
 }
+const prep = matchText
 
 const key = (kind: string, id: string) => `${kind}:${id}`
 

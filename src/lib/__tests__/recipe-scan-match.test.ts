@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { matchIngredient, type Candidate } from '../recipe-scan/match'
+import { matchIngredient, matchText, type Candidate } from '../recipe-scan/match'
 
 function c(id: string, name: string, over: Partial<Candidate> = {}): Candidate {
   return {
@@ -105,5 +105,22 @@ describe('matchIngredient', () => {
     const r = matchIngredient('red onion', '', cands, none)
     expect(r.options).toHaveLength(5)
     expect(r.options[0].id).toBe('d')
+  })
+  it('matches -ies and -ves plurals', () => {
+    const items = [c('b', 'Bay Leaf'), c('h', 'Lemon Half'), c('c', 'Cherry'), c('o', 'Olive'), c('v', 'Clove')]
+    expect(matchIngredient('bay leaves', '2 bay leaves', items, new Map()).best?.id).toBe('b')
+    expect(matchIngredient('lemon halves', '2 lemon halves', items, new Map()).best?.id).toBe('h')
+    expect(matchIngredient('cherries', '200 g cherries', items, new Map()).best?.id).toBe('c')
+    expect(matchIngredient('olives', '100 g olives', items, new Map()).best?.id).toBe('o')
+    expect(matchIngredient('cloves', '3 cloves', items, new Map()).best?.id).toBe('v')
+  })
+  it('singularises kitchen plurals, leaving -ie words and olives/cloves alone', () => {
+    const cases: [string, string][] = [
+      ['bay leaves', 'bay leaf'], ['halves', 'half'], ['loaves', 'loaf'], ['knives', 'knife'],
+      ['cherries', 'cherry'], ['anchovies', 'anchovy'], ['berries', 'berry'],
+      ['olives', 'olive'], ['cloves', 'clove'], ['chives', 'chive'],
+      ['cookies', 'cookie'], ['pies', 'pie'], ['tomatoes', 'tomato'], ['asparagus', 'asparagus'],
+    ]
+    for (const [from, to] of cases) expect(matchText(from)).toBe(to)
   })
 })

@@ -115,4 +115,23 @@ describe('searchCandidates', () => {
     expect(searchCandidates('garlic', all).map(c => c.id)).toEqual(['1', '2'])
     expect(searchCandidates('', all).map(c => c.id)).toEqual(['1', '2', '5'])
   })
+  it('finds an item by its head noun through plurals and extra words', () => {
+    const all = [cand('a', 'Almond Whole'), cand('p', 'Paprika')]
+    expect(searchCandidates('toasted almonds', all).map(c => c.id)).toEqual(['a'])
+  })
+  it('singularises -ies and -ves on both sides', () => {
+    const all = [cand('b', 'Bay Leaf'), cand('c', 'Cherry Tomato'), cand('n', 'Anchovy Fillet'), cand('o', 'Olive Kalamata'), cand('x', 'Paprika')]
+    expect(searchCandidates('bay leaves', all).map(c => c.id)[0]).toBe('b')
+    expect(searchCandidates('cherries', all).map(c => c.id)).toEqual(['c'])
+    expect(searchCandidates('anchovies', all).map(c => c.id)).toEqual(['n'])
+    expect(searchCandidates('olives', all).map(c => c.id)).toEqual(['o'])
+  })
+  it('more shared words rank higher than one', () => {
+    const all = [cand('f', 'Basil Fresh'), cand('t', 'Thyme Fresh')]
+    expect(searchCandidates('fresh thyme', all).map(c => c.id)).toEqual(['t', 'f'])
+  })
+  it('a part-typed word still finds the item', () => {
+    const all = [cand('a', 'Almond Whole'), cand('p', 'Paprika')]
+    expect(searchCandidates('alm', all).map(c => c.id)).toEqual(['a'])
+  })
 })
