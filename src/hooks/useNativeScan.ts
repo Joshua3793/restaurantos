@@ -57,20 +57,14 @@ export async function uploadToCloud(
 }
 
 /**
- * The page-upload half of a native scan, shared by invoices and recipe scans:
- * turn the scanner's base64 pages into compressed JPEG files and try the
- * UploadThing CDN. `uploaded` is null when the cloud upload failed — `files`
- * are still returned so the caller can fall back.
+ * Step one of a native scan's page upload: the scanner's base64 pages as
+ * compressed JPEG files. Individual images (not a merged PDF) so the server
+ * runs them through the sharp enhancement pipeline and one combined
+ * multi-image OCR call — and bbox page indexes line up with file order. Done
+ * sequentially, one canvas at a time: rasterizing every page concurrently can
+ * transiently hold hundreds of MB of bitmaps and OOM low-end mobile WebViews.
  */
-export async function uploadScanPages(
-  pages: string[],
-  uploader: ScanUploader,
-): Promise<{ files: File[]; uploaded: UploadedScanFile[] | null }> {
-  // Individual images (not a merged PDF) so the server runs them through the
-  // sharp enhancement pipeline and one combined multi-image OCR call — and bbox
-  // page indexes line up with file order. Done sequentially, one canvas at a
-  // time: rasterizing every page concurrently can transiently hold hundreds of
-  // MB of bitmaps and OOM low-end mobile WebViews.
+export async function scanPagesToFiles(pages: string[]): Promise<File[]> {
   const files: File[] = []
   for (const [i, raw] of pages.entries()) {
     const b64 = raw.replace(/^data:image\/[^;]+;base64,/, '')
@@ -79,6 +73,21 @@ export async function uploadScanPages(
       `scan_p${i + 1}.jpg`, { type: 'image/jpeg' })
     files.push(await compressImageFile(file))
   }
+  return files
+}
+
+/**
+ * Both steps at once, for callers with nothing to do in between (recipe
+ * scans): pages → files → UploadThing. `uploaded` is null when the cloud
+ * upload failed — `files` are still returned so the caller can fall back.
+ * The invoice hook calls the two steps itself so its session is created
+ * between them, as before.
+ */
+export async function uploadScanPages(
+  pages: string[],
+  uploader: ScanUploader,
+): Promise<{ files: File[]; uploaded: UploadedScanFile[] | null }> {
+  const files = await scanPagesToFiles(pages)
   const uploaded = await uploadToCloud(files, uploader)
   return { files, uploaded }
 }
@@ -96,9 +105,8 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
       const pages = await scanDocument()
       if (!pages.length) { setIsScanning(false); return }
 
-      // 2. Convert pages to compressed JPEG files and try the UploadThing CDN
-      //    (8 s timeout, same as InvoiceUploadModal).
-      const { files: pageFiles, uploaded } = await uploadScanPages(pages, 'invoiceUploader')
+      // 2. Convert pages to compressed JPEG files.
+      const pageFiles = await scanPagesToFiles(pages)
 
       // 3. Create session
       const sessRes = await fetch('/api/invoices/sessions', {
@@ -112,8 +120,9 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
       }
       const sess = await sessRes.json()
 
-      // 4a. Register the cloud upload on the session
+      // 4a. Try UploadThing CDN (8 s timeout, same as InvoiceUploadModal)
       let uploadOk = false
+      const uploaded = await uploadToCloud(pageFiles, 'invoiceUploader')
       if (uploaded) {
         try {
           const regRes = await fetch(`/api/invoices/sessions/${sess.id}/upload`, {

@@ -26,6 +26,11 @@ export interface RecipeScanSummary {
 /** While any scan is being read the list re-reads itself this often. */
 const POLL_MS = 4_000
 
+/** Still being read — the row shows Reading and the list keeps polling. */
+export function isReading(s: Pick<RecipeScanSummary, 'status'>): boolean {
+  return s.status === 'READING' || s.status === 'UPLOADING'
+}
+
 /**
  * The manager's open scans, polled every 4 s while any is READING (stops when
  * none are). `enabled` is false until the RC scope and the user's role are
@@ -33,6 +38,9 @@ const POLL_MS = 4_000
  */
 export function useRecipeScans(enabled: boolean) {
   const [scans, setScans] = useState<RecipeScanSummary[]>([])
+  // Bumped when every load settles, ok or not — it re-arms the poll timer, so a
+  // failed poll (wifi blip, 5xx) can't stop polling for good.
+  const [tick, setTick] = useState(0)
   // Only the latest request may write — a slow earlier poll can't undo a newer one.
   const seq = useRef(0)
 
@@ -47,6 +55,8 @@ export function useRecipeScans(enabled: boolean) {
       setScans(Array.isArray(data) ? data : [])
     } catch {
       // keep what is on screen; the next poll or action tries again
+    } finally {
+      setTick(t => t + 1)
     }
   }, [enabled])
 
@@ -55,13 +65,13 @@ export function useRecipeScans(enabled: boolean) {
     else setScans([])
   }, [enabled, reload])
 
-  const anyReading = scans.some(s => s.status === 'READING')
+  const anyReading = scans.some(isReading)
   useEffect(() => {
     if (!enabled || !anyReading) return
     const t = setTimeout(reload, POLL_MS)
     return () => clearTimeout(t)
-    // `scans` re-arms the timer after every poll lands.
-  }, [enabled, anyReading, scans, reload])
+    // `tick` re-arms the timer after every load settles, whatever its outcome.
+  }, [enabled, anyReading, tick, reload])
 
   /**
    * Start (or retry) reading a scan. The read can take minutes, so it is fired
@@ -139,7 +149,7 @@ function ScanRow({ scan, onRetry, onDiscard }: RowProps) {
   const [discarding, setDiscarding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { title, meta } = scanTitle(scan)
-  const reading = scan.status === 'READING' || scan.status === 'UPLOADING'
+  const reading = isReading(scan)
   const drafts = scan.drafts.filter(d => d.status !== 'DISCARDED')
   const found = scan.drafts.length
 
@@ -262,7 +272,7 @@ interface ListProps {
 
 export function ScanReadingList({ scans, onRetry, onDiscard }: ListProps) {
   if (scans.length === 0) return null
-  const reading = scans.filter(s => s.status === 'READING' || s.status === 'UPLOADING').length
+  const reading = scans.filter(isReading).length
   return (
     <section>
       <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase mb-1.5">
