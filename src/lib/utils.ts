@@ -173,16 +173,22 @@ export function formatQtyUnit(qty: number, unit: string): string {
   return `${qty} ${unit}`
 }
 
-export const CATEGORY_COLORS: Record<string, string> = {
-  BREAD: 'bg-gold-soft text-gold-2',
-  DAIRY: 'bg-blue-soft text-blue-text',
-  DRY: 'bg-yellow-100 text-yellow-800',
-  FISH: 'bg-blue-soft text-blue-text',
-  MEAT: 'bg-red-soft text-red-text',
-  PREPD: 'bg-blue-soft text-blue-text',
-  PROD: 'bg-green-soft text-green-text',
-  CHM: 'bg-bg-2 text-ink-2',
+// Controla category data colours (styles.css --c-* / --m-*), one per inventory
+// category. Dots only — never text or large fills. CHM is non-food, so it stays
+// neutral ink-4, which is also the fallback for any category not listed here.
+export const CATEGORY_DOTS: Record<string, string> = {
+  BREAD:  '#ca8a04', // --c-baked
+  DAIRY:  '#db2777', // --c-desserts
+  DRY:    '#ea580c', // --c-sauces
+  FISH:   '#0d9488', // --c-base
+  FROZEN: '#2563eb', // --m-sig
+  MEAT:   '#dc2626', // --c-proteins
+  PREPD:  '#7c3aed', // --c-pickles
+  PROD:   '#16a34a', // --c-garnish
+  CHM:    '#a1a1aa', // ink-4
 }
+
+export const categoryDot = (category: string) => CATEGORY_DOTS[category] ?? '#a1a1aa'
 
 export const CATEGORIES = ['BREAD', 'DAIRY', 'DRY', 'FISH', 'MEAT', 'PREPD', 'PROD', 'CHM'] as const
 export const BASE_UNITS = ['g', 'ml', 'each', 'kg', 'l'] as const
