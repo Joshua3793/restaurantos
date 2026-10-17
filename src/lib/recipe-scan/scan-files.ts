@@ -4,8 +4,12 @@ import { blobRefFromUrl } from '@/lib/invoice-files'
 
 export const READ_ERROR = "Couldn't read this — try again with the whole page in the frame."
 export const STUCK_ERROR = 'Reading took too long — try again.'
-/** A scan still READING after this long was killed mid-read (as invoices: 5 min). */
-export const STUCK_AFTER_MS = 5 * 60 * 1000
+/**
+ * A scan still READING after this long was killed mid-read. Longer than the
+ * read's own 5-minute limit (the process route's maxDuration = 300 s), so a
+ * read that is still running is never thrown away as stuck.
+ */
+export const STUCK_AFTER_MS = 6 * 60 * 1000
 export const MAX_SCAN_FILES = 10
 
 export type ScanFileKind = 'image' | 'pdf' | 'docx' | 'sheet'
