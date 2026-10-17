@@ -2,14 +2,20 @@
 // structured recipes. One call, one tool. Claude Sonnet 5.5 rejects a forced
 // tool_choice ("tool"/"any" → 400), so the choice is "auto" and the system
 // prompt + closing instruction tell it to always call record_recipes; a reply
-// without the tool call reads as "no recipe" (requireRecipes).
+// without the tool call reads as "no recipe" (requireRecipes). The tool is
+// `strict`, so when it IS called its input matches the schema.
+//
+// Sonnet 5.5 thinks (adaptive) by default and those tokens count against
+// max_tokens, so the budget is large and the call streams — a non-streaming
+// request that big trips the SDK's long-request guard. No temperature: the
+// model rejects non-default sampling.
 import Anthropic from '@anthropic-ai/sdk'
 import { compressImageForClaude, resolveAnthropicKey } from '@/lib/invoice-ocr'
 import { NotARecipeError, requireRecipes } from './parse'
 import type { ExtractedRecipe } from './types'
 
 export const RECIPE_SCAN_MODEL = 'claude-sonnet-5-5'
-const MAX_TOKENS = 16000
+const MAX_TOKENS = 64000
 
 export const SYSTEM_PROMPT = `You read recipes for a restaurant kitchen and record them with the record_recipes tool. Always call the tool, even if you are unsure; if the files contain no recipe, call it with an empty recipes list.
 
@@ -37,6 +43,7 @@ Rules:
 export const RECORD_RECIPES_TOOL = {
   name: 'record_recipes',
   description: 'Record every recipe found in the files, with ingredients and method steps.',
+  strict: true,
   input_schema: {
     type: 'object',
     properties: {
@@ -67,9 +74,11 @@ export const RECORD_RECIPES_TOOL = {
                       unit: { type: 'string', enum: ['g', 'ml'] },
                     },
                     required: ['qty', 'unit'],
+                    additionalProperties: false,
                   },
                 },
                 required: ['raw', 'qty', 'unit', 'name'],
+                additionalProperties: false,
               },
             },
             steps: {
@@ -86,14 +95,17 @@ export const RECORD_RECIPES_TOOL = {
                   waitStated: { type: 'boolean', description: 'True only if the page gives the wait time.' },
                 },
                 required: ['text', 'phase', 'minutes', 'minutesStated', 'waitMinutes', 'waitNote', 'waitStated'],
+                additionalProperties: false,
               },
             },
           },
           required: ['name', 'yieldQty', 'yieldUnit', 'categoryHint', 'ingredients', 'steps'],
+          additionalProperties: false,
         },
       },
     },
     required: ['recipes'],
+    additionalProperties: false,
   },
 }
 
@@ -121,7 +133,7 @@ export async function extractRecipes(
 
   const client = new Anthropic({ apiKey })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message: any = await client.messages.create({
+  const message: any = await client.messages.stream({
     model: RECIPE_SCAN_MODEL,
     max_tokens: MAX_TOKENS,
     system: SYSTEM_PROMPT,
@@ -129,10 +141,15 @@ export async function extractRecipes(
     tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content }],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any)
+  } as any).finalMessage()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const block = (message.content as any[]).find(b => b.type === 'tool_use' && b.name === 'record_recipes')
+  if (!block) {
+    // "auto" can answer in words instead (end_turn), decline (refusal) or run
+    // out of room (max_tokens). Log it so drift away from the tool shows up.
+    console.warn(`[recipe-scan] reply had no record_recipes call (stop_reason: ${message.stop_reason ?? 'unknown'})`)
+  }
   // Throws ScanTooLongError on a cut-off answer, NotARecipeError when empty.
   return requireRecipes(block?.input, message.stop_reason)
 }
