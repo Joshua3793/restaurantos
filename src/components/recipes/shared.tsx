@@ -23,6 +23,8 @@ import { atLeast } from '@/lib/roles'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
 import { ImageViewerV2 } from '@/components/invoices/v2/ImageViewer'
+import { ByproductsSection } from '@/components/recipes/ByproductsSection'
+import { netCost, type ByproductWithCredit } from '@/lib/recipe-byproducts'
 
 // ─── Dimension-conflict surfaces ───────────────────────────────────────────────
 // An ingredient whose unit is a different physical dimension than the item's base
@@ -87,6 +89,8 @@ export interface IngredientWithCost {
   costBasis?: 'AVG_30D' | 'LAST'
   /** Linked to an item/prep that has no price yet — the $0 is "unknown", not free. */
   unpriced?: boolean
+  /** The prep recipe this item comes off as a by-product (its price is that batch's credit). */
+  byproductOf?: string | null
 }
 
 export interface Recipe {
@@ -117,7 +121,14 @@ export interface Recipe {
   createdAt: string
   updatedAt: string
   ingredients: IngredientWithCost[]
+  /** Ingredients − by-product credits (floored at $0). */
   totalCost: number
+  /** Ingredients alone, before credits. Optional: list rows and cached copies may lack it. */
+  grossCost?: number
+  byproductCredit?: number
+  creditExceedsCost?: boolean
+  /** What else comes off the batch (PREP only). */
+  byproducts?: ByproductWithCredit[]
   costPerPortion: number | null
   foodCostPct: number | null
   /** Count of ingredients whose unit dimension doesn't match the item's base unit. */
@@ -828,6 +839,11 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
               <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-gold-2 bg-gold-soft px-1.5 py-0.5 rounded-[4px]">Needs qty</span>
             )}
             {ing.unpriced && <NoPricePill />}
+            {ing.byproductOf && (
+              <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-green-text bg-green-soft px-1.5 py-0.5 rounded-[4px]" title="Its price is the credit on that batch">
+                comes off {ing.byproductOf}
+              </span>
+            )}
             {ing.allergens && ing.allergens.length > 0 && (
               <AllergenBadges allergens={ing.allergens} size="xs" />
             )}
@@ -1436,8 +1452,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           const lineCost = (converted !== null ? converted : qtyBase) * ing.pricePerBaseUnit
           return { ...ing, qtyBase, unit, lineCost }
         })
-        const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
-        return { ...prev, ingredients: updatedIngredients, totalCost }
+        const grossCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
+        return { ...prev, ingredients: updatedIngredients, grossCost, totalCost: netCost(grossCost, prev.byproductCredit ?? 0) }
       })
     }
 
@@ -1462,8 +1478,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     setRecipe(prev => {
       if (!prev) return prev
       const updatedIngredients = prev.ingredients.filter(i => i.id !== ingId)
-      const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
-      return { ...prev, ingredients: updatedIngredients, totalCost }
+      const grossCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
+      return { ...prev, ingredients: updatedIngredients, grossCost, totalCost: netCost(grossCost, prev.byproductCredit ?? 0) }
     })
     dirtyRef.current = true
 
@@ -1489,8 +1505,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           lineCost: ing.lineCost,
         }
       })
-      const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
-      return { ...prev, ingredients: updatedIngredients, totalCost }
+      const grossCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
+      return { ...prev, ingredients: updatedIngredients, grossCost, totalCost: netCost(grossCost, prev.byproductCredit ?? 0) }
     })
 
     const body: Record<string, unknown> = item.type === 'inventory'
@@ -1649,6 +1665,9 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
                   <div className="flex flex-col shrink-0">
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4">Batch</span>
                     <span className="font-mono text-[16px] font-semibold text-paper leading-tight">{formatCurrency(recipe.totalCost)}</span>
+                    {(recipe.byproductCredit ?? 0) > 0 && (
+                      <span className="font-mono text-[10.5px] text-[#4ade80]">incl. −{formatCurrency(recipe.byproductCredit ?? 0)} by-products</span>
+                    )}
                   </div>
                   <div className="w-px h-9 bg-ink-2 mx-4 shrink-0" />
                   <div className="flex flex-col shrink-0">
@@ -2045,9 +2064,23 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
             </div>
           </div>
 
+          {!isMenu && (
+            <ByproductsSection
+              recipe={recipe}
+              onRecipe={r => { setRecipe(r); dirtyRef.current = true }}
+              onReload={async () => { dirtyRef.current = true; await load() }}
+            />
+          )}
+
           <div className="bg-bg rounded-xl p-4 space-y-2">
             {!isMenu ? (
               <>
+                {(recipe.byproductCredit ?? 0) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-ink-3">By-product credits</span>
+                    <span className="font-semibold text-green-text">− {formatCurrency((recipe.byproductCredit ?? 0) * sf)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-ink-3">Total recipe cost</span>
                   <span className="font-bold text-ink">{formatCurrency(scaledTotal)}{sf !== 1 && <span className="text-xs text-blue ml-1">at ×{sf}</span>}</span>
