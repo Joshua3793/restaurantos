@@ -11,6 +11,12 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; ingredientId: string } }
 ) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const { qtyBase, unit, notes, sortOrder, recipePercent, inventoryItemId, linkedRecipeId, customName, allergens } = body
 
@@ -38,7 +44,7 @@ export async function PATCH(
 
   // Hand-tagged allergens: custom lines only (a linked line inherits its item's —
   // rejected with 400 rather than silently dropped), MANAGER+ only. The route's
-  // other fields keep their existing (unauthenticated) behaviour.
+  // other fields need only a session.
   let allergenKeys: string[] | undefined
   if (allergens !== undefined) {
     try { await requireSession('MANAGER') }
@@ -95,6 +101,12 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string; ingredientId: string } }
 ) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   await prisma.recipeIngredient.delete({ where: { id: params.ingredientId } })
 
   await resyncPrepRecipe(params.id).catch(e => console.error('[ingredient DELETE] resync', e))
