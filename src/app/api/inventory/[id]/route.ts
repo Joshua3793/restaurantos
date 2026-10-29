@@ -232,7 +232,7 @@ async function handleDELETE(_req: NextRequest, { params }: { params: { id: strin
   // the pricePerBaseUnit spine depends on. Tell the caller to deactivate instead.
   const [
     recipeUses, linkedRecipe, invoiceLines, countLines,
-    snapshots, wastageLogs, stockTransfers, prepItems,
+    snapshots, wastageLogs, stockTransfers, prepItems, byproductUses,
   ] = await Promise.all([
     prisma.recipeIngredient.count({ where: { inventoryItemId: id } }),
     prisma.recipe.count({ where: { inventoryItemId: id } }),
@@ -242,6 +242,7 @@ async function handleDELETE(_req: NextRequest, { params }: { params: { id: strin
     prisma.wastageLog.count({ where: { inventoryItemId: id } }),
     prisma.stockTransfer.count({ where: { inventoryItemId: id } }),
     prisma.prepItem.count({ where: { linkedInventoryItemId: id } }),
+    prisma.recipeByproduct.count({ where: { inventoryItemId: id } }),
   ])
 
   const blockers: string[] = []
@@ -253,6 +254,7 @@ async function handleDELETE(_req: NextRequest, { params }: { params: { id: strin
   if (wastageLogs)    blockers.push(`in ${wastageLogs} wastage log${wastageLogs > 1 ? 's' : ''}`)
   if (stockTransfers) blockers.push(`in ${stockTransfers} stock transfer${stockTransfers > 1 ? 's' : ''}`)
   if (prepItems)      blockers.push(`linked to ${prepItems} prep item${prepItems > 1 ? 's' : ''}`)
+  if (byproductUses)  blockers.push(`a by-product of ${byproductUses} prep recipe${byproductUses > 1 ? 's' : ''}`)
 
   if (blockers.length) {
     return NextResponse.json(

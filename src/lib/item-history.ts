@@ -13,16 +13,19 @@ export interface ItemHistory {
 }
 
 export async function itemHistory(itemId: string): Promise<ItemHistory> {
-  const [counts, snapshots, receipts, recipeLines, wastage, transfers, offers] = await Promise.all([
+  const [counts, snapshots, receipts, ingredientLines, byproductLines, wastage, transfers, offers] = await Promise.all([
     prisma.countLine.count({ where: { inventoryItemId: itemId } }),
     prisma.inventorySnapshot.count({ where: { inventoryItemId: itemId } }),
     prisma.invoiceScanItem.count({ where: { matchedItemId: itemId, approved: true } }),
     prisma.recipeIngredient.count({ where: { inventoryItemId: itemId } }),
+    // A by-product line credits through the item's unit exactly like an
+    // ingredient line costs through it — a measure change would zero it.
+    prisma.recipeByproduct.count({ where: { inventoryItemId: itemId } }),
     prisma.wastageLog.count({ where: { inventoryItemId: itemId } }),
     prisma.stockTransfer.count({ where: { inventoryItemId: itemId } }),
     prisma.inventorySupplierPrice.count({ where: { inventoryItemId: itemId } }),
   ])
-  return { counts, snapshots, receipts, recipeLines, wastage, transfers, offers }
+  return { counts, snapshots, receipts, recipeLines: ingredientLines + byproductLines, wastage, transfers, offers }
 }
 
 export function hasHistory(h: ItemHistory): boolean {
@@ -36,10 +39,12 @@ export function hasHistory(h: ItemHistory): boolean {
 export async function bridgeUsedBy(itemId: string): Promise<{ id: string; name: string; type: string }[]> {
   const item = await prisma.inventoryItem.findUnique({ where: { id: itemId }, select: { baseUnit: true, dimension: true } })
   if (!item) return []
-  const lines = await prisma.recipeIngredient.findMany({
-    where: { inventoryItemId: itemId },
-    select: { unit: true, recipe: { select: { id: true, name: true, type: true } } },
-  })
+  const select = { unit: true, recipe: { select: { id: true, name: true, type: true } } } as const
+  const [ingredientLines, byproductLines] = await Promise.all([
+    prisma.recipeIngredient.findMany({ where: { inventoryItemId: itemId }, select }),
+    prisma.recipeByproduct.findMany({ where: { inventoryItemId: itemId }, select }),
+  ])
+  const lines = [...ingredientLines, ...byproductLines]
   const seen = new Map<string, { id: string; name: string; type: string }>()
   for (const l of lines) {
     if (dimensionOf(l.unit) === item.dimension) continue

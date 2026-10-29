@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor, unionAllergens, fetchRecipeWithCost, syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor, unionAllergens, fetchRecipeWithCost, syncPrepToInventory, propagatePrepCostChanges, costContext } from '@/lib/recipeCosts'
 import type { ItemCostBasis } from '@/lib/cost-basis'
 
 /** $24/case of 12,000 ml → $0.002/ml */
@@ -57,6 +57,81 @@ function recipe(ingredients: ReturnType<typeof ing>[], overrides: Record<string,
     ...overrides,
   } as Parameters<typeof computeRecipeCost>[0]
 }
+
+/** $19.70/kg brisket, $10/kg trim, $3.50/kg fat — all RATE-priced weight items. */
+const rateItem = (itemName: string, rate: number) => ({
+  itemName, dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 10000 }],
+  pricing: { mode: 'RATE', rate, rateUnit: 'kg' }, allergens: [] as string[],
+})
+const brisketItem = rateItem('Brisket AAA', 19.7)
+const trimItem = rateItem('Brisket Trim', 10)
+const fatItem = rateItem('Beef Fat Trim', 3.5)
+
+function bp(overrides: Record<string, unknown>) {
+  return { id: 'b1', sortOrder: 0, qty: 1, unit: 'kg', notes: null, inventoryItemId: 'trim', inventoryItem: trimItem, ...overrides }
+}
+
+describe('computeRecipeCost — by-products', () => {
+  const brisketLine = ing({ qtyBase: 13, unit: 'kg', inventoryItemId: 'brisket', inventoryItem: brisketItem })
+
+  it('credits a by-product at its item price and nets the total', () => {
+    const r = computeRecipeCost(recipe([brisketLine], {
+      baseYieldQty: 6, yieldUnit: 'kg',
+      byproducts: [
+        bp({ id: 'b1', qty: 2, inventoryItemId: 'trim', inventoryItem: trimItem }),
+        bp({ id: 'b2', qty: '1.5', inventoryItemId: 'fat', inventoryItem: fatItem }),
+      ],
+    }))
+    expect(r.grossCost).toBeCloseTo(256.1)
+    expect(r.byproductCredit).toBeCloseTo(25.25)
+    expect(r.totalCost).toBeCloseTo(230.85)
+    expect(r.creditExceedsCost).toBe(false)
+    expect(r.byproducts.map(b => b.credit)).toEqual([expect.closeTo(20), expect.closeTo(5.25)])
+    expect(r.byproducts[1].itemName).toBe('Beef Fat Trim')
+    expect(r.byproducts[1].qty).toBe(1.5)
+  })
+
+  it('floors net at zero and flags it', () => {
+    const r = computeRecipeCost(recipe([
+      ing({ qtyBase: 1, unit: 'kg', inventoryItemId: 'trim', inventoryItem: rateItem('Cheap', 25) }),
+    ], { byproducts: [bp({ qty: 3 })] }))
+    expect(r.grossCost).toBeCloseTo(25)
+    expect(r.byproductCredit).toBeCloseTo(30)
+    expect(r.totalCost).toBe(0)
+    expect(r.creditExceedsCost).toBe(true)
+  })
+
+  it('dimension-conflicted by-product credits zero', () => {
+    const eachItem = { itemName: 'Marrow Bone', dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 10 }], pricing: { mode: 'PACK', purchasePrice: 20 }, allergens: [] }
+    const r = computeRecipeCost(recipe([brisketLine], { byproducts: [bp({ qty: 2, unit: 'kg', inventoryItemId: 'bone', inventoryItem: eachItem })] }))
+    expect(r.byproducts[0].credit).toBe(0)
+    expect(r.byproducts[0].dimensionConflict).toBe(true)
+    expect(r.totalCost).toBeCloseTo(256.1)
+  })
+
+  it('unpriced by-product is flagged', () => {
+    const free = { ...trimItem, pricing: { mode: 'PACK', purchasePrice: 0 } }
+    const r = computeRecipeCost(recipe([brisketLine], { byproducts: [bp({ inventoryItem: free })] }))
+    expect(r.byproducts[0].credit).toBe(0)
+    expect(r.byproducts[0].unpriced).toBe(true)
+  })
+
+  it('uses the AVG price map for by-products', () => {
+    const prices = new Map<string, ItemCostBasis>([['trim', { pricePerBase: 0.008, basis: 'AVG_30D' } as ItemCostBasis]])
+    const r = computeRecipeCost(recipe([brisketLine], { byproducts: [bp({ qty: 2 })] }), { prices })
+    expect(r.byproducts[0].credit).toBeCloseTo(16)
+    expect(r.byproducts[0].costBasis).toBe('AVG_30D')
+  })
+
+  it('no by-products is byte-identical', () => {
+    const r = computeRecipeCost(recipe([brisketLine]))
+    expect(r.grossCost).toBe(r.totalCost)
+    expect(r.byproductCredit).toBe(0)
+    expect(r.byproducts).toEqual([])
+    expect(r.creditExceedsCost).toBe(false)
+    expect(r.ingredients[0].byproductOf).toBeNull()
+  })
+})
 
 describe('computeRecipeCost — inventory ingredients', () => {
   it('costs a same-unit ingredient: qty × ppb', () => {
@@ -360,6 +435,55 @@ describe('fetchRecipeWithCost — scanned recipes', () => {
   })
 })
 
+describe('fetchRecipeWithCost — by-products', () => {
+  const lastUpdated = new Date('2026-10-29T10:00:00.000Z')
+  const trimRow = { ...trimItem, lastUpdated, _count: { supplierPrices: 0 }, supplierPrices: [] }
+  const row = {
+    id: 'r1', name: 'Smoked Brisket', type: 'PREP', categoryId: 'c1', category: { name: 'Meat', color: null },
+    inventoryItemId: 'item-r1', baseYieldQty: 6, yieldUnit: 'kg', portionSize: null, portionUnit: null,
+    menuPrice: null, isActive: true, notes: null, steps: [], activeMinutes: null, passiveMinutes: null,
+    passiveNote: null, stages: null, method: null, createdAt: new Date(), updatedAt: new Date(),
+    baseIngredientId: null, prepItems: [], sourceScanId: null,
+    ingredients: [ing({ id: 'a', inventoryItemId: 'brisket', inventoryItem: brisketItem, qtyBase: 13, unit: 'kg' })],
+    byproducts: [{ id: 'b1', sortOrder: 0, qty: '2', unit: 'kg', notes: null, inventoryItemId: 'trim', inventoryItem: trimRow }],
+  }
+
+  it('returns net cost and by-product lines', async () => {
+    const findUnique = vi.fn().mockResolvedValue(row)
+    Object.assign(prisma, { recipe: { findUnique } })
+    const r = await fetchRecipeWithCost('r1')
+    expect(findUnique.mock.calls[0][0].include.byproducts).toBeDefined()
+    expect(findUnique.mock.calls[0][0].include.ingredients.include.inventoryItem.select.recipeByproducts).toBeDefined()
+    expect(r!.grossCost).toBeCloseTo(256.1)
+    expect(r!.byproductCredit).toBeCloseTo(20)
+    expect(r!.totalCost).toBeCloseTo(236.1)
+    expect(r!.byproducts[0]).toMatchObject({ itemName: 'Brisket Trim', credit: expect.closeTo(20), hasOffers: false, primarySupplierName: null, itemLastUpdated: lastUpdated.toISOString() })
+    expect(r!.byproducts[0].itemPricing).toEqual(trimItem.pricing)
+  })
+
+  it('names the primary supplier of a by-product that has supplier boxes', async () => {
+    const withOffer = { ...row, byproducts: [{ ...row.byproducts[0], inventoryItem: { ...trimRow, _count: { supplierPrices: 2 }, supplierPrices: [{ supplier: { name: 'Sysco' } }] } }] }
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue(withOffer) } })
+    const r = await fetchRecipeWithCost('r1')
+    expect(r!.byproducts[0]).toMatchObject({ hasOffers: true, primarySupplierName: 'Sysco' })
+  })
+
+  it('editByproducts overrides the loaded rows and skips the memo', async () => {
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue(row) } })
+    const ctx = await costContext('LAST', [])
+    const r = await fetchRecipeWithCost('r1', { ctx, editByproducts: rows => rows.map(b => ({ ...b, qty: 5 as never })) })
+    expect(r!.byproductCredit).toBeCloseTo(50)
+    expect(ctx.memo.has('r1')).toBe(false)
+  })
+
+  it('syncPrepToInventory writes the net', async () => {
+    const update = vi.fn().mockResolvedValue({})
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue(row) }, inventoryItem: { update } })
+    await syncPrepToInventory('r1')
+    expect(update.mock.calls[0][0].data.pricing.purchasePrice).toBeCloseTo(236.1)
+  })
+})
+
 describe('propagatePrepCostChanges — allergen cascade', () => {
   // Mustard Seed (raw) → Mustard Base (sub-prep) → Honey Mustard (parent)
   // → Club Sauce (grandparent). Tagging Mustard on the seed changes no price,
@@ -478,5 +602,44 @@ describe('computeRecipeCost — unpriced lines', () => {
   it('a custom line is never "unpriced" — it is deliberately uncosted', () => {
     const out = computeRecipeCost(recipe([ing({ id: 'c', customName: 'Salt', qtyBase: 1, unit: 'g' })]))
     expect(out.ingredients[0].unpriced).toBe(false)
+  })
+})
+
+describe('propagatePrepCostChanges — by-products', () => {
+  it('by-product price change re-syncs the producing recipe', async () => {
+    const items = new Map<string, Record<string, unknown>>()
+    items.set('brisket', brisketItem)
+    items.set('trim', trimItem)
+    items.set('out', { itemName: 'Smoked Brisket', dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'batch', per: 6000 }], pricing: { mode: 'PACK', purchasePrice: 0 } })
+    const row = () => ({
+      id: 'R', name: 'Smoked Brisket', type: 'PREP', categoryId: 'c1', category: { name: 'Meat', color: null },
+      inventoryItemId: 'out', baseYieldQty: 6, yieldUnit: 'kg', portionSize: null, portionUnit: null,
+      menuPrice: null, isActive: true, notes: null, steps: [], activeMinutes: null, passiveMinutes: null,
+      passiveNote: null, stages: null, method: null, createdAt: new Date(), updatedAt: new Date(),
+      baseIngredientId: null, prepItems: [], sourceScanId: null,
+      ingredients: [ing({ id: 'a', inventoryItemId: 'brisket', inventoryItem: items.get('brisket'), qtyBase: 13, unit: 'kg' })],
+      byproducts: [{ id: 'b1', sortOrder: 0, qty: 2, unit: 'kg', notes: null, inventoryItemId: 'trim',
+        inventoryItem: { ...items.get('trim'), lastUpdated: new Date(), _count: { supplierPrices: 0 }, supplierPrices: [] } }],
+    })
+    const update = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      items.set(where.id, { ...items.get(where.id)!, ...data })
+      return {}
+    })
+    Object.assign(prisma, {
+      recipe: {
+        findUnique: vi.fn(async () => row()),
+        findMany: vi.fn(async () => [{ id: 'R', inventoryItemId: 'out', ingredients: [{ inventoryItemId: 'brisket', linkedRecipeId: null }], byproducts: [{ inventoryItemId: 'trim' }] }]),
+      },
+      inventoryItem: { update, findUnique: vi.fn(async ({ where }: { where: { id: string } }) => items.get(where.id) ?? null) },
+    })
+    await syncPrepToInventory('R')                       // $256.10 − $20.00
+    update.mockClear()
+
+    items.set('trim', rateItem('Brisket Trim', 12))     // trim now $12/kg → credit $24
+    const moved = await propagatePrepCostChanges(['trim'])
+
+    expect(moved).toEqual(['out'])
+    expect(update.mock.calls.map(c => c[0].where.id)).toEqual(['out'])
+    expect((items.get('out')!.pricing as { purchasePrice: number }).purchasePrice).toBeCloseTo(232.1)
   })
 })

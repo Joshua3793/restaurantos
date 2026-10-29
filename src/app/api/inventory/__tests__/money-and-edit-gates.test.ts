@@ -46,6 +46,7 @@ vi.mock('@/lib/prisma', () => ({
     inventorySnapshot: { count: async () => 0 },
     invoiceScanItem: { count: async () => 0 },
     recipeIngredient: { count: async () => 0, findMany: async () => [] },
+    recipeByproduct: { count: async () => 0, findMany: async () => [] },
     wastageLog: { count: async () => 0 },
     stockTransfer: { count: async () => 0 },
     inventorySupplierPrice: { count: async () => 1 },

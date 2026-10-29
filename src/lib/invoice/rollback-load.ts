@@ -122,6 +122,8 @@ export interface RefCounts {
   supplierWordings: number
   /** RecipeIngredient.inventoryItem — the ingredient would silently go $0 (SetNull). */
   recipeIngredients: number
+  /** RecipeByproduct.inventoryItem — something that comes off a prep batch (Restrict). */
+  recipeByproducts: number
   /** Recipe.inventoryItem — a PREP recipe would lose its linked item (SetNull). */
   recipes: number
   /** PrepItem.linkedInventoryItem (SetNull). */
@@ -143,6 +145,7 @@ const OTHER_LABELS: ReadonlyArray<readonly [Exclude<keyof RefCounts, 'invoiceLin
   ['priceAlerts', 'price alert', 'price alerts'],
   ['supplierOffers', 'supplier price', 'supplier prices'],
   ['recipeIngredients', 'recipe ingredient', 'recipe ingredients'],
+  ['recipeByproducts', 'recipe by-product', 'recipe by-products'],
   ['recipes', 'recipe', 'recipes'],
   ['prepItems', 'prep item', 'prep items'],
   ['mergedItems', 'merged item', 'merged items'],
@@ -426,7 +429,7 @@ export async function loadItemRefs(
   const [
     receiptLines, scanItems, snapshots, countLines, wastageLogs, stockTransfers,
     priceAlerts, supplierOffers,
-    recipeIngredients, recipes, prepItems, mergedItems, matchRules, supplierWordings,
+    recipeIngredients, recipeByproducts, recipes, prepItems, mergedItems, matchRules, supplierWordings,
   ] = await Promise.all([
     db.invoiceLineItem.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     // ALL scan lines outside this session and its clones — approved or not
@@ -452,6 +455,7 @@ export async function loadItemRefs(
       _count: count,
     }),
     db.recipeIngredient.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
+    db.recipeByproduct.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     db.recipe.groupBy({ by: ['inventoryItemId'], where: { inventoryItemId: inItems }, _count: count }),
     db.prepItem.groupBy({ by: ['linkedInventoryItemId'], where: { linkedInventoryItemId: inItems }, _count: count }),
     db.inventoryItem.groupBy({ by: ['mergedIntoId'], where: { mergedIntoId: inItems }, _count: count }),
@@ -476,6 +480,7 @@ export async function loadItemRefs(
     priceAlerts: tally(priceAlerts, 'inventoryItemId'),
     supplierOffers: tally(supplierOffers, 'inventoryItemId'),
     recipeIngredients: tally(recipeIngredients, 'inventoryItemId'),
+    recipeByproducts: tally(recipeByproducts, 'inventoryItemId'),
     recipes: tally(recipes, 'inventoryItemId'),
     prepItems: tally(prepItems, 'linkedInventoryItemId'),
     mergedItems: tally(mergedItems, 'mergedIntoId'),

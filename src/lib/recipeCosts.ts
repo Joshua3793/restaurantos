@@ -11,6 +11,7 @@ import { portionsPerBatch } from './recipe-portions'
 import { dimensionOf, DIMENSION_BASE, eachMeasureOf, densityOf, PRICING_SELECT, asChainItem } from './item-model'
 import { lastCost, windowedAvgCost } from '@/lib/cost-basis'
 import type { CostBasis, ItemCostBasis } from '@/lib/cost-basis'
+import { netCost, type ByproductWithCredit } from './recipe-byproducts'
 
 export interface IngredientWithCost {
   id: string
@@ -51,6 +52,9 @@ export interface IngredientWithCost {
    * which is deliberately uncosted.
    */
   unpriced: boolean
+  /** The recipe this item comes off as a by-product ("comes off Smoked Brisket"),
+   *  so the chef can see where its price comes from. Null when it doesn't. */
+  byproductOf: string | null
 }
 
 /** Every allergen across a recipe's computed lines (item, linked prep, hand-tagged custom). */
@@ -93,7 +97,14 @@ export interface RecipeWithCost {
   createdAt: Date
   updatedAt: Date
   ingredients: IngredientWithCost[]
+  /** Ingredients − by-product credits, floored at $0. Every cost reader reads this. */
   totalCost: number
+  /** Ingredients alone, before credits. */
+  grossCost: number
+  byproductCredit: number
+  /** Credits are more than the ingredients cost — the net is floored and the editor warns. */
+  creditExceedsCost: boolean
+  byproducts: ByproductWithCredit[]
   costPerPortion: number | null
   foodCostPct: number | null
   /** Count of ingredients whose unit is a different dimension than the item's base unit. */
@@ -111,6 +122,34 @@ export interface RecipeWithCost {
 // Prisma returns Decimal for numeric DB columns; accept Decimal alongside number | string
 // (Decimal implements toNumber() and toString() so Number() works on all three)
 type Numeric = number | string | { toNumber(): number; toString(): string }
+
+type CostableItem = { baseUnit: string; densityGPerMl?: unknown } & Parameters<typeof asChainItem>[0]
+
+/** Cost `qty unit` of one inventory item — the ONE item-line maths, shared by
+ *  ingredient lines and by-product credits so the two can never cost differently. */
+function costItemLine(
+  item: CostableItem, itemId: string | null, qty: number, unit: string,
+  prices: Map<string, ItemCostBasis> | undefined,
+): { pricePerBaseUnit: number; costBasis: CostBasis; dimensionConflict: boolean; lineCost: number } {
+  const mapped           = itemId ? prices?.get(itemId) : undefined
+  const pricePerBaseUnit = mapped ? mapped.pricePerBase : lastCost(item)
+  const bridge           = eachMeasureOf(item)
+  // True only when the unit can't be costed against the item's base unit —
+  // i.e. COUNT↔measured (e.g. `g` of a per-each item), where the conversion is
+  // undefined. Weight↔volume is tolerated (density≈1 kitchen convention).
+  const dimensionConflict = !dimensionallyCostable(unit, item.baseUnit, bridge)
+  // Convert recipe unit → inventory base unit before multiplying by price.
+  // Density bridges weight↔volume; the bridge bridges count↔measured.
+  const baseQty = convertQtyBridged(qty, unit, item.baseUnit, bridge, densityOf(item))
+  return {
+    pricePerBaseUnit,
+    costBasis: mapped?.basis ?? 'LAST',
+    dimensionConflict,
+    // On a dimension conflict the converted qty is meaningless — contribute 0
+    // rather than a garbage number.
+    lineCost: dimensionConflict ? 0 : baseQty * pricePerBaseUnit,
+  }
+}
 
 /** Compute cost for a recipe, applying unit conversions for every ingredient. */
 export function computeRecipeCost(
@@ -132,16 +171,30 @@ export function computeRecipeCost(
       customName?: string | null
       /** Hand-tagged allergens — only meaningful on a custom (unlinked) line. */
       allergens?: string[]
-      inventoryItem: ({ itemName: string; baseUnit: string; allergens?: string[]; densityGPerMl?: unknown } & Parameters<typeof asChainItem>[0]) | null
+      inventoryItem: ({ itemName: string; allergens?: string[]; recipeByproducts?: Array<{ recipe: { name: string } }> } & CostableItem) | null
       linkedRecipe: { name: string; inventoryItem?: { allergens?: string[] } | null } | null
       _linkedRecipeCostPerUnit?: number  // cost per 1 unit of the linked recipe's yieldUnit
       _linkedRecipeYieldUnit?: string    // yieldUnit of the linked recipe
       /** The cost basis Task 3 resolved for the linked recipe's synced cost; 'LAST' when absent. */
       _linkedRecipeCostBasis?: CostBasis
     }>
+    /** What else comes off the batch (PREP only), credited at each item's own price. */
+    byproducts?: Array<{
+      id: string
+      sortOrder: number
+      qty: Numeric
+      unit: string
+      notes: string | null
+      inventoryItemId: string
+      inventoryItem: { itemName: string } & CostableItem
+    }>
   },
   opts: { prices?: Map<string, ItemCostBasis> } = {}
-): { totalCost: number; costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[]; basisSummary: { basis: CostBasis; avgLines: number; lastLines: number } } {
+): {
+  totalCost: number; grossCost: number; byproductCredit: number; creditExceedsCost: boolean; byproducts: ByproductWithCredit[]
+  costPerPortion: number | null; foodCostPct: number | null; dimensionConflicts: number; ingredients: IngredientWithCost[]
+  basisSummary: { basis: CostBasis; avgLines: number; lastLines: number }
+} {
 
   const ingredientsWithCost: IngredientWithCost[] = recipe.ingredients.map(ing => {
     const qty = Number(ing.qtyBase)
@@ -150,30 +203,27 @@ export function computeRecipeCost(
     let ingredientType: 'inventory' | 'recipe' | 'custom' = 'inventory'
     let lineCostQty = qty   // qty converted to the ingredient's base unit for cost maths
     let ingredientBaseUnit = ing.unit  // fallback: use current unit as base
-    // True only when the recipe unit can't be costed against the ingredient's
-    // base unit — i.e. COUNT↔measured (e.g. `g` of a per-each item), where the
-    // conversion is undefined. Weight↔volume is tolerated (density≈1 kitchen
-    // convention; convertQty passes it through 1:1).
+    // See costItemLine — a linked prep's conflict is computed below the same way.
     let dimensionConflict = false
     let allergens: string[] = []
     let costBasis: CostBasis = 'LAST'
+    let itemLineCost: number | null = null
     let ingBridge: { qty: number; unit: string } | null = null
     let ingDensity: number | null = null
 
     if (ing.inventoryItem) {
-      const mapped       = ing.inventoryItemId ? opts.prices?.get(ing.inventoryItemId) : undefined
-      pricePerBaseUnit    = mapped ? mapped.pricePerBase : lastCost(ing.inventoryItem)
-      costBasis           = mapped?.basis ?? 'LAST'
+      const line         = costItemLine(ing.inventoryItem, ing.inventoryItemId, qty, ing.unit, opts.prices)
+      pricePerBaseUnit   = line.pricePerBaseUnit
+      costBasis          = line.costBasis
+      dimensionConflict  = line.dimensionConflict
+      itemLineCost       = line.lineCost
       ingredientName     = ing.inventoryItem.itemName
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
       allergens          = ing.inventoryItem.allergens ?? []
+      // The bridges ride on the line so the editor can offer grams on a per-each item.
       ingBridge          = eachMeasureOf(ing.inventoryItem)
       ingDensity         = densityOf(ing.inventoryItem)
-      dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit, ingBridge)
-      // Convert recipe unit → inventory base unit before multiplying by price.
-      // Density bridges weight↔volume; ingBridge bridges count↔measured.
-      lineCostQty = convertQtyBridged(qty, ing.unit, ing.inventoryItem.baseUnit, ingBridge, ingDensity)
     } else if (ing.linkedRecipe) {
       pricePerBaseUnit   = ing._linkedRecipeCostPerUnit ?? 0
       costBasis          = ing._linkedRecipeCostBasis ?? 'LAST'
@@ -211,7 +261,7 @@ export function computeRecipeCost(
       pricePerBaseUnit,
       // On a dimension conflict the converted qty is meaningless — contribute 0
       // rather than a garbage number.
-      lineCost: dimensionConflict ? 0 : lineCostQty * pricePerBaseUnit,
+      lineCost: itemLineCost ?? (dimensionConflict ? 0 : lineCostQty * pricePerBaseUnit),
       ingredientBaseUnit,
       allergens,
       dimensionConflict,
@@ -219,6 +269,27 @@ export function computeRecipeCost(
       ingredientDensity: ingDensity,
       costBasis,
       unpriced: ingredientType !== 'custom' && pricePerBaseUnit === 0,
+      byproductOf: ing.inventoryItem?.recipeByproducts?.[0]?.recipe.name ?? null,
+    }
+  })
+
+  const byproducts: ByproductWithCredit[] = (recipe.byproducts ?? []).map(bp => {
+    const qty  = Number(bp.qty)
+    const line = costItemLine(bp.inventoryItem, bp.inventoryItemId, qty, bp.unit, opts.prices)
+    return {
+      id: bp.id,
+      sortOrder: bp.sortOrder,
+      inventoryItemId: bp.inventoryItemId,
+      itemName: bp.inventoryItem.itemName,
+      qty,
+      unit: bp.unit,
+      notes: bp.notes,
+      itemBaseUnit: bp.inventoryItem.baseUnit,
+      pricePerBaseUnit: line.pricePerBaseUnit,
+      credit: line.lineCost,
+      dimensionConflict: line.dimensionConflict,
+      costBasis: line.costBasis,
+      unpriced: line.pricePerBaseUnit === 0,
     }
   })
 
@@ -227,7 +298,9 @@ export function computeRecipeCost(
   const basisSummary = { basis: (avgLines > 0 ? 'AVG_30D' : 'LAST') as CostBasis, avgLines, lastLines }
 
   const dimensionConflicts = ingredientsWithCost.filter(i => i.dimensionConflict).length
-  const totalCost    = ingredientsWithCost.reduce((s, i) => s + i.lineCost, 0)
+  const grossCost       = ingredientsWithCost.reduce((s, i) => s + i.lineCost, 0)
+  const byproductCredit = byproducts.reduce((s, b) => s + b.credit, 0)
+  const totalCost       = netCost(grossCost, byproductCredit)
   const baseYieldQty = Number(recipe.baseYieldQty)
   const menuPrice    = recipe.menuPrice   !== null ? Number(recipe.menuPrice)   : null
 
@@ -244,7 +317,10 @@ export function computeRecipeCost(
       ? (costPerPortion / menuPrice) * 100
       : null
 
-  return { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost, basisSummary }
+  return {
+    totalCost, grossCost, byproductCredit, creditExceedsCost: byproductCredit > grossCost, byproducts,
+    costPerPortion, foodCostPct, dimensionConflicts, ingredients: ingredientsWithCost, basisSummary,
+  }
 }
 
 /**
@@ -319,14 +395,36 @@ export interface CostContext {
   rows?: Map<string, RecipeCostRow | null>
 }
 
+/** A recipe's by-product lines with what costing and the editor need off each
+ *  item. Shared by every recipe read that costs (single, prefetch, list, search)
+ *  so a credit can never be applied on one screen and missing on another. */
+export const BYPRODUCT_COST_INCLUDE = {
+  include: {
+    inventoryItem: {
+      select: {
+        itemName: true, lastUpdated: true, ...PRICING_SELECT,
+        _count: { select: { supplierPrices: true } },
+        supplierPrices: { where: { isPrimary: true }, select: { supplier: { select: { name: true } } }, take: 1 },
+      },
+    },
+  },
+  orderBy: { sortOrder: 'asc' },
+} satisfies Prisma.Recipe$byproductsArgs
+
+/** On an ingredient's item: the recipe it comes off as a by-product, if any. */
+export const BYPRODUCT_OF_SELECT = {
+  recipeByproducts: { select: { recipe: { select: { name: true } } }, take: 1 },
+} as const
+
 /** The recipe shape fetchRecipeWithCost costs — ONE include for the single read
  *  and the batched prefetch, so the two can never diverge. */
 const RECIPE_COST_INCLUDE = {
   category: true,
   prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+  byproducts: BYPRODUCT_COST_INCLUDE,
   ingredients: {
     include: {
-      inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
+      inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT, ...BYPRODUCT_OF_SELECT } },
       linkedRecipe: {
         select: {
           name: true,
@@ -340,6 +438,35 @@ const RECIPE_COST_INCLUDE = {
 } satisfies Prisma.RecipeInclude
 
 type RecipeCostRow = Prisma.RecipeGetPayload<{ include: typeof RECIPE_COST_INCLUDE }>
+export type ByproductCostRow = RecipeCostRow['byproducts'][number]
+
+/** Every raw item a recipe row costs: its ingredient items and its by-product items. */
+function rawItemIds(r: { ingredients: Array<{ inventoryItemId: string | null }>; byproducts?: Array<{ inventoryItemId: string }> }): string[] {
+  return [
+    ...r.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : [])),
+    ...(r.byproducts ?? []).map(b => b.inventoryItemId),
+  ]
+}
+
+/** The editor-only fields of a by-product line, read off its loaded item. */
+export function byproductItemFields(bp: { inventoryItem: { lastUpdated: Date; packChain: unknown; pricing: unknown; _count: { supplierPrices: number }; supplierPrices: Array<{ supplier: { name: string } }> } }) {
+  return {
+    itemLastUpdated: bp.inventoryItem.lastUpdated.toISOString(),
+    itemPackChain: bp.inventoryItem.packChain,
+    itemPricing: bp.inventoryItem.pricing,
+    hasOffers: bp.inventoryItem._count.supplierPrices > 0,
+    primarySupplierName: bp.inventoryItem.supplierPrices[0]?.supplier.name ?? null,
+  }
+}
+
+/** Attach the editor-only fields to computed by-product lines (same order as the rows). */
+export function withByproductItemFields<T extends { id: string }>(lines: T[], rows: Array<{ id: string } & Parameters<typeof byproductItemFields>[0]>): T[] {
+  const byId = new Map(rows.map(r => [r.id, r]))
+  return lines.map(l => {
+    const row = byId.get(l.id)
+    return row ? { ...l, ...byproductItemFields(row) } : l
+  })
+}
 
 /**
  * Batch-load every prep reachable from `ids` into the context, one query per
@@ -359,8 +486,8 @@ export async function prefetchRecipes(ctx: CostContext, ids: string[]): Promise<
     for (const row of found) rows.set(row.id, row)
 
     if (ctx.basis === 'AVG_30D') {
-      const missing = Array.from(new Set(found.flatMap(r => r.ingredients.flatMap(i =>
-        i.inventoryItemId && !ctx.prices.has(i.inventoryItemId) && !ctx.asked.has(i.inventoryItemId) ? [i.inventoryItemId] : [],
+      const missing = Array.from(new Set(found.flatMap(r => rawItemIds(r).filter(itemId =>
+        !ctx.prices.has(itemId) && !ctx.asked.has(itemId),
       ))))
       if (missing.length > 0) {
         for (const itemId of missing) ctx.asked.add(itemId)
@@ -446,9 +573,15 @@ export async function resolveLinkedRecipes<T extends {
  */
 export async function fetchRecipeWithCost(
   id: string,
-  opts: { basis?: CostBasis; ctx?: CostContext } = {},
+  opts: {
+    basis?: CostBasis
+    ctx?: CostContext
+    /** Cost the recipe as if its by-products were these — a what-if for the
+     *  credit guard. The result is never memoised. */
+    editByproducts?: (rows: ByproductCostRow[]) => ByproductCostRow[]
+  } = {},
 ): Promise<RecipeWithCost | null> {
-  if (opts.ctx?.memo.has(id)) return opts.ctx.memo.get(id)!
+  if (opts.ctx?.memo.has(id) && !opts.editByproducts) return opts.ctx.memo.get(id)!
 
   // A row the caller batch-loaded (prefetchRecipes) is used as-is; null there
   // means "loaded, does not exist".
@@ -456,8 +589,11 @@ export async function fetchRecipeWithCost(
     ? opts.ctx.rows.get(id) ?? null
     : await prisma.recipe.findUnique({ where: { id }, include: RECIPE_COST_INCLUDE })
   if (!recipe) return null
+  // `?? []`: a row built by hand (tests, older callers) may not carry the relation.
+  const loadedByproducts = recipe.byproducts ?? []
+  const byproductRows = opts.editByproducts ? opts.editByproducts(loadedByproducts) : loadedByproducts
 
-  const rawIds = recipe.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : []))
+  const rawIds = rawItemIds({ ingredients: recipe.ingredients, byproducts: byproductRows })
   let ctx: CostContext | null = opts.ctx ?? null
   if (!ctx && opts.basis === 'AVG_30D') {
     ctx = await costContext('AVG_30D', rawIds)
@@ -482,9 +618,13 @@ export async function fetchRecipeWithCost(
   const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
   ctx?.visiting.delete(id)
 
-  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary } = computeRecipeCost({
+  const {
+    totalCost, grossCost, byproductCredit, creditExceedsCost, byproducts,
+    costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary,
+  } = computeRecipeCost({
     ...recipe,
     ingredients: ingredientsWithLinked,
+    byproducts: byproductRows,
   }, { prices: ctx?.prices })
 
   // Each line already carries its own allergens: its item's, a linked PREP's
@@ -522,6 +662,10 @@ export async function fetchRecipeWithCost(
     updatedAt: recipe.updatedAt,
     ingredients,
     totalCost,
+    grossCost,
+    byproductCredit,
+    creditExceedsCost,
+    byproducts: withByproductItemFields(byproducts, byproductRows),
     costPerPortion,
     foodCostPct,
     dimensionConflicts,
@@ -538,7 +682,7 @@ export async function fetchRecipeWithCost(
     sourceScanId: recipe.sourceScanId ?? null,
   }
 
-  ctx?.memo.set(id, result)
+  if (!opts.editByproducts) ctx?.memo.set(id, result)
   return result
 }
 
@@ -646,6 +790,7 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       id: true,
       inventoryItemId: true,
       ingredients: { select: { inventoryItemId: true, linkedRecipeId: true } },
+      byproducts: { select: { inventoryItemId: true } },
     },
   })
   if (prepRecipes.length === 0) return []
@@ -668,6 +813,8 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       addConsumer(ing.inventoryItemId, r.id)
       if (ing.linkedRecipeId) addConsumer(outputItemOf.get(ing.linkedRecipeId), r.id)
     }
+    // A by-product's price is the batch's credit, so the batch depends on it too.
+    for (const bp of r.byproducts ?? []) addConsumer(bp.inventoryItemId, r.id)
   }
 
   const movedOutputs = new Set<string>()

@@ -10,7 +10,7 @@ const row = (over: Partial<MergeItemRow>): MergeItemRow => ({
 })
 const noRel: MergeRelations = {
   scanItemIds: [], invoiceLineItemIds: [], priceAlertIds: [], matchRuleIds: [], transferIds: [],
-  wastageIds: [], recipeIngredients: [], countLines: [], snapshots: [], offers: [], allocations: [], itemRcs: [],
+  wastageIds: [], recipeIngredients: [], recipeByproducts: [], countLines: [], snapshots: [], offers: [], allocations: [], itemRcs: [],
   latestPurchaseSupplier: null, priorAbsorbeeIds: [], aliasIds: [], nameAliasTaken: false,
 }
 const noSRel: SurvivorRelations = { offers: [], allocations: [], itemRcs: [], snapshots: [] }
@@ -26,6 +26,23 @@ const plan = (s = S, a = A, rel = noRel, sRel = noSRel, provided = false) =>
 const dimsOf = (item: MergeItemRow): ItemDims => ({
   dimension: item.dimension, baseUnit: item.baseUnit, packChain: item.packChain,
   countUnit: item.countUnit, eachMeasureQty: item.eachMeasure?.qty ?? null, eachMeasureUnit: item.eachMeasure?.unit ?? null,
+})
+
+describe('by-products move with the item', () => {
+  it('repoints by-product rows to the survivor, and undo puts them back', () => {
+    const p = plan(S, A, { ...noRel, recipeByproducts: [{ id: 'bp1', unit: 'kg' }] })
+    if (!p.ok) throw new Error(p.message)
+    expect(p.manifest.ops).toContainEqual({ t: 'repoint', table: 'RecipeByproduct', ids: ['bp1'] })
+    const undo = planUndo(p.manifest)
+    expect(JSON.stringify(undo)).toContain('RecipeByproduct')
+  })
+
+  it('a by-product line that needs a bridge is guarded like a recipe line', () => {
+    const s = row({ id: 'S', itemName: S.itemName, eachMeasure: { qty: 150, unit: 'g' } })
+    const a = row({ id: 'A', itemName: A.itemName, eachMeasure: { qty: 200, unit: 'g' } })
+    const p = plan(s, a, { ...noRel, recipeByproducts: [{ id: 'bp1', unit: 'each' }] })
+    expect(p.ok ? null : p.guard).toBe('BRIDGE_MISMATCH')
+  })
 })
 
 describe('guards', () => {

@@ -198,6 +198,7 @@ export async function loadMergeInputs(
   const tr = await db.stockTransfer.findMany({ where: w, select: { id: true } })
   const wl = await db.wastageLog.findMany({ where: w, select: { id: true } })
   const ri = await db.recipeIngredient.findMany({ where: w, select: { id: true, unit: true } })
+  const rb = await db.recipeByproduct.findMany({ where: w, select: { id: true, unit: true } })
   const cl = await db.countLine.findMany({
     where: w,
     select: {
@@ -235,6 +236,7 @@ export async function loadMergeInputs(
     transferIds: tr.map(x => x.id),
     wastageIds: wl.map(x => x.id),
     recipeIngredients: ri.map(x => ({ id: x.id, unit: x.unit })),
+    recipeByproducts: rb.map(x => ({ id: x.id, unit: x.unit })),
     countLines: cl.map(x => ({
       id: x.id,
       countedQtyBase: x.countedQtyBase == null ? null : Number(x.countedQtyBase),

@@ -20,7 +20,7 @@ export type MergeGuard = 'SAME_ITEM' | 'PREP_OWNED' | 'TOMBSTONE' | 'OPEN_COUNT'
 export type RepointTable =
   | 'InvoiceScanItem' | 'InvoiceLineItem' | 'PriceAlert' | 'InvoiceMatchRule' | 'StockTransfer' | 'WastageLog'
   | 'RecipeIngredient' | 'CountLine' | 'InventorySnapshot' | 'InventorySupplierPrice' | 'StockAllocation' | 'ItemRevenueCenter'
-  | 'ItemSupplierAlias'
+  | 'ItemSupplierAlias' | 'RecipeByproduct'
 export type UpdateTable = RepointTable | 'InventoryItem'
 /** `ItemSupplierAlias` is here only as the undo of the merge's own name wording
  *  (a `create` swaps to a `delete` in `planUndo`) — a merge never deletes one. */
@@ -60,6 +60,9 @@ export interface MergeRelations {          // everything that points at the ABSO
   /** `qtyBase` is base-unit denominated and moves unchanged like the above;
    *  `unit` is read by the BRIDGE_MISMATCH guard (Imp-2), so it stays. */
   recipeIngredients: { id: string; unit: string }[]
+  /** By-product lines credit through the item's chain exactly like recipe lines
+   *  cost through it, so they move the same way and face the same bridge guard. */
+  recipeByproducts: { id: string; unit: string }[]
   countLines: {
     id: string; countedQtyBase: number | null
     // legacy lines carry countedQtyBase: null and must be re-derived — precedence
@@ -255,7 +258,7 @@ export function planMerge(
   // property of the ITEM, not the recipe line. Two items sharing a base unit
   // can still carry different each-measures or densities, so re-pointing such
   // a line would silently change what it costs. Refuse rather than convert.
-  const bridgeMismatched = rel.recipeIngredients.filter(ri => {
+  const bridgeMismatched = [...rel.recipeIngredients, ...rel.recipeByproducts].filter(ri => {
     const riDim = dimensionOf(ri.unit)
     if (riDim === absorbed.dimension) return false // same-dimension unit: never bridged
     const needsCountBridge = absorbed.dimension === 'COUNT' || riDim === 'COUNT'
@@ -312,6 +315,7 @@ export function planMerge(
   repoint('StockTransfer', rel.transferIds)
   repoint('WastageLog', rel.wastageIds)
   repoint('RecipeIngredient', rel.recipeIngredients.map(r => r.id))
+  repoint('RecipeByproduct', rel.recipeByproducts.map(r => r.id))
   repoint('CountLine', rel.countLines.map(c => c.id))
 
   // ── count lines: same base unit does NOT make this go away — the two items
