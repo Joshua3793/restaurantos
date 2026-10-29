@@ -186,6 +186,7 @@ model InventoryItem {
   priceAlerts        PriceAlert[]             @relation("InventoryPriceAlerts")
   recipe             Recipe?                  @relation("RecipeInventoryItem")
   recipeIngredients  RecipeIngredient[]       @relation("RecipeIngredientInventory")
+  recipeByproducts   RecipeByproduct[]        @relation("RecipeByproductItem")
   stockAllocations   StockAllocation[]
   stockTransfers     StockTransfer[]
   wastageLogs        WastageLog[]
@@ -267,6 +268,7 @@ model Recipe {
   inventoryItem   InventoryItem?     @relation("RecipeInventoryItem", fields: [inventoryItemId], references: [id])
   revenueCenter   RevenueCenter?     @relation("MenuRC", fields: [revenueCenterId], references: [id])
   recipeAlerts    RecipeAlert[]      @relation("RecipeAlerts")
+  byproducts      RecipeByproduct[]  @relation("RecipeByproducts")
   usedInRecipes   RecipeIngredient[] @relation("RecipeAsIngredient")
   ingredients     RecipeIngredient[] @relation("RecipeToIngredients")
   saleLineItems   SaleLineItem[]
@@ -345,6 +347,24 @@ model ItemCountMeasure {
   unit            String // a canonical unit in the item's dimension
 
   @@unique([inventoryItemId, word])
+}
+
+// Something else that comes off a PREP batch (fat, trim, bones). Credited at the
+// item's own live price — there is no price column; see computeRecipeCost.
+model RecipeByproduct {
+  id              String        @id @default(uuid())
+  recipeId        String
+  inventoryItemId String
+  qty             Decimal
+  unit            String
+  sortOrder       Int           @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  recipe          Recipe        @relation("RecipeByproducts", fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItem   InventoryItem @relation("RecipeByproductItem", fields: [inventoryItemId], references: [id])
+
+  @@index([recipeId])
+  @@index([inventoryItemId])
 }
 
 model CountSession {
