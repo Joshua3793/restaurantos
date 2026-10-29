@@ -40,6 +40,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const { name, type, color, revenueCenterId } = body
   if (!name || !type) return NextResponse.json({ error: 'name and type required' }, { status: 400 })

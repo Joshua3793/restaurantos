@@ -10,6 +10,12 @@ import { numOrNull } from '@/lib/prep-utils'
 import { requireSession, AuthError } from '@/lib/auth'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const recipe = await fetchRecipeWithCost(params.id, { basis: 'AVG_30D' })
   if (!recipe) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

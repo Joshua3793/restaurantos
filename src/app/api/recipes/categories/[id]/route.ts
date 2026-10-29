@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const { name, color, sortOrder } = body
 
@@ -18,6 +27,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const cat = await prisma.recipeCategory.findUnique({
     where: { id: params.id },
     include: { _count: { select: { recipes: true } } },

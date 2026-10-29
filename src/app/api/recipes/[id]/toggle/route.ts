@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function PATCH(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const recipe = await prisma.recipe.findUnique({ where: { id: params.id }, select: { isActive: true } })
   if (!recipe) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
