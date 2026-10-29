@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit } from '@/lib/utils'
-import { UOM_GROUPS, getUnitGroup, convertQty, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
+import { UOM_GROUPS, convertQty, convertQtyBridged, bridgedUnitGroups, dimensionallyCostable, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
 import { computeBakersPercents } from '@/lib/bakers-percent'
 import { portionsPerBatch } from '@/lib/recipe-portions'
 import { ingredientNeedsQty, opensQtyEditor } from '@/lib/recipe-line'
@@ -87,6 +87,17 @@ export interface IngredientWithCost {
   costBasis?: 'AVG_30D' | 'LAST'
   /** Linked to an item/prep that has no price yet — the $0 is "unknown", not free. */
   unpriced?: boolean
+  /** The item's count↔weight bridge (1 each = qty unit) — widens the unit list. */
+  ingredientBridge?: { qty: number; unit: string } | null
+  /** The item's weight↔volume density (g/ml) — widens the unit list. */
+  ingredientDensity?: number | null
+}
+
+/** Unit groups an ingredient line may pick: the item's own kind, plus whatever its
+ *  bridges convert to (grams on a per-each Butternut Squash with 1 each = 3 lb). */
+function unitGroupsFor(ing: IngredientWithCost) {
+  const labels = bridgedUnitGroups(ing.ingredientBaseUnit, ing.ingredientBridge, ing.ingredientDensity)
+  return labels.length ? UOM_GROUPS.filter(g => labels.includes(g.label)) : UOM_GROUPS
 }
 
 export interface Recipe {
@@ -140,6 +151,9 @@ interface IngredientSearchResult {
   name: string
   unit: string
   pricePerBaseUnit: number
+  /** Inventory results only: the item's count↔weight bridge and density. */
+  bridge?: { qty: number; unit: string } | null
+  density?: number | null
   category: string
 }
 
@@ -772,11 +786,8 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
   const displayQty  = ing.qtyBase * scaleFactor
   const displayCost = ing.lineCost * scaleFactor
 
-  // Only show units that are compatible with the ingredient's inventory base unit.
-  const baseUnitGroup = getUnitGroup(ing.ingredientBaseUnit)
-  const compatibleGroups = baseUnitGroup
-    ? UOM_GROUPS.filter(g => g.label === baseUnitGroup)
-    : UOM_GROUPS
+  // Only show units the cost engine can convert to the item's base unit.
+  const compatibleGroups = unitGroupsFor(ing)
 
   const needsQty = ingredientNeedsQty(ing)
   const pctValue = isBase ? 100 : (baseIsSet ? autoPercent : (ing.recipePercent ?? null))
@@ -1356,6 +1367,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
         pricePerBaseUnit: item.pricePerBaseUnit,
         lineCost: 0,
         ingredientBaseUnit: item.unit,
+        ingredientBridge: item.bridge ?? null,
+        ingredientDensity: item.density ?? null,
       }
       return { ...prev, ingredients: [...prev.ingredients, newIng] }
     })
@@ -1432,9 +1445,14 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           if (ing.id !== ingId) return ing
           const qtyBase = newQtyBase ?? ing.qtyBase
           const unit = newUnit ?? ing.unit
-          const converted = convertQty(qtyBase, unit, ing.ingredientBaseUnit)
-          const lineCost = (converted !== null ? converted : qtyBase) * ing.pricePerBaseUnit
-          return { ...ing, qtyBase, unit, lineCost }
+          const converted = ing.ingredientType === 'recipe'
+            ? convertQty(qtyBase, unit, ing.ingredientBaseUnit)
+            : convertQtyBridged(qtyBase, unit, ing.ingredientBaseUnit, ing.ingredientBridge, ing.ingredientDensity)
+          // Same rule as the server (recipeCosts.ts): an unconvertible line costs $0.
+          const dimensionConflict = ing.ingredientType === 'custom' ? false
+            : !dimensionallyCostable(unit, ing.ingredientBaseUnit, ing.ingredientType === 'recipe' ? null : ing.ingredientBridge)
+          const lineCost = dimensionConflict ? 0 : converted * ing.pricePerBaseUnit
+          return { ...ing, qtyBase, unit, lineCost, dimensionConflict }
         })
         const totalCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
         return { ...prev, ingredients: updatedIngredients, totalCost }
@@ -1485,6 +1503,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           linkedRecipeId: item.type === 'recipe' ? item.id : null,
           pricePerBaseUnit: item.pricePerBaseUnit,
           ingredientBaseUnit: item.unit,
+          ingredientBridge: item.bridge ?? null,
+          ingredientDensity: item.density ?? null,
           unit: fromCustom ? item.unit : ing.unit,
           lineCost: ing.lineCost,
         }
@@ -2353,8 +2373,7 @@ function PrepIngredientRow({ ing, onUpdate, onDelete }: {
   const saveQty = () => { if (qty !== String(ing.qtyBase)) onUpdate({ qtyBase: qty, unit }) }
   const saveUnit = (newUnit: string) => { setUnit(newUnit); onUpdate({ qtyBase: qty, unit: newUnit }) }
 
-  const baseUnitGroup = getUnitGroup(ing.ingredientBaseUnit)
-  const compatibleGroups = baseUnitGroup ? UOM_GROUPS.filter(g => g.label === baseUnitGroup) : UOM_GROUPS
+  const compatibleGroups = unitGroupsFor(ing)
   const allKnownUnits = UOM_GROUPS.flatMap(g => g.units.map(u => u.label))
   const unitInList = allKnownUnits.includes(unit)
   const isCustom = ing.ingredientType === 'custom'

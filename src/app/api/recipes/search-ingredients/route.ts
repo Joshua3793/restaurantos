@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { PRICING_SELECT } from '@/lib/item-model'
+import { PRICING_SELECT, eachMeasureOf, densityOf } from '@/lib/item-model'
 import { lastCost, windowedAvgCost } from '@/lib/cost-basis'
 
 // Fuzzy score: how well does `query` match `target`?
@@ -99,6 +99,9 @@ export async function GET(req: NextRequest) {
     unit: item.baseUnit,
     pricePerBaseUnit: basis.get(item.id)?.pricePerBase ?? lastCost(item),
     costBasis: basis.get(item.id)?.basis ?? 'LAST',
+    // The item's bridges, so the editor can offer grams on a per-each item at once.
+    bridge: eachMeasureOf(item),
+    density: densityOf(item),
     category: item.category,
     _score: q ? fuzzyScore(q, item.itemName) : 100,
   }))
