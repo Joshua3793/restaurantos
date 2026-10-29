@@ -76,7 +76,22 @@ async function handlePOST(req: NextRequest) {
         await Promise.all(affectedRecipes.map(r => syncPrepToInventory(r.id)))
         break
       }
-      case 'delete':
+      case 'delete': {
+        // A by-product row holds a Restrict link: deleting its item would throw
+        // and roll the whole batch back. Refuse up front, naming it — and never
+        // drop the row silently, which would quietly raise that batch's cost.
+        const byproducts = await prisma.recipeByproduct.findMany({
+          where: { inventoryItemId: { in: ids } },
+          select: { inventoryItemId: true, inventoryItem: { select: { itemName: true } } },
+          distinct: ['inventoryItemId'],
+        })
+        if (byproducts.length) {
+          const names = byproducts.map(b => b.inventoryItem.itemName).join(', ')
+          return NextResponse.json(
+            { error: `${names} ${byproducts.length > 1 ? 'come' : 'comes'} off a prep recipe batch — take ${byproducts.length > 1 ? 'them' : 'it'} off that recipe first, or deactivate ${byproducts.length > 1 ? 'them' : 'it'} instead.`, blocked: true },
+            { status: 409 },
+          )
+        }
         await prisma.$transaction([
           prisma.recipeIngredient.updateMany({
             where: { inventoryItemId: { in: ids } },
@@ -101,6 +116,7 @@ async function handlePOST(req: NextRequest) {
           prisma.inventoryItem.deleteMany({ where: { id: { in: ids } } }),
         ])
         break
+      }
       default:
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
     }

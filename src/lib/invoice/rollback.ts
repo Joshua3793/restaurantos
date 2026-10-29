@@ -43,6 +43,7 @@
 //        WastageLog.inventoryItem           — wastage
 //        StockTransfer.inventoryItem        — RC transfers
 //        PriceAlert.inventoryItem           — price alerts
+//        RecipeByproduct.inventoryItem      — comes off a prep recipe batch
 //        InvoiceMatchRule.inventoryItem     — legacy learned matches (never
 //                                              rolled back, so ALL of them count)
 //      SetNull by default (optional FK — the row SURVIVES, pointing at nothing;

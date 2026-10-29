@@ -24,7 +24,7 @@ import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { EditorDrawer } from '@/components/layout/EditorDrawer'
 import { ImageViewerV2 } from '@/components/invoices/v2/ImageViewer'
 import { ByproductsSection } from '@/components/recipes/ByproductsSection'
-import { netCost, type ByproductWithCredit } from '@/lib/recipe-byproducts'
+import { withGross, type ByproductWithCredit } from '@/lib/recipe-byproducts'
 
 // ─── Dimension-conflict surfaces ───────────────────────────────────────────────
 // An ingredient whose unit is a different physical dimension than the item's base
@@ -1452,8 +1452,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           const lineCost = (converted !== null ? converted : qtyBase) * ing.pricePerBaseUnit
           return { ...ing, qtyBase, unit, lineCost }
         })
-        const grossCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
-        return { ...prev, ingredients: updatedIngredients, grossCost, totalCost: netCost(grossCost, prev.byproductCredit ?? 0) }
+        return { ...prev, ingredients: updatedIngredients, ...withGross(prev, updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)) }
       })
     }
 
@@ -1478,8 +1477,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
     setRecipe(prev => {
       if (!prev) return prev
       const updatedIngredients = prev.ingredients.filter(i => i.id !== ingId)
-      const grossCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
-      return { ...prev, ingredients: updatedIngredients, grossCost, totalCost: netCost(grossCost, prev.byproductCredit ?? 0) }
+      return { ...prev, ingredients: updatedIngredients, ...withGross(prev, updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)) }
     })
     dirtyRef.current = true
 
@@ -1505,8 +1503,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
           lineCost: ing.lineCost,
         }
       })
-      const grossCost = updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)
-      return { ...prev, ingredients: updatedIngredients, grossCost, totalCost: netCost(grossCost, prev.byproductCredit ?? 0) }
+      return { ...prev, ingredients: updatedIngredients, ...withGross(prev, updatedIngredients.reduce((sum, i) => sum + i.lineCost, 0)) }
     })
 
     const body: Record<string, unknown> = item.type === 'inventory'
@@ -1621,7 +1618,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
   )
 
   // ── Cost strip slot ────────────────────────────────────────────────────────
-  const costStrip = recipe.totalCost > 0 ? (
+  // On the gross: a batch whose credits floor it at $0 still shows its strip.
+  const costStrip = (recipe.grossCost ?? recipe.totalCost) > 0 ? (
             <div className="bg-ink px-5 py-3.5 flex items-center gap-1 text-[11.5px] overflow-x-auto">
               {isMenu ? (
                 <>

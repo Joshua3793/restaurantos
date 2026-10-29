@@ -23,14 +23,15 @@ vi.mock('@/lib/prisma', () => ({ prisma: new Proxy({}, { get: (_t, k: string) =>
 
 const preview = { creditExceedsCost: false, byproductCredit: 20, grossCost: 256.1 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const fetchRecipeWithCost = vi.fn(async (_id: string, opts: any = {}) => {
+const defaultFetch = async (_id: string, opts: any = {}) => {
   if (opts.editByproducts) {
     // Run the what-if so the test can see what rows it was asked to cost.
     opts.editByproducts([{ id: 'b1', qty: 2, unit: 'kg', inventoryItemId: 'trim' }])
     return preview
   }
   return { id: 'r1', totalCost: 236.1 }
-})
+}
+const fetchRecipeWithCost = vi.fn(defaultFetch)
 const resyncPrepRecipe = vi.fn(async () => undefined)
 vi.mock('@/lib/recipeCosts', () => ({
   fetchRecipeWithCost: (id: string, opts: unknown) => fetchRecipeWithCost(id, opts),
@@ -51,6 +52,7 @@ beforeEach(() => {
   h.role = 'MANAGER'
   preview.creditExceedsCost = false; preview.byproductCredit = 20; preview.grossCost = 256.1
   fetchRecipeWithCost.mockClear(); resyncPrepRecipe.mockClear()
+  fetchRecipeWithCost.mockImplementation(defaultFetch)
   for (const k of Object.keys(db)) delete db[k]
   db.recipe = { findUnique: vi.fn(async () => ({ id: 'r1', type: 'PREP', inventoryItemId: 'out', revenueCenterId: 'rc1' })) }
   db.inventoryItem = {
@@ -166,6 +168,28 @@ describe('PATCH / DELETE /api/recipes/[id]/byproducts/[bpId]', () => {
     expect((seen as Array<{ id: string; qty: unknown; unit: string }>).map(r => ({ ...r, qty: Number(r.qty) })))
       .toEqual([{ id: 'b1', qty: 9, unit: 'kg' }, { id: 'b2', qty: 1, unit: 'kg' }])
     expect(db.recipeByproduct.update).not.toHaveBeenCalled()
+  })
+
+  it('PATCH lets an over-credited batch come down step by step', async () => {
+    // Already over: credits $40 vs $25. Lowering trim to $30 is still over, but closer — allowed.
+    preview.creditExceedsCost = true; preview.byproductCredit = 30; preview.grossCost = 25
+    fetchRecipeWithCost.mockImplementation(async (_id: string, opts: { editByproducts?: unknown; basis?: string } = {}) => {
+      if (opts.editByproducts) return preview as never
+      if (!opts.basis) return { creditExceedsCost: true, byproductCredit: 40, grossCost: 25 } as never
+      return { id: 'r1', totalCost: 0 } as never
+    })
+    const res = await one.PATCH(body({ qty: 1.5 }), oneCtx)
+    expect(res.status).toBe(200)
+    expect(db.recipeByproduct.update).toHaveBeenCalled()
+  })
+
+  it('PATCH still refuses raising an over-credited batch further', async () => {
+    preview.creditExceedsCost = true; preview.byproductCredit = 50; preview.grossCost = 25
+    fetchRecipeWithCost.mockImplementation(async (_id: string, opts: { editByproducts?: unknown; basis?: string } = {}) => {
+      if (opts.editByproducts) return preview as never
+      return { creditExceedsCost: true, byproductCredit: 40, grossCost: 25 } as never
+    })
+    expect(await errOf(await one.PATCH(body({ qty: 5 }), oneCtx))).toMatchObject({ status: 400, code: 'CREDIT_EXCEEDS' })
   })
 
   it('PATCH saves and resyncs', async () => {

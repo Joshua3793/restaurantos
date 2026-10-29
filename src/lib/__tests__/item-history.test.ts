@@ -3,6 +3,7 @@ const db = vi.hoisted(() => ({
   countLine: { count: vi.fn() }, inventorySnapshot: { count: vi.fn() }, invoiceScanItem: { count: vi.fn() },
   recipeIngredient: { count: vi.fn(), findMany: vi.fn() }, wastageLog: { count: vi.fn() }, stockTransfer: { count: vi.fn() },
   inventorySupplierPrice: { count: vi.fn() }, inventoryItem: { findUnique: vi.fn() },
+  recipeByproduct: { count: vi.fn(), findMany: vi.fn() },
 }))
 vi.mock('@/lib/prisma', () => ({ prisma: db }))
 import { itemHistory, hasHistory, bridgeUsedBy } from '@/lib/item-history'
@@ -12,11 +13,18 @@ const zero = () => { for (const t of Object.values(db)) for (const f of Object.v
 describe('itemHistory / hasHistory', () => {
   beforeEach(zero)
   it('counts every table once and reports no history for a fresh item with one box', async () => {
-    for (const t of ['countLine', 'inventorySnapshot', 'invoiceScanItem', 'recipeIngredient', 'wastageLog', 'stockTransfer'] as const) db[t].count.mockResolvedValue(0)
+    for (const t of ['countLine', 'inventorySnapshot', 'invoiceScanItem', 'recipeIngredient', 'wastageLog', 'stockTransfer', 'recipeByproduct'] as const) db[t].count.mockResolvedValue(0)
     db.inventorySupplierPrice.count.mockResolvedValue(1)
     const h = await itemHistory('i1')
     expect(h).toEqual({ counts: 0, snapshots: 0, receipts: 0, recipeLines: 0, wastage: 0, transfers: 0, offers: 1 })
     expect(hasHistory(h)).toBe(false)
+  })
+  it('a by-product line is a recipe line: it locks the measure', async () => {
+    for (const t of ['countLine', 'inventorySnapshot', 'invoiceScanItem', 'recipeIngredient', 'wastageLog', 'stockTransfer', 'inventorySupplierPrice'] as const) db[t].count.mockResolvedValue(0)
+    db.recipeByproduct.count.mockResolvedValue(1)   // "3 kg Beef Bones" off Beef Stock
+    const h = await itemHistory('bones')
+    expect(h.recipeLines).toBe(1)
+    expect(hasHistory(h)).toBe(true)
   })
   it('one count line is history; two boxes are history', () => {
     const base = { counts: 0, snapshots: 0, receipts: 0, recipeLines: 0, wastage: 0, transfers: 0, offers: 0 }
@@ -30,6 +38,7 @@ describe('bridgeUsedBy — recipes that only cost through the each-measure', () 
   beforeEach(zero)
   it('lists recipes using a per-each item by weight, not the ones using it by each', async () => {
     db.inventoryItem.findUnique.mockResolvedValue({ baseUnit: 'each', dimension: 'COUNT' })
+    db.recipeByproduct.findMany.mockResolvedValue([])
     db.recipeIngredient.findMany.mockResolvedValue([
       { unit: 'g', recipe: { id: 'r1', name: 'Burger', type: 'MENU' } },
       { unit: 'each', recipe: { id: 'r2', name: 'Bun basket', type: 'MENU' } },
@@ -40,7 +49,14 @@ describe('bridgeUsedBy — recipes that only cost through the each-measure', () 
   })
   it('a by-weight item used by count lists those recipes', async () => {
     db.inventoryItem.findUnique.mockResolvedValue({ baseUnit: 'g', dimension: 'MASS' })
+    db.recipeByproduct.findMany.mockResolvedValue([])
     db.recipeIngredient.findMany.mockResolvedValue([{ unit: 'each', recipe: { id: 'r9', name: 'Loaf plate', type: 'MENU' } }])
     expect((await bridgeUsedBy('loaf')).map(x => x.id)).toEqual(['r9'])
+  })
+  it('a by-product entered across the bridge is listed too', async () => {
+    db.inventoryItem.findUnique.mockResolvedValue({ baseUnit: 'each', dimension: 'COUNT' })
+    db.recipeIngredient.findMany.mockResolvedValue([])
+    db.recipeByproduct.findMany.mockResolvedValue([{ unit: 'kg', recipe: { id: 'r5', name: 'Beef Stock', type: 'PREP' } }])
+    expect((await bridgeUsedBy('bones')).map(x => x.id)).toEqual(['r5'])
   })
 })

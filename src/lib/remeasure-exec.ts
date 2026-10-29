@@ -534,6 +534,7 @@ export async function loadRemeasureInputs(db: Db, itemId: string): Promise<
   })
   const transfers = await db.stockTransfer.findMany({ where: { inventoryItemId: itemId }, select: { id: true, quantity: true } })
   const recipeLines = await db.recipeIngredient.count({ where: { inventoryItemId: itemId } })
+    + await db.recipeByproduct.count({ where: { inventoryItemId: itemId } })
   const wastageRows = await db.wastageLog.count({ where: { inventoryItemId: itemId } })
   const openLines = await openCountLines(db, itemId)
 

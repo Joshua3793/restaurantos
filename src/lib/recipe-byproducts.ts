@@ -42,6 +42,13 @@ export function netCost(gross: number, credit: number): number {
   return Math.max(0, gross - credit)
 }
 
+/** The editor's optimistic totals after an ingredient edit: net, and whether
+ *  the credits now outweigh the ingredients (the red guard line). */
+export function withGross(prev: { byproductCredit?: number }, grossCost: number): { grossCost: number; totalCost: number; creditExceedsCost: boolean } {
+  const credit = prev.byproductCredit ?? 0
+  return { grossCost, totalCost: netCost(grossCost, credit), creditExceedsCost: credit > grossCost }
+}
+
 export function creditGuardMessage(credit: number, gross: number): string {
   return `Credits ${formatCurrency(credit)} are more than the batch costs ${formatCurrency(gross)} — check the weights`
 }
@@ -68,7 +75,13 @@ export function yieldBreakdown(r: {
 }): { input: number; main: number; parts: Array<{ name: string; qty: number }>; lost: number; overflow: boolean } | null {
   const main = toGrams(r.baseYieldQty, r.yieldUnit)
   if (main === null || r.byproducts.length === 0) return null
+  // A costed line in each/case can't be weighed here — the input would be
+  // short and the bar would cry "more out than in" forever. Uncosted custom
+  // lines (a sprig of thyme) are skipped instead.
+  const costed = r.ingredients.filter(i => i.ingredientType !== 'custom')
+  if (costed.some(i => toGrams(i.qtyBase, i.unit) === null)) return null
   const input = r.ingredients.reduce((s, i) => s + (toGrams(i.qtyBase, i.unit) ?? 0), 0)
+  if (input <= 0) return null
   const parts = r.byproducts.map(b => ({ name: b.itemName, qty: toGrams(b.qty, b.unit) ?? 0 }))
   const out = main + parts.reduce((s, p) => s + p.qty, 0)
   return { input, main, parts, lost: input - out, overflow: out > input * 1.02 }

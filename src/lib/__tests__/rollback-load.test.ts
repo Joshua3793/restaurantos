@@ -61,6 +61,7 @@ describe('referencePhrases', () => {
     ['matchRules', '2 learned matches'],
     ['supplierWordings', '2 supplier wordings'],
     ['recipeIngredients', '2 recipe ingredients'],
+    ['recipeByproducts', '2 recipe by-products'],
     ['recipes', '2 recipes'],
     ['prepItems', '2 prep items'],
     ['mergedItems', '2 merged items'],
@@ -275,6 +276,7 @@ function fakeDb(rows: Partial<Record<string, GroupRow[]>> = {}) {
     stockAllocation: { groupBy: groupBy('stockAllocation') },
     itemRevenueCenter: { groupBy: groupBy('itemRevenueCenter') },
     recipeIngredient: { groupBy: groupBy('recipeIngredient') },
+    recipeByproduct: { groupBy: groupBy('recipeByproduct') },
     recipe: { groupBy: groupBy('recipe') },
     prepItem: { groupBy: groupBy('prepItem') },
     inventoryItem: { groupBy: groupBy('inventoryItem') },
@@ -294,6 +296,14 @@ describe('loadItemRefs — StockAllocation and ItemRevenueCenter are excluded en
     })
     const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
     expect(refs.get('new-item')).toEqual({ referencedBy: [] })
+  })
+})
+
+describe('loadItemRefs — by-products', () => {
+  it('an item that comes off a recipe batch is kept (its link would block the delete)', async () => {
+    const db = fakeDb({ recipeByproduct: [{ inventoryItemId: 'new-item', _count: { _all: 1 } }] })
+    const refs = await loadItemRefs(asDb(db), 'session-1', ['new-item'], noPlanned)
+    expect(refs.get('new-item')).toEqual({ referencedBy: ['1 recipe by-product'] })
   })
 })
 

@@ -18,8 +18,11 @@ export async function creditGuard(
   edit: (rows: ByproductCostRow[]) => ByproductCostRow[],
 ): Promise<NextResponse | null> {
   const preview = await fetchRecipeWithCost(recipeId, { editByproducts: edit })
-  if (preview?.creditExceedsCost) {
-    return byproductError('CREDIT_EXCEEDS', creditGuardMessage(preview.byproductCredit, preview.grossCost))
-  }
-  return null
+  if (!preview?.creditExceedsCost) return null
+  // A batch that is ALREADY over-credited (an ingredient or price changed under
+  // it) may still come down step by step — refusing every edit that leaves it
+  // over would block the very fix the red line asks for.
+  const now = await fetchRecipeWithCost(recipeId)
+  if (now && preview.byproductCredit < now.byproductCredit) return null
+  return byproductError('CREDIT_EXCEEDS', creditGuardMessage(preview.byproductCredit, preview.grossCost))
 }
