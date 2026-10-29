@@ -58,6 +58,81 @@ function recipe(ingredients: ReturnType<typeof ing>[], overrides: Record<string,
   } as Parameters<typeof computeRecipeCost>[0]
 }
 
+/** $19.70/kg brisket, $10/kg trim, $3.50/kg fat — all RATE-priced weight items. */
+const rateItem = (itemName: string, rate: number) => ({
+  itemName, dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 10000 }],
+  pricing: { mode: 'RATE', rate, rateUnit: 'kg' }, allergens: [] as string[],
+})
+const brisketItem = rateItem('Brisket AAA', 19.7)
+const trimItem = rateItem('Brisket Trim', 10)
+const fatItem = rateItem('Beef Fat Trim', 3.5)
+
+function bp(overrides: Record<string, unknown>) {
+  return { id: 'b1', sortOrder: 0, qty: 1, unit: 'kg', notes: null, inventoryItemId: 'trim', inventoryItem: trimItem, ...overrides }
+}
+
+describe('computeRecipeCost — by-products', () => {
+  const brisketLine = ing({ qtyBase: 13, unit: 'kg', inventoryItemId: 'brisket', inventoryItem: brisketItem })
+
+  it('credits a by-product at its item price and nets the total', () => {
+    const r = computeRecipeCost(recipe([brisketLine], {
+      baseYieldQty: 6, yieldUnit: 'kg',
+      byproducts: [
+        bp({ id: 'b1', qty: 2, inventoryItemId: 'trim', inventoryItem: trimItem }),
+        bp({ id: 'b2', qty: '1.5', inventoryItemId: 'fat', inventoryItem: fatItem }),
+      ],
+    }))
+    expect(r.grossCost).toBeCloseTo(256.1)
+    expect(r.byproductCredit).toBeCloseTo(25.25)
+    expect(r.totalCost).toBeCloseTo(230.85)
+    expect(r.creditExceedsCost).toBe(false)
+    expect(r.byproducts.map(b => b.credit)).toEqual([expect.closeTo(20), expect.closeTo(5.25)])
+    expect(r.byproducts[1].itemName).toBe('Beef Fat Trim')
+    expect(r.byproducts[1].qty).toBe(1.5)
+  })
+
+  it('floors net at zero and flags it', () => {
+    const r = computeRecipeCost(recipe([
+      ing({ qtyBase: 1, unit: 'kg', inventoryItemId: 'trim', inventoryItem: rateItem('Cheap', 25) }),
+    ], { byproducts: [bp({ qty: 3 })] }))
+    expect(r.grossCost).toBeCloseTo(25)
+    expect(r.byproductCredit).toBeCloseTo(30)
+    expect(r.totalCost).toBe(0)
+    expect(r.creditExceedsCost).toBe(true)
+  })
+
+  it('dimension-conflicted by-product credits zero', () => {
+    const eachItem = { itemName: 'Marrow Bone', dimension: 'COUNT', baseUnit: 'each', packChain: [{ unit: 'case', per: 10 }], pricing: { mode: 'PACK', purchasePrice: 20 }, allergens: [] }
+    const r = computeRecipeCost(recipe([brisketLine], { byproducts: [bp({ qty: 2, unit: 'kg', inventoryItemId: 'bone', inventoryItem: eachItem })] }))
+    expect(r.byproducts[0].credit).toBe(0)
+    expect(r.byproducts[0].dimensionConflict).toBe(true)
+    expect(r.totalCost).toBeCloseTo(256.1)
+  })
+
+  it('unpriced by-product is flagged', () => {
+    const free = { ...trimItem, pricing: { mode: 'PACK', purchasePrice: 0 } }
+    const r = computeRecipeCost(recipe([brisketLine], { byproducts: [bp({ inventoryItem: free })] }))
+    expect(r.byproducts[0].credit).toBe(0)
+    expect(r.byproducts[0].unpriced).toBe(true)
+  })
+
+  it('uses the AVG price map for by-products', () => {
+    const prices = new Map<string, ItemCostBasis>([['trim', { pricePerBase: 0.008, basis: 'AVG_30D' } as ItemCostBasis]])
+    const r = computeRecipeCost(recipe([brisketLine], { byproducts: [bp({ qty: 2 })] }), { prices })
+    expect(r.byproducts[0].credit).toBeCloseTo(16)
+    expect(r.byproducts[0].costBasis).toBe('AVG_30D')
+  })
+
+  it('no by-products is byte-identical', () => {
+    const r = computeRecipeCost(recipe([brisketLine]))
+    expect(r.grossCost).toBe(r.totalCost)
+    expect(r.byproductCredit).toBe(0)
+    expect(r.byproducts).toEqual([])
+    expect(r.creditExceedsCost).toBe(false)
+    expect(r.ingredients[0].byproductOf).toBeNull()
+  })
+})
+
 describe('computeRecipeCost — inventory ingredients', () => {
   it('costs a same-unit ingredient: qty × ppb', () => {
     const r = computeRecipeCost(recipe([
