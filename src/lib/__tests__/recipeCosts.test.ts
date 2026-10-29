@@ -604,3 +604,42 @@ describe('computeRecipeCost — unpriced lines', () => {
     expect(out.ingredients[0].unpriced).toBe(false)
   })
 })
+
+describe('propagatePrepCostChanges — by-products', () => {
+  it('by-product price change re-syncs the producing recipe', async () => {
+    const items = new Map<string, Record<string, unknown>>()
+    items.set('brisket', brisketItem)
+    items.set('trim', trimItem)
+    items.set('out', { itemName: 'Smoked Brisket', dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'batch', per: 6000 }], pricing: { mode: 'PACK', purchasePrice: 0 } })
+    const row = () => ({
+      id: 'R', name: 'Smoked Brisket', type: 'PREP', categoryId: 'c1', category: { name: 'Meat', color: null },
+      inventoryItemId: 'out', baseYieldQty: 6, yieldUnit: 'kg', portionSize: null, portionUnit: null,
+      menuPrice: null, isActive: true, notes: null, steps: [], activeMinutes: null, passiveMinutes: null,
+      passiveNote: null, stages: null, method: null, createdAt: new Date(), updatedAt: new Date(),
+      baseIngredientId: null, prepItems: [], sourceScanId: null,
+      ingredients: [ing({ id: 'a', inventoryItemId: 'brisket', inventoryItem: items.get('brisket'), qtyBase: 13, unit: 'kg' })],
+      byproducts: [{ id: 'b1', sortOrder: 0, qty: 2, unit: 'kg', notes: null, inventoryItemId: 'trim',
+        inventoryItem: { ...items.get('trim'), lastUpdated: new Date(), _count: { supplierPrices: 0 }, supplierPrices: [] } }],
+    })
+    const update = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      items.set(where.id, { ...items.get(where.id)!, ...data })
+      return {}
+    })
+    Object.assign(prisma, {
+      recipe: {
+        findUnique: vi.fn(async () => row()),
+        findMany: vi.fn(async () => [{ id: 'R', inventoryItemId: 'out', ingredients: [{ inventoryItemId: 'brisket', linkedRecipeId: null }], byproducts: [{ inventoryItemId: 'trim' }] }]),
+      },
+      inventoryItem: { update, findUnique: vi.fn(async ({ where }: { where: { id: string } }) => items.get(where.id) ?? null) },
+    })
+    await syncPrepToInventory('R')                       // $256.10 − $20.00
+    update.mockClear()
+
+    items.set('trim', rateItem('Brisket Trim', 12))     // trim now $12/kg → credit $24
+    const moved = await propagatePrepCostChanges(['trim'])
+
+    expect(moved).toEqual(['out'])
+    expect(update.mock.calls.map(c => c[0].where.id)).toEqual(['out'])
+    expect((items.get('out')!.pricing as { purchasePrice: number }).purchasePrice).toBeCloseTo(232.1)
+  })
+})

@@ -778,6 +778,7 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       id: true,
       inventoryItemId: true,
       ingredients: { select: { inventoryItemId: true, linkedRecipeId: true } },
+      byproducts: { select: { inventoryItemId: true } },
     },
   })
   if (prepRecipes.length === 0) return []
@@ -800,6 +801,8 @@ export async function propagatePrepCostChanges(changedItemIds: string[]): Promis
       addConsumer(ing.inventoryItemId, r.id)
       if (ing.linkedRecipeId) addConsumer(outputItemOf.get(ing.linkedRecipeId), r.id)
     }
+    // A by-product's price is the batch's credit, so the batch depends on it too.
+    for (const bp of r.byproducts ?? []) addConsumer(bp.inventoryItemId, r.id)
   }
 
   const movedOutputs = new Set<string>()

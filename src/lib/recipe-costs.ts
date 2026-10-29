@@ -3,6 +3,7 @@ import { linkedRecipeUnitCost } from '@/lib/recipeCosts'
 import { portionsPerBatch } from '@/lib/recipe-portions'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { lastCost } from '@/lib/cost-basis'
+import { netCost } from '@/lib/recipe-byproducts'
 
 /**
  * Recalculates totalCost, costPerPortion, and foodCostPct for any recipe
@@ -18,14 +19,22 @@ export async function recalculateRecipeCosts(
 ): Promise<{ recipeId: string; changePct: number }[]> {
   if (changedItemIds.length === 0) return []
 
-  // Find all recipes that directly use any of the changed items
-  const affectedIngredients = await prisma.recipeIngredient.findMany({
-    where: { inventoryItemId: { in: changedItemIds } },
-    select: { recipeId: true },
-    distinct: ['recipeId'],
-  })
+  // Find all recipes that directly use any of the changed items — as an
+  // ingredient, or as a by-product (its price is the batch's credit).
+  const [affectedIngredients, affectedByproducts] = await Promise.all([
+    prisma.recipeIngredient.findMany({
+      where: { inventoryItemId: { in: changedItemIds } },
+      select: { recipeId: true },
+      distinct: ['recipeId'],
+    }),
+    prisma.recipeByproduct.findMany({
+      where: { inventoryItemId: { in: changedItemIds } },
+      select: { recipeId: true },
+      distinct: ['recipeId'],
+    }),
+  ])
 
-  const affectedRecipeIds = affectedIngredients.map(i => i.recipeId)
+  const affectedRecipeIds = Array.from(new Set([...affectedIngredients, ...affectedByproducts].map(i => i.recipeId)))
   if (affectedRecipeIds.length === 0) return []
 
   const recipes = await prisma.recipe.findMany({
@@ -42,6 +51,7 @@ export async function recalculateRecipeCosts(
           },
         },
       },
+      byproducts: { include: { inventoryItem: { select: { id: true, ...PRICING_SELECT } } } },
     },
   })
 
@@ -71,6 +81,18 @@ export async function recalculateRecipeCosts(
         oldTotalCost += qty * oldUnit
       }
     }
+
+    // By-product credits, priced the same way (old price when the caller captured one).
+    let newCredit = 0
+    let oldCredit = 0
+    for (const bp of recipe.byproducts ?? []) {
+      const qty = Number(bp.qty)
+      const cur = lastCost(bp.inventoryItem)
+      newCredit += qty * cur
+      oldCredit += qty * (priorPpbByItem?.get(bp.inventoryItem.id) ?? cur)
+    }
+    newTotalCost = netCost(newTotalCost, newCredit)
+    oldTotalCost = netCost(oldTotalCost, oldCredit)
 
     const portions = portionsPerBatch(
       Number(recipe.baseYieldQty) || 1,
