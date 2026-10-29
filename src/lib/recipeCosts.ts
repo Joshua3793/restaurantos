@@ -37,6 +37,11 @@ export interface IngredientWithCost {
    * When true, `lineCost` is forced to 0 (no garbage contribution).
    */
   dimensionConflict: boolean
+  /** The inventory item's count↔weight bridge (1 each = qty unit), when set — lets
+   *  the editor offer grams on a per-each item and cost the change live. */
+  ingredientBridge: { qty: number; unit: string } | null
+  /** The inventory item's weight↔volume density (g/ml), when set. */
+  ingredientDensity: number | null
   /** Which price this line was costed at: the 30-day average or the last price. */
   costBasis: CostBasis
   /**
@@ -152,6 +157,8 @@ export function computeRecipeCost(
     let dimensionConflict = false
     let allergens: string[] = []
     let costBasis: CostBasis = 'LAST'
+    let ingBridge: { qty: number; unit: string } | null = null
+    let ingDensity: number | null = null
 
     if (ing.inventoryItem) {
       const mapped       = ing.inventoryItemId ? opts.prices?.get(ing.inventoryItemId) : undefined
@@ -161,8 +168,8 @@ export function computeRecipeCost(
       ingredientType     = 'inventory'
       ingredientBaseUnit = ing.inventoryItem.baseUnit
       allergens          = ing.inventoryItem.allergens ?? []
-      const ingBridge    = eachMeasureOf(ing.inventoryItem)
-      const ingDensity   = densityOf(ing.inventoryItem)
+      ingBridge          = eachMeasureOf(ing.inventoryItem)
+      ingDensity         = densityOf(ing.inventoryItem)
       dimensionConflict  = !dimensionallyCostable(ing.unit, ingredientBaseUnit, ingBridge)
       // Convert recipe unit → inventory base unit before multiplying by price.
       // Density bridges weight↔volume; ingBridge bridges count↔measured.
@@ -208,6 +215,8 @@ export function computeRecipeCost(
       ingredientBaseUnit,
       allergens,
       dimensionConflict,
+      ingredientBridge: ingBridge,
+      ingredientDensity: ingDensity,
       costBasis,
       unpriced: ingredientType !== 'custom' && pricePerBaseUnit === 0,
     }

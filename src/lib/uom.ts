@@ -323,6 +323,37 @@ export function unitMeasure(unit: string | null | undefined): 'weight' | 'volume
   return dim === 'weight' || dim === 'volume' ? dim : null
 }
 
+/**
+ * Unit groups ('Weight' | 'Volume' | 'Count') a recipe line may use for an item
+ * whose base is `baseUnit` — exactly the conversions `convertQtyBridged` can make:
+ *  - the base unit's own group, always;
+ *  - a count↔measured bridge adds the other side (Butternut Squash costed per
+ *    each with 1 each = 3 lb can be used in grams; a weighed item with a per-each
+ *    weight can be used by the each). Only when the bridge is measured in the
+ *    measured side's own dimension — that is the only pairing the bridge spans;
+ *  - a density (g/ml) on a measured item adds the other measured group.
+ * Returns [] for an unrecognised base unit (callers fall back to every group).
+ */
+export function bridgedUnitGroups(
+  baseUnit: string,
+  bridge?: { qty: number; unit: string } | null,
+  density?: number | null,
+): string[] {
+  const def = UNIT_FACTORS[canonicalUom(baseUnit)]
+  if (!def) return []
+  const label = (d: UnitDimension) => (d === 'weight' ? 'Weight' : d === 'volume' ? 'Volume' : 'Count')
+  const dims = new Set<UnitDimension>([def.dim])
+  if (bridge && bridge.qty > 0) {
+    const bd = dimensionForUnit(bridge.unit)
+    if (bd !== 'count') {
+      if (def.dim === 'count') dims.add(bd)
+      else if (def.dim === bd) dims.add('count')
+    }
+  }
+  if (density && density > 0 && def.dim !== 'count') dims.add(def.dim === 'weight' ? 'volume' : 'weight')
+  return (['weight', 'volume', 'count'] as UnitDimension[]).filter(d => dims.has(d)).map(label)
+}
+
 /** True when both units share the same physical dimension (weight/volume/count). */
 export function sameDimension(unitA: string, unitB: string): boolean {
   return dimensionForUnit(unitA) === dimensionForUnit(unitB)
