@@ -29,7 +29,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       qtyBase: ing.qtyBase * factor,
       lineCost: ing.lineCost * factor,
     })),
+    byproducts: recipe.byproducts.map(bp => ({
+      ...bp,
+      qty: bp.qty * factor,
+      credit: bp.credit * factor,
+    })),
     totalCost: recipe.totalCost * factor,
+    grossCost: recipe.grossCost * factor,
+    byproductCredit: recipe.byproductCredit * factor,
     // costPerPortion stays the same (scaling doesn't change per-portion cost)
     scaleFactor: factor,
   }

@@ -80,7 +80,7 @@ describe('table lookups', () => {
   it('covers every re-pointable table', () => {
     expect(Object.keys(REPOINT_FK).sort()).toEqual([
       'CountLine', 'InventorySnapshot', 'InventorySupplierPrice', 'InvoiceLineItem', 'InvoiceMatchRule',
-      'InvoiceScanItem', 'ItemRevenueCenter', 'ItemSupplierAlias', 'PriceAlert', 'RecipeIngredient', 'StockAllocation',
+      'InvoiceScanItem', 'ItemRevenueCenter', 'ItemSupplierAlias', 'PriceAlert', 'RecipeByproduct', 'RecipeIngredient', 'StockAllocation',
       'StockTransfer', 'WastageLog',
     ])
   })

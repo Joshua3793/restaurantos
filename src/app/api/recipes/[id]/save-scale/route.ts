@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const source = await prisma.recipe.findUnique({
     where: { id: params.id },
-    include: { ingredients: { orderBy: { sortOrder: 'asc' } } },
+    include: { ingredients: { orderBy: { sortOrder: 'asc' } }, byproducts: { orderBy: { sortOrder: 'asc' } } },
   })
   if (!source) return NextResponse.json({ error: 'Source recipe not found' }, { status: 404 })
 
@@ -87,6 +87,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           // A baker's percentage is a ratio, so it survives scaling unchanged.
           recipePercent: ing.recipePercent,
           notes: ing.notes,
+          sortOrder: i,
+        })),
+      },
+      // What comes off the batch scales with it (×2 brisket → ×2 trim).
+      byproducts: {
+        create: source.byproducts.map((bp, i) => ({
+          inventoryItemId: bp.inventoryItemId,
+          qty: Number(bp.qty) * f,
+          unit: bp.unit,
+          notes: bp.notes,
           sortOrder: i,
         })),
       },
