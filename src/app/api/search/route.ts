@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
+import { BYPRODUCT_COST_INCLUDE, computeRecipeCost, linkedRecipeUnitCost } from '@/lib/recipeCosts'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { withLastCost } from '@/lib/cost-basis'
 
@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       where: { isActive: true, name: contains },
       include: {
         category: { select: { name: true } },
+        byproducts: BYPRODUCT_COST_INCLUDE,
         ingredients: {
           include: {
             inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },

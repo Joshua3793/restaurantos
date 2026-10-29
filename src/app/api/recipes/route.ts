@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe, unionAllergens } from '@/lib/recipeCosts'
+import { BYPRODUCT_COST_INCLUDE, computeRecipeCost, costContext, prefetchRecipes, resolveLinkedRecipes, resyncPrepRecipe, unionAllergens } from '@/lib/recipeCosts'
 import { syncPrepItemFromRecipe } from '@/lib/prep-sync'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { linkPrepInventoryItem } from '@/lib/prep-recipe-item'
@@ -122,6 +122,7 @@ export async function GET(req: NextRequest) {
     include: {
       category: true,
       _count: { select: { usedInRecipes: true } },
+      byproducts: BYPRODUCT_COST_INCLUDE,
       ingredients: {
         include: {
           inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
@@ -144,7 +145,10 @@ export async function GET(req: NextRequest) {
   // `.map(async)` — because CostContext.visiting is shared and not Promise.all-safe
   // (see Task 3): interleaved recursion could see another branch's id and
   // spuriously report a cycle.
-  const pageIds = recipes.flatMap(r => r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []))
+  const pageIds = recipes.flatMap(r => [
+    ...r.ingredients.flatMap(i => i.inventoryItemId ? [i.inventoryItemId] : []),
+    ...r.byproducts.map(b => b.inventoryItemId),
+  ])
 
   // Batch-load every prep linked from the page (and the preps THEY link) up
   // front: one query per nesting level, each folding its raw ingredient ids into

@@ -9,6 +9,8 @@ const graph: Record<string, any> = {}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const findUnique = vi.fn(async ({ where }: any) => graph[where.id] ?? null)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const recipeFindMany = vi.fn(async ({ where }: any) => (where.id.in as string[]).flatMap(id => graph[id] ? [graph[id]] : []))
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const scanFindMany = vi.fn(async (_a?: any) => [] as any[])
 // The mocked items are all raw (no `recipe` relation), so the `recipe: null`
 // filter windowedAvgCost applies is a no-op here.
@@ -19,7 +21,7 @@ const itemFindMany = vi.fn(async ({ where }: any) =>
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recipe: { findUnique: (a: any) => findUnique(a) },
+    recipe: { findUnique: (a: any) => findUnique(a), findMany: (a: any) => recipeFindMany(a) },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     invoiceScanItem: { findMany: (a: any) => scanFindMany(a) },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,12 +29,13 @@ vi.mock('@/lib/prisma', () => ({
   },
 }))
 
-import { costContext, fetchRecipeWithCost } from '@/lib/recipeCosts'
+import { costContext, fetchRecipeWithCost, prefetchRecipes } from '@/lib/recipeCosts'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ITEMS: Record<string, any> = {
   // $20 / 20,000 g → $0.001/g on the LAST basis
   flour: { itemName: 'Flour', dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'bag', per: 20000 }], pricing: { mode: 'PACK', purchasePrice: 20 }, allergens: ['Wheat'] },
+  trim: { itemName: 'Trim', dimension: 'MASS', baseUnit: 'g', packChain: [{ unit: 'case', per: 10000 }], pricing: { mode: 'PACK', purchasePrice: 100 }, allergens: [] },
   water: { itemName: 'Water', dimension: 'VOLUME', baseUnit: 'ml', packChain: [{ unit: 'l', per: 1000 }], pricing: { mode: 'PACK', purchasePrice: 0 }, allergens: [] },
 }
 
@@ -183,5 +186,25 @@ describe('fetchRecipeWithCost carries the recipe\'s kitchen', () => {
   it('a shared recipe returns null, not a missing field', async () => {
     const r = await fetchRecipeWithCost('dough')
     expect(r).toHaveProperty('revenueCenterId', null)
+  })
+})
+
+describe('by-products on the average basis', () => {
+  const trimBp = { id: 'b1', sortOrder: 0, qty: '100', unit: 'g', notes: null, inventoryItemId: 'trim', inventoryItem: { ...ITEMS.trim, lastUpdated: new Date(), _count: { supplierPrices: 0 }, supplierPrices: [] } }
+
+  it('AVG basis prices by-product items from the window', async () => {
+    graph.dough = base('dough', { ingredients: [invIng('i1', 'flour', '1000', 'g')], byproducts: [trimBp] })
+    scanFindMany.mockResolvedValueOnce([{ matchedItemId: 'trim', rawLineTotal: '5', receivedQtyBase: '1000' }]) // trim avg $0.005/g
+    const r = await fetchRecipeWithCost('dough', { basis: 'AVG_30D' })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(itemFindMany.mock.calls[0][0].where.id.in).toEqual(['flour', 'trim'])
+    expect(r!.byproducts[0]).toMatchObject({ credit: expect.closeTo(0.5), costBasis: 'AVG_30D' })
+  })
+
+  it('prefetchRecipes asks the window for a nested prep\'s by-product items', async () => {
+    graph.dough = base('dough', { ingredients: [invIng('i1', 'flour', '1000', 'g')], byproducts: [trimBp] })
+    const ctx = await costContext('AVG_30D', [])
+    await prefetchRecipes(ctx, ['dough'])
+    expect(ctx.asked.has('trim')).toBe(true)
   })
 })

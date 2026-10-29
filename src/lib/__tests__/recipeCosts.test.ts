@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/lib/prisma', () => ({ prisma: {} }))
 
 import { prisma } from '@/lib/prisma'
-import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor, unionAllergens, fetchRecipeWithCost, syncPrepToInventory, propagatePrepCostChanges } from '@/lib/recipeCosts'
+import { computeRecipeCost, linkedRecipeUnitCost, prepCountUnitFor, unionAllergens, fetchRecipeWithCost, syncPrepToInventory, propagatePrepCostChanges, costContext } from '@/lib/recipeCosts'
 import type { ItemCostBasis } from '@/lib/cost-basis'
 
 /** $24/case of 12,000 ml → $0.002/ml */
@@ -432,6 +432,55 @@ describe('fetchRecipeWithCost — scanned recipes', () => {
     Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue({ ...base, sourceScanId: null }) } })
     const r = await fetchRecipeWithCost('r1')
     expect(r!.sourceScanId).toBeNull()
+  })
+})
+
+describe('fetchRecipeWithCost — by-products', () => {
+  const lastUpdated = new Date('2026-10-29T10:00:00.000Z')
+  const trimRow = { ...trimItem, lastUpdated, _count: { supplierPrices: 0 }, supplierPrices: [] }
+  const row = {
+    id: 'r1', name: 'Smoked Brisket', type: 'PREP', categoryId: 'c1', category: { name: 'Meat', color: null },
+    inventoryItemId: 'item-r1', baseYieldQty: 6, yieldUnit: 'kg', portionSize: null, portionUnit: null,
+    menuPrice: null, isActive: true, notes: null, steps: [], activeMinutes: null, passiveMinutes: null,
+    passiveNote: null, stages: null, method: null, createdAt: new Date(), updatedAt: new Date(),
+    baseIngredientId: null, prepItems: [], sourceScanId: null,
+    ingredients: [ing({ id: 'a', inventoryItemId: 'brisket', inventoryItem: brisketItem, qtyBase: 13, unit: 'kg' })],
+    byproducts: [{ id: 'b1', sortOrder: 0, qty: '2', unit: 'kg', notes: null, inventoryItemId: 'trim', inventoryItem: trimRow }],
+  }
+
+  it('returns net cost and by-product lines', async () => {
+    const findUnique = vi.fn().mockResolvedValue(row)
+    Object.assign(prisma, { recipe: { findUnique } })
+    const r = await fetchRecipeWithCost('r1')
+    expect(findUnique.mock.calls[0][0].include.byproducts).toBeDefined()
+    expect(findUnique.mock.calls[0][0].include.ingredients.include.inventoryItem.select.recipeByproducts).toBeDefined()
+    expect(r!.grossCost).toBeCloseTo(256.1)
+    expect(r!.byproductCredit).toBeCloseTo(20)
+    expect(r!.totalCost).toBeCloseTo(236.1)
+    expect(r!.byproducts[0]).toMatchObject({ itemName: 'Brisket Trim', credit: expect.closeTo(20), hasOffers: false, primarySupplierName: null, itemLastUpdated: lastUpdated.toISOString() })
+    expect(r!.byproducts[0].itemPricing).toEqual(trimItem.pricing)
+  })
+
+  it('names the primary supplier of a by-product that has supplier boxes', async () => {
+    const withOffer = { ...row, byproducts: [{ ...row.byproducts[0], inventoryItem: { ...trimRow, _count: { supplierPrices: 2 }, supplierPrices: [{ supplier: { name: 'Sysco' } }] } }] }
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue(withOffer) } })
+    const r = await fetchRecipeWithCost('r1')
+    expect(r!.byproducts[0]).toMatchObject({ hasOffers: true, primarySupplierName: 'Sysco' })
+  })
+
+  it('editByproducts overrides the loaded rows and skips the memo', async () => {
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue(row) } })
+    const ctx = await costContext('LAST', [])
+    const r = await fetchRecipeWithCost('r1', { ctx, editByproducts: rows => rows.map(b => ({ ...b, qty: 5 as never })) })
+    expect(r!.byproductCredit).toBeCloseTo(50)
+    expect(ctx.memo.has('r1')).toBe(false)
+  })
+
+  it('syncPrepToInventory writes the net', async () => {
+    const update = vi.fn().mockResolvedValue({})
+    Object.assign(prisma, { recipe: { findUnique: vi.fn().mockResolvedValue(row) }, inventoryItem: { update } })
+    await syncPrepToInventory('r1')
+    expect(update.mock.calls[0][0].data.pricing.purchasePrice).toBeCloseTo(236.1)
   })
 })
 

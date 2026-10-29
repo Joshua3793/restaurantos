@@ -383,14 +383,36 @@ export interface CostContext {
   rows?: Map<string, RecipeCostRow | null>
 }
 
+/** A recipe's by-product lines with what costing and the editor need off each
+ *  item. Shared by every recipe read that costs (single, prefetch, list, search)
+ *  so a credit can never be applied on one screen and missing on another. */
+export const BYPRODUCT_COST_INCLUDE = {
+  include: {
+    inventoryItem: {
+      select: {
+        itemName: true, lastUpdated: true, ...PRICING_SELECT,
+        _count: { select: { supplierPrices: true } },
+        supplierPrices: { where: { isPrimary: true }, select: { supplier: { select: { name: true } } }, take: 1 },
+      },
+    },
+  },
+  orderBy: { sortOrder: 'asc' },
+} satisfies Prisma.Recipe$byproductsArgs
+
+/** On an ingredient's item: the recipe it comes off as a by-product, if any. */
+export const BYPRODUCT_OF_SELECT = {
+  recipeByproducts: { select: { recipe: { select: { name: true } } }, take: 1 },
+} as const
+
 /** The recipe shape fetchRecipeWithCost costs — ONE include for the single read
  *  and the batched prefetch, so the two can never diverge. */
 const RECIPE_COST_INCLUDE = {
   category: true,
   prepItems: { select: { parLevel: true, shelfLifeDays: true, stations: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+  byproducts: BYPRODUCT_COST_INCLUDE,
   ingredients: {
     include: {
-      inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT } },
+      inventoryItem: { select: { itemName: true, allergens: true, ...PRICING_SELECT, ...BYPRODUCT_OF_SELECT } },
       linkedRecipe: {
         select: {
           name: true,
@@ -404,6 +426,35 @@ const RECIPE_COST_INCLUDE = {
 } satisfies Prisma.RecipeInclude
 
 type RecipeCostRow = Prisma.RecipeGetPayload<{ include: typeof RECIPE_COST_INCLUDE }>
+export type ByproductCostRow = RecipeCostRow['byproducts'][number]
+
+/** Every raw item a recipe row costs: its ingredient items and its by-product items. */
+function rawItemIds(r: { ingredients: Array<{ inventoryItemId: string | null }>; byproducts?: Array<{ inventoryItemId: string }> }): string[] {
+  return [
+    ...r.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : [])),
+    ...(r.byproducts ?? []).map(b => b.inventoryItemId),
+  ]
+}
+
+/** The editor-only fields of a by-product line, read off its loaded item. */
+export function byproductItemFields(bp: { inventoryItem: { lastUpdated: Date; packChain: unknown; pricing: unknown; _count: { supplierPrices: number }; supplierPrices: Array<{ supplier: { name: string } }> } }) {
+  return {
+    itemLastUpdated: bp.inventoryItem.lastUpdated.toISOString(),
+    itemPackChain: bp.inventoryItem.packChain,
+    itemPricing: bp.inventoryItem.pricing,
+    hasOffers: bp.inventoryItem._count.supplierPrices > 0,
+    primarySupplierName: bp.inventoryItem.supplierPrices[0]?.supplier.name ?? null,
+  }
+}
+
+/** Attach the editor-only fields to computed by-product lines (same order as the rows). */
+export function withByproductItemFields<T extends { id: string }>(lines: T[], rows: Array<{ id: string } & Parameters<typeof byproductItemFields>[0]>): T[] {
+  const byId = new Map(rows.map(r => [r.id, r]))
+  return lines.map(l => {
+    const row = byId.get(l.id)
+    return row ? { ...l, ...byproductItemFields(row) } : l
+  })
+}
 
 /**
  * Batch-load every prep reachable from `ids` into the context, one query per
@@ -423,8 +474,8 @@ export async function prefetchRecipes(ctx: CostContext, ids: string[]): Promise<
     for (const row of found) rows.set(row.id, row)
 
     if (ctx.basis === 'AVG_30D') {
-      const missing = Array.from(new Set(found.flatMap(r => r.ingredients.flatMap(i =>
-        i.inventoryItemId && !ctx.prices.has(i.inventoryItemId) && !ctx.asked.has(i.inventoryItemId) ? [i.inventoryItemId] : [],
+      const missing = Array.from(new Set(found.flatMap(r => rawItemIds(r).filter(itemId =>
+        !ctx.prices.has(itemId) && !ctx.asked.has(itemId),
       ))))
       if (missing.length > 0) {
         for (const itemId of missing) ctx.asked.add(itemId)
@@ -510,9 +561,15 @@ export async function resolveLinkedRecipes<T extends {
  */
 export async function fetchRecipeWithCost(
   id: string,
-  opts: { basis?: CostBasis; ctx?: CostContext } = {},
+  opts: {
+    basis?: CostBasis
+    ctx?: CostContext
+    /** Cost the recipe as if its by-products were these — a what-if for the
+     *  credit guard. The result is never memoised. */
+    editByproducts?: (rows: ByproductCostRow[]) => ByproductCostRow[]
+  } = {},
 ): Promise<RecipeWithCost | null> {
-  if (opts.ctx?.memo.has(id)) return opts.ctx.memo.get(id)!
+  if (opts.ctx?.memo.has(id) && !opts.editByproducts) return opts.ctx.memo.get(id)!
 
   // A row the caller batch-loaded (prefetchRecipes) is used as-is; null there
   // means "loaded, does not exist".
@@ -520,8 +577,11 @@ export async function fetchRecipeWithCost(
     ? opts.ctx.rows.get(id) ?? null
     : await prisma.recipe.findUnique({ where: { id }, include: RECIPE_COST_INCLUDE })
   if (!recipe) return null
+  // `?? []`: a row built by hand (tests, older callers) may not carry the relation.
+  const loadedByproducts = recipe.byproducts ?? []
+  const byproductRows = opts.editByproducts ? opts.editByproducts(loadedByproducts) : loadedByproducts
 
-  const rawIds = recipe.ingredients.flatMap(i => (i.inventoryItemId ? [i.inventoryItemId] : []))
+  const rawIds = rawItemIds({ ingredients: recipe.ingredients, byproducts: byproductRows })
   let ctx: CostContext | null = opts.ctx ?? null
   if (!ctx && opts.basis === 'AVG_30D') {
     ctx = await costContext('AVG_30D', rawIds)
@@ -546,9 +606,13 @@ export async function fetchRecipeWithCost(
   const ingredientsWithLinked = await resolveLinkedRecipes(recipe.ingredients, ctx)
   ctx?.visiting.delete(id)
 
-  const { totalCost, costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary } = computeRecipeCost({
+  const {
+    totalCost, grossCost, byproductCredit, creditExceedsCost, byproducts,
+    costPerPortion, foodCostPct, dimensionConflicts, ingredients, basisSummary,
+  } = computeRecipeCost({
     ...recipe,
     ingredients: ingredientsWithLinked,
+    byproducts: byproductRows,
   }, { prices: ctx?.prices })
 
   // Each line already carries its own allergens: its item's, a linked PREP's
@@ -586,6 +650,10 @@ export async function fetchRecipeWithCost(
     updatedAt: recipe.updatedAt,
     ingredients,
     totalCost,
+    grossCost,
+    byproductCredit,
+    creditExceedsCost,
+    byproducts: withByproductItemFields(byproducts, byproductRows),
     costPerPortion,
     foodCostPct,
     dimensionConflicts,
@@ -602,7 +670,7 @@ export async function fetchRecipeWithCost(
     sourceScanId: recipe.sourceScanId ?? null,
   }
 
-  ctx?.memo.set(id, result)
+  if (!opts.editByproducts) ctx?.memo.set(id, result)
   return result
 }
 
