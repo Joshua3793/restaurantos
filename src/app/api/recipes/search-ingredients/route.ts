@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { PRICING_SELECT, eachMeasureOf, densityOf } from '@/lib/item-model'
 import { lastCost, windowedAvgCost } from '@/lib/cost-basis'
+import { requireSession, AuthError } from '@/lib/auth'
+import { seesItemMoney } from '@/lib/inventory-redact'
+import { nullKeys } from '@/lib/count-redact'
 
 // Fuzzy score: how well does `query` match `target`?
 // Returns 0–100. Handles case, partial words, abbreviations.
@@ -39,6 +42,13 @@ function fuzzyScore(query: string, target: string): number {
 }
 
 export async function GET(req: NextRequest) {
+  let user
+  try { user = await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const { searchParams } = new URL(req.url)
   const q = (searchParams.get('q') ?? '').trim()
 
@@ -132,5 +142,10 @@ export async function GET(req: NextRequest) {
     // Strip internal _score field
     .map(({ _score, ...rest }) => rest)
 
+  // Same money line as the inventory API: STAFF never sees an item's price.
+  // Nulled, not dropped — the editor reads a null price as $0.
+  if (!seesItemMoney(user.role)) {
+    return NextResponse.json(combined.map(r => nullKeys(r, ['pricePerBaseUnit', 'costBasis'] as const)))
+  }
   return NextResponse.json(combined)
 }

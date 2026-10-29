@@ -8,6 +8,12 @@ import { parseAllergenKeys } from '@/lib/allergens'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+
   const body = await req.json()
   const { inventoryItemId, linkedRecipeId, qtyBase, unit, notes, recipePercent, customName, allergens } = body
 
@@ -25,8 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // Hand-tagged allergens: custom lines only (a linked line inherits its item's),
-  // and only MANAGER+ may write them. This route has no auth for its other
-  // fields today — that is left exactly as it was; only this field is gated.
+  // and only MANAGER+ may write them. Every other field needs only a session.
   let allergenKeys: string[] = []
   if (allergens !== undefined) {
     try { await requireSession('MANAGER') }
