@@ -126,14 +126,17 @@ function ByproductRow({ bp, recipeId, canEdit, onRecipe, onReload }: {
             <span>{perUnit > 0 ? `${formatCurrency(perUnit)}/${unit}` : 'No price yet'}{bp.hasOffers && bp.primarySupplierName ? ` · ${bp.primarySupplierName}` : ''}</span>
           )}
         </span>
-        <span className="w-20 text-right font-mono text-[13px] font-medium text-green-text">
-          {bp.dimensionConflict
-            ? <span className="rounded px-1 py-px text-[9.5px] font-semibold uppercase tracking-wide text-red-text bg-red-soft" title={`${bp.unit} can't be costed against ${bp.itemName} (${bp.itemBaseUnit}) — credited at $0`}>unit mismatch</span>
-            : `− ${formatCurrency(bp.credit)}`}
+        {/* Credit and remove stay together, so the bin never wraps onto its own line. */}
+        <span className="ml-auto flex items-center gap-2 shrink-0">
+          <span className="text-right font-mono text-[13px] font-medium text-green-text">
+            {bp.dimensionConflict
+              ? <span className="rounded px-1 py-px text-[9.5px] font-semibold uppercase tracking-wide text-red-text bg-red-soft" title={`${bp.unit} can't be costed against ${bp.itemName} (${bp.itemBaseUnit}) — credited at $0`}>unit mismatch</span>
+              : `− ${formatCurrency(bp.credit)}`}
+          </span>
+          {canEdit && (
+            <button onClick={remove} title="Remove" className="text-ink-4 hover:text-red"><Trash2 size={12} /></button>
+          )}
         </span>
-        {canEdit && (
-          <button onClick={remove} title="Remove" className="text-ink-4 hover:text-red"><Trash2 size={12} /></button>
-        )}
       </div>
       {error && <p className="mt-1 text-[11.5px] text-red-text">{error}</p>}
     </div>
