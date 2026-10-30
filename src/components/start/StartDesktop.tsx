@@ -1,24 +1,38 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { Activity, Clock, Moon, RefreshCw, ArrowRight, ListChecks } from 'lucide-react'
+import { Activity, Clock, RefreshCw, ArrowRight, ListChecks } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
-import { formatCurrency } from '@/lib/utils'
-import { clockText, dayTimeline, type NeedItem } from '@/lib/start-page'
+import { clockText, dayTimeline } from '@/lib/start-page'
+import { whenLabel, type InboxItem } from '@/components/inbox/format'
+import { TagDot } from '@/components/inbox/TagChips'
+import { DESKTOP_TOP, countNow, itemMeta, moreCount, stationsDone, tagRows, topItems } from '@/lib/pass'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { useStartData, type StartData } from './useStartData'
-import { NEED_ICON, Headline, greetingFor, crumbDate, scoreRows, signedOff } from './parts'
+import { greetingFor, crumbDate, personName } from './parts'
+import {
+  Lede, LastNight, PassItemDialog, StationTileWide, ItemCta, TagLine, WhenPill, VALUE_TONE,
+  numberRows, useInboxCount, usePassItem,
+} from './PassParts'
 
-// The desktop start page (/pass, MANAGER+). One question per block, in the order
-// a chef asks them on arrival: how long until doors, what needs me, how did we do.
-// The deeper numbers (three food-cost views, stock value, waste, counts history)
-// live in Reports — this page only carries what changes the next hour.
+// The desktop Pass (/pass, MANAGER+). Follows the PassDesktop mockup: the
+// header with the Inbox, the service band, then what needs you first (the top
+// of the Inbox, NOW then TODAY) and the stations on the left; the Inbox by tag,
+// last night's notes and the numbers on the right. The deeper numbers live in
+// Reports — this page only carries what changes the next hour.
 export function StartDesktop() {
   const { user } = useUser()
   const d = useStartData()
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
   const now = new Date()
+  const items = d.inbox?.items ?? []
+  const top = topItems(items, DESKTOP_TOP)
+  const nowN = countNow(items)
+  const laterToday = moreCount(items, nowN)
+  const feedCount = useInboxCount(d.rcId)
+  const inboxCount = feedCount ?? (d.inbox ? items.filter(i => i.severity !== 'FYI').length : null)
+  const item = usePassItem(d.inbox?.tags ?? [], d.rcId, d.loadInbox)
 
   return (
     <>
@@ -31,26 +45,55 @@ export function StartDesktop() {
           { href: '/end-of-day', label: 'End-of-day', icon: <Clock size={14} /> },
         ]}
       />
-      <div className="p-4 md:p-6 md:px-8 max-w-[1120px] mx-auto w-full">
+      <div className="p-4 md:p-6 md:px-8 max-w-[1240px] mx-auto w-full">
         <PageHead
-          crumbs={<><Clock size={12} /> {crumbDate(now)}{d.rcName && <> · {d.rcName.toUpperCase()}</>}</>}
+          crumbs={<><Clock size={12} /> PASS · {crumbDate(now)}{d.rcName && <> · {d.rcName.toUpperCase()}</>}</>}
           title={<>Good {greetingFor(now)}, <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.</>}
-          sub={d.loaded ? <span className="text-[15px] text-ink-2"><Headline status={d.status} needs={d.needs} /></span> : 'Loading…'}
+          sub={
+            <span className="text-[15px] text-ink-2">
+              <Lede d={d} nowCount={nowN} />
+              {d.loaded && d.isRc && laterToday > 0 && <> {laterToday} more today in the Inbox.</>}
+            </span>
+          }
+          actions={d.isRc && (
+            <Link
+              href="/inbox"
+              className="inline-flex items-center gap-2 min-h-[40px] px-3.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2"
+            >
+              Open Inbox
+              {inboxCount != null && inboxCount > 0 && (
+                <span className="font-mono text-[10.5px] bg-red text-paper rounded-full px-[7px] py-px">{inboxCount}</span>
+              )}
+              <span className="text-gold" aria-hidden>→</span>
+            </Link>
+          )}
         />
 
         <ServiceBand d={d} />
 
-        <div className="grid gap-5 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] mt-5 items-start">
-          <NeedsPanel d={d} />
-          <aside className="space-y-4 min-w-0">
-            {d.lastClose && <CloseNote close={d.lastClose} />}
-            <Scoreboard d={d} />
-            {d.hasOrders && <RunningLow d={d} />}
+        <div className="grid gap-5 grid-cols-1 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] mt-5 items-start">
+          <div className="flex flex-col gap-5 min-w-0">
+            <NeedsFirst d={d} top={top} onOpen={item.open} now={now} />
+            <Stations d={d} now={now} />
+          </div>
+          <aside className="flex flex-col gap-5 min-w-0">
+            <InboxByTag d={d} />
+            <LastNight d={d} now={now} compact right={closedLine(d, now)} />
+            {d.isManager && <Scoreboard d={d} />}
           </aside>
         </div>
       </div>
+      <PassItemDialog props={item.props} onClose={item.close} />
     </>
   )
+}
+
+/** "CLOSED 22:48 · LEO" for the whole-kitchen close; the note count otherwise. */
+function closedLine(d: StartData, now: Date): string | undefined {
+  const c = d.lastClose
+  if (!c?.signedOffAt) return undefined
+  const by = personName(c.signedOffByName)
+  return [`CLOSED ${whenLabel(c.signedOffAt, now)}`, by?.toUpperCase()].filter(Boolean).join(' · ')
 }
 
 function ServiceBand({ d }: { d: StartData }) {
@@ -115,91 +158,95 @@ function ServiceBand({ d }: { d: StartData }) {
   )
 }
 
-function NeedsPanel({ d }: { d: StartData }) {
-  const now = d.needs.filter(n => n.when === 'now')
-  const later = d.needs.filter(n => n.when === 'today')
+const Empty = ({ children }: { children: React.ReactNode }) => (
+  <p className="px-[18px] py-10 text-center text-[14px] text-ink-3">{children}</p>
+)
+
+function NeedsFirst({ d, top, onOpen, now }: { d: StartData; top: InboxItem[]; onOpen: (i: InboxItem) => void; now: Date }) {
   return (
-    <section aria-label="Needs you" className="bg-paper border border-line rounded-[14px] overflow-hidden min-w-0">
-      <header className="flex items-center justify-between px-5 py-3.5 border-b border-line">
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em]">Needs you</h2>
-        {d.needs.length > 0 && <span className="font-mono text-[11px] text-ink-3">{d.needs.length} · most urgent first</span>}
-      </header>
-      {!d.loaded ? (
-        <p className="px-5 py-10 text-center text-[13px] text-ink-3">Loading…</p>
-      ) : d.needs.length === 0 ? (
-        <div className="px-5 py-10 text-center">
+    <section aria-label="Needs you first" className="bg-paper border border-line rounded-xl overflow-hidden min-w-0">
+      <div className="flex justify-between items-baseline px-[18px] py-3.5 border-b border-line">
+        <h2 className="text-[13.5px] font-semibold">Needs you first</h2>
+        <span className="font-mono text-[10.5px] text-ink-3">NOW + TODAY · RANKED</span>
+      </div>
+      {!d.isRc ? (
+        <Empty>Pick a kitchen in the top bar to see what needs you.</Empty>
+      ) : !d.loaded || (!d.inbox && !d.inboxError) ? (
+        <Empty>Loading…</Empty>
+      ) : d.inboxError && !d.inbox ? (
+        <div className="px-[18px] py-8 flex items-center justify-center gap-3">
+          <span className="text-[14px] text-ink-3">Could not load the Inbox.</span>
+          <button type="button" onClick={() => d.loadInbox()} className="min-h-[40px] px-3.5 rounded-full border border-line-2 font-mono text-[11px] hover:border-ink-3">Try again</button>
+        </div>
+      ) : top.length === 0 ? (
+        <div className="px-[18px] py-10 text-center">
           <p className="font-mono text-[11px] uppercase tracking-[0.04em] text-green-text">All clear</p>
           <p className="text-[14px] text-ink-3 mt-1.5">Nothing needs you right now — go cook.</p>
         </div>
       ) : (
-        <>
-          {now.length > 0 && (
-            <>
-              <GroupLabel tone="bad">{d.status.kind === 'upcoming' ? 'Before doors' : 'Now'}</GroupLabel>
-              {now.map(n => <NeedRow key={n.id} n={n} />)}
-            </>
-          )}
-          {later.length > 0 && (
-            <>
-              <GroupLabel tone="warn">Later today</GroupLabel>
-              {later.map(n => <NeedRow key={n.id} n={n} />)}
-            </>
-          )}
-        </>
+        top.map((n, i) => (
+          <div key={n.id} className={`grid grid-cols-[24px_minmax(0,1fr)_64px_auto] gap-3 items-center px-[18px] py-3 ${i > 0 ? 'border-t border-bg-2' : ''}`}>
+            <span className="font-mono text-[11px] text-ink-4">{String(i + 1).padStart(2, '0')}</span>
+            <span className="flex flex-col gap-[3px] min-w-0">
+              <TagLine item={n} />
+              <span className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink">{n.title}</span>
+              <span className="font-mono text-[10.5px] text-ink-3 truncate">{itemMeta(n, now)}</span>
+            </span>
+            <WhenPill item={n} />
+            <ItemCta item={n} gold={i === 0} onOpen={onOpen} />
+          </div>
+        ))
       )}
     </section>
   )
 }
 
-function GroupLabel({ tone, children }: { tone: 'bad' | 'warn'; children: React.ReactNode }) {
+function Stations({ d, now }: { d: StartData; now: Date }) {
+  if (d.stations.length === 0) return null
+  const { done, of } = stationsDone(d.stations)
   return (
-    <div className={`px-5 pt-3.5 pb-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] ${tone === 'bad' ? 'text-red-text' : 'text-gold-2'}`}>
-      {children}
-    </div>
+    <section aria-label="Stations" className="bg-paper border border-line rounded-xl px-[18px] py-4 flex flex-col gap-3">
+      <div className="flex justify-between items-center gap-4">
+        <h2 className="text-[13.5px] font-semibold">Stations · {d.phase === 'OPEN' ? 'opening' : 'closing'}</h2>
+        <div className="flex gap-4 items-center">
+          <span className="font-mono text-[10.5px] text-ink-3">{done} OF {of} DONE</span>
+          <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 hover:text-ink">Station board →</Link>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 xl:grid-cols-6 gap-2.5">
+        {d.stations.map(s => <StationTileWide key={s.id} s={s} now={now} />)}
+      </div>
+    </section>
   )
 }
 
-function NeedRow({ n }: { n: NeedItem }) {
-  const Icon = NEED_ICON[n.kind]
-  const urgent = n.when === 'now'
+function InboxByTag({ d }: { d: StartData }) {
+  if (!d.inbox) return null
+  const rows = tagRows(d.inbox.tags, d.inbox.counts.byTag, d.inbox.items)
   return (
-    <div className="flex items-center gap-3.5 px-5 py-3.5 border-b border-bg-2 last:border-0">
-      <span className={`w-[38px] h-[38px] shrink-0 rounded-[10px] grid place-items-center ${urgent ? 'bg-red-soft text-red-text' : 'bg-gold-soft text-gold-2'}`}>
-        <Icon size={18} />
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="text-[15px] font-semibold tracking-[-0.01em] text-ink">{n.title}</div>
-        <div className="text-[13px] text-ink-3 mt-0.5">{n.detail}</div>
+    <section aria-label="Inbox by tag" className="bg-paper border border-line rounded-xl px-[18px] py-4 flex flex-col gap-2.5">
+      <div className="flex justify-between items-baseline">
+        <h2 className="text-[13.5px] font-semibold">Inbox by tag</h2>
+        <span className="font-mono text-[10.5px] text-ink-3">{d.inbox.counts.open} OPEN</span>
       </div>
-      <Link
-        href={n.href}
-        className={`shrink-0 inline-flex items-center min-h-[40px] px-4 rounded-[9px] text-[13px] font-medium transition-colors ${
-          urgent ? 'bg-ink text-paper hover:bg-ink-2' : 'border border-line-2 text-ink-2 hover:border-ink-3'
-        }`}
-      >
-        {n.cta}
-      </Link>
-    </div>
-  )
-}
-
-function CloseNote({ close }: { close: NonNullable<StartData['lastClose']> }) {
-  const note = close.handoverNote?.trim()
-  return (
-    <section aria-label="From last night's close" className="bg-paper border border-line rounded-[14px] p-5">
-      <div className="flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
-        <Moon size={12} /> From last night&apos;s close
-      </div>
-      <p className={`mt-2.5 text-[15px] leading-[1.5] whitespace-pre-wrap ${note ? 'font-medium text-ink' : 'text-ink-3'}`}>
-        {note ? `“${note}”` : 'No note left.'}
-      </p>
-      <div className="text-[12.5px] text-ink-3 mt-2">{signedOff(close)}</div>
+      {rows.length === 0 ? (
+        <p className="text-[13.5px] text-ink-3">Nothing open. All clear.</p>
+      ) : rows.map(r => (
+        <Link key={r.tag.id} href="/inbox" className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[34px] text-ink hover:text-gold-2">
+          <TagDot color={r.tag.color} />
+          <span className="text-[13.5px] truncate">{r.tag.name}</span>
+          <span className="font-mono text-[12px] font-semibold text-right tabular-nums">{r.count}</span>
+          {r.now > 0
+            ? <span className="justify-self-end font-mono text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-soft text-red-text">{r.now} NOW</span>
+            : <span />}
+        </Link>
+      ))}
     </section>
   )
 }
 
 function Scoreboard({ d }: { d: StartData }) {
-  const rows = scoreRows(d, formatCurrency)
+  const rows = numberRows(d, { foodCost: true })
   const [syncing, setSyncing] = useState(false)
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -225,55 +272,34 @@ function Scoreboard({ d }: { d: StartData }) {
 
   if (rows.length === 0) return null
   return (
-    <section aria-label="How we're doing" className="bg-paper border border-line rounded-[14px] p-5">
+    <section aria-label="How we're doing" className="bg-paper border border-line rounded-xl px-[18px] pt-3 pb-3">
       <div className="flex items-center justify-between">
         <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">How we&apos;re doing</div>
         <button
           onClick={syncSales}
           disabled={syncing}
           title="Pull today's sales from Toast now"
-          className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink disabled:opacity-60"
+          className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink disabled:opacity-60 min-h-[32px]"
         >
           <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Pulling…' : 'Update sales'}
         </button>
       </div>
-      {note && <div className={`text-[12px] mt-1.5 ${note.ok ? 'text-ink-3' : 'text-red-text'}`}>{note.text}</div>}
-      <table className="w-full mt-2 text-[14px]">
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.label} className={i > 0 ? 'border-t border-bg-2' : ''}>
-              <td className={`py-[7px] ${r.tone === 'muted' ? 'text-ink-3' : 'text-ink-2'}`}>{r.label}</td>
-              <td className={`py-[7px] text-right tabular-nums ${
-                r.tone === 'bad' ? 'font-semibold text-red-text' : r.tone === 'ok' ? 'font-semibold text-green-text' : r.tone === 'muted' ? 'text-ink-3' : 'font-semibold text-ink'
-              }`}>{r.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <Link href="/reports" className="inline-block text-[12.5px] text-gold-2 mt-2 hover:text-ink">All the numbers →</Link>
-    </section>
-  )
-}
-
-function RunningLow({ d }: { d: StartData }) {
-  return (
-    <section aria-label="Running low" className="bg-paper border border-line rounded-[14px] p-5">
-      <div className="flex items-baseline justify-between">
-        <div className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">Running low</div>
-        <Link href="/inventory" className="text-[12.5px] text-gold-2 hover:text-ink">Order list</Link>
+      {note && <div className={`text-[12px] mt-1 ${note.ok ? 'text-ink-3' : 'text-red-text'}`}>{note.text}</div>}
+      <div className="mt-1">
+        {rows.map((r, i) => {
+          const inner = (
+            <>
+              <span className="text-ink-2">{r.label}</span>
+              <span className={`font-mono font-semibold tabular-nums ${VALUE_TONE(r.tone)}`}>{r.value}</span>
+            </>
+          )
+          const cls = `flex justify-between py-2.5 text-[13.5px] ${i > 0 ? 'border-t border-bg-2' : ''}`
+          return r.href
+            ? <Link key={r.label} href={r.href} className={`${cls} hover:text-gold-2`}>{inner}</Link>
+            : <div key={r.label} className={cls}>{inner}</div>
+        })}
       </div>
-      {d.low.top.length === 0 ? (
-        <p className="text-[13.5px] text-ink-3 mt-2.5">Nothing below par.</p>
-      ) : (
-        <div className="flex flex-wrap gap-2 mt-3">
-          {d.low.top.map(l => (
-            <span key={l.id} className={`text-[13px] font-medium px-[11px] py-1.5 rounded-full ${l.out ? 'bg-red-soft text-red-text' : 'bg-gold-soft text-gold-2'}`}>
-              {l.name} · {l.label}
-            </span>
-          ))}
-          {d.low.more > 0 && <span className="text-[13px] text-ink-3 px-1 py-1.5">+{d.low.more} more below par</span>}
-        </div>
-      )}
+      <Link href="/reports" className="inline-block text-[12.5px] text-gold-2 mt-1 hover:text-ink">All the numbers →</Link>
     </section>
   )
 }

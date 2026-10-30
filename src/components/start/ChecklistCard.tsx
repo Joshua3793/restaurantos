@@ -16,7 +16,14 @@ const POLL_MS = 60_000
 const getJson = (url: string) =>
   fetch(url, { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
 
-export function ChecklistCard({ rcId, phase }: { rcId: string | null; phase: Phase }) {
+export function ChecklistCard({ rcId, phase, pickedOnly = false, label }: {
+  rcId: string | null
+  phase: Phase
+  /** Say nothing until a station is picked (the Pass's "Your station" card). */
+  pickedOnly?: boolean
+  /** A mono heading above the card, shown only when the card shows. */
+  label?: string
+}) {
   const [view, setView] = useState<CookView | null>(null)
 
   useEffect(() => {
@@ -37,7 +44,19 @@ export function ChecklistCard({ rcId, phase }: { rcId: string | null; phase: Pha
   if (!rcId || !view) return null
 
   const s = checklistSummary(view)
+  if (pickedOnly && s.state === 'pick') return null
   const word = phase === 'OPEN' ? 'opening' : 'closing'
+  const card = cardFor(s, phase, word)
+  if (!label) return card
+  return (
+    <section aria-label={label} className="flex flex-col gap-2">
+      <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3 px-0.5">{label}</div>
+      {card}
+    </section>
+  )
+}
+
+function cardFor(s: ReturnType<typeof checklistSummary>, phase: Phase, word: string) {
 
   if (s.state === 'done') {
     return (

@@ -28,6 +28,8 @@ export default function TodayPage() {
   }
 
   const isManager = role != null && atLeast(role, 'MANAGER')
+  // LEAD+ get the Pass; STAFF keep the cook's start page.
+  const isLead = role != null && atLeast(role, 'LEAD')
   return (
     // Replaces MScreen, which is md:hidden and shared with mobile-only screens.
     // On desktop the padding comes from AppShell, so it is cleared at md+.
@@ -36,12 +38,14 @@ export default function TodayPage() {
     // only runs after first paint, and / -> /today -> /pass is their normal
     // desktop landing path — without this they would see the mobile Today
     // screen flash on every login.
+    //
+    // A LEAD has no desktop Pass: they get the phone Pass in a narrow column.
     <div
       className={`min-h-screen bg-bg text-ink px-4 pb-28 md:min-h-0 md:px-0 md:pb-0 ${
-        isManager ? 'md:hidden' : ''
+        isManager ? 'md:hidden' : isLead ? 'md:max-w-[640px] md:mx-auto md:w-full' : ''
       }`}
     >
-      {isManager ? <StartMobile /> : <CookStart />}
+      {isLead ? <StartMobile /> : <CookStart />}
     </div>
   )
 }
