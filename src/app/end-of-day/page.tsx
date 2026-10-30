@@ -138,11 +138,15 @@ export default function EndOfDayPage() {
       .then((d: EodCloseState | null) => {
         if (!d || rcRef.current !== rcId) return
         setCloseState(prev => {
-          if (!prev || prev.close.id !== d.close.id) return prev
+          // No close yet, or a new day's close after midnight: take the whole
+          // answer, as loadClose does. The handover and money inputs are keyed
+          // on the close id, so a new id remounts them with the new day's values.
+          if (!prev || prev.close.id !== d.close.id) return d
           // Closed or reopened elsewhere: take the whole answer.
           if (prev.close.status !== d.close.status) return d
           return { ...prev, date: d.date, progress: d.progress }
         })
+        setSignoffError(null)
         setGateTick(t => t + 1)
         return fetch(`/api/temps/units?rcId=${rcId}&date=${d.date}`, { cache: 'no-store' })
           .then(r => r.ok ? r.json() : [])
