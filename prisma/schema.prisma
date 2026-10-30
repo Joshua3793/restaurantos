@@ -906,6 +906,7 @@ model RevenueCenter {
   eodCloses         EodClose[]        @relation("EodCloseRC")
   services          Service[]         @relation("ServiceRC")
   tipPeriods        TipPeriod[]       @relation("TipPeriodRC")
+  checklistStations ChecklistStation[] @relation("ChecklistStationRC")
 }
 
 model Service {
@@ -1109,6 +1110,7 @@ model TempUnit {
   updatedAt       DateTime       @updatedAt
   readings        TempReading[]
   revenueCenter   RevenueCenter? @relation("TempUnitRC", fields: [revenueCenterId], references: [id], onDelete: SetNull)
+  checklistItems  ChecklistItem[]
 
   @@index([revenueCenterId, isActive])
 }
@@ -1251,6 +1253,162 @@ model OpenCheckTick {
   item         OpenCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@unique([itemId, businessDate])
+}
+
+// ─────────────────────────── STATION CHECKLISTS ───────────────────────────
+// Per-station opening/closing checklists. Person ids (doneById, signedOffById,
+// userId …) are plain strings with NO FK to User, like EodClose.signedOffBy —
+// hard-deleting a user must not erase history.
+
+enum ChecklistPhase {
+  OPEN
+  CLOSE
+}
+
+enum ChecklistAnswer {
+  TICK
+  NUMBER
+  TEMP
+}
+
+enum ChecklistLineStatus {
+  TODO
+  DONE
+  FLAGGED
+}
+
+enum ChecklistFlagReason {
+  BROKEN
+  RAN_OUT
+  OUT_OF_RANGE
+  OTHER
+}
+
+enum ChecklistRunStatus {
+  OPEN
+  SIGNED
+}
+
+model ChecklistStation {
+  id              String              @id @default(uuid())
+  revenueCenterId String
+  name            String
+  color           String              @default("#71717a")
+  isShared        Boolean             @default(false)
+  sortOrder       Int                 @default(0)
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  revenueCenter   RevenueCenter       @relation("ChecklistStationRC", fields: [revenueCenterId], references: [id])
+  categories      ChecklistCategory[]
+  runs            ChecklistRun[]
+
+  @@index([revenueCenterId, isActive])
+}
+
+model ChecklistCategory {
+  id        String           @id @default(uuid())
+  stationId String
+  phase     ChecklistPhase
+  name      String
+  sortOrder Int              @default(0)
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  station   ChecklistStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  items     ChecklistItem[]
+
+  @@index([stationId, phase])
+}
+
+model ChecklistItem {
+  id         String             @id @default(uuid())
+  categoryId String
+  title      String
+  howTo      String?
+  isBlocker  Boolean            @default(false)
+  answer     ChecklistAnswer    @default(TICK)
+  unit       String?
+  safeMin    Decimal?
+  safeMax    Decimal?
+  tempUnitId String?
+  days       Int                @default(127)
+  sortOrder  Int                @default(0)
+  isActive   Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  category   ChecklistCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  tempUnit   TempUnit?          @relation(fields: [tempUnitId], references: [id], onDelete: SetNull)
+  runLines   ChecklistRunLine[]
+
+  @@index([categoryId, isActive])
+}
+
+model ChecklistRun {
+  id              String             @id @default(uuid())
+  stationId       String
+  phase           ChecklistPhase
+  businessDate    String // 'YYYY-MM-DD' restaurant-local (Pacific) day
+  status          ChecklistRunStatus @default(OPEN)
+  signedOffById   String?
+  signedOffByName String?
+  signedOffAt     DateTime?
+  handoverNote    String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  station         ChecklistStation   @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  lines           ChecklistRunLine[]
+  crew            ChecklistRunCrew[]
+
+  @@unique([stationId, phase, businessDate])
+  @@index([businessDate])
+}
+
+model ChecklistRunLine {
+  id             String               @id @default(uuid())
+  runId          String
+  itemId         String?
+  // Snapshot of the item at the moment the run was created
+  categoryName   String
+  title          String
+  howTo          String?
+  isBlocker      Boolean
+  answer         ChecklistAnswer
+  unit           String?
+  safeMin        Decimal?
+  safeMax        Decimal?
+  tempUnitId     String? // plain column, no relation (history survives unit deletion)
+  sortOrder      Int
+  // Result
+  status         ChecklistLineStatus  @default(TODO)
+  value          Decimal?
+  doneById       String?
+  doneByName     String?
+  doneAt         DateTime?
+  flagReason     ChecklistFlagReason?
+  flagNote       String?
+  resolvedById   String?
+  resolvedByName String?
+  resolvedAt     DateTime?
+  updatedAt      DateTime             @updatedAt
+  run            ChecklistRun         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  item           ChecklistItem?       @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, itemId])
+  @@index([runId])
+  @@index([status, resolvedAt])
+}
+
+model ChecklistRunCrew {
+  id       String       @id @default(uuid())
+  runId    String
+  userId   String
+  userName String
+  joinedAt DateTime     @default(now())
+  run      ChecklistRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, userId])
+  @@index([userId])
 }
 
 model EodCheckEntry {
