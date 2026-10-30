@@ -956,6 +956,7 @@ model Cook {
   user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
   tipRole     TipRole?           @relation(fields: [tipRoleId], references: [id], onDelete: SetNull)
   tipAdjustments TipDayAdjustment[]
+  pinDevices  PinDevice[]
 }
 
 model UserScope {
@@ -1541,4 +1542,42 @@ model TipDayAdjustment {
 
   @@unique([periodId, cookId, dayIndex])
   @@index([periodId])
+}
+
+// ── PIN sign-in on a cook's own phone ──────────────────────────────────────
+// A cook types their Toast clock-in PIN (Cook.clockId); the first time on a
+// phone, a manager approves that phone. Only a hash of the phone's token is
+// stored.
+enum PinDeviceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+}
+
+model PinDevice {
+  id             String          @id @default(uuid())
+  cookId         String
+  cook           Cook            @relation(fields: [cookId], references: [id], onDelete: Cascade)
+  tokenHash      String
+  label          String?
+  status         PinDeviceStatus @default(PENDING)
+  createdAt      DateTime        @default(now())
+  approvedById   String?
+  approvedByName String?
+  approvedAt     DateTime?
+  lastUsedAt     DateTime?
+
+  @@unique([tokenHash, cookId])
+  @@index([status])
+}
+
+// One row per PIN try, used to lock a PIN or phone after repeated misses.
+model PinAttempt {
+  id        String   @id @default(uuid())
+  key       String
+  ok        Boolean
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }
