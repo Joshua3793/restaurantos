@@ -28,7 +28,7 @@ const isPhone = () => typeof window !== 'undefined' && !window.matchMedia('(min-
 function emptyText(view: InboxView, filtered: boolean): string {
   if (view === 'done') return filtered ? 'Nothing fixed for this pick in the last 14 days.' : 'Nothing fixed in the last 14 days.'
   if (filtered) return 'Nothing open for this tag.'
-  if (view === 'snoozed') return 'Nothing is back from a snooze.'
+  if (view === 'snoozed') return 'Nothing is snoozed.'
   if (view === 'waiting') return 'Nothing is waiting on someone.'
   return 'Nothing open. All clear.'
 }
@@ -47,15 +47,16 @@ export default function InboxPage() {
 
   // ── list + filters ───────────────────────────────────────────────────────
   const [view, setView] = useState<InboxView>('open')
-  const status: 'open' | 'done' = view === 'done' ? 'done' : 'open'
+  // Waiting is a slice of the open list; Snoozed (still asleep) and Done are lists of their own.
+  const status: 'open' | 'snoozed' | 'done' = view === 'done' || view === 'snoozed' ? view : 'open'
   const [tagId, setTagId] = useState<string | null>(null)
   const [place, setPlace] = useState<string | null>(null)
   const [from, setFrom] = useState<{ id: string; name: string } | null>(null)
   const [list, setList] = useState<InboxListData | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
-  // Snoozed / Waiting counts come from the last open list, so they hold while Done is showing.
-  const [slices, setSlices] = useState({ snoozed: 0, waiting: 0 })
+  // The Waiting count comes from the last open list, so it holds while Done / Snoozed is showing.
+  const [waiting, setWaiting] = useState(0)
   // Items opened here: their gold dot goes at once, before the next poll says so.
   const [readIds, setReadIds] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -64,7 +65,10 @@ export default function InboxPage() {
   const [selected, setSelected] = useState<InboxItem | null>(null)
   const [detail, setDetail] = useState<InboxDetail | null>(null)
   const [note, setNote] = useState('')
+  const [detailFailed, setDetailFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  // One write at a time: a double tap must not send the action twice.
+  const actLock = useRef(false)
 
   // Only the latest request may land: a slow reply for an older kitchen / tab / poll is dropped.
   const latestKey = useRef({ rc: activeRcId, status })
@@ -83,12 +87,7 @@ export default function InboxPage() {
     setLoadError(null)
     setNow(new Date())
     setList(r.data)
-    if (status === 'open') {
-      setSlices({
-        snoozed: r.data.items.filter(i => i.status === 'SNOOZED').length,
-        waiting: r.data.items.filter(i => i.status === 'WAITING').length,
-      })
-    }
+    if (status === 'open') setWaiting(r.data.items.filter(i => i.status === 'WAITING').length)
   }, [activeRcId, status])
 
   const closeItem = useCallback(() => {
@@ -96,16 +95,18 @@ export default function InboxPage() {
     openId.current = null
     setSelected(null)
     setDetail(null)
+    setDetailFailed(false)
     setNote('')
   }, [])
 
   const loadDetail = useCallback(async (id: string) => {
     const seq = ++detailSeq.current
+    setDetailFailed(false)
     const r = await call<InboxDetail>(`/api/inbox/${id}`)
     if (seq !== detailSeq.current || openId.current !== id) return
     if (!r.ok) {
       toast.show({ type: 'error', title: r.status === 404 ? 'That item is gone.' : r.error })
-      if (r.status === 404) { closeItem(); load() }
+      if (r.status === 404) { closeItem(); load() } else setDetailFailed(true)
       return
     }
     setDetail(r.data)
@@ -133,7 +134,11 @@ export default function InboxPage() {
   }, [ready, allowed, activeRcId, load])
 
   const openItem = (item: InboxItem) => {
-    if (openId.current === item.id) return
+    if (openId.current === item.id) {
+      // Tapping the open row again retries a history that failed to load.
+      if (detailFailed) loadDetail(item.id)
+      return
+    }
     openId.current = item.id
     setSelected(item)
     setDetail(null)
@@ -143,7 +148,8 @@ export default function InboxPage() {
 
   const act = async (action: InboxAction) => {
     const item = selected
-    if (!item || busy) return
+    if (!item || actLock.current) return
+    actLock.current = true
     const text = note.trim()
     const send = (a: InboxAction) =>
       call<{ item: InboxItem }>(`/api/inbox/${item.id}`, { method: 'PATCH', body: JSON.stringify(a) })
@@ -163,7 +169,8 @@ export default function InboxPage() {
       r = await send(action)
       noteSaved = r.ok && action.kind === 'note'
     }
-    if (noteSaved && openId.current === item.id) setNote('')
+    // Clear the box only if it still holds what was sent (not words typed since).
+    if (noteSaved && openId.current === item.id) setNote(cur => (cur.trim() === text ? '' : cur))
 
     if (!r.ok) {
       toast.show({ type: 'error', title: r.error })
@@ -171,6 +178,7 @@ export default function InboxPage() {
       // On the phone the job is finished: back to the list.
       closeItem()
       setBusy(false)
+      actLock.current = false
       await load()
       return
     } else if (openId.current === item.id) {
@@ -179,21 +187,22 @@ export default function InboxPage() {
     // Error or not, show what the server now holds.
     await Promise.all([load(), openId.current === item.id ? loadDetail(item.id) : null])
     setBusy(false)
+    actLock.current = false
   }
 
   // ── derived ──────────────────────────────────────────────────────────────
   const items = list?.items ?? []
   const tags = list?.tags ?? []
-  const counts = list?.counts ?? { byTag: {}, open: 0, done: 0 }
+  const counts = list?.counts ?? { byTag: {}, open: 0, done: 0, snoozed: 0 }
   const filter = { view, tagId, place, from: from?.id ?? null }
   const shown = applyFilter(items, filter)
   const filtered = !!(tagId || place || from)
   const isUnread = (i: InboxItem) => i.unread && !readIds.has(i.id)
 
-  // The API's chip counts are open counts; on Done, count the done list itself.
+  // The API's chip counts are open counts; on Done / Snoozed, count that list itself.
   const tagCounts = status === 'open' ? counts.byTag : countByTag(items)
   const tagTotal = status === 'open' ? counts.open : items.length
-  const statusCounts: Record<InboxView, number> = { open: counts.open, done: counts.done, ...slices }
+  const statusCounts: Record<InboxView, number> = { open: counts.open, done: counts.done, snoozed: counts.snoozed, waiting }
 
   const places = placesOf(items)
   if (place && !places.includes(place)) places.push(place)
@@ -211,6 +220,8 @@ export default function InboxPage() {
     item: selected,
     events: detail?.events ?? [],
     loading: !detail,
+    loadFailed: detailFailed,
+    onRetry: () => { if (selected) loadDetail(selected.id) },
     limited: !!detail?.limited,
     tags,
     canRetag: allowed,
@@ -272,6 +283,15 @@ export default function InboxPage() {
         {gate ?? (
           <>
             <TagChips tags={tags} counts={tagCounts} total={tagTotal} tagId={tagId} onPick={setTagId} />
+            {view === 'snoozed' ? (
+              <button type="button" onClick={() => setView('open')} className="self-start font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
+                ‹ Snoozed · back to open
+              </button>
+            ) : status === 'open' && counts.snoozed > 0 && (
+              <button type="button" onClick={() => setView('snoozed')} className="self-start font-mono text-[11px] text-ink-3 min-h-[44px] inline-flex items-center">
+                {counts.snoozed} snoozed →
+              </button>
+            )}
             {manageTags}
             <InboxList
               variant="phone"
@@ -298,6 +318,8 @@ export default function InboxPage() {
               <p className="m-0 text-[15px] text-ink-2">
                 {status === 'done' ? (
                   <>{counts.done} fixed in the last 14 days.</>
+                ) : status === 'snoozed' ? (
+                  <>{counts.snoozed} snoozed till tomorrow.</>
                 ) : lede.length === 0 ? (
                   <>Nothing open. All clear.</>
                 ) : (

@@ -3,13 +3,16 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
 import { ensureInboxSeeded, loadTags } from '@/lib/inbox/tags'
 import { syncSystemItems } from '@/lib/inbox/system'
-import { loadItems, loadCounts, visibleTags, InboxError } from '@/lib/inbox/store'
+import { loadItems, loadCounts, visibleTags, InboxError, type ListStatus } from '@/lib/inbox/store'
 
 export const dynamic = 'force-dynamic'
 
+const parseStatus = (s: string | null): ListStatus => (s === 'done' || s === 'snoozed' ? s : 'open')
+
 /**
  * GET — the Inbox for one kitchen (plus whole-house items), LEAD+.
- * ?rcId= required · ?status=open|done · ?tagId= · ?from=<raisedById> · ?place=
+ * ?rcId= required · ?status=open|snoozed|done · ?tagId= · ?from=<raisedById> · ?place=
+ * snoozed = still asleep (snoozeUntil in the future); open already holds woken snoozes.
  * Counts ignore the tag / from / place filters so the chips and tabs stay whole.
  */
 export async function GET(req: NextRequest) {
@@ -29,7 +32,7 @@ export async function GET(req: NextRequest) {
     const [items, counts] = await Promise.all([
       loadItems(user, {
         rcId,
-        status: sp.get('status') === 'done' ? 'done' : 'open',
+        status: parseStatus(sp.get('status')),
         tagId: sp.get('tagId'),
         from: sp.get('from'),
         place: sp.get('place'),

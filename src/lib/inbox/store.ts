@@ -67,7 +67,9 @@ export type InboxAction =
   | { kind: 'reopen' }
   | { kind: 'retag'; tagId: string }
 
-export type Counts = { byTag: Record<string, number>; open: number; done: number }
+export type Counts = { byTag: Record<string, number>; open: number; done: number; snoozed: number }
+
+export type ListStatus = 'open' | 'snoozed' | 'done'
 
 // ── selects + mapping ──────────────────────────────────────────────────────
 
@@ -167,6 +169,12 @@ const openWhere = (now: Date): Prisma.InboxItemWhereInput => ({
   ],
 })
 
+/** Snoozed and still asleep: these are not in the open list until `snoozeUntil` passes. */
+const snoozedWhere = (now: Date): Prisma.InboxItemWhereInput => ({ status: 'SNOOZED', snoozeUntil: { gt: now } })
+
+const statusWhere = (status: ListStatus, now: Date): Prisma.InboxItemWhereInput =>
+  status === 'done' ? doneWhere(now) : status === 'snoozed' ? snoozedWhere(now) : openWhere(now)
+
 /** DONE in the lookback window — by a person (doneAt) or by itself (clearedAt). */
 const doneWhere = (now: Date): Prisma.InboxItemWhereInput => {
   const since = new Date(now.getTime() - LOOKBACK_DAYS * DAY_MS)
@@ -177,12 +185,12 @@ const doneWhere = (now: Date): Prisma.InboxItemWhereInput => {
 
 export async function loadItems(
   user: User,
-  opts: { rcId: string; status: 'open' | 'done'; tagId?: string | null; from?: string | null; place?: string | null },
+  opts: { rcId: string; status: ListStatus; tagId?: string | null; from?: string | null; place?: string | null },
   now = new Date(),
 ): Promise<ItemView[]> {
   const and: Prisma.InboxItemWhereInput[] = [
     ...visibleWhere(user, opts.rcId),
-    opts.status === 'done' ? doneWhere(now) : openWhere(now),
+    statusWhere(opts.status, now),
   ]
   if (opts.tagId) and.push({ tagId: opts.tagId })
   if (opts.from) and.push({ raisedById: opts.from })
@@ -200,16 +208,17 @@ export async function loadItems(
     .sort(bySeverityThenNewest)
 }
 
-/** Open count per tag (for the chips), plus the Open / Done tab totals. Ignores list filters. */
+/** Open count per tag (for the chips), plus the Open / Snoozed / Done totals. Ignores list filters. */
 export async function loadCounts(user: User, rcId: string, tags: TagLite[], now = new Date()): Promise<Counts> {
   const visible = visibleWhere(user, rcId)
-  const [grouped, done] = await Promise.all([
+  const [grouped, done, snoozed] = await Promise.all([
     prisma.inboxItem.groupBy({
       by: ['tagId'],
       where: { AND: [...visible, openWhere(now)] },
       _count: { _all: true },
     }),
     prisma.inboxItem.count({ where: { AND: [...visible, doneWhere(now)] } }),
+    prisma.inboxItem.count({ where: { AND: [...visible, snoozedWhere(now)] } }),
   ])
   const tagsById = new Map(tags.map(t => [t.id, t]))
   const byTag: Record<string, number> = {}
@@ -220,7 +229,7 @@ export async function loadCounts(user: User, rcId: string, tags: TagLite[], now 
     byTag[g.tagId] = g._count._all
     open += g._count._all
   }
-  return { byTag, open, done }
+  return { byTag, open, done, snoozed }
 }
 
 /** Active tags this viewer may see (chips + retag choices). */

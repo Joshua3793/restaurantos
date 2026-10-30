@@ -39,7 +39,7 @@ export type InboxEventKind =
 
 export type InboxEvent = { kind: InboxEventKind; byName: string | null; note: string | null; at: string }
 
-export type InboxCounts = { byTag: Record<string, number>; open: number; done: number }
+export type InboxCounts = { byTag: Record<string, number>; open: number; done: number; snoozed: number }
 
 export type InboxList = { items: InboxItem[]; counts: InboxCounts; tags: TagLite[] }
 
@@ -53,7 +53,7 @@ export type InboxAction =
   | { kind: 'reopen' }
   | { kind: 'retag'; tagId: string }
 
-/** The one list the page shows: three slices of the open list, or done. */
+/** The one list the page shows: open (or its waiting slice), snoozed (still asleep), or done. */
 export type InboxView = 'open' | 'snoozed' | 'waiting' | 'done'
 
 // ── times ──────────────────────────────────────────────────────────────────
@@ -160,6 +160,22 @@ export function metaLine(item: Pick<InboxItem, 'title' | 'body' | 'place' | 'rai
   return [item.raisedByName, item.place, said].filter(Boolean).join(' · ')
 }
 
+/**
+ * The done pill: who fixed it, or — when it closed itself — the app's own
+ * reason from the latest CLEARED event, in caps.
+ */
+export function doneLabel(
+  item: Pick<InboxItem, 'doneByName' | 'clearedAt'>,
+  events: Pick<InboxEvent, 'kind' | 'note'>[],
+): string {
+  if (item.doneByName?.trim()) return `FIXED BY ${item.doneByName.trim().toUpperCase()}`
+  if (item.clearedAt) {
+    const note = [...events].reverse().find(e => e.kind === 'CLEARED')?.note?.trim()
+    return note ? note.toUpperCase() : 'CLEARED'
+  }
+  return 'FIXED'
+}
+
 /** Who did it — events with no name were written by the app. */
 export const who = (e: Pick<InboxEvent, 'byName'>) => e.byName?.trim() || 'The app'
 
@@ -177,7 +193,8 @@ export function eventText(e: InboxEvent, source: InboxSource): string {
     case 'WAITING': return quoted ? `Waiting on someone: ${quoted}` : 'Waiting on someone'
     case 'DONE': return quoted ? `Fixed by ${name}: ${quoted}` : `Fixed by ${name}`
     case 'REOPENED': return 'Reopened'
-    case 'CLEARED': return 'Cleared itself'
+    // The app says why it closed it: 'Day ended — not fixed', 'Cleared itself — the job was redone'.
+    case 'CLEARED': return e.note?.trim() || 'Cleared itself'
     case 'RETAGGED': {
       // Stored as "Old → New".
       const to = e.note?.split('→').pop()?.trim()

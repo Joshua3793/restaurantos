@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   whenLabel, groupBySeverity, applyFilter, placesOf, peopleOf, countByTag,
-  extraBody, metaLine, eventText, eventBy, goToLabel, type InboxItem, type InboxEvent,
+  extraBody, metaLine, eventText, eventBy, goToLabel, doneLabel, type InboxItem, type InboxEvent,
 } from '../format'
 
 const TAG = { id: 't1', builtIn: null, name: 'Maintenance', color: '#ea580c', cookCanPick: true, managerOnly: false, isActive: true }
@@ -106,6 +106,30 @@ describe('eventText', () => {
     expect(eventBy(ev({ kind: 'SNOOZED' }))).toBe('Josh')
     expect(eventBy(ev({ kind: 'SEEN' }))).toBeNull()
     expect(eventBy(ev({ kind: 'SNOOZED', byName: null }))).toBeNull()
+  })
+})
+
+describe('cleared items say why', () => {
+  it('a CLEARED event reads its note, trimmed', () => {
+    expect(eventText(ev({ kind: 'CLEARED', byName: null, note: '  Day ended — not fixed ' }), 'FLAG')).toBe('Day ended — not fixed')
+    expect(eventText(ev({ kind: 'CLEARED', byName: null, note: 'Opening window ended — never started' }), 'SYSTEM'))
+      .toBe('Opening window ended — never started')
+    expect(eventText(ev({ kind: 'CLEARED', byName: null, note: '   ' }), 'SYSTEM')).toBe('Cleared itself')
+  })
+  it('the done pill names who fixed it', () => {
+    expect(doneLabel({ doneByName: 'Josh', clearedAt: null }, [])).toBe('FIXED BY JOSH')
+  })
+  it('the done pill uses the latest CLEARED note when it closed itself', () => {
+    const events = [
+      ev({ kind: 'CLEARED', note: 'Day ended — not fixed' }),
+      ev({ kind: 'REOPENED' }),
+      ev({ kind: 'CLEARED', note: 'Cleared itself — the job was redone' }),
+    ]
+    expect(doneLabel({ doneByName: null, clearedAt: '2026-10-30T15:00:00Z' }, events)).toBe('CLEARED ITSELF — THE JOB WAS REDONE')
+  })
+  it('falls back to CLEARED with no note (or before the history loads)', () => {
+    expect(doneLabel({ doneByName: null, clearedAt: '2026-10-30T15:00:00Z' }, [])).toBe('CLEARED')
+    expect(doneLabel({ doneByName: null, clearedAt: '2026-10-30T15:00:00Z' }, [ev({ kind: 'CLEARED', note: null })])).toBe('CLEARED')
   })
 })
 

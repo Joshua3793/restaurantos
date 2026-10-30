@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Check, X } from 'lucide-react'
 import type { TagLite } from '@/lib/inbox/rules'
 import {
-  SEVERITY_PILL, eventBy, eventText, extraBody, goToLabel, whenLabel,
+  SEVERITY_PILL, doneLabel, eventBy, eventText, extraBody, goToLabel, whenLabel,
   type InboxAction, type InboxEvent, type InboxItem,
 } from './format'
 import { TagDot } from './TagChips'
@@ -20,6 +20,9 @@ export type ItemDetailProps = {
   events: InboxEvent[]
   /** Still fetching the history (the row's own data shows meanwhile). */
   loading: boolean
+  /** The history fetch failed: show a Retry instead of an endless "Loading…". */
+  loadFailed: boolean
+  onRetry: () => void
   /** The viewer raised it but it has since moved somewhere only a manager sees. */
   limited: boolean
   tags: TagLite[]
@@ -65,10 +68,12 @@ function Timeline({ events, source, now, compact }: { events: InboxEvent[]; sour
   return (
     <div className="border border-line rounded-xl overflow-hidden">
       <div className="px-3.5 py-2.5 font-mono text-[10px] tracking-[0.08em] text-ink-3 border-b border-line">WHAT HAPPENED</div>
+      {/* Rows divide each other; the header's own line is the only one above the first. */}
+      <div className="divide-y divide-bg-2">
       {events.map((e, i) => {
         const by = eventBy(e)
         return (
-          <div key={`${e.at}-${e.kind}-${i}`} className="grid grid-cols-[minmax(44px,auto)_minmax(0,1fr)] gap-2.5 px-3.5 py-[9px] border-t border-bg-2 first-of-type:border-t-0">
+          <div key={`${e.at}-${e.kind}-${i}`} className="grid grid-cols-[minmax(44px,auto)_minmax(0,1fr)] gap-2.5 px-3.5 py-[9px]">
             <span className="font-mono text-[11px] font-semibold text-ink-2 whitespace-nowrap">{whenLabel(e.at, now)}</span>
             <span className={`${compact ? 'text-[13px]' : 'text-[13.5px]'} text-ink break-words`}>
               {eventText(e, source)}
@@ -77,6 +82,7 @@ function Timeline({ events, source, now, compact }: { events: InboxEvent[]; sour
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
@@ -97,6 +103,7 @@ export function ItemDetail(p: ItemDetailProps & { variant: 'sheet' | 'pane' }) {
           <TagPill item={item} tags={p.tags} canRetag={p.canRetag && !limited} busy={p.busy} onAct={p.onAct} />
           <span className={`${PILL} font-medium ${SEVERITY_PILL[item.severity]}`}>{item.severity}</span>
           {item.status === 'WAITING' && <span className={`${PILL} font-medium bg-bg-2 text-ink-2`}>WAITING</span>}
+          {item.status === 'SNOOZED' && <span className={`${PILL} font-medium bg-bg-2 text-ink-2`}>SNOOZED</span>}
         </div>
         <h2 className="m-0 text-[20px] leading-[1.2] font-semibold tracking-[-0.03em]">{item.title}</h2>
         {body && (
@@ -107,7 +114,7 @@ export function ItemDetail(p: ItemDetailProps & { variant: 'sheet' | 'pane' }) {
         {origin && <span className="font-mono text-[10.5px] text-ink-3">{origin}</span>}
         {done && (
           <span className="font-mono text-[11px] text-green-text">
-            {item.doneByName ? `FIXED BY ${item.doneByName.toUpperCase()}` : item.clearedAt ? 'CLEARED ITSELF' : 'FIXED'}
+            {doneLabel(item, events)}
             {(item.doneAt ?? item.clearedAt) ? ` · ${whenLabel(item.doneAt ?? item.clearedAt, now)}` : ''}
           </span>
         )}
@@ -122,7 +129,18 @@ export function ItemDetail(p: ItemDetailProps & { variant: 'sheet' | 'pane' }) {
         <p className="m-0 text-[14px] text-ink-3">A manager is looking after this one.</p>
       ) : (
         <>
-          {loading && events.length === 0 ? (
+          {p.loadFailed && events.length === 0 ? (
+            <div className="border border-line rounded-xl px-3.5 py-1.5 flex items-center justify-between gap-3">
+              <span className="font-mono text-[11px] text-red-text">Couldn’t load —</span>
+              <button
+                type="button"
+                onClick={p.onRetry}
+                className="min-h-[44px] px-2 font-mono text-[11px] text-gold-2"
+              >
+                Retry
+              </button>
+            </div>
+          ) : loading && events.length === 0 ? (
             <div className="border border-line rounded-xl px-3.5 py-3 font-mono text-[11px] text-ink-3">Loading…</div>
           ) : events.length > 0 ? (
             <Timeline events={events} source={item.source} now={now} compact={pane} />

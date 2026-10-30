@@ -186,14 +186,51 @@ describe('GET /api/inbox', () => {
     ]))
   })
 
-  it('returns open + done totals', async () => {
+  it('returns open + snoozed + done totals', async () => {
     itemGroupBy.mockResolvedValue([
       { tagId: 'tag-food_safety', _count: { _all: 2 } },
       { tagId: 'tag-team', _count: { _all: 3 } },
     ])
-    itemCount.mockResolvedValue(7)
+    const statusOf = (a: unknown) =>
+      ((a as { where: { AND: Record<string, unknown>[] } }).where.AND.find(w => 'status' in w) ?? {}).status
+    itemCount.mockImplementation(async (a: unknown) => (statusOf(a) === 'SNOOZED' ? 2 : 7))
     const body = await (await listRoute.GET(req('?rcId=rc1'))).json()
-    expect(body.counts).toEqual({ byTag: { 'tag-food_safety': 2, 'tag-team': 3 }, open: 5, done: 7 })
+    expect(body.counts).toEqual({ byTag: { 'tag-food_safety': 2, 'tag-team': 3 }, open: 5, done: 7, snoozed: 2 })
+  })
+
+  it('counts snoozed items only while they are still asleep, inside the viewer’s visibility', async () => {
+    await listRoute.GET(req('?rcId=rc1'))
+    const snoozedCall = itemCount.mock.calls
+      .map(c => (c[0] as { where: { AND: Record<string, unknown>[] } }).where)
+      .find(w => w.AND.some(x => x.status === 'SNOOZED'))!
+    expect(snoozedCall.AND).toEqual(expect.arrayContaining([
+      { OR: [{ revenueCenterId: 'rc1' }, { revenueCenterId: null }] },
+      { managerOnly: false, tag: { managerOnly: false } },
+      { status: 'SNOOZED', snoozeUntil: { gt: expect.any(Date) } },
+    ]))
+  })
+
+  it('status=snoozed lists items still asleep (snoozeUntil in the future), not the open list', async () => {
+    itemFindMany.mockResolvedValue([
+      row('s', { status: 'SNOOZED', snoozeUntil: new Date(NOW + 3_600_000) }),
+    ])
+    const body = await (await listRoute.GET(req('?rcId=rc1&status=snoozed'))).json()
+    const where = (itemFindMany.mock.calls[0][0] as { where: { AND: Record<string, unknown>[] } }).where
+    const snoozed = where.AND.find(w => w.status === 'SNOOZED') as { snoozeUntil: { gt: Date } }
+    expect(snoozed).toBeTruthy()
+    expect(Math.abs(snoozed.snoozeUntil.gt.getTime() - Date.now())).toBeLessThan(5_000)
+    // Not the open filter, not the done filter.
+    expect(where.AND.some(w => 'OR' in w && JSON.stringify(w).includes('WAITING'))).toBe(false)
+    expect(where.AND.some(w => w.status === 'DONE')).toBe(false)
+    expect(body.items.map((i: { id: string; status: string }) => [i.id, i.status])).toEqual([['s', 'SNOOZED']])
+  })
+
+  it('an unknown status falls back to the open list', async () => {
+    await listRoute.GET(req('?rcId=rc1&status=bogus'))
+    const where = (itemFindMany.mock.calls[0][0] as { where: { AND: unknown[] } }).where
+    expect(where.AND).toContainEqual(
+      { OR: [{ status: { in: ['OPEN', 'WAITING'] } }, { status: 'SNOOZED', snoozeUntil: { lte: expect.any(Date) } }] },
+    )
   })
 })
 
