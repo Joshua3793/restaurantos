@@ -83,11 +83,11 @@ export function useStartData() {
     else setInboxError(true)
   }, [rcOnly, isLead])
 
-  // A new kitchen: the old kitchen's list must not show while the new one loads.
+  // A new kitchen: nothing from the old one (list, prep, figures) may show while the new one loads.
   useEffect(() => {
     inboxSeq.current++
     setInbox(null); setInboxError(false); setLoaded(false)
-    setRaw(r => ({ ...r, stations: [], handovers: [], lastClose: null, orders: null }))
+    setRaw(EMPTY)
   }, [rcOnly])
 
   useEffect(() => {
@@ -145,8 +145,11 @@ export function useStartData() {
       }
     }
     load()
-    const id = setInterval(load, 60_000)
-    return () => { cancelled = true; clearInterval(id) }
+    // A hidden tab does not poll; it catches up the moment it is visible again.
+    const tick = () => { if (document.visibilityState === 'visible') load() }
+    const id = setInterval(tick, 60_000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', tick) }
   }, [ready, userLoading, activeKind, activeRcId, activeRc, activeLocationId, tick, isManager, isLead, rcOnly, phase, loadInbox])
 
   const services = useMemo<RcService[]>(

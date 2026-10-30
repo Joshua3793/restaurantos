@@ -13,7 +13,7 @@ import { useStartData, type StartData } from './useStartData'
 import { greetingFor, crumbDate, personName } from './parts'
 import {
   Lede, LastNight, PassItemDialog, StationTileWide, ItemCta, TagLine, WhenPill, VALUE_TONE,
-  numberRows, useInboxCount, usePassItem,
+  ReportButton, numberRows, useInboxCount, usePassItem,
 } from './PassParts'
 
 // The desktop Pass (/pass, MANAGER+). Follows the PassDesktop mockup: the
@@ -55,10 +55,12 @@ export function StartDesktop() {
               {d.loaded && d.isRc && laterToday > 0 && <> {laterToday} more today in the Inbox.</>}
             </span>
           }
-          actions={d.isRc && (
+          actions={<>
+            <ReportButton d={d} />
+            {d.isRc && (
             <Link
               href="/inbox"
-              className="inline-flex items-center gap-2 min-h-[40px] px-3.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2"
+              className="inline-flex items-center gap-2 min-h-[44px] px-3.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2"
             >
               Open Inbox
               {inboxCount != null && inboxCount > 0 && (
@@ -66,7 +68,8 @@ export function StartDesktop() {
               )}
               <span className="text-gold" aria-hidden>→</span>
             </Link>
-          )}
+            )}
+          </>}
         />
 
         <ServiceBand d={d} />
@@ -176,7 +179,7 @@ function NeedsFirst({ d, top, onOpen, now }: { d: StartData; top: InboxItem[]; o
       ) : d.inboxError && !d.inbox ? (
         <div className="px-[18px] py-8 flex items-center justify-center gap-3">
           <span className="text-[14px] text-ink-3">Could not load the Inbox.</span>
-          <button type="button" onClick={() => d.loadInbox()} className="min-h-[40px] px-3.5 rounded-full border border-line-2 font-mono text-[11px] hover:border-ink-3">Try again</button>
+          <button type="button" onClick={() => d.loadInbox()} className="min-h-[44px] px-3.5 rounded-full border border-line-2 font-mono text-[11px] hover:border-ink-3">Try again</button>
         </div>
       ) : top.length === 0 ? (
         <div className="px-[18px] py-10 text-center">
@@ -210,7 +213,7 @@ function Stations({ d, now }: { d: StartData; now: Date }) {
         <h2 className="text-[13.5px] font-semibold">Stations · {d.phase === 'OPEN' ? 'opening' : 'closing'}</h2>
         <div className="flex gap-4 items-center">
           <span className="font-mono text-[10.5px] text-ink-3">{done} OF {of} DONE</span>
-          <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 hover:text-ink">Station board →</Link>
+          <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 hover:text-ink min-h-[44px] inline-flex items-center">Station board →</Link>
         </div>
       </div>
       <div className="grid grid-cols-3 xl:grid-cols-6 gap-2.5">
@@ -232,7 +235,7 @@ function InboxByTag({ d }: { d: StartData }) {
       {rows.length === 0 ? (
         <p className="text-[13.5px] text-ink-3">Nothing open. All clear.</p>
       ) : rows.map(r => (
-        <Link key={r.tag.id} href="/inbox" className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[34px] text-ink hover:text-gold-2">
+        <Link key={r.tag.id} href="/inbox" className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[44px] text-ink hover:text-gold-2">
           <TagDot color={r.tag.color} />
           <span className="text-[13.5px] truncate">{r.tag.name}</span>
           <span className="font-mono text-[12px] font-semibold text-right tabular-nums">{r.count}</span>
@@ -279,7 +282,7 @@ function Scoreboard({ d }: { d: StartData }) {
           onClick={syncSales}
           disabled={syncing}
           title="Pull today's sales from Toast now"
-          className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink disabled:opacity-60 min-h-[32px]"
+          className="inline-flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink disabled:opacity-60 min-h-[44px]"
         >
           <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Pulling…' : 'Update sales'}
         </button>
@@ -293,13 +296,13 @@ function Scoreboard({ d }: { d: StartData }) {
               <span className={`font-mono font-semibold tabular-nums ${VALUE_TONE(r.tone)}`}>{r.value}</span>
             </>
           )
-          const cls = `flex justify-between py-2.5 text-[13.5px] ${i > 0 ? 'border-t border-bg-2' : ''}`
+          const cls = `flex justify-between items-center min-h-[44px] text-[13.5px] ${i > 0 ? 'border-t border-bg-2' : ''}`
           return r.href
             ? <Link key={r.label} href={r.href} className={`${cls} hover:text-gold-2`}>{inner}</Link>
             : <div key={r.label} className={cls}>{inner}</div>
         })}
       </div>
-      <Link href="/reports" className="inline-block text-[12.5px] text-gold-2 mt-1 hover:text-ink">All the numbers →</Link>
+      <Link href="/reports" className="inline-flex items-center min-h-[44px] text-[12.5px] text-gold-2 hover:text-ink">All the numbers →</Link>
     </section>
   )
 }

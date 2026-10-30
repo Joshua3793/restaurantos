@@ -9,7 +9,7 @@ import { greetingFor, crumbDate } from './parts'
 import { ChecklistCard } from './ChecklistCard'
 import {
   Lede, LastNight, PassItemDialog, StationTileSmall, ItemCta, TagLine, VALUE_TONE,
-  numberRows, usePassItem,
+  ReportButton, numberRows, usePassItem,
 } from './PassParts'
 
 // The phone Pass (/today) for LEAD+, and LEAD's /today on desktop too (in a
@@ -40,6 +40,7 @@ export function StartMobile() {
         <p className="text-[15px] leading-[1.45] text-ink-2">
           <Lede d={d} nowCount={nowN} />
         </p>
+        <ReportButton d={d} className="self-start mt-1.5" />
       </header>
 
       {!d.isManager && <ChecklistCard rcId={d.rcId} phase={d.phase} pickedOnly label="Your station" />}
@@ -171,7 +172,7 @@ function Numbers({ d }: { d: StartData }) {
             <span className={`font-mono font-semibold tabular-nums ${VALUE_TONE(r.tone)}`}>{r.value}</span>
           </>
         )
-        const cls = `flex justify-between items-baseline py-[11px] text-[14px] ${i > 0 ? 'border-t border-bg-2' : ''}`
+        const cls = `flex justify-between items-center min-h-[44px] py-2 text-[14px] ${i > 0 ? 'border-t border-bg-2' : ''}`
         return r.href
           ? <Link key={r.label} href={r.href} className={cls}>{inner}</Link>
           : <div key={r.label} className={cls}>{inner}</div>

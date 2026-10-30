@@ -1,7 +1,9 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { Flag } from 'lucide-react'
 import { useToast } from '@/components/Toast'
+import { ReportSheet } from '@/components/inbox/ReportSheet'
 import { call, type Result } from '@/components/inbox/api'
 import { ItemPane, ItemSheet, type ItemDetailProps } from '@/components/inbox/ItemSheet'
 import { TagDot } from '@/components/inbox/TagChips'
@@ -23,7 +25,8 @@ const WHOLE_KITCHEN_DOT = '#71717a'
 
 export function Lede({ d, nowCount }: { d: StartData; nowCount: number }) {
   if (!d.isRc) return <>Pick a kitchen in the top bar to see what needs you.</>
-  if (!d.loaded) return <>Loading…</>
+  if (d.inboxError && !d.inbox) return <>Couldn&apos;t load the Inbox. Try again below.</>
+  if (!d.loaded || !d.inbox) return <>Loading…</>
   const l = passLede(d.status, nowCount)
   return (
     <>
@@ -304,3 +307,26 @@ export function numberRows(d: Pick<StartData, 'yesterday' | 'foodCost' | 'hasOrd
 
 export const VALUE_TONE = (t?: NumberRow['tone']) =>
   t === 'bad' ? 'text-red-text' : t === 'ok' ? 'text-green-text' : t === 'muted' ? 'text-ink-3' : 'text-ink'
+
+// ── report something (LEAD+; the Pass replaced the cook screen for leads) ───
+
+/** The "Report something" button and its sheet. A sent report lands in the list at once. */
+export function ReportButton({ d, className = '' }: { d: StartData; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const sent = () => {
+    void d.loadInbox()
+    if (d.rcId) void refreshInboxCount(d.rcId)
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`min-h-[44px] px-4 inline-flex items-center gap-2 rounded-full border border-line bg-paper text-[13.5px] font-medium text-ink-2 hover:border-ink-3 ${className}`}
+      >
+        <Flag size={14} aria-hidden /> Report something
+      </button>
+      <ReportSheet open={open} onClose={() => setOpen(false)} rcId={d.rcId} onSent={sent} />
+    </>
+  )
+}
