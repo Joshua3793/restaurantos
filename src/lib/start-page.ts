@@ -11,7 +11,7 @@
 
 import { isSafe, rangeText, fmtTemp } from '@/components/temps/temp-utils'
 import type { RcService, ServiceStatus } from '@/lib/service-hours'
-import { runProgress, sharedRunComplete, type LineLike } from '@/lib/checklists/rules'
+import { runProgress, type LineLike } from '@/lib/checklists/rules'
 
 // ── Inputs (the slices of each API response the rules read) ─────────────────
 
@@ -204,20 +204,22 @@ export type ChecklistSummary =
   | { state: 'done'; handled: number; total: number }
 
 /**
- * What the cook's start card says: no station picked yet; in progress across the
- * cook's stations plus the whole-kitchen list ("Grill + Fry"); or done, once
- * every station of theirs is signed off and the whole-kitchen list is handled.
+ * What the cook's start card says: no station picked yet; in progress on the
+ * cook's stations ("Grill + Fry · 6 of 12"); or done once every one of the
+ * cook's runs is signed off. Counts are the cook's own lines. Whole-kitchen
+ * blockers left still count toward "N before doors" while the cook is open;
+ * whole-kitchen non-blockers never hold the card open.
  */
 export function checklistSummary(view: StartCookChecklist): ChecklistSummary {
   if (view.mine.length === 0) return { state: 'pick' }
   const nameOf = new Map(view.stations.map(s => [s.id, s.name]))
   const names = view.mine.map(r => nameOf.get(r.stationId) ?? 'Station').join(' + ')
-  const p = runProgress([...view.mine.flatMap(r => r.lines), ...(view.shared?.lines ?? [])])
-  const sharedDone = !view.shared || view.shared.lines.length === 0 || sharedRunComplete(view.shared.lines)
-  if (view.mine.every(r => r.status === 'SIGNED') && sharedDone) {
+  const p = runProgress(view.mine.flatMap(r => r.lines))
+  if (view.mine.every(r => r.status === 'SIGNED')) {
     return { state: 'done', handled: p.handled, total: p.total }
   }
-  return { state: 'doing', names, handled: p.handled, total: p.total, blockersLeft: p.blockersLeft }
+  const sharedBlockersLeft = view.shared ? runProgress(view.shared.lines).blockersLeft : 0
+  return { state: 'doing', names, handled: p.handled, total: p.total, blockersLeft: p.blockersLeft + sharedBlockersLeft }
 }
 
 // ── Prices, invoices, counts ────────────────────────────────────────────────

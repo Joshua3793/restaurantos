@@ -189,10 +189,12 @@ const PILL: Record<StationTone, string> = {
   grey: 'bg-bg-2 text-ink-2',
 }
 
-export function CloseDown({ rcId, closeState, tempUnits }: {
+export function CloseDown({ rcId, closeState, tempUnits, refreshTick }: {
   rcId: string
   closeState: EodCloseState | null
   tempUnits: TempUnit[]
+  /** Bumps each time the page re-reads the gate, so the station list follows. */
+  refreshTick: number
 }) {
   const router = useRouter()
   const m = computeDayMetrics(tempUnits)
@@ -216,7 +218,7 @@ export function CloseDown({ rcId, closeState, tempUnits }: {
         />
       </div>
 
-      <StationClosingCard rcId={rcId} closeState={closeState} />
+      <StationClosingCard rcId={rcId} closeState={closeState} refreshTick={refreshTick} />
     </div>
   )
 }
@@ -226,13 +228,14 @@ export function CloseDown({ rcId, closeState, tempUnits }: {
  * station board (GET /api/checklists/today?phase=CLOSE). The count and the gate
  * come from the close's own progress, so they always agree with sign-off.
  */
-function StationClosingCard({ rcId, closeState }: { rcId: string; closeState: EodCloseState | null }) {
+function StationClosingCard({ rcId, closeState, refreshTick }: { rcId: string; closeState: EodCloseState | null; refreshTick: number }) {
   const [stations, setStations] = useState<TodayStation[] | null>(null)
   const [failed, setFailed] = useState(false)
   const p = closeState?.progress
-  // Refetch when the close's own answer changes (a sign-off attempt, a reopen) —
-  // not on every closeState change, which includes each handover keystroke.
-  const refreshKey = `${closeState?.close.status ?? ''}|${p?.stationsSigned ?? ''}|${p?.stationsTotal ?? ''}`
+  // Refetch when the page re-reads the gate, or the close's own answer changes
+  // (a sign-off attempt, a reopen) — not on every closeState change, which
+  // includes each handover keystroke.
+  const refreshKey = `${refreshTick}|${closeState?.close.status ?? ''}|${p?.stationsSigned ?? ''}|${p?.stationsTotal ?? ''}|${p?.sharedBlockersLeft ?? ''}`
 
   useEffect(() => {
     let cancelled = false
@@ -257,9 +260,16 @@ function StationClosingCard({ rcId, closeState }: { rcId: string; closeState: Eo
     <div className={`${card} mb-3`}>
       <div className={cardHead}>
         <h3 className="text-[13px] font-semibold">
-          Station closing <span className={`font-normal ${p && !allSigned ? 'text-red-text' : 'text-ink-3'}`}>· {count}</span>
+          Station closing <span className={`font-normal ${p && !allSigned ? 'text-red-text' : 'text-ink-3'}`}>· <span className="font-mono tabular-nums">{count}</span></span>
         </h3>
       </div>
+      {p && p.sharedBlockersLeft > 0 && (
+        <div className="flex items-center gap-3 px-[18px] py-2.5 border-b border-line bg-red-soft/30">
+          <span className="min-w-0 flex-1 text-[13px] font-medium text-red-text">
+            Whole kitchen · <span className="font-mono tabular-nums">{p.sharedBlockersLeft}</span> before you leave
+          </span>
+        </div>
+      )}
       {stations === null ? (
         <div className="p-6 text-center text-ink-3 font-mono text-[11px]">{failed ? 'Could not load the stations.' : 'Loading stations…'}</div>
       ) : stations.length === 0 ? (
@@ -635,14 +645,13 @@ function GateCard({ closeState, isRcScoped, canSeeMoney, signoffError, onSignOff
   } else if (blockers > 0) {
     title = 'Not ready to close'
     const stationsLeft = (progress?.stationsTotal ?? 0) - (progress?.stationsSigned ?? 0)
+    const sharedLeft = progress?.sharedBlockersLeft ?? 0
     const parts = [
       stationsLeft > 0 ? `${stationsLeft} station${stationsLeft > 1 ? 's' : ''} to sign off` : null,
+      sharedLeft > 0 ? `${sharedLeft} whole-kitchen job${sharedLeft > 1 ? 's' : ''} left` : null,
       progress?.hasTempUnits && !progress.tempsReady ? 'temps not clear' : null,
     ].filter(Boolean)
     sub = parts.length > 0 ? parts.join(' · ') : `${blockers} blocker${blockers > 1 ? 's' : ''} must clear`
-  } else if (!ready) {
-    title = 'Almost closed'
-    sub = `${total - done} check${total - done > 1 ? 's' : ''} left`
   } else {
     title = 'Ready to close'
     sub = 'Every check is clear. Sign off the day.'

@@ -300,13 +300,22 @@ function ChecklistScreen() {
     && view.shared.lines.some(l => l.isBlocker && l.status === 'TODO')
 
   const canReopen = !!role && atLeast(role as Role, 'LEAD')
+  const canSeeBoard = canReopen   // the board (/checklist/today) is LEAD+ too
 
   return (
     <div className="max-w-[480px] mx-auto w-full flex flex-col">
       <header className="flex items-center justify-between gap-3">
-        <Link href="/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center gap-0.5 -ml-1">
-          <ChevronLeft size={16} aria-hidden /> Today
-        </Link>
+        <div className="flex items-center gap-3 min-w-0">
+          <Link href="/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center gap-0.5 -ml-1">
+            <ChevronLeft size={16} aria-hidden /> Today
+          </Link>
+          {/* Leads and up run the whole kitchen from the board. */}
+          {canSeeBoard && (
+            <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center whitespace-nowrap">
+              Station board →
+            </Link>
+          )}
+        </div>
         <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Opening or closing">
           {(['OPEN', 'CLOSE'] as Phase[]).map(p => (
             <button

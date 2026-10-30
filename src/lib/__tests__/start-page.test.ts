@@ -180,22 +180,23 @@ describe('checklistSummary', () => {
     expect(checklistSummary({ stations, mine: [], shared: null })).toEqual({ state: 'pick' })
   })
 
-  it('joins the cook\'s stations and counts the whole-kitchen jobs too', () => {
+  it('joins the cook\'s stations; whole-kitchen blockers add to "before doors"', () => {
     expect(checklistSummary({
       stations,
       mine: [
         { stationId: 'g', status: 'OPEN', lines: [line('DONE'), line('TODO', true), line('TODO', true)] },
         { stationId: 'f', status: 'OPEN', lines: [line('FLAGGED', true), line('TODO')] },
       ],
-      shared: { lines: [line('DONE'), line('TODO', true)] },
-    })).toEqual({ state: 'doing', names: 'Grill + Fry', handled: 3, total: 7, blockersLeft: 3 })
+      shared: { lines: [line('DONE'), line('TODO', true), line('TODO')] },
+    })).toEqual({ state: 'doing', names: 'Grill + Fry', handled: 2, total: 5, blockersLeft: 3 })
   })
 
-  it('is done once every station is signed and the whole-kitchen list is handled', () => {
-    const signed = { stationId: 'g', status: 'SIGNED' as const, lines: [line('DONE'), line('DONE')] }
-    expect(checklistSummary({ stations, mine: [signed], shared: { lines: [line('DONE')] } }))
-      .toEqual({ state: 'done', handled: 3, total: 3 })
-    expect(checklistSummary({ stations, mine: [signed], shared: { lines: [line('TODO')] } }).state).toBe('doing')
+  it('is done once every one of the cook\'s runs is signed, whatever the whole-kitchen list says', () => {
+    const signed = { stationId: 'g', status: 'SIGNED' as const, lines: [line('DONE'), line('DONE'), line('TODO')] }
+    expect(checklistSummary({ stations, mine: [signed], shared: { lines: [line('TODO'), line('TODO', true)] } }))
+      .toEqual({ state: 'done', handled: 2, total: 3 })
+    const open = { stationId: 'f', status: 'OPEN' as const, lines: [line('DONE')] }
+    expect(checklistSummary({ stations, mine: [signed, open], shared: null }).state).toBe('doing')
   })
 })
 

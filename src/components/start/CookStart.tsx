@@ -162,7 +162,8 @@ export function CookStart() {
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
         <section aria-label={me ? 'My jobs' : 'Jobs'} className="min-w-0">
           {(tempRow || checklistRc) && (
-            <div className="flex flex-col gap-2 mb-4">
+            // empty:hidden — no gap left behind while the checklist card has nothing to say.
+            <div className="flex flex-col gap-2 mb-4 empty:hidden">
               {tempRow && <TempPrompt temp={tempRow} />}
               <ChecklistCard rcId={checklistRc} phase={phase} />
             </div>

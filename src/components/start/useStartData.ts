@@ -61,7 +61,7 @@ const getJson = (url: string) =>
  */
 export function useStartData() {
   const { activeRcId, activeRc, activeKind, activeLocationId, ready } = useRc()
-  const { role } = useUser()
+  const { role, loading: userLoading } = useUser()
   // The station board (and its flags) is LEAD+; below that the fetch would 403.
   const seesFlags = role != null && atLeast(role, 'LEAD')
   const { nowMs, nowMin } = useNowMinute()
@@ -71,7 +71,9 @@ export function useStartData() {
   const reload = useCallback(() => setTick(t => t + 1), [])
 
   useEffect(() => {
-    if (!ready) return
+    // Wait for the role too: it decides the flags fetch, and loading before it
+    // lands would run every request twice.
+    if (!ready || userLoading) return
     let cancelled = false
     const scope = new URLSearchParams()
     setScopeParams(scope, { activeKind, activeRcId, activeRc, activeLocationId })
@@ -130,7 +132,7 @@ export function useStartData() {
     load()
     const id = setInterval(load, 60_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [ready, activeKind, activeRcId, activeRc, activeLocationId, tick, seesFlags])
+  }, [ready, userLoading, activeKind, activeRcId, activeRc, activeLocationId, tick, seesFlags])
 
   const services = useMemo<RcService[]>(
     () => (activeKind === 'rc' ? ((activeRc?.services ?? []) as RcService[]) : []),

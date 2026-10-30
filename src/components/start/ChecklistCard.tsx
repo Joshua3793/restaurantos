@@ -44,7 +44,7 @@ export function ChecklistCard({ rcId, phase }: { rcId: string | null; phase: Pha
       <Link href="/checklist" className="w-full flex items-center gap-2.5 bg-green-soft rounded-[14px] px-4 min-h-[52px]">
         <Check size={16} className="text-green-text shrink-0" />
         <span className="flex-1 text-[14px] font-semibold text-green-text">
-          {phase === 'OPEN' ? 'Opening' : 'Closing'} done · {s.handled} of {s.total}
+          {phase === 'OPEN' ? 'Opening' : 'Closing'} done · <span className="font-mono tabular-nums">{s.handled} of {s.total}</span>
         </span>
         <ChevronRight size={17} className="text-green-text shrink-0" />
       </Link>
@@ -73,7 +73,7 @@ export function ChecklistCard({ rcId, phase }: { rcId: string | null; phase: Pha
         <ListChecks size={15} />
       </span>
       <span className="flex-1 min-w-0 text-[14.5px] font-semibold text-ink">
-        {s.names} {word} · {s.handled} of {s.total}
+        {s.names} {word} · <span className="font-mono tabular-nums">{s.handled} of {s.total}</span>
         {left && <span className={urgent ? 'text-red-text' : 'text-ink-3 font-medium'}> · {left}</span>}
       </span>
       <ChevronRight size={17} className="text-ink-4 shrink-0" />

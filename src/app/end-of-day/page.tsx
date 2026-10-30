@@ -42,6 +42,8 @@ export interface EodProgressDTO {
   hasTempUnits: boolean
   stationsSigned: number
   stationsTotal: number
+  /** Blocker jobs left on the whole-kitchen closing list (e.g. gas off). */
+  sharedBlockersLeft: number
 }
 
 export interface EodCloseState {
@@ -117,6 +119,51 @@ export default function EndOfDayPage() {
   }, [isRcScoped, activeRcId])
 
   useEffect(() => { loadClose() }, [loadClose])
+
+  // Cooks sign their stations off on their phones, so the gate must re-read
+  // itself: every 30 s while the close is open and the tab is visible, and on
+  // returning to the tab. Only the gate is merged — the handover note and the
+  // money fields stay exactly as the user left them (a save may be pending).
+  const [gateTick, setGateTick] = useState(0)
+  const rcRef = useRef(activeRcId)
+  rcRef.current = activeRcId
+  const lastGateRead = useRef(0)
+  const refreshGate = useCallback(() => {
+    if (!isRcScoped || !activeRcId) return
+    if (Date.now() - lastGateRead.current < 2_000) return   // focus + visibilitychange fire together
+    lastGateRead.current = Date.now()
+    const rcId = activeRcId
+    fetch(`/api/eod/close?rcId=${rcId}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: EodCloseState | null) => {
+        if (!d || rcRef.current !== rcId) return
+        setCloseState(prev => {
+          if (!prev || prev.close.id !== d.close.id) return prev
+          // Closed or reopened elsewhere: take the whole answer.
+          if (prev.close.status !== d.close.status) return d
+          return { ...prev, date: d.date, progress: d.progress }
+        })
+        setGateTick(t => t + 1)
+        return fetch(`/api/temps/units?rcId=${rcId}&date=${d.date}`, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : [])
+          .then(units => { if (Array.isArray(units) && rcRef.current === rcId) setTempUnits(units) })
+      })
+      .catch(() => {})
+  }, [isRcScoped, activeRcId])
+
+  const isDraft = closeState?.close.status === 'DRAFT'
+  useEffect(() => {
+    if (!isRcScoped || !isDraft) return
+    const tick = () => { if (document.visibilityState === 'visible') refreshGate() }
+    const id = setInterval(tick, 30_000)
+    document.addEventListener('visibilitychange', tick)
+    window.addEventListener('focus', tick)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', tick)
+      window.removeEventListener('focus', tick)
+    }
+  }, [isRcScoped, isDraft, refreshGate])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -300,6 +347,7 @@ export default function EndOfDayPage() {
                 rcId={activeRcId!}
                 closeState={closeState}
                 tempUnits={tempUnits}
+                refreshTick={gateTick}
               />
             ) : (
               <RcPicker revenueCenters={revenueCenters} onPick={setActiveRcId} />
