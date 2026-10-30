@@ -113,7 +113,7 @@ The cook types the PIN **first**; the app then asks "Sam L., is this you?". The 
 - **Device** = a random 32-byte token in an httpOnly, Secure, SameSite=Lax cookie `pin_device` (400 days), stored only as a SHA-256 hash. Statuses: `PENDING` | `APPROVED` | `REJECTED` | `REVOKED`. One phone can hold approvals for several cooks (the shared kitchen iPad). Clearing cookies makes it a new phone.
 - **Lockout.** 5 failed PIN tries in 15 minutes, per IP and per cook, returns 429 "Too many tries — wait 15 minutes". Attempts go in a table; there is no Redis.
 - **The account.** A cook with no login gets one the first time an approved device signs in:
-  - a Supabase user with the synthetic email `pin.<cookId>@crew.controlaos.app` (never emailed; `email_confirm: true`) and `user_metadata { role: 'STAFF', isActive: true, name }`
+  - a Supabase user with the synthetic email `pin.<cookId>@crew.controlaos.vercel.app` (never emailed; `email_confirm: true`) and `user_metadata { role: 'STAFF', isActive: true, name }`
   - a Prisma `User` with the same id
   - `Cook.userId` set to it
 

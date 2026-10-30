@@ -22,7 +22,7 @@
 - The PIN is NOT a secret: it is printed on clock reports and tip exports. **Never create a session for an unapproved device.** Never log a PIN or a raw device token. Never return whether a PIN exists without counting the attempt.
 - Lockout is exactly **5 failed tries in 15 minutes, per IP and per cook**. The answer is 429 `{ error: 'Too many tries — wait 15 minutes' }`.
 - The device cookie is `pin_device`: httpOnly, `secure` in production, `sameSite: 'lax'`, `path: '/'`, `maxAge` 400 days. The DB stores only `sha256(token)` as hex.
-- The synthetic login email is exactly `pin.<cookId>@crew.controlaos.app`. It is created with `email_confirm: true` and never emailed. New PIN accounts get `role: 'STAFF'`, `isActive: true`, no `UserScope` rows, and Prisma `User.id` equal to the Supabase id. Both stores are written together (see the CLAUDE.md "Two-store sync invariant").
+- The synthetic login email is exactly `pin.<cookId>@crew.controlaos.vercel.app`. It is created with `email_confirm: true` and never emailed. New PIN accounts get `role: 'STAFF'`, `isActive: true`, no `UserScope` rows, and Prisma `User.id` equal to the Supabase id. Both stores are written together (see the CLAUDE.md "Two-store sync invariant").
 - Display name is the first name plus the last initial: `"Sam L."` (from `Cook.name` and `Cook.lastName`, or the second word of `name` when `lastName` is null).
 - Public PIN routes live under `/api/auth/pin/*`. The page is `/auth/pin` (already public through middleware `PUBLIC_PREFIXES`).
 
@@ -60,7 +60,7 @@
   - `newDeviceToken()` has length 43 and two calls differ
   - `isLocked` with 5 failures inside the window → true; with 4 → false; with 5 where one is 16 minutes old → false
   - `pinDisplayName({ name: 'Sam', lastName: 'Lee' })` → `'Sam L.'`; `({ name: 'Sam Lee', lastName: null })` → `'Sam L.'`; `({ name: 'Raj', lastName: null })` → `'Raj'`
-  - `pinEmail('c1')` → `'pin.c1@crew.controlaos.app'`
+  - `pinEmail('c1')` → `'pin.c1@crew.controlaos.vercel.app'`
   - `deviceLabel` covers an iPhone UA, an Android UA and null
 - [ ] **Step 2:** Run `npx vitest run src/lib/__tests__/pin-rules.test.ts`. Expected: FAIL.
 - [ ] **Step 3:** Implement with `node:crypto`. Add the schema. Generate the migration SQL exactly as in the checklists plan, Task 1, step 2. Run `npx prisma generate`.
@@ -86,7 +86,7 @@
   - A cook with a linked active user (`user.findUnique` → `{ id: 'u9', email: 'sam@x.com', isActive: true }`) → returns `{ userId: 'u9', email: 'sam@x.com' }`. `auth.admin.createUser` is NOT called.
   - A cook with a linked inactive user → throws `PinError` 403 'This login is switched off'.
   - A cook with no user:
-    - calls `auth.admin.createUser` with `{ email: 'pin.c1@crew.controlaos.app', email_confirm: true, user_metadata: { role: 'STAFF', isActive: true, name: 'Sam Lee' } }`
+    - calls `auth.admin.createUser` with `{ email: 'pin.c1@crew.controlaos.vercel.app', email_confirm: true, user_metadata: { role: 'STAFF', isActive: true, name: 'Sam Lee' } }`
     - then `prisma.$transaction` creates `user` `{ id: <new id>, email, name: 'Sam Lee', role: 'STAFF', isActive: true }` and updates `cook` `{ userId: <new id> }`
     - returns the new id
   - If the Prisma transaction throws after `createUser`, `auth.admin.deleteUser(<new id>)` is called (rollback) and the error is rethrown.
