@@ -232,6 +232,17 @@ describe('POST /api/settings/people', () => {
     expect(res.status).toBe(400)
   })
 
+  it('refuses to invite a PIN sign-in address with 400, before creating anything', async () => {
+    const res = await POST(postReq({
+      ...rosterBody,
+      login: { ...loginBody.login, email: 'Pin.C1@Crew.ControlaOS.vercel.app' },
+    }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/PIN sign-in/)
+    expect(cookCreate).not.toHaveBeenCalled()
+    expect(inviteOne).not.toHaveBeenCalled()
+  })
+
   it('creates a roster-only person', async () => {
     const res = await POST(postReq(rosterBody))
     expect(res.status).toBe(201)

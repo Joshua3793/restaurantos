@@ -20,7 +20,7 @@ const deleteUser = vi.fn(async () => ({ error: null }))
 // The auth-side lookups are real vi.fn mocks, not fixed stubs: `hasAcceptedInvite`
 // selects between the re-invite and the reactivate branch, so a hard-coded `true`
 // would leave the whole `!hasAcceptedInvite` path (delete + REINVITE) untested.
-type AuthUser = { id: string; email_confirmed_at: string | null }
+type AuthUser = { id: string; email_confirmed_at: string | null; app_metadata?: Record<string, unknown> }
 const ACCEPTED: AuthUser = { id: 'auth-1', email_confirmed_at: '2026-01-01T00:00:00Z' }
 const findAuthUserByEmail = vi.fn(async (): Promise<AuthUser | null> => ACCEPTED)
 const hasAcceptedInvite = vi.fn((_u: AuthUser) => true)
@@ -282,5 +282,45 @@ describe('inviteOne', () => {
     expect(res.warning).toBe('Reactivated, but the audit log entry failed to write.')
     expect(res.error).toBeUndefined()
     expect(consoleError).toHaveBeenCalled()
+  })
+})
+
+describe('inviteOne — PIN accounts (RULING P9)', () => {
+  it('refuses an address on the PIN sign-in domain without calling Supabase', async () => {
+    const res = await inviteOne({ ...opts(), email: 'pin.c1@crew.controlaos.vercel.app' })
+    expect(res.status).toBe('failed')
+    expect(res.error).toMatch(/PIN sign-in/)
+    expect(inviteUserByEmail).not.toHaveBeenCalled()
+    expect(prismaTransaction).not.toHaveBeenCalled()
+  })
+
+  it.each(['MANAGER', 'ADMIN'] as const)('refuses to reactivate a PIN-stamped login as %s, writing nothing', async (role) => {
+    alreadyRegistered()
+    findAuthUserByEmail.mockResolvedValueOnce({ ...ACCEPTED, app_metadata: { pinCookId: 'c1' } })
+    userFindUnique.mockResolvedValueOnce({ role: 'STAFF' })
+    const res = await inviteOne({ ...opts(), role })
+    expect(res).toEqual({
+      email: 'sam@fergies.test',
+      status: 'failed',
+      error: 'This cook signs in with a PIN — give them an email login to make them a manager',
+    })
+    expect(prismaTransaction).not.toHaveBeenCalled()
+    expect(updateUserById).not.toHaveBeenCalled()
+    expect(deleteUser).not.toHaveBeenCalled()
+  })
+
+  it('still reactivates a PIN-stamped login as LEAD', async () => {
+    alreadyRegistered()
+    findAuthUserByEmail.mockResolvedValueOnce({ ...ACCEPTED, app_metadata: { pinCookId: 'c1' } })
+    priorPrismaUser({ name: 'Sam Lee', role: 'STAFF', isActive: false })
+    const res = await inviteOne({ ...opts(), role: 'LEAD' })
+    expect(res.status).toBe('reactivated')
+  })
+
+  it('an unstamped login is still promoted as before', async () => {
+    alreadyRegistered()
+    priorPrismaUser({ name: 'Sam Lee', role: 'STAFF', isActive: false })
+    const res = await inviteOne({ ...opts(), role: 'MANAGER' })
+    expect(res.status).toBe('reactivated')
   })
 })
