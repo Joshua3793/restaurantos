@@ -140,7 +140,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 
 ### Auth & roles
 
-Auth is **Supabase Auth**. `src/middleware.ts` protects every non-`/api` route: unauthenticated users → `/login`, deactivated users → `/login?error=deactivated`. `/login` and `/auth/*` are public. A `REDIRECTS` table maps legacy paths to the v2 layout (`/settings` → `/setup`, `/suppliers` → `/setup/suppliers`, …). Role gating reads `user_metadata`: `ADMIN_PREFIXES = ['/settings', '/setup']`; `MANAGER_PREFIXES = ['/reports', '/pass', '/cost', '/variance', '/signals', '/end-of-day']`. In non-production, `DEV_AUTH_BYPASS=true` skips auth entirely.
+Auth is **Supabase Auth**. `src/middleware.ts` protects every non-`/api` route: unauthenticated users → `/login`, deactivated users → `/login?error=deactivated`. `/login` and `/auth/*` are public. A `REDIRECTS` table maps legacy paths to the v2 layout (`/settings` → `/setup`, `/suppliers` → `/setup/suppliers`, …). Role gating reads `user_metadata.role` against `ROUTE_CLEARANCE` in `src/lib/route-access.ts` (the one route → minimum-role table, longest prefix wins; Navigation reads the same table). In non-production, `DEV_AUTH_BYPASS=true` skips auth entirely.
 
 - **Roles** — `ADMIN > MANAGER > STAFF` (`Role` enum). Strength compared via `ROLE_RANK` in `src/lib/auth.ts`.
 - **API route auth** — call `requireSession(minRole?)` from `src/lib/auth.ts`; it throws `AuthError(401|403)`. Catch it and return `NextResponse.json({ error }, { status })`. API routes are excluded from middleware, so each handler must guard itself.

@@ -15,7 +15,7 @@ export async function seedStationsIfEmpty(rcId: string): Promise<void> {
   if (rc && (rc.type ?? 'FOOD') !== 'FOOD') return
 
   // The old opening / end-of-day lists were copied into every revenue center
-  // once (scripts/copy-old-checklists.ts) before their tables were dropped, so a
+  // once (scripts/retire-old-checklists.ts) before their tables were dropped, so a
   // first open now only ever gets the starter lists.
   const { stations, categories, items } = buildSeed(rcId, [], [])
   await prisma.$transaction([
