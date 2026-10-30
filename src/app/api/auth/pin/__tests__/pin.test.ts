@@ -10,6 +10,7 @@ const deviceUpsert = vi.fn()
 const deviceUpdate = vi.fn()
 const deviceFindMany = vi.fn()
 const deviceUpdateMany = vi.fn()
+const deviceDeleteMany = vi.fn()
 const attemptFindMany = vi.fn()
 const attemptCreateMany = vi.fn()
 const attemptDeleteMany = vi.fn()
@@ -23,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
       update: (...a: unknown[]) => deviceUpdate(...a),
       findMany: (...a: unknown[]) => deviceFindMany(...a),
       updateMany: (...a: unknown[]) => deviceUpdateMany(...a),
+      deleteMany: (...a: unknown[]) => deviceDeleteMany(...a),
     },
     pinAttempt: {
       findMany: (...a: unknown[]) => attemptFindMany(...a),
@@ -44,21 +46,12 @@ vi.mock('@/lib/pin/account', () => ({
 
 const pinRoute = await import('@/app/api/auth/pin/route')
 const statusRoute = await import('@/app/api/auth/pin/status/route')
-const approveRoute = await import('@/app/api/auth/pin/approve-here/route')
-const { checkLock, recordAttempt, clientIp } = await import('@/lib/pin/attempts')
+const { checkLock, recordAttempt, clientIp, confirmKey } = await import('@/lib/pin/attempts')
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 const TOKEN = 'a'.repeat(43)
 const HASH = hashToken(TOKEN)
 const sam = { id: 'c1', name: 'Sam', lastName: 'Lee', userId: 'u1', isActive: true }
-const boss = {
-  id: 'c9',
-  name: 'Bea',
-  lastName: 'Boss',
-  userId: 'u9',
-  isActive: true,
-  user: { id: 'u9', name: 'Bea Boss', email: 'bea@fergies.ca', role: 'MANAGER', isActive: true },
-}
 const sessionCookies = [
   { name: 'sb-x-auth-token', value: 'session-value', options: { path: '/', sameSite: 'lax' as const, httpOnly: true } },
 ]
@@ -78,8 +71,6 @@ function post(url: string, body: unknown, opts: { cookie?: string; ip?: string; 
 }
 const signIn = (body: unknown, opts?: Parameters<typeof post>[2]) =>
   pinRoute.POST(post('/api/auth/pin', body, opts))
-const approveHere = (body: unknown, opts?: Parameters<typeof post>[2]) =>
-  approveRoute.POST(post('/api/auth/pin/approve-here', body, opts))
 
 const recent = (n: number, key: string) =>
   Array.from({ length: n }, (_, i) => ({ key, createdAt: new Date(Date.now() - (i + 1) * 60_000) }))
@@ -102,6 +93,7 @@ beforeEach(() => {
   deviceUpdate.mockResolvedValue({})
   deviceFindMany.mockResolvedValue([])
   deviceUpdateMany.mockResolvedValue({ count: 0 })
+  deviceDeleteMany.mockResolvedValue({ count: 0 })
   assertPinLoginAllowed.mockResolvedValue(undefined)
   ensurePinUser.mockResolvedValue({ userId: 'u1', email: 'pin.c1@crew.controlaos.vercel.app' })
   mintSession.mockResolvedValue(sessionCookies)
@@ -115,6 +107,9 @@ describe('clientIp', () => {
   const req = (h: Record<string, string>) => new NextRequest('http://localhost/x', { headers: h })
   it('takes the first x-forwarded-for entry, trimmed', () => {
     expect(clientIp(req({ 'x-forwarded-for': '  9.9.9.9 , 10.0.0.1' }))).toBe('9.9.9.9')
+  })
+  it('prefers the first x-vercel-forwarded-for entry', () => {
+    expect(clientIp(req({ 'x-vercel-forwarded-for': '7.7.7.7, 6.6.6.6', 'x-forwarded-for': '9.9.9.9' }))).toBe('7.7.7.7')
   })
   it('falls back to x-real-ip, then unknown', () => {
     expect(clientIp(req({ 'x-real-ip': '8.8.8.8' }))).toBe('8.8.8.8')
@@ -151,6 +146,29 @@ describe('checkLock', () => {
     const old = Array.from({ length: 5 }, () => ({ key: 'ip:1.2.3.4', createdAt: new Date(Date.now() - LOCK_WINDOW_MS - 60_000) }))
     attemptFindMany.mockResolvedValue(old)
     await expect(checkLock(['ip:1.2.3.4'])).resolves.toBeUndefined()
+  })
+})
+
+describe('checkLock — confirm keys', () => {
+  it('counts ok=true rows and locks at 10', async () => {
+    attemptFindMany.mockResolvedValue(recent(10, confirmKey('1.2.3.4')))
+    await expect(checkLock([confirmKey('1.2.3.4')])).rejects.toMatchObject({ status: 429 })
+    expect(attemptFindMany.mock.calls[0][0].where).toMatchObject({ key: { in: ['confirm:ip:1.2.3.4'] }, ok: true })
+  })
+
+  it('does not lock at 9', async () => {
+    attemptFindMany.mockResolvedValue(recent(9, confirmKey('1.2.3.4')))
+    await expect(checkLock([confirmKey('1.2.3.4')])).resolves.toBeUndefined()
+  })
+
+  it('failure keys still lock at 5 failed rows', async () => {
+    attemptFindMany.mockResolvedValue(recent(5, 'ip:1.2.3.4'))
+    await expect(checkLock(['ip:1.2.3.4'])).rejects.toMatchObject({ status: 429 })
+    expect(attemptFindMany.mock.calls[0][0].where.ok).toBe(false)
+  })
+
+  it('refuses to mix confirm and failure keys in one call', async () => {
+    await expect(checkLock(['ip:1.2.3.4', confirmKey('1.2.3.4')])).rejects.toThrow(/mix/)
   })
 })
 
@@ -232,7 +250,13 @@ describe('POST /api/auth/pin', () => {
     expect(mintSession).not.toHaveBeenCalled()
   })
 
-  it('right PIN, no cookie → needsConfirm with the short name, no session, no failure', async () => {
+  const OK_BOTH = [
+    { key: 'ip:1.2.3.4', ok: true },
+    { key: 'cook:c1', ok: true },
+  ]
+  const OK_CONFIRM = [...OK_BOTH, { key: 'confirm:ip:1.2.3.4', ok: true }]
+
+  it('right PIN, no cookie → needsConfirm with the short name, no session, ok rows only', async () => {
     cookFindFirst.mockResolvedValue(sam)
     const res = await signIn({ pin: '1234' })
     expect(res.status).toBe(200)
@@ -240,10 +264,10 @@ describe('POST /api/auth/pin', () => {
     expect(mintSession).not.toHaveBeenCalled()
     expect(ensurePinUser).not.toHaveBeenCalled()
     expect(deviceUpsert).not.toHaveBeenCalled()
-    expect(written().some((r) => !r.ok)).toBe(false)
+    expect(written()).toEqual(OK_BOTH)
   })
 
-  it('right PIN + confirm → pending, sets the device cookie, upserts a PENDING device', async () => {
+  it('right PIN + confirm → pending, sets the device cookie, creates a PENDING device', async () => {
     cookFindFirst.mockResolvedValue(sam)
     const res = await signIn({ pin: '1234', confirm: true })
     expect(res.status).toBe(200)
@@ -265,6 +289,18 @@ describe('POST /api/auth/pin', () => {
     expect(arg.create).toEqual({ tokenHash: hashToken(token), cookId: 'c1', status: 'PENDING', label: 'iPhone' })
     expect(arg.update).toEqual({})
     expect(mintSession).not.toHaveBeenCalled()
+    expect(written()).toEqual(OK_CONFIRM)
+  })
+
+  it('the device cookie is Secure in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      cookFindFirst.mockResolvedValue(sam)
+      const res = await signIn({ pin: '1234', confirm: true })
+      expect(res.headers.get('set-cookie') ?? '').toMatch(/;\s*Secure/i)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('confirm reuses the token already on the phone', async () => {
@@ -275,21 +311,83 @@ describe('POST /api/auth/pin', () => {
     expect(deviceUpsert.mock.calls[0][0].where).toEqual({ tokenHash_cookId: { tokenHash: HASH, cookId: 'c1' } })
   })
 
-  it('confirm on a REVOKED device sends it back to PENDING with a fresh request time', async () => {
+  it('confirm on a REVOKED device reopens it only while it is still REVOKED', async () => {
     cookFindFirst.mockResolvedValue(sam)
-    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'REVOKED', cookId: 'c1', tokenHash: HASH })
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'REVOKED' })
+    deviceUpdateMany.mockResolvedValue({ count: 1 })
     const before = Date.now()
-    await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
-    const update = deviceUpsert.mock.calls[0][0].update
-    expect(update).toMatchObject({ status: 'PENDING', approvedById: null, approvedByName: null, approvedAt: null })
-    expect((update.createdAt as Date).getTime()).toBeGreaterThanOrEqual(before)
+    const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    const arg = deviceUpdateMany.mock.calls[0][0]
+    expect(arg.where).toEqual({ tokenHash: HASH, cookId: 'c1', status: 'REVOKED' })
+    expect(arg.data).toMatchObject({ status: 'PENDING', approvedById: null, approvedByName: null, approvedAt: null })
+    expect((arg.data.createdAt as Date).getTime()).toBeGreaterThanOrEqual(before)
+    expect(deviceUpsert).not.toHaveBeenCalled()
+  })
+
+  it('confirm on a REJECTED device is sticky → { rejected }, nothing reopened or created', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'REJECTED' })
+    const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ rejected: true, name: 'Sam L.' })
+    expect(deviceUpdateMany).not.toHaveBeenCalled()
+    expect(deviceUpsert).not.toHaveBeenCalled()
+    expect(deviceDeleteMany).not.toHaveBeenCalled()
+    expect(res.cookies.get('pin_device')).toBeUndefined()
+    expect(written()).toEqual(OK_BOTH)
   })
 
   it('confirm on an already PENDING device leaves it as it is', async () => {
     cookFindFirst.mockResolvedValue(sam)
-    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', cookId: 'c1', tokenHash: HASH })
-    await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
-    expect(deviceUpsert.mock.calls[0][0].update).toEqual({})
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING' })
+    const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    expect(deviceUpsert).not.toHaveBeenCalled()
+    expect(deviceUpdateMany).not.toHaveBeenCalled()
+    expect(deviceDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it('keeps at most 3 PENDING requests per cook, dropping the oldest', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindMany.mockResolvedValue([{ id: 'old4' }, { id: 'old5' }])
+    await signIn({ pin: '1234', confirm: true })
+    expect(deviceFindMany).toHaveBeenCalledWith({
+      where: { cookId: 'c1', status: 'PENDING' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: 3,
+      select: { id: true },
+    })
+    expect(deviceDeleteMany).toHaveBeenCalledWith({ where: { id: { in: ['old4', 'old5'] }, status: 'PENDING' } })
+  })
+
+  it('does not delete anything while a cook has 3 or fewer PENDING requests', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindMany.mockResolvedValue([])
+    await signIn({ pin: '1234', confirm: true })
+    expect(deviceFindMany).toHaveBeenCalled()
+    expect(deviceDeleteMany).not.toHaveBeenCalled()
+  })
+
+  it('10 confirms from one IP in the window → 429, nothing queued', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] }; ok: boolean } }) =>
+      a.where.key.in.includes('confirm:ip:1.2.3.4') && a.where.ok === true ? recent(10, 'confirm:ip:1.2.3.4') : [],
+    )
+    const res = await signIn({ pin: '1234', confirm: true })
+    expect(res.status).toBe(429)
+    expect(await res.json()).toEqual({ error: 'Too many tries — wait 15 minutes' })
+    expect(deviceUpsert).not.toHaveBeenCalled()
+    expect(written().some((r) => r.key.startsWith('confirm:'))).toBe(false)
+  })
+
+  it('9 confirms is still allowed', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] } } }) =>
+      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(9, 'confirm:ip:1.2.3.4') : [],
+    )
+    const res = await signIn({ pin: '1234', confirm: true })
+    expect(res.status).toBe(200)
   })
 
   it('a malformed cookie is ignored and replaced on confirm', async () => {
@@ -301,7 +399,7 @@ describe('POST /api/auth/pin', () => {
 
   it('right PIN + APPROVED device → signed in with the minted session cookies', async () => {
     cookFindFirst.mockResolvedValue(sam)
-    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'APPROVED', cookId: 'c1', tokenHash: HASH })
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'APPROVED' })
     const res = await signIn({ pin: '1234' }, { cookie: `pin_device=${TOKEN}` })
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ signedIn: true })
@@ -313,22 +411,33 @@ describe('POST /api/auth/pin', () => {
     expect(mintSession.mock.calls[0][1]).toBe('pin.c1@crew.controlaos.vercel.app')
     expect(res.cookies.get('sb-x-auth-token')?.value).toBe('session-value')
     expect(deviceUpdate).toHaveBeenCalledWith({ where: { id: 'd1' }, data: { lastUsedAt: expect.any(Date) } })
-    expect(written()).toEqual([
-      { key: 'ip:1.2.3.4', ok: true },
-      { key: 'cook:c1', ok: true },
-    ])
+    expect(written()).toEqual(OK_BOTH)
   })
 
-  it('right PIN + REVOKED device, no confirm → needsConfirm, no session', async () => {
+  it("a phone OK'd for cook A, used with cook B's PIN → needsConfirm, no session", async () => {
+    const kim = { id: 'c2', name: 'Kim', lastName: 'Ng', userId: null, isActive: true }
+    cookFindFirst.mockResolvedValue(kim)
+    deviceFindUnique.mockImplementation(async (a: { where: { tokenHash_cookId: { cookId: string } } }) =>
+      a.where.tokenHash_cookId.cookId === 'c1' ? { id: 'd1', status: 'APPROVED' } : null,
+    )
+    const res = await signIn({ pin: '5678' }, { cookie: `pin_device=${TOKEN}` })
+    expect(await res.json()).toEqual({ needsConfirm: true, name: 'Kim N.' })
+    expect(deviceFindUnique.mock.calls[0][0].where).toEqual({ tokenHash_cookId: { tokenHash: HASH, cookId: 'c2' } })
+    expect(ensurePinUser).not.toHaveBeenCalled()
+    expect(mintSession).not.toHaveBeenCalled()
+  })
+
+  it.each(['PENDING', 'REVOKED', 'REJECTED'])('right PIN + %s device, no confirm → needsConfirm, no session', async (status) => {
     cookFindFirst.mockResolvedValue(sam)
-    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'REVOKED', cookId: 'c1', tokenHash: HASH })
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status })
     const res = await signIn({ pin: '1234' }, { cookie: `pin_device=${TOKEN}` })
     expect(await res.json()).toEqual({ needsConfirm: true, name: 'Sam L.' })
     expect(mintSession).not.toHaveBeenCalled()
     expect(deviceUpsert).not.toHaveBeenCalled()
+    expect(deviceUpdateMany).not.toHaveBeenCalled()
   })
 
-  it("a manager's PIN → 403 before any device is queued, not counted as a failure", async () => {
+  it("a manager's PIN → 403 before any device is queued; recorded ok, never a failure", async () => {
     cookFindFirst.mockResolvedValue({ ...sam, userId: 'u9' })
     assertPinLoginAllowed.mockRejectedValue(new PinError(403, 'Managers sign in with email and password'))
     for (const confirm of [false, true]) {
@@ -338,8 +447,9 @@ describe('POST /api/auth/pin', () => {
     }
     expect(assertPinLoginAllowed).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u9' }))
     expect(deviceUpsert).not.toHaveBeenCalled()
+    expect(deviceUpdateMany).not.toHaveBeenCalled()
     expect(mintSession).not.toHaveBeenCalled()
-    expect(written().some((r) => !r.ok)).toBe(false)
+    expect(written()).toEqual([...OK_BOTH, ...OK_BOTH])
   })
 
   it('a 403 from ensurePinUser on an approved phone is passed through, not a failed PIN', async () => {
@@ -388,78 +498,5 @@ describe('GET /api/auth/pin/status', () => {
     expect(arg.where).toEqual({ tokenHash: HASH })
     expect(arg.orderBy).toEqual({ createdAt: 'desc' })
     expect(arg.take).toBe(5)
-  })
-})
-
-// ── POST /api/auth/pin/approve-here ───────────────────────────────────────
-describe('POST /api/auth/pin/approve-here', () => {
-  it('a STAFF PIN → 403, failures recorded for IP and cook, devices untouched', async () => {
-    cookFindFirst.mockResolvedValue({ ...boss, user: { ...boss.user, role: 'STAFF' } })
-    const res = await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })
-    expect(res.status).toBe(403)
-    expect(await res.json()).toEqual({ error: 'Only a manager can OK a phone' })
-    expect(deviceUpdateMany).not.toHaveBeenCalled()
-    expect(written()).toEqual([
-      { key: 'ip:1.2.3.4', ok: false },
-      { key: 'cook:c9', ok: false },
-    ])
-  })
-
-  it('an unknown PIN → 403 with an IP failure only', async () => {
-    const res = await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })
-    expect(res.status).toBe(403)
-    expect(written()).toEqual([{ key: 'ip:1.2.3.4', ok: false }])
-    expect(deviceUpdateMany).not.toHaveBeenCalled()
-  })
-
-  it('a switched-off manager or a manager cook with no login → 403', async () => {
-    cookFindFirst.mockResolvedValueOnce({ ...boss, user: { ...boss.user, isActive: false } })
-    expect((await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })).status).toBe(403)
-    cookFindFirst.mockResolvedValueOnce({ ...boss, userId: null, user: null })
-    expect((await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })).status).toBe(403)
-    expect(deviceUpdateMany).not.toHaveBeenCalled()
-  })
-
-  it('locked IP → 429 before the lookup', async () => {
-    attemptFindMany.mockResolvedValue(recent(5, 'ip:1.2.3.4'))
-    const res = await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })
-    expect(res.status).toBe(429)
-    expect(cookFindFirst).not.toHaveBeenCalled()
-  })
-
-  it('malformed PIN → 400', async () => {
-    const res = await approveHere({ managerPin: '12' }, { cookie: `pin_device=${TOKEN}` })
-    expect(res.status).toBe(400)
-    expect(cookFindFirst).not.toHaveBeenCalled()
-  })
-
-  it('a manager with no device cookie → 400 Nothing to approve', async () => {
-    cookFindFirst.mockResolvedValue(boss)
-    const res = await approveHere({ managerPin: '9999' })
-    expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'Nothing to approve on this phone' })
-    expect(deviceUpdateMany).not.toHaveBeenCalled()
-  })
-
-  it('a manager PIN approves every PENDING request on this phone', async () => {
-    cookFindFirst.mockResolvedValue(boss)
-    deviceUpdateMany.mockResolvedValue({ count: 2 })
-    const res = await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ approved: 2 })
-    expect(deviceUpdateMany).toHaveBeenCalledWith({
-      where: { tokenHash: HASH, status: 'PENDING' },
-      data: { status: 'APPROVED', approvedById: 'u9', approvedByName: 'Bea Boss', approvedAt: expect.any(Date) },
-    })
-    expect(written()).toEqual([
-      { key: 'ip:1.2.3.4', ok: true },
-      { key: 'cook:c9', ok: true },
-    ])
-  })
-
-  it('falls back to the email local part when the manager has no name', async () => {
-    cookFindFirst.mockResolvedValue({ ...boss, user: { ...boss.user, name: null } })
-    await approveHere({ managerPin: '9999' }, { cookie: `pin_device=${TOKEN}` })
-    expect(deviceUpdateMany.mock.calls[0][0].data.approvedByName).toBe('bea')
   })
 })

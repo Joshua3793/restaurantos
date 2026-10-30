@@ -14,10 +14,13 @@ export function hashToken(token: string): string {
 export const LOCK_LIMIT = 5
 export const LOCK_WINDOW_MS = 15 * 60_000
 
-/** Locked once LOCK_LIMIT failures fall inside the trailing window. */
-export function isLocked(failedAt: Date[], now: Date): boolean {
+/** Confirms ("yes, that's me") allowed per IP inside the window. */
+export const CONFIRM_LIMIT = 10
+
+/** Locked once `limit` (default LOCK_LIMIT) tries fall inside the trailing window. */
+export function isLocked(failedAt: Date[], now: Date, limit: number = LOCK_LIMIT): boolean {
   const since = now.getTime() - LOCK_WINDOW_MS
-  return failedAt.filter((d) => d.getTime() > since).length >= LOCK_LIMIT
+  return failedAt.filter((d) => d.getTime() > since).length >= limit
 }
 
 /** "Sam L." — first name + last initial; a lone first name stays as is. */

@@ -5,12 +5,15 @@ import { PinError } from '@/lib/pin/errors'
 /** The long-lived cookie that names this phone. Only its hash is stored. */
 export const PIN_DEVICE_COOKIE = 'pin_device'
 
-export const PIN_DEVICE_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/',
-  maxAge: 400 * 24 * 3600,
+/** Read at request time so `secure` follows the running environment. */
+export function pinDeviceCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 400 * 24 * 3600,
+  }
 }
 
 /** PINs are the Toast clock-in numbers as they are: 3–8 digits, never padded. */
