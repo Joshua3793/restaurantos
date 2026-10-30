@@ -6,7 +6,7 @@ import { assertRcWritable } from '@/lib/rc-scope'
 import { applyLine, type LineAction } from '@/lib/checklists/apply-line'
 import { pacificHHMM, runProgress } from '@/lib/checklists/rules'
 import { loadRunView } from '@/lib/checklists/runs'
-import { whoOf } from '@/lib/checklists/cook-view'
+import { whoOf } from '@/lib/checklists/who'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,7 +33,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (line.run.status === 'SIGNED') return NextResponse.json({ error: SIGNED_MSG }, { status: 409 })
 
     const body = (await req.json().catch(() => null)) as LineAction | null
-    const who = whoOf(user)
+    const who = await whoOf(user)
     const now = new Date()
     const result = applyLine(
       {

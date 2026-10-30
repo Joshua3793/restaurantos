@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
-import { whoOf } from '@/lib/checklists/cook-view'
+import { whoOf } from '@/lib/checklists/who'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +21,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (!line) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     await assertRcWritable(user, line.run.station.revenueCenterId)
 
-    const who = whoOf(user)
+    const who = await whoOf(user)
     const upd = await prisma.checklistRunLine.updateMany({
       where: { id: line.id, status: 'FLAGGED', resolvedAt: null },
       data: { resolvedById: who.id, resolvedByName: who.name, resolvedAt: new Date() },

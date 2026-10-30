@@ -15,6 +15,7 @@ const lineUpdateMany = vi.fn(async (_a: unknown) => ({ count: 1 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    cook: { findUnique: async () => null },
     checklistRunLine: {
       findUnique: (...a: unknown[]) => lineFindUnique(...a),
       updateMany: (a: unknown) => lineUpdateMany(a),

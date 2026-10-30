@@ -24,6 +24,7 @@ const loadRunView = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    cook: { findUnique: async () => null },
     checklistRunLine: { findUnique: (...a: unknown[]) => lineFindUnique(...a) },
     $transaction: (fn: (t: typeof tx) => Promise<unknown>) => transaction(fn),
   },

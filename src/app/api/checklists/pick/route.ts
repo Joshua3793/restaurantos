@@ -4,7 +4,8 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { shiftBusinessDate, type Phase } from '@/lib/checklists/rules'
 import { ensureRun } from '@/lib/checklists/runs'
-import { buildCookView, whoOf } from '@/lib/checklists/cook-view'
+import { buildCookView } from '@/lib/checklists/cook-view'
+import { whoOf } from '@/lib/checklists/who'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     if (found.length !== ids.length) return NextResponse.json({ error: 'Unknown station' }, { status: 400 })
 
     const businessDate = shiftBusinessDate(phase)
-    const who = whoOf(user)
+    const who = await whoOf(user)
     for (const stationId of ids) {
       const { id: runId } = await ensureRun(stationId, phase, businessDate)
       await prisma.checklistRunCrew.upsert({

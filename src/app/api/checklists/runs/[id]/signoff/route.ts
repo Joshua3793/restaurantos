@@ -4,7 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { assertRcWritable } from '@/lib/rc-scope'
 import { canSignOff, runProgress } from '@/lib/checklists/rules'
 import { loadRunView } from '@/lib/checklists/runs'
-import { whoOf } from '@/lib/checklists/cook-view'
+import { whoOf } from '@/lib/checklists/who'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       handoverNote = note || null
     }
 
-    const who = whoOf(user)
+    const who = await whoOf(user)
     // Guarded on still being OPEN, so two sign-offs at once cannot both win.
     const { count } = await prisma.checklistRun.updateMany({
       where: { id: run.id, status: 'OPEN' },

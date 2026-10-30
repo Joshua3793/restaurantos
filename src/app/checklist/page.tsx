@@ -16,6 +16,7 @@ import { StationPicker } from '@/components/checklists/StationPicker'
 import { ChecklistView } from '@/components/checklists/ChecklistView'
 import { LineSheet } from '@/components/checklists/LineSheet'
 import { SignOffFooter } from '@/components/checklists/SignOffFooter'
+import { closingLede } from '@/lib/checklists/lede'
 import type { RowLine } from '@/components/checklists/LineRow'
 
 // /checklist — the cook's opening / closing list for their station(s).
@@ -85,6 +86,7 @@ function ChecklistScreen() {
   const [view, setView] = useState<CookView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [homeStation, setHomeStation] = useState<string | null>(null)
+  const [cookName, setCookName] = useState<string | null>(null)
   // The picker waits for this so the usual station can be pre-ticked.
   const [meLoaded, setMeLoaded] = useState(false)
   // Which rc|phase the view on screen was loaded for.
@@ -109,8 +111,11 @@ function ChecklistScreen() {
   const showError = useCallback((msg: string) => toast.show({ type: 'error', title: msg }), [toast])
 
   useEffect(() => {
-    call<{ cook: { homeStation: string | null } | null }>('/api/prep/me').then(r => {
-      if (r.ok) setHomeStation(r.data.cook?.homeStation ?? null)
+    call<{ cook: { name?: string | null; homeStation: string | null } | null }>('/api/prep/me').then(r => {
+      if (r.ok) {
+        setHomeStation(r.data.cook?.homeStation ?? null)
+        setCookName(r.data.cook?.name ?? null)
+      }
       setMeLoaded(true)
     })
   }, [])
@@ -255,7 +260,7 @@ function ChecklistScreen() {
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────
-  const name = (user?.name || user?.email?.split('@')[0] || 'chef').split(' ')[0]
+  const name = (cookName?.trim() || user?.name?.trim() || 'chef').split(' ')[0]
   const services = activeRc?.services ?? []
   const doors = services.length > 0 ? clock(Math.min(...services.map(s => s.timeMinutes))) : null
   const stations = view?.stations ?? []
@@ -272,6 +277,10 @@ function ChecklistScreen() {
   const blockersLeft = blockerLines.filter(l => l.isBlocker && l.status === 'TODO').length
   const things = `${blockersLeft} ${blockersLeft === 1 ? 'thing' : 'things'}`
   const openNames = openMine.map(r => stationName(r.stationId)).join(' + ')
+  // CLOSE counts the whole-kitchen blockers too, like the BEFORE YOU LEAVE header (R10).
+  const sharedBlockersLeft = view?.shared && view.shared.status === 'OPEN'
+    ? view.shared.lines.filter(l => l.isBlocker && l.status === 'TODO').length
+    : 0
 
   const allLines = [...mine.flatMap(r => r.lines), ...(view?.shared?.lines ?? [])]
   const sheetLine = sheetLineId ? allLines.find(l => l.id === sheetLineId) ?? null : null
@@ -303,10 +312,11 @@ function ChecklistScreen() {
     lede = <>{phase === 'OPEN' && doors && <>Doors at <b className="font-mono font-semibold">{doors}</b>. </>}Pick your station to see your list.</>
   } else if (view && openMine.length === 0) {
     lede = <span className="text-green-text">{phase === 'OPEN' ? 'Opening signed off. Nice work.' : 'Closing signed off. Good night.'}</span>
-  } else if (view && blockersLeft > 0) {
-    lede = phase === 'OPEN'
-      ? <>{doors && <>Doors at <b className="font-mono font-semibold">{doors}</b>. </>}<b className="font-semibold text-red-text">{things}</b> must be done before {doors ? 'then' : 'doors'}.</>
-      : <><b className="font-semibold text-red-text">{things}</b> left before you can sign off {openNames}.</>
+  } else if (view && phase === 'OPEN' && blockersLeft > 0) {
+    lede = <>{doors && <>Doors at <b className="font-mono font-semibold">{doors}</b>. </>}<b className="font-semibold text-red-text">{things}</b> must be done before {doors ? 'then' : 'doors'}.</>
+  } else if (view && phase === 'CLOSE' && blockersLeft + sharedBlockersLeft > 0) {
+    const c = closingLede(blockersLeft, sharedBlockersLeft, openNames)
+    lede = <><b className="font-semibold text-red-text">{c.count}</b>{c.tail}</>
   } else if (view) {
     lede = <span className="text-green-text">{phase === 'OPEN'
       ? 'Everything for doors is done. Finish the rest when you can.'

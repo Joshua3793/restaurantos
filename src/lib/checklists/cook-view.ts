@@ -29,12 +29,6 @@ export type CookView = {
   handover: Record<string, Handover>
 }
 
-/** The display name stored on lines and crew rows. */
-export const whoOf = (user: User): { id: string; name: string } => ({
-  id: user.id,
-  name: user.name ?? user.email,
-})
-
 /**
  * Everything the cook screen needs for one revenue center and phase: the
  * station cards, the runs this cook has picked, the whole-kitchen run, and the

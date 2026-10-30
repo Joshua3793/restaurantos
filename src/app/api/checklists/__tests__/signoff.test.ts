@@ -16,6 +16,7 @@ const loadRunView = vi.fn(async () => ({ id: 'r1', status: 'SIGNED' }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    cook: { findUnique: async () => null },
     checklistRun: {
       findUnique: (...a: unknown[]) => runFindUnique(...a),
       updateMany: (...a: unknown[]) => runUpdate(...a),
@@ -54,12 +55,12 @@ beforeEach(() => {
 })
 
 describe('POST /api/checklists/runs/[id]/signoff', () => {
-  it('signs off and uses the email when the user has no name', async () => {
+  it('signs off and uses the part of the email before the at sign when the user has no name', async () => {
     const res = await sign()
     expect(res.status).toBe(200)
     expect((await res.json()).run.status).toBe('SIGNED')
     const data = runUpdate.mock.calls[0][0].data
-    expect(data).toMatchObject({ status: 'SIGNED', signedOffById: 'u1', signedOffByName: 'sam@x.ca' })
+    expect(data).toMatchObject({ status: 'SIGNED', signedOffById: 'u1', signedOffByName: 'sam' })
     expect(data.signedOffAt).toBeInstanceOf(Date)
     expect(data).not.toHaveProperty('handoverNote')
   })

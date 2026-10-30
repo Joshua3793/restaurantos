@@ -18,6 +18,7 @@ const buildCookView = vi.fn(async () => ({ phase: 'OPEN', stations: [] }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    cook: { findUnique: async () => null },
     checklistStation: { findMany: (...a: unknown[]) => stationFindMany(...a) },
     checklistRunCrew: {
       upsert: (...a: unknown[]) => crewUpsert(...a),
@@ -37,7 +38,6 @@ vi.mock('@/lib/checklists/runs', () => ({
 }))
 vi.mock('@/lib/checklists/cook-view', () => ({
   buildCookView: (...a: unknown[]) => buildCookView(...(a as [])),
-  whoOf: (u: { id: string; name: string | null; email: string }) => ({ id: u.id, name: u.name ?? u.email }),
 }))
 
 const { shiftBusinessDate } = await import('@/lib/checklists/rules')
