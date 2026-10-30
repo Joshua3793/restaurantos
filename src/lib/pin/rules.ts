@@ -30,7 +30,7 @@ export function pinDisplayName(cook: { name: string; lastName: string | null }):
 
 /** Synthetic login email for a cook's PIN account (never mailed). */
 export function pinEmail(cookId: string): string {
-  return `pin.${cookId}@crew.controlaos.app`
+  return `pin.${cookId}@crew.controlaos.vercel.app`
 }
 
 export function deviceLabel(userAgent: string | null): string {

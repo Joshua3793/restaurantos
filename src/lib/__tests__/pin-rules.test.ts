@@ -56,7 +56,7 @@ describe('pinDisplayName', () => {
 
 describe('pinEmail', () => {
   it('builds the synthetic login email', () => {
-    expect(pinEmail('c1')).toBe('pin.c1@crew.controlaos.app')
+    expect(pinEmail('c1')).toBe('pin.c1@crew.controlaos.vercel.app')
   })
 })
 
