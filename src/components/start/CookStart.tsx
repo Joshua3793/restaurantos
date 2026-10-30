@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, ChevronRight, Hourglass, Thermometer } from 'lucide-react'
+import { ArrowRight, ChevronRight, Flag, Hourglass, Thermometer } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
@@ -15,6 +15,9 @@ import { defaultPhase } from '@/lib/checklists/rules'
 import { cookBoard, makeText, type CookJob } from '@/lib/cook-start'
 import { greetingFor, crumbDate } from './parts'
 import { ChecklistCard } from './ChecklistCard'
+import { ReportSheet } from '@/components/inbox/ReportSheet'
+import { YourReports } from '@/components/inbox/YourReports'
+import { reportsLine, type InboxItem } from '@/components/inbox/format'
 
 // The cook's start page (/today for STAFF, phone and line iPad). One question:
 // what do I cook next? Rules in src/lib/cook-start.ts. No money anywhere.
@@ -34,6 +37,13 @@ export function CookStart() {
   const [items, setItems] = useState<PrepItemRich[] | null>(null)
   const [temps, setTemps] = useState<StartTempUnit[]>([])
   const [count, setCount] = useState<CountSession | null>(null)
+  // This cook's own reports (last 14 days): drives the "Your reports" line.
+  const [mine, setMine] = useState<InboxItem[]>([])
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportsOpen, setReportsOpen] = useState(false)
+  const loadMine = useCallback(() => {
+    getJson('/api/inbox/mine').then(v => { if (v && Array.isArray(v.items)) setMine(v.items) })
+  }, [])
 
   useEffect(() => {
     if (!ready) return
@@ -47,6 +57,7 @@ export function CookStart() {
       getJson('/api/prep/me').then(v => { if (!cancelled) setMe(v?.cook ?? null) })
       getJson(`/api/prep/items${qs}`).then(v => { if (!cancelled) setItems(Array.isArray(v) ? v : []) })
       getJson(`/api/temps/units?${tempQs}`).then(v => { if (!cancelled) setTemps(Array.isArray(v) ? v : []) })
+      loadMine()
       getJson(`/api/count/sessions${qs}`).then((v: CountSession[] | null) => {
         if (!cancelled) setCount(Array.isArray(v) ? v.find(s => s.status === 'IN_PROGRESS') ?? null : null)
       })
@@ -54,7 +65,7 @@ export function CookStart() {
     load()
     const id = setInterval(load, 60_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [ready, activeKind, activeRcId, activeRc, activeLocationId])
+  }, [ready, activeKind, activeRcId, activeRc, activeLocationId, loadMine])
 
   const services = useMemo<RcService[]>(
     () => (activeKind === 'rc' ? ((activeRc?.services ?? []) as RcService[]) : []),
@@ -159,6 +170,25 @@ export function CookStart() {
         </Link>
       )}
 
+      <div className="flex flex-wrap items-center gap-x-4">
+        <button
+          type="button"
+          onClick={() => setReportOpen(true)}
+          className="min-h-[44px] px-4 inline-flex items-center gap-2 rounded-full border border-line bg-paper text-[13.5px] font-medium text-ink-2"
+        >
+          <Flag size={14} aria-hidden /> Report something
+        </button>
+        {reportsLine(mine) && (
+          <button
+            type="button"
+            onClick={() => setReportsOpen(true)}
+            className="min-h-[44px] inline-flex items-center gap-1 font-mono text-[11px] text-gold-2"
+          >
+            Your reports · {reportsLine(mine)} <ChevronRight size={13} aria-hidden />
+          </button>
+        )}
+      </div>
+
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
         <section aria-label={me ? 'My jobs' : 'Jobs'} className="min-w-0">
           {(tempRow || checklistRc) && (
@@ -226,6 +256,14 @@ export function CookStart() {
           )}
         </aside>
       </div>
+      <ReportSheet
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        rcId={activeKind === 'rc' ? activeRcId : null}
+        defaultPlace={me?.homeStation ?? null}
+        onSent={loadMine}
+      />
+      <YourReports open={reportsOpen} onClose={() => { setReportsOpen(false); loadMine() }} onChanged={loadMine} />
     </div>
   )
 }

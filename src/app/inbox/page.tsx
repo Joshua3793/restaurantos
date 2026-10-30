@@ -9,6 +9,7 @@ import { atLeast } from '@/lib/roles'
 import { InboxList } from '@/components/inbox/InboxList'
 import { InboxFilters } from '@/components/inbox/InboxFilters'
 import { TagChips } from '@/components/inbox/TagChips'
+import { ReportSheet } from '@/components/inbox/ReportSheet'
 import { call, type Result } from '@/components/inbox/api'
 import { ItemPane, ItemSheet, type ItemDetailProps } from '@/components/inbox/ItemSheet'
 import {
@@ -46,6 +47,7 @@ export default function InboxPage() {
   const isManager = !!role && atLeast(role as Role, 'MANAGER')
 
   // ── list + filters ───────────────────────────────────────────────────────
+  const [reportOpen, setReportOpen] = useState(false)
   const [view, setView] = useState<InboxView>('open')
   // Waiting is a slice of the open list; Snoozed (still asleep) and Done are lists of their own.
   const status: 'open' | 'snoozed' | 'done' = view === 'done' || view === 'snoozed' ? view : 'open'
@@ -244,6 +246,16 @@ export default function InboxPage() {
     )
     : null
 
+  const reportButton = allowed && (
+    <button
+      type="button"
+      onClick={() => setReportOpen(true)}
+      className="self-start min-h-[44px] px-4 rounded-full border border-line bg-paper text-[13px] font-medium text-ink-2"
+    >
+      + Report something
+    </button>
+  )
+
   const manageTags = isManager && (
     <Link href="/inbox/tags" className="self-start font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
       Manage tags →
@@ -279,6 +291,7 @@ export default function InboxPage() {
         <p className="m-0 text-[14px] leading-[1.45] text-ink-2">
           Everything waiting on a manager: cooks’ flags and notes, readings, prep, stock, money and the team.
         </p>
+        {reportButton}
 
         {gate ?? (
           <>
@@ -328,11 +341,14 @@ export default function InboxPage() {
               </p>
             )}
           </div>
-          {isManager && (
-            <Link href="/inbox/tags" className="flex-none font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
-              Manage tags →
-            </Link>
-          )}
+          <div className="flex-none flex items-center gap-4">
+            {isManager && (
+              <Link href="/inbox/tags" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
+                Manage tags →
+              </Link>
+            )}
+            {reportButton}
+          </div>
         </header>
 
         {gate ?? (
@@ -383,6 +399,13 @@ export default function InboxPage() {
       </div>
 
       {detailProps && <ItemSheet {...detailProps} onClose={closeItem} />}
+
+      <ReportSheet
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        rcId={activeRcId}
+        onSent={load}
+      />
     </>
   )
 }

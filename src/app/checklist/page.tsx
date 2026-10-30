@@ -2,7 +2,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ChevronDown, ChevronLeft } from 'lucide-react'
+import { ChevronDown, ChevronLeft, Flag } from 'lucide-react'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -17,6 +17,7 @@ import { ChecklistView } from '@/components/checklists/ChecklistView'
 import { LineSheet } from '@/components/checklists/LineSheet'
 import { SignOffFooter } from '@/components/checklists/SignOffFooter'
 import { closingLede } from '@/lib/checklists/lede'
+import { ReportSheet } from '@/components/inbox/ReportSheet'
 import type { RowLine } from '@/components/checklists/LineRow'
 
 // /checklist — the cook's opening / closing list for their station(s).
@@ -96,6 +97,7 @@ function ChecklistScreen() {
   const busyRef = useRef(new Set<string>())
   const [pickerOpen, setPickerOpen] = useState(false)
   const [sheetLineId, setSheetLineId] = useState<string | null>(null)
+  const [reportOpen, setReportOpen] = useState(false)
 
   // A poll that started before (or during) a save must not overwrite it.
   const mutSeq = useRef(0)
@@ -331,7 +333,7 @@ function ChecklistScreen() {
 
   return (
     <div className="max-w-[480px] mx-auto w-full flex flex-col">
-      <header className="flex items-center justify-between gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-x-3">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center gap-0.5 -ml-1">
             <ChevronLeft size={16} aria-hidden /> Today
@@ -343,6 +345,14 @@ function ChecklistScreen() {
             </Link>
           )}
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setReportOpen(true)}
+          className="min-h-[44px] px-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper text-[13px] font-medium text-ink-2"
+        >
+          <Flag size={14} aria-hidden /> Report
+        </button>
         <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Opening or closing">
           {(['OPEN', 'CLOSE'] as Phase[]).map(p => (
             <button
@@ -355,6 +365,7 @@ function ChecklistScreen() {
               {p === 'OPEN' ? 'Opening' : 'Closing'}
             </button>
           ))}
+        </div>
         </div>
       </header>
 
@@ -442,6 +453,13 @@ function ChecklistScreen() {
           onPick={pick}
         />
       )}
+
+      <ReportSheet
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        rcId={activeRcId}
+        defaultPlace={picked[0]?.name ?? null}
+      />
 
       {sheetOpen && sheetLine && sheetRun && (
         <LineSheet

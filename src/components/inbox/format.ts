@@ -229,3 +229,30 @@ export function goToLabel(href: string): string {
   const hit = GO_TO.find(([p]) => path === p || path.startsWith(p + '/'))
   return `Go to ${hit ? hit[1] : 'it'}`
 }
+
+// ── a cook's own reports ───────────────────────────────────────────────────
+
+/** A cook's report is fixed, still open, or closed by the app on its own. */
+export type ReportState = 'OPEN' | 'FIXED' | 'CLEARED'
+
+export function reportState(item: Pick<InboxItem, 'status' | 'doneByName'>): ReportState {
+  if (item.status !== 'DONE') return 'OPEN'
+  return item.doneByName?.trim() ? 'FIXED' : 'CLEARED'
+}
+
+/** "N reports · M fixed" for the Start page line; null when there are none. */
+export function reportsLine(items: Array<Pick<InboxItem, 'status' | 'doneByName'>>): string | null {
+  if (items.length === 0) return null
+  const fixed = items.filter(i => reportState(i) === 'FIXED').length
+  return `${items.length} ${items.length === 1 ? 'report' : 'reports'} · ${fixed} fixed`
+}
+
+/** "just now", "12 min ago", "3 h ago", "2 d ago". */
+export function ageLabel(iso: string, now: Date = new Date()): string {
+  const mins = Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 60000))
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} h ago`
+  return `${Math.floor(hrs / 24)} d ago`
+}
