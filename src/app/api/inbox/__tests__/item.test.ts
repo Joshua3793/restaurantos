@@ -26,7 +26,9 @@ const txItemUpdateMany = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const txEventCreate = vi.fn(async (a: unknown) => a)
 const txItemFindUnique = vi.fn()
 const txItemFindFirst = vi.fn(async (_a: unknown): Promise<unknown> => ({ id: 'i1' }))
+const txPriceAlertUpdateMany = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const tx = {
+  priceAlert: { updateMany: (a: unknown) => txPriceAlertUpdateMany(a) },
   inboxItem: {
     updateMany: (a: unknown) => txItemUpdateMany(a),
     findUnique: (a: unknown) => txItemFindUnique(a),
@@ -306,6 +308,22 @@ describe('PATCH /api/inbox/[id]', () => {
     expect(assertRcWritable).toHaveBeenCalledWith(expect.objectContaining({ id: 'u-lead' }), 'rc1')
     const body = await res.json()
     expect(body.item.id).toBe('i1')
+  })
+
+  it('done on a price-rise item acknowledges its PriceAlert, inside the transaction', async () => {
+    asUser(MANAGER)
+    const price = row({ source: 'SYSTEM', sourceKey: 'price:pa1', tagId: 'tag-money', managerOnly: true, revenueCenterId: null })
+    itemFindUnique.mockResolvedValue(price)
+    txItemFindUnique.mockResolvedValue(price)
+    expect((await patch({ kind: 'done', note: null })).status).toBe(200)
+    expect(txPriceAlertUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'pa1', acknowledged: false }, data: { acknowledged: true },
+    })
+  })
+
+  it('done on a report touches no PriceAlert', async () => {
+    expect((await patch({ kind: 'done', note: null })).status).toBe(200)
+    expect(txPriceAlertUpdateMany).not.toHaveBeenCalled()
   })
 
   it('done twice → 409 Already fixed, and no event is written', async () => {

@@ -21,12 +21,14 @@ const itemCreate = vi.fn()
 const itemUpdate = vi.fn()
 const eventCreate = vi.fn()
 const lineUpdateMany = vi.fn()
+const priceAlertUpdateMany = vi.fn()
 const tx = {
   inboxItem: { findUnique: itemFind, create: itemCreate, update: itemUpdate },
   inboxEvent: { create: eventCreate },
   inboxTag: { findMany: async () => TAGS },
   inboxFlagRoute: { findMany: async () => routes },
   checklistRunLine: { updateMany: lineUpdateMany },
+  priceAlert: { updateMany: priceAlertUpdateMany },
 } as unknown as Prisma.TransactionClient
 
 const who = { id: 'u1', name: 'Sam' }
@@ -194,5 +196,17 @@ describe('onItemDone — an Inbox done closes the job', () => {
     await onItemDone({ id: 'i3', source: 'SYSTEM', sourceKey: 'price:abc', revenueCenterId: null }, who, tx)
     await onItemDone({ id: 'i4', source: 'FLAG', sourceKey: null, revenueCenterId: null }, who, tx)
     expect(lineUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('a price-rise item acknowledges its PriceAlert; nothing else does', async () => {
+    await onItemDone({ id: 'i3', source: 'SYSTEM', sourceKey: 'price:abc', revenueCenterId: null }, who, tx)
+    expect(priceAlertUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'abc', acknowledged: false }, data: { acknowledged: true },
+    })
+    priceAlertUpdateMany.mockClear()
+    await onItemDone({ id: 'i5', source: 'SYSTEM', sourceKey: 'invoices:rc1', revenueCenterId: 'rc1' }, who, tx)
+    await onItemDone({ id: 'i6', source: 'FLAG', sourceKey: 'flag:l1', revenueCenterId: 'rc1' }, who, tx)
+    await onItemDone({ id: 'i7', source: 'REPORT', sourceKey: null, revenueCenterId: null }, who, tx)
+    expect(priceAlertUpdateMany).not.toHaveBeenCalled()
   })
 })

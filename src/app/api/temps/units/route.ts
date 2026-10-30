@@ -2,31 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { loadTempUnits, serializeUnit } from '@/lib/temps/units'
 
 export const dynamic = 'force-dynamic'
-
-const num = (v: unknown) => (v == null ? null : Number(v))
-
-// Serialize a unit (+ optional readings) with Decimal → number coercion.
-function serializeUnit(u: {
-  id: string; name: string; type: string
-  safeMin: unknown; safeMax: unknown
-  revenueCenterId: string | null; sortOrder: number
-  readings?: { id: string; time: string; temp: unknown }[]
-}) {
-  return {
-    id: u.id,
-    name: u.name,
-    type: u.type,
-    safeMin: num(u.safeMin),
-    safeMax: num(u.safeMax),
-    revenueCenterId: u.revenueCenterId,
-    sortOrder: u.sortOrder,
-    ...(u.readings
-      ? { readings: u.readings.map(r => ({ id: r.id, time: r.time, temp: Number(r.temp) })) }
-      : {}),
-  }
-}
 
 // ── GET /api/temps/units?rcId=&date=YYYY-MM-DD ────────────────────────────────
 // Returns active units visible to the revenue center (its own + shared/null).
@@ -41,20 +19,10 @@ export async function GET(req: NextRequest) {
     const locationId = searchParams.get('locationId')
     const locRcIds = locationId ? await resolveLocationRcIds(user, locationId) : null
 
-    const units = await prisma.tempUnit.findMany({
-      where: {
-        isActive: true,
-        ...(locRcIds
-          ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
-          : rcId ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] } : {}),
-      },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      include: date
-        ? { readings: { where: { logDate: date }, orderBy: { time: 'asc' } } }
-        : undefined,
-    })
+    // rcId alone and a location both mean "these RCs + shared"; neither = every unit.
+    const units = await loadTempUnits(locRcIds ?? (rcId ? [rcId] : null), date)
 
-    return NextResponse.json(units.map(serializeUnit), {
+    return NextResponse.json(units, {
       headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=30' },
     })
   } catch (err) {

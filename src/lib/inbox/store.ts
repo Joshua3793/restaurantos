@@ -13,6 +13,8 @@ import {
 } from '@/lib/inbox/rules'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+/** System price-rise items are keyed `price:<priceAlertId>`. */
+const PRICE_KEY_PREFIX = 'price:'
 /** Done items and a cook's own reports both look back this far. */
 export const LOOKBACK_DAYS = 14
 const NOTE_MAX = 500
@@ -417,7 +419,13 @@ export async function onItemDone(
     })
     return
   }
-  // Task 6: `price:*` items acknowledge their price-rise alert here.
+  if (item.source === 'SYSTEM' && item.sourceKey?.startsWith(PRICE_KEY_PREFIX)) {
+    // Fixing a price rise here acknowledges it on the invoices side too.
+    await tx.priceAlert.updateMany({
+      where: { id: item.sourceKey.slice(PRICE_KEY_PREFIX.length), acknowledged: false },
+      data: { acknowledged: true },
+    })
+  }
 }
 
 /** Apply one action: update the item and write its event in one transaction. */

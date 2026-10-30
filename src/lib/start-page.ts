@@ -106,7 +106,7 @@ export function unattendedCriticalPrep(items: StartPrepItem[]): StartPrepItem[] 
   })
 }
 
-function prepNeed(i: StartPrepItem, serviceName: string | null): NeedItem {
+export function prepNeed(i: StartPrepItem, serviceName: string | null): NeedItem {
   const left = Number(i.onHand) <= 0
     ? 'none left'
     : `${fmtQty(Number(i.onHand))} ${i.unit} left`
