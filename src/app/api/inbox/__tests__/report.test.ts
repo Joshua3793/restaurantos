@@ -134,6 +134,13 @@ describe('POST /api/inbox/report', () => {
     expect(tagFindUnique).not.toHaveBeenCalled()
   })
 
+  it('a kitchen id that does not exist (foreign key) → 400 Pick a kitchen', async () => {
+    itemCreate.mockRejectedValueOnce(Object.assign(new Error('Foreign key constraint failed'), { code: 'P2003' }))
+    const res = await post({ ...good, rcId: 'rc-bogus' })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Pick a kitchen' })
+  })
+
   it('401 without a session', async () => {
     requireSession.mockRejectedValueOnce(new MockAuthError(401, 'Unauthorized'))
     const res = await post(good)

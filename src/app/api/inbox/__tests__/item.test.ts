@@ -25,10 +25,12 @@ const tagFindUnique = vi.fn()
 const txItemUpdateMany = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const txEventCreate = vi.fn(async (a: unknown) => a)
 const txItemFindUnique = vi.fn()
+const txItemFindFirst = vi.fn(async (_a: unknown): Promise<unknown> => ({ id: 'i1' }))
 const tx = {
   inboxItem: {
     updateMany: (a: unknown) => txItemUpdateMany(a),
     findUnique: (a: unknown) => txItemFindUnique(a),
+    findFirst: (a: unknown) => txItemFindFirst(a),
   },
   inboxEvent: { create: (a: unknown) => txEventCreate(a) },
 }
@@ -93,6 +95,7 @@ beforeEach(() => {
   txItemUpdateMany.mockResolvedValue({ count: 1 })
   itemFindUnique.mockResolvedValue(row())
   txItemFindUnique.mockResolvedValue(row())
+  txItemFindFirst.mockResolvedValue({ id: 'i1' })
   eventFindMany.mockResolvedValue([])
   tagFindUnique.mockImplementation(async (a: { where: { id: string } }) => TAGS[a.where.id] ?? null)
 })
@@ -181,6 +184,65 @@ describe('GET /api/inbox/[id]', () => {
   })
 })
 
+describe('GET /api/inbox/[id] — owners and duplicates', () => {
+  it('a LEAD who raised a report later retagged into Money gets the title and fixed state, no history', async () => {
+    itemFindUnique.mockResolvedValue(row({
+      tagId: 'tag-money', raisedById: 'u-lead', status: 'DONE',
+      doneByName: 'Max Manager', doneAt: new Date('2026-10-30T18:00:00Z'),
+    }))
+    const res = await route.GET(getReq, params)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.limited).toBe(true)
+    expect(body.events).toEqual([])
+    expect(body.item).toMatchObject({
+      title: 'Walk-in reading 9°C', status: 'DONE', doneByName: 'Max Manager',
+      doneAt: '2026-10-30T18:00:00.000Z', body: null, place: null, href: null,
+    })
+    expect(eventFindMany).not.toHaveBeenCalled()
+  })
+
+  it('a cook who raised a FLAG item routed into Money gets 404', async () => {
+    asUser(STAFF)
+    itemFindUnique.mockResolvedValue(row({ source: 'FLAG', sourceKey: 'flag:l1', tagId: 'tag-money' }))
+    const res = await route.GET(getReq, params)
+    expect(res.status).toBe(404)
+    expect(eventCreate).not.toHaveBeenCalled()
+  })
+
+  it('the owner shortcut is REPORT-only: a cook gets 404 on their own ordinary FLAG item', async () => {
+    asUser(STAFF)
+    itemFindUnique.mockResolvedValue(row({ source: 'FLAG', sourceKey: 'flag:l1' }))
+    const res = await route.GET(getReq, params)
+    expect(res.status).toBe(404)
+  })
+
+  it('a cook opening their own ordinary report gets the full history', async () => {
+    asUser(STAFF)
+    eventFindMany.mockResolvedValue([
+      { kind: 'RAISED', byId: 'u-cook', byName: 'Sam Cook', note: 'Door left open', at: new Date('2026-10-30T15:00:00Z') },
+      { kind: 'NOTE', byId: 'u-lead', byName: 'Lena Lead', note: 'On it', at: new Date('2026-10-30T15:05:00Z') },
+    ])
+    const body = await (await route.GET(getReq, params)).json()
+    expect(body.limited).toBeUndefined()
+    expect(body.item.body).toBe('Door left open')
+    expect(body.events.map((e: { kind: string }) => e.kind)).toEqual(['RAISED', 'NOTE'])
+  })
+
+  it('collapses duplicate SEEN rows to one per person, keeping the earliest', async () => {
+    eventFindMany.mockResolvedValue([
+      { kind: 'RAISED', byId: 'u-cook', byName: 'Sam Cook', note: null, at: new Date('2026-10-30T15:00:00Z') },
+      { kind: 'SEEN', byId: 'u-lead', byName: 'Lena Lead', note: null, at: new Date('2026-10-30T15:01:00Z') },
+      { kind: 'SEEN', byId: 'u-lead', byName: 'Lena Lead', note: null, at: new Date('2026-10-30T15:01:01Z') },
+      { kind: 'SEEN', byId: 'u-mgr', byName: 'Max Manager', note: null, at: new Date('2026-10-30T15:02:00Z') },
+    ])
+    const body = await (await route.GET(getReq, params)).json()
+    expect(body.events.map((e: { kind: string; at: string }) => `${e.kind}@${e.at.slice(11, 19)}`)).toEqual([
+      'RAISED@15:00:00', 'SEEN@15:01:00', 'SEEN@15:02:00',
+    ])
+  })
+})
+
 describe('PATCH /api/inbox/[id]', () => {
   const lastUpdate = () => txItemUpdateMany.mock.calls[0][0] as { where: Record<string, unknown>; data: Record<string, unknown> }
   const lastEvent = () => (txEventCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data
@@ -217,7 +279,7 @@ describe('PATCH /api/inbox/[id]', () => {
   it('snooze: SNOOZED until 05:00 Pacific tomorrow + a SNOOZED event', async () => {
     const res = await patch({ kind: 'snooze' })
     expect(res.status).toBe(200)
-    expect(lastUpdate().where).toEqual({ id: 'i1', status: { not: 'DONE' } })
+    expect(lastUpdate().where).toEqual({ id: 'i1', managerOnly: false, tag: { managerOnly: false }, status: { not: 'DONE' } })
     expect(lastUpdate().data.status).toBe('SNOOZED')
     const until = lastUpdate().data.snoozeUntil as Date
     expect(until).toBeInstanceOf(Date)
@@ -235,7 +297,7 @@ describe('PATCH /api/inbox/[id]', () => {
   it('done: sets who + when, clears clearedAt, writes DONE inside the transaction', async () => {
     const res = await patch({ kind: 'done', note: 'Fixed the seal' })
     expect(res.status).toBe(200)
-    expect(lastUpdate().where).toEqual({ id: 'i1', status: { not: 'DONE' } })
+    expect(lastUpdate().where).toEqual({ id: 'i1', managerOnly: false, tag: { managerOnly: false }, status: { not: 'DONE' } })
     expect(lastUpdate().data).toMatchObject({
       status: 'DONE', doneById: 'u-lead', doneByName: 'Lena Lead', clearedAt: null, snoozeUntil: null,
     })
@@ -256,7 +318,7 @@ describe('PATCH /api/inbox/[id]', () => {
 
   it('reopen: OPEN again, done fields cleared, REOPENED event', async () => {
     await patch({ kind: 'reopen' })
-    expect(lastUpdate().where).toEqual({ id: 'i1', status: 'DONE' })
+    expect(lastUpdate().where).toEqual({ id: 'i1', managerOnly: false, tag: { managerOnly: false }, status: 'DONE' })
     expect(lastUpdate().data).toMatchObject({
       status: 'OPEN', doneById: null, doneByName: null, doneAt: null, clearedAt: null,
     })
@@ -309,10 +371,43 @@ describe('PATCH /api/inbox/[id]', () => {
     expect(transaction).not.toHaveBeenCalled()
   })
 
+  it('404 for an item in a kitchen outside the caller’s scope, before the write check', async () => {
+    isRcInScope.mockResolvedValueOnce(false)
+    const res = await patch({ kind: 'done' })
+    expect(res.status).toBe(404)
+    expect(assertRcWritable).not.toHaveBeenCalled()
+    expect(transaction).not.toHaveBeenCalled()
+  })
+
+  it('a retag into Money that races ahead of a LEAD’s write → 404, nothing else written', async () => {
+    txItemUpdateMany.mockResolvedValue({ count: 0 })
+    txItemFindFirst.mockResolvedValue(null)
+    const res = await patch({ kind: 'done' })
+    expect(res.status).toBe(404)
+    expect(txItemFindFirst.mock.calls[0][0]).toMatchObject({
+      where: { id: 'i1', managerOnly: false, tag: { managerOnly: false } },
+    })
+    expect(txEventCreate).not.toHaveBeenCalled()
+  })
+
+  it('a note on an item that just became manager-only → 404', async () => {
+    txItemFindFirst.mockResolvedValue(null)
+    const res = await patch({ kind: 'note', note: 'Checked it' })
+    expect(res.status).toBe(404)
+    expect(txEventCreate).not.toHaveBeenCalled()
+  })
+
+  it('a MANAGER’s write carries no visibility guard', async () => {
+    asUser(MANAGER)
+    await patch({ kind: 'done' })
+    expect(lastUpdate().where).toEqual({ id: 'i1', status: { not: 'DONE' } })
+  })
+
   it('a whole-house item (no kitchen) skips the kitchen check', async () => {
     itemFindUnique.mockResolvedValue(row({ revenueCenterId: null }))
     const res = await patch({ kind: 'snooze' })
     expect(res.status).toBe(200)
     expect(assertRcWritable).not.toHaveBeenCalled()
+    expect(isRcInScope).not.toHaveBeenCalled()
   })
 })

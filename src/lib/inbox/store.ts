@@ -282,14 +282,45 @@ export async function loadMine(user: User, now = new Date()): Promise<MineView[]
   return rows.map(r => ({ ...toView(r), fixedSinceSeen: fixedSinceSeen(r) }))
 }
 
+/** Manager-only by itself or by its tag, for a viewer below MANAGER. */
+const hiddenFrom = (user: Pick<User, 'role'>, row: Pick<ItemRow, 'managerOnly' | 'tag'>): boolean =>
+  !atLeast(user.role, 'MANAGER') && (row.managerOnly || row.tag.managerOnly)
+
+/** Non-managers' writes only land while the item is still visible to them. */
+const visibleToWriter = (user: Pick<User, 'role'>): Prisma.InboxItemWhereInput =>
+  atLeast(user.role, 'MANAGER') ? {} : { managerOnly: false, tag: { managerOnly: false } }
+
 /**
- * Whether this viewer may open the item: LEAD+ who can see it in a kitchen in
- * their scope, or whoever raised it (a cook reading their own report).
+ * How much of the item this viewer may open:
+ * - 'full': LEAD+ who can see it, in a kitchen in their scope; or the person
+ *   who raised a REPORT that is not manager-only.
+ * - 'limited': the person who raised a REPORT that has since become
+ *   manager-only (e.g. a manager retagged it into Money). They get the title
+ *   and whether it is fixed, never the notes or history.
+ * - null: anything else (a 404). The owner shortcut is REPORT-only, so a cook
+ *   whose checklist flag was routed into a manager-only tag gets nothing.
  */
-async function mayOpen(user: User, row: ItemRow): Promise<boolean> {
-  if (row.raisedById === user.id) return true
-  if (!canSee(user.role, row, row.tag)) return false
-  return row.revenueCenterId == null || isRcInScope(user, row.revenueCenterId)
+async function openLevel(user: User, row: ItemRow): Promise<'full' | 'limited' | null> {
+  if (
+    canSee(user.role, row, row.tag) &&
+    (row.revenueCenterId == null || (await isRcInScope(user, row.revenueCenterId)))
+  ) return 'full'
+  if (row.source === 'REPORT' && row.raisedById === user.id) {
+    return hiddenFrom(user, row) ? 'limited' : 'full'
+  }
+  return null
+}
+
+/** Keep only the first (earliest) SEEN per person; events arrive oldest first. */
+function collapseSeen<T extends { kind: string; byId: string | null }>(events: T[]): T[] {
+  const seen = new Set<string>()
+  return events.filter(e => {
+    if (e.kind !== 'SEEN') return true
+    const key = e.byId ?? ''
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /**
@@ -297,9 +328,13 @@ async function mayOpen(user: User, row: ItemRow): Promise<boolean> {
  * their own report after it was fixed writes a fresh SEEN, so the bell clears.
  * Anything the viewer may not see is a 404, never a 403.
  */
-export async function getItem(user: User, id: string): Promise<{ item: ItemView; events: EventView[] }> {
+export async function getItem(
+  user: User,
+  id: string,
+): Promise<{ item: ItemView; events: EventView[]; limited?: true }> {
   const row = await prisma.inboxItem.findUnique({ where: { id }, select: itemSelect(user.id) })
-  if (!row || !(await mayOpen(user, row))) throw new InboxError(404, 'Not found')
+  const level = row ? await openLevel(user, row) : null
+  if (!row || !level) throw new InboxError(404, 'Not found')
 
   const firstLook = row.events.length === 0
   const ownFixNews = row.raisedById === user.id && fixedSinceSeen(row)
@@ -310,14 +345,23 @@ export async function getItem(user: User, id: string): Promise<{ item: ItemView;
     })
   }
 
+  if (level === 'limited') {
+    // Title, status and who fixed it — no body, place, link, notes or history.
+    return {
+      item: { ...toView(row), unread: false, body: null, place: null, href: null },
+      events: [],
+      limited: true,
+    }
+  }
+
   const events = await prisma.inboxEvent.findMany({
     where: { itemId: row.id },
     orderBy: { at: 'asc' },
-    select: { kind: true, byName: true, note: true, at: true },
+    select: { kind: true, byId: true, byName: true, note: true, at: true },
   })
   return {
     item: { ...toView(row), unread: false },
-    events: events.map(e => ({ kind: e.kind, byName: e.byName, note: e.note, at: iso(e.at)! })),
+    events: collapseSeen(events).map(e => ({ kind: e.kind, byName: e.byName, note: e.note, at: iso(e.at)! })),
   }
 }
 
@@ -380,7 +424,10 @@ export async function onItemDone(
 export async function act(user: User, id: string, action: InboxAction, now = new Date()): Promise<ItemView> {
   const row = await prisma.inboxItem.findUnique({ where: { id }, select: itemSelect(user.id) })
   if (!row || !canSee(user.role, row, row.tag)) throw new InboxError(404, 'Not found')
-  if (row.revenueCenterId) await assertRcWritable(user, row.revenueCenterId)
+  if (row.revenueCenterId) {
+    if (!(await isRcInScope(user, row.revenueCenterId))) throw new InboxError(404, 'Not found')
+    await assertRcWritable(user, row.revenueCenterId)
+  }
 
   let toTagRow: TagLite | null = null
   if (action.kind === 'retag') {
@@ -396,20 +443,31 @@ export async function act(user: User, id: string, action: InboxAction, now = new
   const who = await whoOf(user)
   const by = { byId: who.id, byName: who.name }
 
+  const visible = visibleToWriter(user)
   return prisma.$transaction(async tx => {
+    // Still there and still visible to this writer? (A manager may have just
+    // retagged it into Money.) No → 404, same as if it never existed.
+    const stillVisible = async () => {
+      const hit = await tx.inboxItem.findFirst({ where: { id: row.id, ...visible }, select: { id: true } })
+      if (!hit) throw new InboxError(404, 'Not found')
+    }
     const update = async (
       guard: Prisma.InboxItemWhereInput,
       data: Prisma.InboxItemUpdateManyMutationInput | Prisma.InboxItemUncheckedUpdateManyInput,
       conflict: string,
     ) => {
-      const res = await tx.inboxItem.updateMany({ where: { id: row.id, ...guard }, data })
-      if (res.count === 0) throw new InboxError(409, conflict)
+      const res = await tx.inboxItem.updateMany({ where: { id: row.id, ...visible, ...guard }, data })
+      if (res.count === 0) {
+        await stillVisible() // 404 when visibility is what failed
+        throw new InboxError(409, conflict)
+      }
     }
     const event = (kind: InboxEventKind, note: string | null = null) =>
       tx.inboxEvent.create({ data: { itemId: row.id, kind, ...by, note } })
 
     switch (action.kind) {
       case 'note':
+        await stillVisible()
         await event('NOTE', action.note)
         break
       case 'snooze':
@@ -490,6 +548,10 @@ export async function createReport(user: User, body: unknown): Promise<ItemView>
       events: { create: { kind: 'RAISED', byId: who.id, byName: who.name, note: text } },
     },
     select: itemSelect(user.id),
+  }).catch((e: unknown) => {
+    // A kitchen id that does not exist (foreign key) is a bad pick, not a crash.
+    if ((e as { code?: unknown })?.code === 'P2003') throw new InboxError(400, 'Pick a kitchen')
+    throw e
   })
   return toView(row)
 }
