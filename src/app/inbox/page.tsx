@@ -10,7 +10,8 @@ import { InboxList } from '@/components/inbox/InboxList'
 import { InboxFilters } from '@/components/inbox/InboxFilters'
 import { TagChips } from '@/components/inbox/TagChips'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
-import { call, type Result } from '@/components/inbox/api'
+import { call, sendInboxAction } from '@/components/inbox/api'
+import { refreshInboxCount } from '@/lib/inbox-count-feed'
 import { ItemPane, ItemSheet, type ItemDetailProps } from '@/components/inbox/ItemSheet'
 import {
   applyFilter, countByTag, peopleOf, placesOf,
@@ -157,20 +158,11 @@ export default function InboxPage() {
       call<{ item: InboxItem }>(`/api/inbox/${item.id}`, { method: 'PATCH', body: JSON.stringify(a) })
 
     setBusy(true)
-    let r: Result<{ item: InboxItem }>
-    let noteSaved = false
-    if (text && (action.kind === 'wait' || action.kind === 'done')) {
-      // Wait / Mark fixed carry the typed note.
-      r = await send({ ...action, note: text })
-      noteSaved = r.ok
-    } else if (text && (action.kind === 'snooze' || action.kind === 'reopen')) {
-      // Snooze / Reopen take no note: save it first, then act.
-      r = await send({ kind: 'note', note: text })
-      if (r.ok) { noteSaved = true; r = await send(action) }
-    } else {
-      r = await send(action)
-      noteSaved = r.ok && action.kind === 'note'
-    }
+    // Sends it (note first where the action takes none) and, once anything
+    // was written, refreshes the shared bell / sidebar count.
+    const { r, noteSaved } = await sendInboxAction({
+      action, note: text, send, rcId: activeRcId, refreshCount: refreshInboxCount,
+    })
     // Clear the box only if it still holds what was sent (not words typed since).
     if (noteSaved && openId.current === item.id) setNote(cur => (cur.trim() === text ? '' : cur))
 

@@ -1,7 +1,9 @@
 // Pure display helpers for the alerts bell (src/components/AlertsBell.tsx):
 // which Inbox items the dropdown shows, the badge text, the aria label, and
 // the "Your reports" rows a cook sees. No React, so `npm test` covers it.
+import type { Role } from '@prisma/client'
 import { whenLabel } from '@/components/inbox/format'
+import { atLeast } from '@/lib/roles'
 
 export const BELL_LIMIT = 5
 
@@ -30,10 +32,16 @@ export type BellReport = {
 /**
  * The few open items the bell shows: NOW first, then TODAY (the same two
  * severities the badge counts; FYI never reaches the bell). Keeps the list's
- * own order inside a severity, and only items that are still open.
+ * own order inside a severity.
+ *
+ * The list comes from `status=open`, which the server already narrowed to
+ * "open now" — the same rule the badge counts: OPEN, WAITING, and a snoozed
+ * item whose snooze has passed (it is still SNOOZED until someone acts). So
+ * only DONE is dropped here; re-judging snoozes on the phone's clock could
+ * make the dropdown and the badge disagree again.
  */
 export function topBellItems<T extends Pick<BellItem, 'severity' | 'status'>>(items: T[], limit = BELL_LIMIT): T[] {
-  const open = items.filter(i => i.status === 'OPEN')
+  const open = items.filter(i => i.status !== 'DONE')
   return [
     ...open.filter(i => i.severity === 'NOW'),
     ...open.filter(i => i.severity === 'TODAY'),
@@ -71,8 +79,17 @@ export function reportMeta(r: BellReport, now: Date = new Date()): string {
   return when ? `Reported · ${when}` : 'Reported'
 }
 
-/** The phone "More" badge: invoices to review, price alerts, and the Inbox. */
-export function moreBadgeTotal(c: { invoicesReview: number; priceAlerts: number; inbox: number }): number {
+/**
+ * The phone "More" badge. A manager's Inbox count already holds every price
+ * rise and the "invoices to approve" item (Money is filed there), so for them
+ * the Inbox alone is the number — adding the other two counted each twice.
+ * Below manager the Inbox hides Money, so the invoice and price counts add on.
+ */
+export function moreBadgeTotal(
+  c: { invoicesReview: number; priceAlerts: number; inbox: number },
+  role: Role | null,
+): number {
+  if (role != null && atLeast(role, 'MANAGER')) return c.inbox
   return c.invoicesReview + c.priceAlerts + c.inbox
 }
 

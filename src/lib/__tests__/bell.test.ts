@@ -11,9 +11,15 @@ describe('topBellItems', () => {
     const out = topBellItems([item('a', 'TODAY'), item('b', 'NOW'), item('c', 'TODAY'), item('d', 'NOW')])
     expect(out.map(i => i.id)).toEqual(['b', 'd', 'a', 'c'])
   })
-  it('leaves out FYI and anything not open', () => {
-    const out = topBellItems([item('a', 'FYI'), item('b', 'NOW', 'DONE'), item('c', 'TODAY', 'WAITING'), item('d', 'TODAY')])
+  it('leaves out FYI and anything done', () => {
+    const out = topBellItems([item('a', 'FYI'), item('b', 'NOW', 'DONE'), item('d', 'TODAY')])
     expect(out.map(i => i.id)).toEqual(['d'])
+  })
+  it('shows every item the badge counts: waiting, and a snooze that has woken', () => {
+    // From status=open: "Fryer broken" set to Waiting on someone, and a
+    // food-safety item snoozed yesterday that woke at 05:00 (still SNOOZED).
+    const out = topBellItems([item('fryer', 'TODAY', 'WAITING'), item('walkin', 'NOW', 'SNOOZED'), item('d', 'TODAY')])
+    expect(out.map(i => i.id)).toEqual(['walkin', 'fryer', 'd'])
   })
   it('stops at five', () => {
     const many = Array.from({ length: 8 }, (_, n) => item(`i${n}`, 'NOW'))
@@ -68,8 +74,15 @@ describe('reportPill and reportMeta', () => {
 })
 
 describe('moreBadgeTotal', () => {
-  it('adds the inbox to the other two', () => {
-    expect(moreBadgeTotal({ invoicesReview: 2, priceAlerts: 1, inbox: 4 })).toBe(7)
+  it('adds the inbox to the other two below manager', () => {
+    expect(moreBadgeTotal({ invoicesReview: 2, priceAlerts: 1, inbox: 4 }, 'LEAD')).toBe(7)
+    expect(moreBadgeTotal({ invoicesReview: 2, priceAlerts: 1, inbox: 0 }, 'STAFF')).toBe(3)
+    expect(moreBadgeTotal({ invoicesReview: 2, priceAlerts: 1, inbox: 0 }, null)).toBe(3)
+  })
+  it('a manager’s one price rise counts once (the Inbox already holds Money)', () => {
+    // Goats Cheese up 12% at Sysco: one price alert, one Inbox item.
+    expect(moreBadgeTotal({ invoicesReview: 0, priceAlerts: 1, inbox: 1 }, 'MANAGER')).toBe(1)
+    expect(moreBadgeTotal({ invoicesReview: 3, priceAlerts: 1, inbox: 2 }, 'OWNER')).toBe(2)
   })
 })
 
