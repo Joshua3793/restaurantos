@@ -396,12 +396,12 @@ describe('mintSession', () => {
     generateLink.mockResolvedValue({ data: { properties: { hashed_token: 'hashed-xyz' } }, error: null })
     verifyOtp.mockImplementation(async () => {
       ssrOptions!.cookies.setAll(minted)
-      return { data: {}, error: null }
+      return { data: { user: { id: 'u1' }, session: {} }, error: null }
     })
   })
 
   it('generates a magic link, verifies it server-side and returns the buffered cookies', async () => {
-    const out = await mintSession(req, 'sam@x.com')
+    const out = await mintSession(req, 'sam@x.com', 'u1')
 
     expect(generateLink).toHaveBeenCalledWith({ type: 'magiclink', email: 'sam@x.com' })
     expect(createServerClient).toHaveBeenCalledWith(
@@ -412,30 +412,47 @@ describe('mintSession', () => {
     expect(out).toEqual(minted)
   })
 
-  it('throws 401 when generateLink errors, without verifying', async () => {
+  it('throws 503 when generateLink errors, without verifying', async () => {
     generateLink.mockResolvedValue({ data: null, error: { message: 'boom' } })
-    const err = await mintSession(req, 'sam@x.com').catch((e) => e)
+    const err = await mintSession(req, 'sam@x.com', 'u1').catch((e) => e)
     expect(err).toBeInstanceOf(PinError)
-    expect(err).toMatchObject({ status: 401, message: 'Could not sign in — try again' })
+    expect(err).toMatchObject({ status: 503, message: 'Could not sign in — try again' })
     expect(verifyOtp).not.toHaveBeenCalled()
   })
 
-  it('throws 401 when the link has no hashed token', async () => {
+  it('throws 503 when the link has no hashed token', async () => {
     generateLink.mockResolvedValue({ data: { properties: {} }, error: null })
-    await expect(mintSession(req, 'sam@x.com')).rejects.toMatchObject({ status: 401 })
+    await expect(mintSession(req, 'sam@x.com', 'u1')).rejects.toMatchObject({ status: 503 })
     expect(verifyOtp).not.toHaveBeenCalled()
   })
 
-  it('throws 401 when verifyOtp errors', async () => {
+  it('throws 503 when verifyOtp errors', async () => {
     verifyOtp.mockResolvedValue({ data: {}, error: { message: 'expired' } })
-    await expect(mintSession(req, 'sam@x.com')).rejects.toMatchObject({
-      status: 401, message: 'Could not sign in — try again',
+    await expect(mintSession(req, 'sam@x.com', 'u1')).rejects.toMatchObject({
+      status: 503, message: 'Could not sign in — try again',
     })
   })
 
-  it('throws 401 when a Supabase call throws', async () => {
+  it('throws 503 when a Supabase call throws', async () => {
     verifyOtp.mockRejectedValue(new Error('network'))
-    await expect(mintSession(req, 'sam@x.com')).rejects.toMatchObject({ status: 401 })
+    await expect(mintSession(req, 'sam@x.com', 'u1')).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('throws 503 and hands back no cookies when the session is for another user', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    verifyOtp.mockImplementation(async () => {
+      ssrOptions!.cookies.setAll(minted)
+      return { data: { user: { id: 'someone-else' }, session: {} }, error: null }
+    })
+    const err = await mintSession(req, 'sam@x.com', 'u1').catch((e) => e)
+    expect(err).toBeInstanceOf(PinError)
+    expect(err).toMatchObject({ status: 503, message: 'Could not sign in — try again' })
+  })
+
+  it('throws 503 when verifyOtp returns no user at all', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    verifyOtp.mockResolvedValue({ data: { user: null, session: null }, error: null })
+    await expect(mintSession(req, 'sam@x.com', 'u1')).rejects.toMatchObject({ status: 503 })
   })
 
   it('never logs the hashed token', async () => {
@@ -443,7 +460,7 @@ describe('mintSession', () => {
       vi.spyOn(console, m).mockImplementation(() => {}),
     )
     verifyOtp.mockResolvedValue({ data: {}, error: { message: 'expired' } })
-    await mintSession(req, 'sam@x.com').catch(() => {})
+    await mintSession(req, 'sam@x.com', 'u1').catch(() => {})
     for (const s of spies) {
       expect(JSON.stringify(s.mock.calls)).not.toContain('hashed-xyz')
       s.mockRestore()

@@ -1,7 +1,7 @@
 import 'server-only'
 import type { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { CONFIRM_LIMIT, isLocked, LOCK_LIMIT, LOCK_WINDOW_MS } from '@/lib/pin/rules'
+import { CONFIRM_LIMIT, IP_LOCK_LIMIT, isLocked, LOCK_LIMIT, LOCK_WINDOW_MS } from '@/lib/pin/rules'
 import { PinError } from '@/lib/pin/errors'
 
 const PRUNE_AFTER_MS = 24 * 3600_000
@@ -30,9 +30,21 @@ export function confirmKey(ip: string): string {
 }
 
 /**
- * Throws 429 when any key has hit its limit inside the window.
- *  - failure keys (`ip:…`, `cook:…`): LOCK_LIMIT rows with ok=false
- *  - confirm keys (`confirm:ip:…`):  CONFIRM_LIMIT rows with ok=true
+ * The limit for one key (RULING P10):
+ *  - `ip:…`         IP_LOCK_LIMIT failures (the whole kitchen shares one Wi-Fi)
+ *  - `cook:…`       LOCK_LIMIT failures
+ *  - `confirm:ip:…` CONFIRM_LIMIT confirms
+ */
+export function limitFor(key: string): number {
+  if (key.startsWith('confirm:')) return CONFIRM_LIMIT
+  if (key.startsWith('ip:')) return IP_LOCK_LIMIT
+  return LOCK_LIMIT
+}
+
+/**
+ * Throws 429 when any key has hit its own limit (`limitFor`) inside the window.
+ *  - failure keys (`ip:…`, `cook:…`): rows with ok=false
+ *  - confirm keys (`confirm:ip:…`):  rows with ok=true
  * Pass one kind per call.
  */
 export async function checkLock(keys: string[]): Promise<void> {
@@ -46,10 +58,9 @@ export async function checkLock(keys: string[]): Promise<void> {
     where: { key: { in: keys }, ok: confirm, createdAt: { gt: new Date(now.getTime() - LOCK_WINDOW_MS) } },
     select: { key: true, createdAt: true },
   })
-  const limit = confirm ? CONFIRM_LIMIT : LOCK_LIMIT
   for (const key of keys) {
     const at = rows.filter((r) => r.key === key).map((r) => r.createdAt)
-    if (isLocked(at, now, limit)) throw new PinError(429, TOO_MANY)
+    if (isLocked(at, now, limitFor(key))) throw new PinError(429, TOO_MANY)
   }
 }
 

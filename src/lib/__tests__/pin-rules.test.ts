@@ -4,6 +4,7 @@ import {
   newDeviceToken,
   hashToken,
   LOCK_LIMIT,
+  IP_LOCK_LIMIT,
   LOCK_WINDOW_MS,
   isLocked,
   CONFIRM_LIMIT,
@@ -11,6 +12,7 @@ import {
   pinDisplayName,
   pinFullName,
   pinEmail,
+  isPinEmail,
   deviceLabel,
 } from '@/lib/pin/rules'
 
@@ -33,6 +35,7 @@ describe('isLocked', () => {
   const ago = (ms: number) => new Date(now.getTime() - ms)
   it('exposes the limits', () => {
     expect(LOCK_LIMIT).toBe(5)
+    expect(IP_LOCK_LIMIT).toBe(20)
     expect(LOCK_WINDOW_MS).toBe(15 * 60_000)
   })
   it('locks at 5 failures inside the window', () => {
@@ -44,11 +47,16 @@ describe('isLocked', () => {
   it('ignores a failure older than the window', () => {
     expect(isLocked([1, 2, 3, 4, 16].map((m) => ago(m * 60_000)), now)).toBe(false)
   })
-  it('takes its own limit (the confirm limit is 20)', () => {
+  it('takes its own limit (the confirm limit is 60)', () => {
+    const fiftyNine = Array.from({ length: 59 }, (_, i) => ago((i + 1) * 10_000))
+    expect(CONFIRM_LIMIT).toBe(60)
+    expect(isLocked(fiftyNine, now, CONFIRM_LIMIT)).toBe(false)
+    expect(isLocked([...fiftyNine, ago(14 * 60_000)], now, CONFIRM_LIMIT)).toBe(true)
+  })
+  it('the IP failure limit is 20', () => {
     const nineteen = Array.from({ length: 19 }, (_, i) => ago((i + 1) * 30_000))
-    expect(CONFIRM_LIMIT).toBe(20)
-    expect(isLocked(nineteen, now, CONFIRM_LIMIT)).toBe(false)
-    expect(isLocked([...nineteen, ago(10 * 60_000)], now, CONFIRM_LIMIT)).toBe(true)
+    expect(isLocked(nineteen, now, IP_LOCK_LIMIT)).toBe(false)
+    expect(isLocked([...nineteen, ago(10 * 60_000)], now, IP_LOCK_LIMIT)).toBe(true)
   })
 })
 
@@ -99,6 +107,20 @@ describe('pinFullName', () => {
 describe('pinEmail', () => {
   it('builds the synthetic login email', () => {
     expect(pinEmail('c1')).toBe('pin.c1@crew.controlaos.vercel.app')
+  })
+})
+
+describe('isPinEmail', () => {
+  it('spots the PIN account domain, any case', () => {
+    expect(isPinEmail(pinEmail('c1'))).toBe(true)
+    expect(isPinEmail('  PIN.X@Crew.ControlaOS.vercel.app ')).toBe(true)
+  })
+  it('ignores other addresses, look-alikes and blanks', () => {
+    expect(isPinEmail('sam@fergies.ca')).toBe(false)
+    expect(isPinEmail('a@evilcrew.controlaos.vercel.app')).toBe(false)
+    expect(isPinEmail('a@crew.controlaos.vercel.app.evil.com')).toBe(false)
+    expect(isPinEmail(null)).toBe(false)
+    expect(isPinEmail('')).toBe(false)
   })
 })
 

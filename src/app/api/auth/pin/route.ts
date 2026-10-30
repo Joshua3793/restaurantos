@@ -25,10 +25,11 @@ export const dynamic = 'force-dynamic'
  * Phones are OK'd only from a manager's own signed-in session (RULING P6).
  */
 export async function POST(req: NextRequest) {
-  const body = await readBody(req)
-  const pin = typeof body.pin === 'string' ? body.pin : null
   const token = readDeviceToken(req)
+  let pin: string | null = null
   try {
+    const body = await readBody(req)
+    pin = typeof body.pin === 'string' ? body.pin : null
     const ip = clientIp(req)
     const ipKey = `ip:${ip}`
     await checkLock([ipKey])
@@ -68,8 +69,8 @@ export async function POST(req: NextRequest) {
       : null
 
     if (device?.status === 'APPROVED') {
-      const { email } = await ensurePinUser(cook)
-      const sessionCookies = await mintSession(req, email)
+      const { userId, email } = await ensurePinUser(cook)
+      const sessionCookies = await mintSession(req, email, userId)
       await prisma.pinDevice.update({ where: { id: device.id }, data: { lastUsedAt: new Date() } })
       await recordAttempt(keys, true)
       const res = NextResponse.json({ signedIn: true })

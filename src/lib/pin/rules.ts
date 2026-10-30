@@ -20,11 +20,18 @@ export function pairCode(tokenHash: string): string {
   return createHash('sha256').update('pair:' + tokenHash).digest('hex').slice(0, 4).toUpperCase()
 }
 
+/** Failed tries per cook (`cook:` key) inside the window. */
 export const LOCK_LIMIT = 5
+/**
+ * Failed tries per IP (`ip:` key) inside the window. Higher than the cook
+ * limit: on launch day the whole crew shares the kitchen Wi-Fi, and the PIN
+ * isn't the secret anyway — the manager's OK is (RULING P10).
+ */
+export const IP_LOCK_LIMIT = 20
 export const LOCK_WINDOW_MS = 15 * 60_000
 
-/** Confirms ("yes, that's me") allowed per IP inside the window. */
-export const CONFIRM_LIMIT = 20
+/** Confirms ("yes, that's me") allowed per IP inside the window (RULING P10). */
+export const CONFIRM_LIMIT = 60
 
 /** A PENDING request older than this can't be approved; a confirm refreshes it. */
 export const PENDING_MAX_AGE_MS = 24 * 60 * 60_000
@@ -50,9 +57,17 @@ export function pinFullName(cook: { name: string; lastName: string | null }): st
   return last && !first.toLowerCase().endsWith(last.toLowerCase()) ? `${first} ${last}` : first
 }
 
+/** The domain every PIN account's synthetic email sits on (RULING P4). */
+export const PIN_EMAIL_DOMAIN = 'crew.controlaos.vercel.app'
+
 /** Synthetic login email for a cook's PIN account (never mailed). */
 export function pinEmail(cookId: string): string {
-  return `pin.${cookId}@crew.controlaos.vercel.app`
+  return `pin.${cookId}@${PIN_EMAIL_DOMAIN}`
+}
+
+/** True for an address on the PIN account domain (case-insensitive, trimmed). */
+export function isPinEmail(email: string | null | undefined): boolean {
+  return !!email && email.trim().toLowerCase().endsWith(`@${PIN_EMAIL_DOMAIN}`)
 }
 
 export function deviceLabel(userAgent: string | null): string {

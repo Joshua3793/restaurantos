@@ -22,14 +22,26 @@ export const PIN_FORMAT = /^\d{3,8}$/
 /** The exact shape `newDeviceToken` mints (32 bytes, base64url). */
 const TOKEN_FORMAT = /^[A-Za-z0-9_-]{43}$/
 
+/** True when `value` has the shape of a token we could have issued. */
+export function isDeviceToken(value: string | null | undefined): value is string {
+  return !!value && TOKEN_FORMAT.test(value)
+}
+
 /** The phone's device token, or null when absent or not one we could have issued. */
 export function readDeviceToken(req: NextRequest): string | null {
   const value = req.cookies.get(PIN_DEVICE_COOKIE)?.value
-  return value && TOKEN_FORMAT.test(value) ? value : null
+  return isDeviceToken(value) ? value : null
 }
 
-/** The request body as an object, or {} when it is missing or not JSON. */
+/**
+ * The request body as an object, or {} when it is not valid JSON. A request
+ * not sent as `application/json` is refused with 415 before the body is read:
+ * a cross-site form post (text/plain, form-encoded) can't send that type
+ * without a CORS preflight, which this route never answers.
+ */
 export async function readBody(req: NextRequest): Promise<Record<string, unknown>> {
+  const type = req.headers.get('content-type')?.trim().toLowerCase() ?? ''
+  if (!type.startsWith('application/json')) throw new PinError(415, 'Bad request')
   try {
     const body: unknown = await req.json()
     return body && typeof body === 'object' ? (body as Record<string, unknown>) : {}

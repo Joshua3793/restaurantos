@@ -223,6 +223,13 @@ export default function PinSignInPage() {
       const message = d.error || GENERIC
       return backToKeypad({ error: message, loginLink: /email and password/i.test(message) })
     }
+    // 409 (this login needs a manager to fix it) and 503 (the PIN was right but
+    // the server couldn't finish): show what the server said.
+    if ((r.status === 409 || r.status === 503) && typeof d.error === 'string' && d.error) {
+      if (from === 'waiting') setWaitError(d.error)
+      else setStep({ kind: 'enter', error: d.error })
+      return
+    }
     generic()
   }, [backToKeypad, setPin])
 
@@ -478,7 +485,7 @@ export default function PinSignInPage() {
         <Link href="/login" className="text-[13px] text-gold-2 min-h-[44px] flex items-center">
           Sign in with email instead
         </Link>
-        <span className="font-mono text-[10.5px] text-ink-3 text-center">STAYS SIGNED IN ON THIS PHONE · 5 WRONG TRIES LOCKS IT</span>
+        <span className="font-mono text-[10.5px] text-ink-3 text-center">STAYS SIGNED IN ON THIS PHONE · TOO MANY WRONG TRIES PAUSES SIGN-IN FOR 15 MIN</span>
       </div>
     </Screen>
   )

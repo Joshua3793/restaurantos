@@ -46,7 +46,7 @@ vi.mock('@/lib/pin/account', () => ({
 
 const pinRoute = await import('@/app/api/auth/pin/route')
 const statusRoute = await import('@/app/api/auth/pin/status/route')
-const { checkLock, recordAttempt, clientIp, confirmKey } = await import('@/lib/pin/attempts')
+const { checkLock, recordAttempt, clientIp, confirmKey, limitFor } = await import('@/lib/pin/attempts')
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 const TOKEN = 'a'.repeat(43)
@@ -73,7 +73,7 @@ const signIn = (body: unknown, opts?: Parameters<typeof post>[2]) =>
   pinRoute.POST(post('/api/auth/pin', body, opts))
 
 const recent = (n: number, key: string) =>
-  Array.from({ length: n }, (_, i) => ({ key, createdAt: new Date(Date.now() - (i + 1) * 30_000) }))
+  Array.from({ length: n }, (_, i) => ({ key, createdAt: new Date(Date.now() - (i + 1) * 10_000) }))
 
 /** Every attempt row written, flattened across createMany calls. */
 const written = () =>
@@ -142,6 +142,19 @@ describe('checkLock', () => {
     await expect(checkLock(['ip:1.2.3.4', 'cook:c1'])).resolves.toBeUndefined()
   })
 
+  it('an IP key takes 20 failures to lock (shared kitchen Wi-Fi), a cook key 5', async () => {
+    attemptFindMany.mockResolvedValue([...recent(19, 'ip:1.2.3.4'), ...recent(4, 'cook:c1')])
+    await expect(checkLock(['ip:1.2.3.4', 'cook:c1'])).resolves.toBeUndefined()
+    attemptFindMany.mockResolvedValue(recent(20, 'ip:1.2.3.4'))
+    await expect(checkLock(['ip:1.2.3.4', 'cook:c1'])).rejects.toMatchObject({ status: 429 })
+  })
+
+  it('limitFor gives each key kind its own limit', () => {
+    expect(limitFor('ip:1.2.3.4')).toBe(20)
+    expect(limitFor('cook:c1')).toBe(5)
+    expect(limitFor(confirmKey('1.2.3.4'))).toBe(60)
+  })
+
   it('ignores rows older than the window even if returned', async () => {
     const old = Array.from({ length: 5 }, () => ({ key: 'ip:1.2.3.4', createdAt: new Date(Date.now() - LOCK_WINDOW_MS - 60_000) }))
     attemptFindMany.mockResolvedValue(old)
@@ -150,21 +163,23 @@ describe('checkLock', () => {
 })
 
 describe('checkLock — confirm keys', () => {
-  it('counts ok=true rows and locks at 20', async () => {
-    attemptFindMany.mockResolvedValue(recent(20, confirmKey('1.2.3.4')))
+  it('counts ok=true rows and locks at 60', async () => {
+    attemptFindMany.mockResolvedValue(recent(60, confirmKey('1.2.3.4')))
     await expect(checkLock([confirmKey('1.2.3.4')])).rejects.toMatchObject({ status: 429 })
     expect(attemptFindMany.mock.calls[0][0].where).toMatchObject({ key: { in: ['confirm:ip:1.2.3.4'] }, ok: true })
   })
 
-  it('does not lock at 19', async () => {
-    attemptFindMany.mockResolvedValue(recent(19, confirmKey('1.2.3.4')))
+  it('does not lock at 59', async () => {
+    attemptFindMany.mockResolvedValue(recent(59, confirmKey('1.2.3.4')))
     await expect(checkLock([confirmKey('1.2.3.4')])).resolves.toBeUndefined()
   })
 
-  it('failure keys still lock at 5 failed rows', async () => {
-    attemptFindMany.mockResolvedValue(recent(5, 'ip:1.2.3.4'))
-    await expect(checkLock(['ip:1.2.3.4'])).rejects.toMatchObject({ status: 429 })
+  it('failure keys still count ok=false rows: a cook locks at 5, an IP at 20', async () => {
+    attemptFindMany.mockResolvedValue(recent(5, 'cook:c1'))
+    await expect(checkLock(['cook:c1'])).rejects.toMatchObject({ status: 429 })
     expect(attemptFindMany.mock.calls[0][0].where.ok).toBe(false)
+    attemptFindMany.mockResolvedValue(recent(20, 'ip:1.2.3.4'))
+    await expect(checkLock(['ip:1.2.3.4'])).rejects.toMatchObject({ status: 429 })
   })
 
   it('refuses to mix confirm and failure keys in one call', async () => {
@@ -230,8 +245,15 @@ describe('POST /api/auth/pin', () => {
     expect(written()).toEqual([{ key: 'ip:1.2.3.4', ok: false }])
   })
 
-  it('5 recent failures for the IP → 429 before the cook lookup', async () => {
-    attemptFindMany.mockResolvedValue(recent(5, 'ip:1.2.3.4'))
+  it('19 recent failures for the IP still let a cook try (shared kitchen Wi-Fi)', async () => {
+    attemptFindMany.mockResolvedValue(recent(19, 'ip:1.2.3.4'))
+    const res = await signIn({ pin: '1234' })
+    expect(res.status).toBe(401)
+    expect(cookFindFirst).toHaveBeenCalled()
+  })
+
+  it('20 recent failures for the IP → 429 before the cook lookup', async () => {
+    attemptFindMany.mockResolvedValue(recent(20, 'ip:1.2.3.4'))
     const res = await signIn({ pin: '1234' })
     expect(res.status).toBe(429)
     expect(await res.json()).toEqual({ error: 'Too many tries — wait 15 minutes' })
@@ -363,7 +385,7 @@ describe('POST /api/auth/pin', () => {
     cookFindFirst.mockResolvedValue(sam)
     deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', createdAt: new Date() })
     attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] } } }) =>
-      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(20, 'confirm:ip:1.2.3.4') : [],
+      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(60, 'confirm:ip:1.2.3.4') : [],
     )
     const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
     expect(res.status).toBe(200)
@@ -417,10 +439,10 @@ describe('POST /api/auth/pin', () => {
     expect(deviceDeleteMany).not.toHaveBeenCalled()
   })
 
-  it('20 confirms from one IP in the window → 429, nothing queued', async () => {
+  it('60 confirms from one IP in the window → 429, nothing queued', async () => {
     cookFindFirst.mockResolvedValue(sam)
     attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] }; ok: boolean } }) =>
-      a.where.key.in.includes('confirm:ip:1.2.3.4') && a.where.ok === true ? recent(20, 'confirm:ip:1.2.3.4') : [],
+      a.where.key.in.includes('confirm:ip:1.2.3.4') && a.where.ok === true ? recent(60, 'confirm:ip:1.2.3.4') : [],
     )
     const res = await signIn({ pin: '1234', confirm: true })
     expect(res.status).toBe(429)
@@ -429,10 +451,10 @@ describe('POST /api/auth/pin', () => {
     expect(written().some((r) => r.key.startsWith('confirm:'))).toBe(false)
   })
 
-  it('19 confirms is still allowed', async () => {
+  it('59 confirms is still allowed', async () => {
     cookFindFirst.mockResolvedValue(sam)
     attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] } } }) =>
-      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(19, 'confirm:ip:1.2.3.4') : [],
+      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(59, 'confirm:ip:1.2.3.4') : [],
     )
     const res = await signIn({ pin: '1234', confirm: true })
     expect(res.status).toBe(200)
@@ -457,6 +479,8 @@ describe('POST /api/auth/pin', () => {
     expect(ensurePinUser).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1', userId: 'u1' }))
     expect(mintSession).toHaveBeenCalledTimes(1)
     expect(mintSession.mock.calls[0][1]).toBe('pin.c1@crew.controlaos.vercel.app')
+    // The session must be for the login ensurePinUser picked.
+    expect(mintSession.mock.calls[0][2]).toBe('u1')
     expect(res.cookies.get('sb-x-auth-token')?.value).toBe('session-value')
     expect(deviceUpdate).toHaveBeenCalledWith({ where: { id: 'd1' }, data: { lastUsedAt: expect.any(Date) } })
     expect(written()).toEqual(OK_BOTH)
@@ -509,6 +533,45 @@ describe('POST /api/auth/pin', () => {
     expect(await res.json()).toEqual({ error: 'This login is switched off' })
     expect(mintSession).not.toHaveBeenCalled()
     expect(written().some((r) => !r.ok)).toBe(false)
+  })
+
+  it('a session that cannot be minted → 503 with its message, not a wrong-PIN 401', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'APPROVED' })
+    mintSession.mockRejectedValue(new PinError(503, 'Could not sign in — try again'))
+    const res = await signIn({ pin: '1234' }, { cookie: `pin_device=${TOKEN}` })
+    expect(res.status).toBe(503)
+    expect(await res.json()).toEqual({ error: 'Could not sign in — try again' })
+    expect(written().some((r) => !r.ok)).toBe(false)
+    expect(res.cookies.get('sb-x-auth-token')).toBeUndefined()
+  })
+
+  it('a body not sent as application/json → 415, nothing looked up or recorded', async () => {
+    for (const type of ['text/plain', 'application/x-www-form-urlencoded', null]) {
+      const headers: Record<string, string> = { 'x-forwarded-for': '1.2.3.4' }
+      if (type) headers['content-type'] = type
+      const res = await pinRoute.POST(
+        new NextRequest('http://localhost/api/auth/pin', { method: 'POST', headers, body: JSON.stringify({ pin: '1234' }) }),
+      )
+      expect(res.status).toBe(415)
+      expect(await res.json()).toEqual({ error: 'Bad request' })
+    }
+    expect(attemptFindMany).not.toHaveBeenCalled()
+    expect(cookFindFirst).not.toHaveBeenCalled()
+    expect(attemptCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('accepts application/json with a charset', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    const res = await pinRoute.POST(
+      new NextRequest('http://localhost/api/auth/pin', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json; charset=utf-8', 'x-forwarded-for': '1.2.3.4' },
+        body: JSON.stringify({ pin: '1234' }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ needsConfirm: true, name: 'Sam L.' })
   })
 
   it('an unexpected error → 500 generic message, logged without the PIN or token', async () => {

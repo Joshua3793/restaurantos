@@ -199,9 +199,12 @@ async function rollbackAuthUser(admin: ReturnType<typeof createAdminClient>, id:
  * Mints a normal Supabase session for `email` and returns the session cookies
  * for the caller to set on its response. Same verifyOtp + cookie buffering as
  * /auth/callback, so middleware and requireSession treat it like any sign-in.
+ * The session must belong to `expectedUserId` (the login `ensurePinUser`
+ * picked); if Supabase hands back anyone else, the cookies are dropped.
+ * Any failure is a 503 — the PIN was right, the server couldn't finish.
  * Never logs the link, its token or the hashed token.
  */
-export async function mintSession(req: NextRequest, email: string): Promise<CookieToSet[]> {
+export async function mintSession(req: NextRequest, email: string, expectedUserId: string): Promise<CookieToSet[]> {
   const pending: CookieToSet[] = []
   try {
     const { data, error } = await createAdminClient().auth.admin.generateLink({
@@ -211,7 +214,7 @@ export async function mintSession(req: NextRequest, email: string): Promise<Cook
     const tokenHash = data?.properties?.hashed_token
     if (error || !tokenHash) {
       console.error(`[pin] generateLink failed${error?.status ? ` (${error.status})` : ''}`)
-      throw new PinError(401, SIGN_IN_FAILED)
+      throw new PinError(503, SIGN_IN_FAILED)
     }
 
     const supabase = createServerClient(
@@ -224,18 +227,24 @@ export async function mintSession(req: NextRequest, email: string): Promise<Cook
         },
       },
     )
-    const { error: verifyError } = await supabase.auth.verifyOtp({
+    const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
       type: 'magiclink',
       token_hash: tokenHash,
     })
     if (verifyError) {
       console.error(`[pin] verifyOtp failed${verifyError.status ? ` (${verifyError.status})` : ''}`)
-      throw new PinError(401, SIGN_IN_FAILED)
+      throw new PinError(503, SIGN_IN_FAILED)
+    }
+    if (verified?.user?.id !== expectedUserId) {
+      // Never hand the phone a session for a login other than the one checked.
+      console.error(`[pin] minted session is not for user ${expectedUserId}; discarded`)
+      throw new PinError(503, SIGN_IN_FAILED)
     }
   } catch (e) {
+    pending.length = 0
     if (e instanceof PinError) throw e
     console.error('[pin] session mint threw')
-    throw new PinError(401, SIGN_IN_FAILED)
+    throw new PinError(503, SIGN_IN_FAILED)
   }
   return pending
 }
