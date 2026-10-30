@@ -31,7 +31,13 @@ export async function ensureRun(
   const categories = await prisma.checklistCategory.findMany({
     where: { stationId, phase },
     orderBy: { sortOrder: 'asc' },
-    include: { items: { orderBy: { sortOrder: 'asc' } } },
+    include: {
+      items: {
+        orderBy: { sortOrder: 'asc' },
+        // A TEMP item's safe range comes from its Temps unit (the item stores none).
+        include: { tempUnit: { select: { safeMin: true, safeMax: true } } },
+      },
+    },
   })
 
   try {

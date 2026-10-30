@@ -16,6 +16,8 @@ export type ItemTemplate = {
   safeMin: Dec
   safeMax: Dec
   tempUnitId: string | null
+  /** The linked Temps unit. A TEMP item's range lives here, not on the item. */
+  tempUnit?: { safeMin: Dec; safeMax: Dec } | null
   days: number
   sortOrder: number
   isActive: boolean
@@ -47,6 +49,9 @@ export type LineCreate = {
 /**
  * Lines for one run: active categories, then active items that apply on the
  * date, ordered by category sortOrder then item sortOrder and renumbered 0..n-1.
+ *
+ * A TEMP item stores no unit or range of its own: the line takes the linked
+ * Temps unit's safe range (°C) as it is right now, frozen for this run.
  */
 export function snapshotLines(
   runId: string,
@@ -60,6 +65,7 @@ export function snapshotLines(
       .filter(i => i.isActive && appliesOn(i.days, businessDate))
       .sort((a, b) => a.sortOrder - b.sortOrder)
     for (const i of items) {
+      const temp = i.answer === 'TEMP'
       out.push({
         runId,
         itemId: i.id,
@@ -68,9 +74,9 @@ export function snapshotLines(
         howTo: i.howTo,
         isBlocker: i.isBlocker,
         answer: i.answer,
-        unit: i.unit,
-        safeMin: i.safeMin,
-        safeMax: i.safeMax,
+        unit: temp ? '°C' : i.unit,
+        safeMin: temp ? (i.tempUnit?.safeMin ?? null) : i.safeMin,
+        safeMax: temp ? (i.tempUnit?.safeMax ?? null) : i.safeMax,
         tempUnitId: i.tempUnitId,
         sortOrder: out.length,
       })

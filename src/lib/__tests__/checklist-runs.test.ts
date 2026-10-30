@@ -75,6 +75,27 @@ describe('ensureRun', () => {
     expect(arg.data[0]).toMatchObject({ runId: 'r1', itemId: 'i1', categoryName: 'Line', sortOrder: 0 })
   })
 
+  it('loads each item\'s Temps unit range so a TEMP line can flag out of range', async () => {
+    runFindUnique.mockResolvedValue(null)
+    runUpsert.mockResolvedValue({ id: 'r1' })
+    categoryFindMany.mockResolvedValue([{
+      name: 'Fridges', sortOrder: 0, isActive: true,
+      items: [{
+        id: 'i2', title: 'Walk-in', howTo: null, isBlocker: true, answer: 'TEMP', unit: null,
+        safeMin: null, safeMax: null, tempUnitId: 't1', tempUnit: { safeMin: '0', safeMax: '4' },
+        days: 127, sortOrder: 0, isActive: true,
+      }],
+    }])
+    lineCreateMany.mockResolvedValue({ count: 1 })
+
+    await ensureRun('s1', 'OPEN', '2026-10-28')
+
+    expect(categoryFindMany.mock.calls[0][0].include.items.include)
+      .toEqual({ tempUnit: { select: { safeMin: true, safeMax: true } } })
+    expect(lineCreateMany.mock.calls[0][0].data[0])
+      .toMatchObject({ answer: 'TEMP', unit: '°C', safeMin: '0', safeMax: '4', tempUnitId: 't1' })
+  })
+
   it('leaves a run that already exists alone (edits do not change a started run)', async () => {
     runFindUnique.mockResolvedValue({ id: 'r1' })
 
