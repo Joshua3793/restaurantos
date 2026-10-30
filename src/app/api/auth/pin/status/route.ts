@@ -8,7 +8,11 @@ export const dynamic = 'force-dynamic'
 
 const NO_STORE = { 'Cache-Control': 'no-store' }
 
-/** GET — this phone's sign-in requests (newest first, at most 5) and its pair code. */
+/**
+ * GET — this phone's sign-in requests (newest first, at most 10) and its pair
+ * code. Each carries its row id so the waiting screen can match its own
+ * request; ids aren't secrets (every write needs the cookie or a manager).
+ */
 export async function GET(req: NextRequest) {
   const token = readDeviceToken(req)
   try {
@@ -17,10 +21,10 @@ export async function GET(req: NextRequest) {
     const rows = await prisma.pinDevice.findMany({
       where: { tokenHash },
       orderBy: { createdAt: 'desc' },
-      take: 5,
-      select: { status: true, cook: { select: { name: true, lastName: true } } },
+      take: 10,
+      select: { id: true, status: true, cook: { select: { name: true, lastName: true } } },
     })
-    const devices = rows.map((r) => ({ cookName: pinDisplayName(r.cook), status: r.status }))
+    const devices = rows.map((r) => ({ id: r.id, cookName: pinDisplayName(r.cook), status: r.status }))
     // The pair code lets the manager match this phone to its request.
     const body = devices.length ? { devices, pairCode: pairCode(tokenHash) } : { devices }
     return NextResponse.json(body, { headers: NO_STORE })

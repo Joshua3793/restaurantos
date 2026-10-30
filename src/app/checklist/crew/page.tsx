@@ -68,6 +68,11 @@ function ago(iso: string, now: number): string {
   return `${d} ${d === 1 ? 'day' : 'days'} ago`
 }
 
+const firstWord = (name: string) => name.trim().split(/\s+/)[0] || name
+
+/** "Turn this phone down? Sam won't be able to ask from it again." */
+const rejectQuestion = (cookName: string) => `Turn this phone down? ${firstWord(cookName)} won’t be able to ask from it again.`
+
 function initials(name: string): string {
   return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 }
@@ -95,15 +100,59 @@ function crewSub(c: CrewRow): string {
 
 // ── Pieces (module scope) ─────────────────────────────────────────────────
 
+const OUTLINE_BTN = 'min-h-[44px] rounded-[9px] border border-line-2 bg-paper text-[13px] font-medium text-ink-2 disabled:opacity-50'
+
+/** A yes/no asked in place before a permanent change (turn down, remove). */
+function InlineConfirm({
+  question,
+  cancelLabel,
+  confirmLabel,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  question: string
+  cancelLabel: string
+  confirmLabel: string
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="rounded-[10px] bg-bg-2 px-3 py-3 flex flex-col gap-2.5">
+      <p className="m-0 text-[13px] leading-[1.45] text-ink-2">{question}</p>
+      <div className="flex gap-2">
+        <button type="button" disabled={busy} onClick={onCancel} className={`flex-1 ${OUTLINE_BTN}`}>
+          {cancelLabel}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onConfirm}
+          className="flex-1 min-h-[44px] rounded-[9px] bg-red text-[13px] font-semibold text-paper disabled:opacity-50"
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function PendingCard({
   p,
   now,
   busy,
+  confirming,
+  onAsk,
+  onCancel,
   onAct,
 }: {
   p: Pending
   now: number
   busy: boolean
+  confirming: boolean
+  onAsk: () => void
+  onCancel: () => void
   onAct: (action: Action) => void
 }) {
   return (
@@ -122,43 +171,51 @@ function PendingCard({
         </span>
       </div>
       <p className="m-0 text-[12.5px] leading-[1.4] text-ink-3">Check the code on their phone matches before you OK it.</p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onAct('reject')}
-          className="flex-1 min-h-[44px] rounded-[9px] border border-line-2 bg-paper text-[13px] font-medium text-ink-2 disabled:opacity-50"
-        >
-          Not them
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onAct('approve')}
-          className="flex-[2] min-h-[44px] rounded-[9px] bg-gold text-[13px] font-semibold text-ink disabled:opacity-50"
-        >
-          OK this phone
-        </button>
-      </div>
+      {confirming ? (
+        <InlineConfirm
+          question={rejectQuestion(p.cookName)}
+          cancelLabel="Cancel"
+          confirmLabel="Turn it down"
+          busy={busy}
+          onCancel={onCancel}
+          onConfirm={() => onAct('reject')}
+        />
+      ) : (
+        <div className="flex gap-2">
+          <button type="button" disabled={busy} onClick={onAsk} className={`flex-1 ${OUTLINE_BTN}`}>
+            Not them
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct('approve')}
+            className="flex-[2] min-h-[44px] rounded-[9px] bg-gold text-[13px] font-semibold text-ink disabled:opacity-50"
+          >
+            OK this phone
+          </button>
+        </div>
+      )}
     </section>
   )
 }
 
 function PhoneRow({
   d,
+  cookName,
   now,
   busy,
   confirming,
-  onAskRemove,
-  onCancelRemove,
+  onAsk,
+  onCancel,
   onAct,
 }: {
   d: Device
+  cookName: string
   now: number
   busy: boolean
   confirming: boolean
-  onAskRemove: () => void
-  onCancelRemove: () => void
+  onAsk: () => void
+  onCancel: () => void
   onAct: (action: Action) => void
 }) {
   const pill = DEVICE_PILL[d.status]
@@ -176,50 +233,35 @@ function PhoneRow({
         </span>
         <span className={`flex-none font-mono text-[10px] font-medium px-[9px] py-[3px] rounded-full whitespace-nowrap ${pill.cls}`}>{pill.label}</span>
       </div>
-      {d.status === 'APPROVED' && !confirming && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onAskRemove}
-          className="self-start min-h-[44px] px-3.5 rounded-[9px] border border-line-2 bg-paper text-[13px] font-medium text-ink-2 disabled:opacity-50"
-        >
+      {d.status === 'APPROVED' && (confirming ? (
+        <InlineConfirm
+          question="Remove this phone? They’ll need a manager’s OK to sign in on it again."
+          cancelLabel="Keep it"
+          confirmLabel="Remove"
+          busy={busy}
+          onCancel={onCancel}
+          onConfirm={() => onAct('revoke')}
+        />
+      ) : (
+        <button type="button" disabled={busy} onClick={onAsk} className={`self-start px-3.5 ${OUTLINE_BTN}`}>
           Remove phone
         </button>
-      )}
-      {d.status === 'APPROVED' && confirming && (
-        <div className="rounded-[10px] bg-bg-2 px-3 py-3 flex flex-col gap-2.5">
-          <p className="m-0 text-[13px] leading-[1.45] text-ink-2">Remove this phone? They’ll need a manager’s OK to sign in on it again.</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onCancelRemove}
-              className="flex-1 min-h-[44px] rounded-[9px] border border-line-2 bg-paper text-[13px] font-medium text-ink-2 disabled:opacity-50"
-            >
-              Keep it
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onAct('revoke')}
-              className="flex-1 min-h-[44px] rounded-[9px] bg-red text-[13px] font-semibold text-paper disabled:opacity-50"
-            >
-              Remove
-            </button>
-          </div>
-        </div>
-      )}
-      {d.status === 'PENDING' && (
+      ))}
+      {d.status === 'PENDING' && (confirming ? (
+        <InlineConfirm
+          question={rejectQuestion(cookName)}
+          cancelLabel="Cancel"
+          confirmLabel="Turn it down"
+          busy={busy}
+          onCancel={onCancel}
+          onConfirm={() => onAct('reject')}
+        />
+      ) : (
         // A blocked cook's request isn't in the waiting list; it can still be turned down here.
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onAct('reject')}
-          className="self-start min-h-[44px] px-3.5 rounded-[9px] border border-line-2 bg-paper text-[13px] font-medium text-ink-2 disabled:opacity-50"
-        >
+        <button type="button" disabled={busy} onClick={onAsk} className={`self-start px-3.5 ${OUTLINE_BTN}`}>
           Not them
         </button>
-      )}
+      ))}
     </li>
   )
 }
@@ -229,20 +271,20 @@ function CrewItem({
   open,
   now,
   busyId,
-  confirmId,
+  confirmKey,
   onToggle,
-  onAskRemove,
-  onCancelRemove,
+  onAsk,
+  onCancel,
   onAct,
 }: {
   c: CrewRow
   open: boolean
   now: number
   busyId: string | null
-  confirmId: string | null
+  confirmKey: string | null
   onToggle: () => void
-  onAskRemove: (id: string) => void
-  onCancelRemove: () => void
+  onAsk: (key: string) => void
+  onCancel: () => void
   onAct: (d: Device, action: Action) => void
 }) {
   const hasApproved = c.devices.some(d => d.status === 'APPROVED')
@@ -285,9 +327,10 @@ function CrewItem({
                   d={d}
                   now={now}
                   busy={busyId === d.id}
-                  confirming={confirmId === d.id}
-                  onAskRemove={() => onAskRemove(d.id)}
-                  onCancelRemove={onCancelRemove}
+                  cookName={c.name}
+                  confirming={confirmKey === `row:${d.id}`}
+                  onAsk={() => onAsk(`row:${d.id}`)}
+                  onCancel={onCancel}
                   onAct={action => onAct(d, action)}
                 />
               ))}
@@ -315,7 +358,8 @@ export default function CrewSignInPage() {
   const [now, setNow] = useState(() => Date.now())
   const [openId, setOpenId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [confirmId, setConfirmId] = useState<string | null>(null)
+  // Which inline confirm is open: `card:<id>` (waiting card) or `row:<id>` (crew row).
+  const [confirmKey, setConfirmKey] = useState<string | null>(null)
 
   const allowed = !role || atLeast(role as Role, 'MANAGER')
 
@@ -355,7 +399,7 @@ export default function CrewSignInPage() {
     if (!r.ok) toast.show({ type: 'error', title: r.error })
     else if (action === 'approve') toast.show({ type: 'success', title: 'Phone OK’d' })
     else if (action === 'revoke') toast.show({ type: 'success', title: 'Phone removed' })
-    setConfirmId(null)
+    setConfirmKey(null)
     // 409 (someone else got there first, or the request can't be OK'd): reload to show where it stands.
     await load()
     setBusyId(null)
@@ -398,8 +442,23 @@ export default function CrewSignInPage() {
         </div>
       ) : (
         <>
+          {loadError && (
+            // A poll failed: keep the list on screen, but say it may be out of date.
+            <div role="status" className="rounded-[10px] bg-gold-soft text-gold-2 px-3.5 py-2.5 text-[13px]">
+              Couldn’t refresh — showing the last list.
+            </div>
+          )}
           {pending.map(p => (
-            <PendingCard key={p.id} p={p} now={now} busy={busyId === p.id} onAct={action => act(p.id, action)} />
+            <PendingCard
+              key={p.id}
+              p={p}
+              now={now}
+              busy={busyId === p.id}
+              confirming={confirmKey === `card:${p.id}`}
+              onAsk={() => setConfirmKey(`card:${p.id}`)}
+              onCancel={() => setConfirmKey(null)}
+              onAct={action => act(p.id, action)}
+            />
           ))}
 
           <section aria-label="Crew" className="bg-paper border border-line rounded-[14px] overflow-hidden">
@@ -416,10 +475,10 @@ export default function CrewSignInPage() {
                 open={openId === c.cookId}
                 now={now}
                 busyId={busyId}
-                confirmId={confirmId}
-                onToggle={() => { setOpenId(id => (id === c.cookId ? null : c.cookId)); setConfirmId(null) }}
-                onAskRemove={id => setConfirmId(id)}
-                onCancelRemove={() => setConfirmId(null)}
+                confirmKey={confirmKey}
+                onToggle={() => { setOpenId(id => (id === c.cookId ? null : c.cookId)); setConfirmKey(null) }}
+                onAsk={key => setConfirmKey(key)}
+                onCancel={() => setConfirmKey(null)}
                 onAct={(d, action) => act(d.id, action)}
               />
             ))}

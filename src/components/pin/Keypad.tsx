@@ -56,15 +56,13 @@ export function Keypad({
 /** One dot per digit typed — no placeholder dots, so the PIN length isn't hinted. */
 export function PinDots({ length }: { length: number }) {
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-label={length === 0 ? 'No digits typed' : `${length} ${length === 1 ? 'digit' : 'digits'} typed`}
-      className="flex items-center justify-center gap-4 h-8"
-    >
+    // The live region announces its text content, so the count lives in a
+    // visually hidden child (an aria-label on the region itself is not read out).
+    <div role="status" aria-live="polite" className="flex items-center justify-center gap-4 h-8">
       {Array.from({ length }, (_, i) => (
-        <span key={i} className="w-4 h-4 rounded-full bg-ink" />
+        <span key={i} aria-hidden className="w-4 h-4 rounded-full bg-ink" />
       ))}
+      <span className="sr-only">{length} {length === 1 ? 'digit' : 'digits'} typed</span>
     </div>
   )
 }

@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
     // do, and it must not spend the confirm budget the whole kitchen Wi-Fi shares.
     if (token && device?.status === 'PENDING' && device.createdAt >= staleBefore) {
       await recordAttempt(keys, true)
-      const res = NextResponse.json({ pending: true, name })
+      const res = NextResponse.json({ pending: true, name, id: device.id })
       res.cookies.set(PIN_DEVICE_COOKIE, token, pinDeviceCookieOptions())
       return res
     }
@@ -108,6 +108,10 @@ export async function POST(req: NextRequest) {
     const deviceToken = token ?? newDeviceToken()
     const hash = tokenHash ?? hashToken(deviceToken)
     let opened = false
+    // The request's row id goes back to the phone so its waiting screen can
+    // find its own row on /status. Not a secret: every write still needs the
+    // device cookie (here) or a manager's session (PATCH).
+    let deviceId = device?.id ?? null
     if (device?.status === 'PENDING') {
       // Stale (a manager can no longer approve it): restart its clock.
       const { count } = await prisma.pinDevice.updateMany({
@@ -124,16 +128,18 @@ export async function POST(req: NextRequest) {
       opened = count > 0
     } else if (!device) {
       // `update: {}` — a row another request made meanwhile is left alone.
-      await prisma.pinDevice.upsert({
+      const row = await prisma.pinDevice.upsert({
         where: { tokenHash_cookId: { tokenHash: hash, cookId: cook.id } },
         create: { tokenHash: hash, cookId: cook.id, status: 'PENDING', label: deviceLabel(req.headers.get('user-agent')) },
         update: {},
+        select: { id: true },
       })
+      deviceId = row.id
       opened = true
     }
     if (opened) await capPending(cook.id)
 
-    const res = NextResponse.json({ pending: true, name })
+    const res = NextResponse.json({ pending: true, name, id: deviceId })
     res.cookies.set(PIN_DEVICE_COOKIE, deviceToken, pinDeviceCookieOptions())
     return res
   } catch (e) {

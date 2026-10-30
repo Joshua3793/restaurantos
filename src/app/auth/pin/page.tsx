@@ -19,15 +19,16 @@ const GENERIC = 'Could not sign in — try again'
 type Step =
   | { kind: 'enter'; error?: string; loginLink?: boolean; notice?: string }
   | { kind: 'confirm'; name: string }
-  | { kind: 'waiting'; name: string }
+  // deviceId: the request's row id from the POST, so the poll finds its own row.
+  | { kind: 'waiting'; name: string; deviceId: string | null }
   | { kind: 'rejected'; name: string }
   | { kind: 'revoked'; name: string }
   | { kind: 'expired'; name: string }
   | { kind: 'locked'; message: string }
   | { kind: 'signingIn' }
 
-type PinReply = { signedIn?: boolean; needsConfirm?: boolean; pending?: boolean; rejected?: boolean; name?: string; error?: string }
-type StatusReply = { devices: { cookName: string; status: string }[]; pairCode?: string }
+type PinReply = { signedIn?: boolean; needsConfirm?: boolean; pending?: boolean; rejected?: boolean; name?: string; id?: string; error?: string }
+type StatusReply = { devices: { id?: string; cookName: string; status: string }[]; pairCode?: string }
 
 async function postPin(pin: string, confirm: boolean): Promise<{ status: number; data: PinReply } | null> {
   try {
@@ -144,6 +145,9 @@ export default function PinSignInPage() {
   const busyRef = useRef(false)
   const stepRef = useRef<Step>(step)
   stepRef.current = step
+  // Bumped whenever the cook leaves a step (Cancel, No, Try a different PIN):
+  // a reply to a POST sent before that is dropped, never applied.
+  const epochRef = useRef(0)
 
   const setPin = useCallback((v: string) => {
     pinRef.current = v
@@ -158,6 +162,7 @@ export default function PinSignInPage() {
   }, [pin, setPin])
 
   const backToKeypad = useCallback((extra?: Omit<Extract<Step, { kind: 'enter' }>, 'kind'>) => {
+    epochRef.current++
     setPin('')
     setPairCode(null)
     setWaitError(null)
@@ -174,11 +179,14 @@ export default function PinSignInPage() {
       backToKeypad({ notice: 'Type your PIN again.' })
       return
     }
+    const epoch = epochRef.current
     busyRef.current = true
     setBusy(true)
     const r = await postPin(held, confirm)
     busyRef.current = false
     setBusy(false)
+    // The cook cancelled while this was in flight: drop the answer.
+    if (epoch !== epochRef.current) return
 
     const generic = () => {
       // A hiccup while waiting keeps the phone waiting; the next poll retries.
@@ -200,7 +208,7 @@ export default function PinSignInPage() {
       if (!name) return generic()
       setWaitError(null)
       if (d.needsConfirm) return setStep({ kind: 'confirm', name })
-      if (d.pending) return setStep({ kind: 'waiting', name })
+      if (d.pending) return setStep({ kind: 'waiting', name, deviceId: typeof d.id === 'string' && d.id ? d.id : null })
       if (d.rejected) return setStep({ kind: 'rejected', name })
       return generic()
     }
@@ -219,9 +227,15 @@ export default function PinSignInPage() {
   }, [backToKeypad, setPin])
 
   // ── Waiting: poll this phone's requests every 4 s while visible ──────────
+  // Only while the PIN is still held: once the 10-minute clear runs, the
+  // phone can't finish signing in by itself, so polling stops and the screen
+  // asks for the PIN again (and the next "Yes, it's me" restarts the request's
+  // clock on the server, so a request past 24 h doesn't wait forever).
   const waitingName = step.kind === 'waiting' ? step.name : null
+  const waitingId = step.kind === 'waiting' ? step.deviceId : null
+  const pinHeld = pin.length > 0
   useEffect(() => {
-    if (!waitingName) return
+    if (!waitingName || !pinHeld) return
     let stopped = false
     let inFlight = false
     const tick = async () => {
@@ -233,13 +247,14 @@ export default function PinSignInPage() {
         const data = (await res.json()) as StatusReply
         if (stopped) return
         setPairCode(data.pairCode ?? null)
-        const mine = (data.devices ?? []).find(dv => dv.cookName === waitingName)
+        // Match on the request's own row; the display name only if the POST gave no id.
+        const devices = data.devices ?? []
+        const mine = waitingId ? devices.find(dv => dv.id === waitingId) : devices.find(dv => dv.cookName === waitingName)
         if (!mine) {
           // Pushed out (a newer request took its place) or cleared: ask again.
           setStep({ kind: 'expired', name: waitingName })
         } else if (mine.status === 'APPROVED') {
           if (pinRef.current) await submit(false)
-          else backToKeypad({ notice: 'This phone is OK’d. Type your PIN to sign in.' })
         } else if (mine.status === 'REJECTED') {
           setStep({ kind: 'rejected', name: waitingName })
         } else if (mine.status === 'REVOKED') {
@@ -260,7 +275,7 @@ export default function PinSignInPage() {
       clearInterval(id)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [waitingName, submit, backToKeypad])
+  }, [waitingName, waitingId, pinHeld, submit])
 
   // ── Keypad input ─────────────────────────────────────────────────────────
   const addDigit = useCallback((digit: string) => {
@@ -278,8 +293,14 @@ export default function PinSignInPage() {
       if (e.metaKey || e.ctrlKey || e.altKey || busyRef.current) return
       if (/^\d$/.test(e.key)) addDigit(e.key)
       else if (e.key === 'Backspace') backspace()
-      else if (e.key === 'Enter' && pinRef.current.length >= PIN_MIN) submit(false)
-      else return
+      else if (e.key === 'Enter') {
+        // Enter on a focused link or another button is that control's own
+        // action. On the Sign in button itself the native click submits.
+        const t = e.target instanceof Element ? e.target : null
+        const control = t?.closest('a, button')
+        if (control) return
+        if (pinRef.current.length >= PIN_MIN) submit(false)
+      } else return
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
@@ -347,6 +368,13 @@ export default function PinSignInPage() {
           </div>
           <p className="m-0 text-[13px] text-ink-3">The manager will see the same code.</p>
         </section>
+
+        {!pin && (
+          // The PIN was cleared (10 min): this phone stopped checking.
+          <button type="button" className={PRIMARY} onClick={() => backToKeypad()}>
+            Type your PIN again to keep waiting →
+          </button>
+        )}
 
         {waitError && <p className="m-0 text-[13px] text-red-text">{waitError}</p>}
 

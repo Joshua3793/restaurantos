@@ -271,7 +271,11 @@ describe('POST /api/auth/pin', () => {
     cookFindFirst.mockResolvedValue(sam)
     const res = await signIn({ pin: '1234', confirm: true })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    const body = await res.json()
+    expect(body).toEqual({ pending: true, name: 'Sam L.', id: 'd1' })
+    // The row id lets the waiting screen find its own request; the hash never leaves.
+    expect(body.id).toBe('d1')
+    expect(body).not.toHaveProperty('tokenHash')
 
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('pin_device=')
@@ -288,6 +292,8 @@ describe('POST /api/auth/pin', () => {
     expect(arg.where).toEqual({ tokenHash_cookId: { tokenHash: hashToken(token), cookId: 'c1' } })
     expect(arg.create).toEqual({ tokenHash: hashToken(token), cookId: 'c1', status: 'PENDING', label: 'iPhone' })
     expect(arg.update).toEqual({})
+    expect(arg.select).toEqual({ id: true })
+    expect(JSON.stringify(body)).not.toContain(hashToken(token))
     expect(mintSession).not.toHaveBeenCalled()
     expect(written()).toEqual(OK_CONFIRM)
   })
@@ -317,7 +323,7 @@ describe('POST /api/auth/pin', () => {
     deviceUpdateMany.mockResolvedValue({ count: 1 })
     const before = Date.now()
     const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
-    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.', id: 'd1' })
     const arg = deviceUpdateMany.mock.calls[0][0]
     expect(arg.where).toEqual({ tokenHash: HASH, cookId: 'c1', status: 'REVOKED' })
     expect(arg.data).toMatchObject({ status: 'PENDING', approvedById: null, approvedByName: null, approvedAt: null })
@@ -342,7 +348,7 @@ describe('POST /api/auth/pin', () => {
     cookFindFirst.mockResolvedValue(sam)
     deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', createdAt: new Date(Date.now() - 23 * 3600_000) })
     const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
-    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.', id: 'd1' })
     expect(res.cookies.get('pin_device')?.value).toBe(TOKEN)
     expect(deviceUpsert).not.toHaveBeenCalled()
     expect(deviceUpdateMany).not.toHaveBeenCalled()
@@ -361,7 +367,7 @@ describe('POST /api/auth/pin', () => {
     )
     const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.', id: 'd1' })
   })
 
   it('confirm on a stale PENDING request (over 24 h) restarts its clock and runs the cap', async () => {
@@ -370,7 +376,7 @@ describe('POST /api/auth/pin', () => {
     deviceUpdateMany.mockResolvedValue({ count: 1 })
     const before = Date.now()
     const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
-    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.', id: 'd1' })
     const arg = deviceUpdateMany.mock.calls[0][0]
     expect(arg.where).toMatchObject({ tokenHash: HASH, cookId: 'c1', status: 'PENDING' })
     const lt = (arg.where.createdAt.lt as Date).getTime()
@@ -538,23 +544,29 @@ describe('GET /api/auth/pin/status', () => {
   })
 
   it('never returns the token or its hash', async () => {
-    deviceFindMany.mockResolvedValue([{ status: 'PENDING', cook: { name: 'Sam', lastName: 'Lee' } }])
+    deviceFindMany.mockResolvedValue([{ id: 'd1', status: 'PENDING', cook: { name: 'Sam', lastName: 'Lee' } }])
     const text = JSON.stringify(await (await get(`pin_device=${TOKEN}`)).json())
     expect(text).not.toContain(TOKEN)
     expect(text).not.toContain(HASH)
+    // The row id is selected; the hash never is.
+    expect(deviceFindMany.mock.calls[0][0].select).not.toHaveProperty('tokenHash')
   })
 
-  it('lists this phone’s requests, newest first, at most 5', async () => {
-    deviceFindMany.mockResolvedValue([{ status: 'PENDING', cook: { name: 'Sam', lastName: 'Lee' } }])
+  it('lists this phone’s requests with their row ids, newest first, at most 10', async () => {
+    deviceFindMany.mockResolvedValue([{ id: 'd1', status: 'PENDING', cook: { name: 'Sam', lastName: 'Lee' } }])
     const res = await get(`pin_device=${TOKEN}`)
-    expect(await res.json()).toEqual({
-      devices: [{ cookName: 'Sam L.', status: 'PENDING' }],
+    const body = await res.json()
+    expect(body).toEqual({
+      devices: [{ id: 'd1', cookName: 'Sam L.', status: 'PENDING' }],
       pairCode: pairCode(HASH),
     })
+    expect(body.devices[0].id).toBe('d1')
+    expect(body.devices[0]).not.toHaveProperty('tokenHash')
     expect(res.headers.get('cache-control')).toContain('no-store')
     const arg = deviceFindMany.mock.calls[0][0]
     expect(arg.where).toEqual({ tokenHash: HASH })
     expect(arg.orderBy).toEqual({ createdAt: 'desc' })
-    expect(arg.take).toBe(5)
+    expect(arg.take).toBe(10)
+    expect(arg.select).toMatchObject({ id: true })
   })
 })
