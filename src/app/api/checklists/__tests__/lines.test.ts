@@ -15,9 +15,29 @@ const lineFindUnique = vi.fn()
 const lineUpdate = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const readingUpsert = vi.fn(async (a: unknown) => a)
 const readingDelete = vi.fn(async (a: unknown) => a)
+// Inbox side of the same transaction (flags land in the Inbox).
+const inboxFind = vi.fn(async (_a: unknown): Promise<unknown> => null)
+const inboxCreate = vi.fn(async (_a: unknown) => ({ id: 'i1' }))
+const inboxUpdate = vi.fn(async (a: unknown) => a)
+const eventCreate = vi.fn(async (a: unknown) => a)
+const ensureInboxSeeded = vi.fn(async () => {})
 const tx = {
   checklistRunLine: { updateMany: (a: unknown) => lineUpdate(a) },
   tempReading: { upsert: (a: unknown) => readingUpsert(a), deleteMany: (a: unknown) => readingDelete(a) },
+  inboxItem: {
+    findUnique: (a: unknown) => inboxFind(a),
+    create: (a: unknown) => inboxCreate(a),
+    update: (a: unknown) => inboxUpdate(a),
+  },
+  inboxEvent: { create: (a: unknown) => eventCreate(a) },
+  inboxTag: {
+    findMany: async () => [
+      { id: 'tag-food_safety', builtIn: 'FOOD_SAFETY', name: 'Food safety', color: '#dc2626', cookCanPick: true, managerOnly: false, isActive: true },
+      { id: 'tag-checklists', builtIn: 'CHECKLISTS', name: 'Checklists', color: '#2563eb', cookCanPick: false, managerOnly: false, isActive: true },
+      { id: 'tag-maintenance', builtIn: null, name: 'Maintenance', color: '#ea580c', cookCanPick: true, managerOnly: false, isActive: true },
+    ],
+  },
+  inboxFlagRoute: { findMany: async () => [{ reason: 'BROKEN', tagId: 'tag-maintenance' }] },
 }
 const transaction = vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx))
 const loadRunView = vi.fn()
@@ -33,6 +53,9 @@ vi.mock('@/lib/auth', () => ({
   requireSession: (...a: unknown[]) => requireSession(...(a as [])),
   AuthError: MockAuthError,
 }))
+vi.mock('@/lib/inbox/tags', () => ({
+  ensureInboxSeeded: () => ensureInboxSeeded(),
+}))
 vi.mock('@/lib/rc-scope', () => ({
   assertRcWritable: (...a: unknown[]) => assertRcWritable(...(a as [])),
 }))
@@ -47,13 +70,15 @@ const call = (body: unknown) => PUT(req(body), { params: { id: 'l1' } })
 
 const baseLine = (over: Record<string, unknown> = {}, runStatus = 'OPEN') => ({
   id: 'l1', runId: 'r1', answer: 'TICK', safeMin: null, safeMax: null, tempUnitId: null, tempReadingId: null,
-  run: { status: runStatus, businessDate: '2026-10-29', station: { revenueCenterId: 'rc1', isShared: false } },
+  title: 'Walk-in temp', isBlocker: true, unit: null,
+  run: { status: runStatus, businessDate: '2026-10-29', station: { name: 'Grill', revenueCenterId: 'rc1', isShared: false } },
   ...over,
 })
 
 beforeEach(() => {
   vi.clearAllMocks()
   lineUpdate.mockResolvedValue({ count: 1 })
+  inboxFind.mockResolvedValue(null)
   lineFindUnique.mockResolvedValue(baseLine())
   loadRunView.mockResolvedValue({
     id: 'r1',
@@ -76,6 +101,61 @@ describe('PUT /api/checklists/lines/[id]', () => {
     expect(readingUpsert).not.toHaveBeenCalled()
     expect(readingDelete).not.toHaveBeenCalled()
     expect(lineUpdate.mock.calls[0][0].data).not.toHaveProperty('tempReadingId')
+  })
+
+  it('seeds the Inbox before the transaction, and a plain tick touches no Inbox item', async () => {
+    await call({ action: 'tick' })
+    expect(ensureInboxSeeded).toHaveBeenCalledTimes(1)
+    expect(ensureInboxSeeded.mock.invocationCallOrder[0]).toBeLessThan(transaction.mock.invocationCallOrder[0])
+    expect(inboxFind).toHaveBeenCalledWith({ where: { sourceKey: 'flag:l1' }, select: { id: true, status: true } })
+    expect(inboxCreate).not.toHaveBeenCalled()
+    expect(inboxUpdate).not.toHaveBeenCalled()
+    expect(eventCreate).not.toHaveBeenCalled()
+  })
+
+  it('a flag raises an Inbox item routed by reason, in the same transaction', async () => {
+    await call({ action: 'flag', reason: 'BROKEN', note: 'probe dead' })
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(inboxCreate).toHaveBeenCalledWith({
+      data: {
+        tagId: 'tag-maintenance', severity: 'NOW', title: 'Walk-in temp · Broken', body: 'probe dead',
+        managerOnly: false, sourceKey: 'flag:l1', source: 'FLAG', status: 'OPEN',
+        place: 'Grill', revenueCenterId: 'rc1', href: '/checklist/today',
+        raisedById: 'u1', raisedByName: 'Sam Lee',
+      },
+      select: { id: true },
+    })
+    expect(eventCreate).toHaveBeenCalledWith({
+      data: { itemId: 'i1', kind: 'RAISED', byId: 'u1', byName: 'Sam Lee', note: 'probe dead' },
+    })
+  })
+
+  it('an out-of-range TEMP raises a Food safety item with the reading', async () => {
+    lineFindUnique.mockResolvedValue(baseLine({ answer: 'TEMP', safeMin: 0, safeMax: 4, tempUnitId: 'u1', unit: '°C' }))
+    await call({ action: 'value', raw: '9' })
+    expect(inboxCreate.mock.calls[0][0]).toMatchObject({
+      data: { tagId: 'tag-food_safety', title: 'Walk-in temp · Out of range', body: 'Read 9 °C' },
+    })
+  })
+
+  it('an in-range re-answer clears the open Inbox item', async () => {
+    inboxFind.mockResolvedValue({ id: 'i9', status: 'OPEN' })
+    lineFindUnique.mockResolvedValue(baseLine({ answer: 'NUMBER', safeMax: 4, status: 'FLAGGED' }))
+    await call({ action: 'value', raw: '3' })
+    expect(inboxUpdate.mock.calls[0][0]).toMatchObject({
+      where: { id: 'i9' }, data: { status: 'DONE', doneById: null, doneByName: null },
+    })
+    expect(eventCreate).toHaveBeenCalledWith({
+      data: { itemId: 'i9', kind: 'CLEARED', byId: 'u1', byName: 'Sam Lee', note: 'Cleared itself — the job was redone' },
+    })
+  })
+
+  it('no Inbox write when the run turns out to be signed off', async () => {
+    lineUpdate.mockResolvedValueOnce({ count: 0 })
+    const res = await call({ action: 'flag', reason: 'BROKEN' })
+    expect(res.status).toBe(409)
+    expect(inboxFind).not.toHaveBeenCalled()
+    expect(inboxCreate).not.toHaveBeenCalled()
   })
 
   it('404 when the line is gone', async () => {

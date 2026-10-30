@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { atLeast } from '@/lib/roles'
 import { isRcInScope, assertRcWritable } from '@/lib/rc-scope'
 import { whoOf } from '@/lib/checklists/who'
+import { FLAG_KEY_PREFIX } from '@/lib/inbox/flags'
 import {
   canSee, badgeCount, snoozeUntilTomorrow,
   type ItemLite, type TagLite, type Severity, type Status,
@@ -356,15 +357,23 @@ export type DoneItem = {
 }
 
 /**
- * Runs inside the "done" transaction. No-op for now: Task 5 resolves a FLAG
- * item's checklist line here, Task 6 acknowledges a price-rise alert.
+ * Runs inside the "done" transaction: whatever else must happen when an item
+ * is marked done, by where it came from. Add new sources as further branches.
  */
 export async function onItemDone(
   item: DoneItem,
   who: { id: string; name: string },
   tx: Prisma.TransactionClient,
 ): Promise<void> {
-  void item; void who; void tx
+  if (item.source === 'FLAG' && item.sourceKey?.startsWith(FLAG_KEY_PREFIX)) {
+    // Fixing it here marks the checklist job fixed too — only while it is still flagged and unresolved.
+    await tx.checklistRunLine.updateMany({
+      where: { id: item.sourceKey.slice(FLAG_KEY_PREFIX.length), status: 'FLAGGED', resolvedAt: null },
+      data: { resolvedById: who.id, resolvedByName: who.name, resolvedAt: new Date() },
+    })
+    return
+  }
+  // Task 6: `price:*` items acknowledge their price-rise alert here.
 }
 
 /** Apply one action: update the item and write its event in one transaction. */
