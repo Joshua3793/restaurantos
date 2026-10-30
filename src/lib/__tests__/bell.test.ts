@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   topBellItems, badgeText, bellAriaLabel, reportPill, reportMeta, moreBadgeTotal,
+  reportDetail, openReport,
 } from '../bell'
 
 const item = (id: string, severity: 'NOW' | 'TODAY' | 'FYI', status = 'OPEN') => ({ id, severity, status })
@@ -31,12 +32,16 @@ describe('badgeText', () => {
 
 describe('bellAriaLabel', () => {
   it('reads "Inbox, N open" for leads', () => {
-    expect(bellAriaLabel(true, 4)).toBe('Inbox, 4 open')
-    expect(bellAriaLabel(true, 0)).toBe('Inbox, 0 open')
+    expect(bellAriaLabel('lead', 4)).toBe('Inbox, 4 open')
+    expect(bellAriaLabel('lead', 0)).toBe('Inbox, 0 open')
   })
   it('reads "Your reports" for staff', () => {
-    expect(bellAriaLabel(false, 0)).toBe('Your reports')
-    expect(bellAriaLabel(false, 2)).toBe('Your reports, 2 fixed')
+    expect(bellAriaLabel('staff', 0)).toBe('Your reports')
+    expect(bellAriaLabel('staff', 2)).toBe('Your reports, 2 fixed')
+  })
+  it('reads just "Inbox" while the role is still loading', () => {
+    expect(bellAriaLabel('unknown', 0)).toBe('Inbox')
+    expect(bellAriaLabel('unknown', 7)).toBe('Inbox')
   })
 })
 
@@ -65,5 +70,65 @@ describe('reportPill and reportMeta', () => {
 describe('moreBadgeTotal', () => {
   it('adds the inbox to the other two', () => {
     expect(moreBadgeTotal({ invoicesReview: 2, priceAlerts: 1, inbox: 4 })).toBe(7)
+  })
+})
+
+describe('reportDetail', () => {
+  const now = new Date('2026-10-30T20:00:00Z')
+  const base = { body: 'Walk-in door sticks', createdAt: '2026-10-30T15:00:00Z', doneAt: null, doneByName: null }
+  it('shows who fixed it, when, and the closing note', () => {
+    const d = {
+      item: { ...base, status: 'DONE', doneAt: '2026-10-30T18:41:00Z', doneByName: 'Sam' },
+      events: [{ kind: 'DONE', byName: 'Sam', note: 'Replaced the seal', at: '2026-10-30T18:41:00Z' }],
+    }
+    expect(reportDetail(d, now)).toEqual({ body: 'Walk-in door sticks', resolution: 'Fixed by Sam · 11:41', note: 'Replaced the seal' })
+  })
+  it('shows the CLEARED note for a cleared report', () => {
+    const d = {
+      item: { ...base, status: 'OPEN' },
+      events: [{ kind: 'CLEARED', byName: null, note: 'No longer needed', at: '2026-10-30T18:41:00Z' }],
+    }
+    expect(reportDetail(d, now)).toEqual({ body: 'Walk-in door sticks', resolution: 'Cleared · 11:41', note: 'No longer needed' })
+  })
+  it('has no resolution while it is still open', () => {
+    expect(reportDetail({ item: { ...base, status: 'OPEN' }, events: [] }, now))
+      .toEqual({ body: 'Walk-in door sticks', resolution: null, note: null })
+  })
+  it('copes with a limited read (no body, no history)', () => {
+    const d = { item: { ...base, body: null, status: 'DONE', doneAt: '2026-10-30T18:41:00Z', doneByName: 'Sam' }, events: [], limited: true as const }
+    expect(reportDetail(d, now)).toEqual({ body: null, resolution: 'Fixed by Sam · 11:41', note: null })
+  })
+})
+
+// The STAFF badge only drops once the item read has written SEEN, so tapping a
+// report must read it FIRST, then refresh the badge, then reload the list.
+describe('openReport', () => {
+  it('reads the report, then refreshes the badge, then reloads the list', async () => {
+    const calls: string[] = []
+    const detail = await openReport({
+      id: 'r1',
+      rcId: 'rc1',
+      read: async id => { calls.push(`read:${id}`); return { ok: true } },
+      refreshCount: async rc => { calls.push(`count:${rc}`) },
+      reloadReports: async () => { calls.push('mine') },
+    })
+    expect(calls).toEqual(['read:r1', 'count:rc1', 'mine'])
+    expect(detail).toEqual({ ok: true })
+  })
+  it('still reloads the list when no single kitchen is picked, but skips the count', async () => {
+    const refreshCount = vi.fn()
+    const reloadReports = vi.fn(async () => {})
+    await openReport({ id: 'r1', rcId: null, read: async () => 1, refreshCount, reloadReports })
+    expect(refreshCount).not.toHaveBeenCalled()
+    expect(reloadReports).toHaveBeenCalledTimes(1)
+  })
+  it('refreshes nothing when the read fails', async () => {
+    const refreshCount = vi.fn()
+    const reloadReports = vi.fn()
+    await expect(openReport({
+      id: 'r1', rcId: 'rc1', read: async () => { throw new Error('404') }, refreshCount, reloadReports,
+    })).rejects.toThrow('404')
+    expect(refreshCount).not.toHaveBeenCalled()
+    expect(reloadReports).not.toHaveBeenCalled()
   })
 })

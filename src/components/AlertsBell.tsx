@@ -6,10 +6,10 @@ import { useNotifications } from '@/contexts/NotificationContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
-import { subscribeInboxCount } from '@/lib/inbox-count-feed'
+import { subscribeInboxCount, refreshInboxCount } from '@/lib/inbox-count-feed'
 import {
-  topBellItems, badgeText, bellAriaLabel, reportPill, reportMeta,
-  type BellItem, type BellReport,
+  topBellItems, badgeText, bellAriaLabel, reportPill, reportMeta, reportDetail, openReport,
+  type BellItem, type BellReport, type BellKind, type ReportDetailResponse,
 } from '@/lib/bell'
 import { whenLabel } from '@/components/inbox/format'
 
@@ -18,6 +18,7 @@ interface AlertsBellProps {
 }
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
+type DetailState = ReportDetailResponse | 'loading' | 'error'
 
 // The bell is the Inbox's doorway. Leads and up see the open NOW + TODAY items;
 // a cook sees their own reports and which ones got fixed. The soft invoice
@@ -28,6 +29,8 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
   const [items, setItems] = useState<BellItem[]>([])
   const [reports, setReports] = useState<BellReport[]>([])
   const [load, setLoad] = useState<LoadState>('idle')
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [details, setDetails] = useState<Record<string, DetailState>>({})
   const ref = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const { notifications, dismiss, dismissAll } = useNotifications()
@@ -36,12 +39,21 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
 
   const isLead = role != null && atLeast(role, 'LEAD')
   const known = role != null
+  const kind: BellKind = !known ? 'unknown' : isLead ? 'lead' : 'staff'
 
   // The badge: one shared poll per kitchen. No single kitchen, no badge.
   useEffect(() => {
     if (!known || !ready || !activeRcId) { setCount(0); return }
     return subscribeInboxCount(activeRcId, setCount)
   }, [known, ready, activeRcId])
+
+  // Re-read the cook's own reports without flicker (the rows stay on screen).
+  const fetchReports = useCallback(async () => {
+    const r = await fetch('/api/inbox/mine', { cache: 'no-store' })
+    if (!r.ok) throw new Error(String(r.status))
+    const d = await r.json()
+    setReports(d.items ?? [])
+  }, [])
 
   // The list is fetched only when the dropdown opens.
   const loadList = useCallback(async () => {
@@ -55,18 +67,44 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
         const d = await r.json()
         setItems(topBellItems<BellItem>(d.items ?? []))
       } else {
-        const r = await fetch('/api/inbox/mine', { cache: 'no-store' })
-        if (!r.ok) throw new Error(String(r.status))
-        const d = await r.json()
-        setReports(d.items ?? [])
+        await fetchReports()
       }
       setLoad('ready')
     } catch {
       setLoad('error')
     }
-  }, [known, isLead, activeRcId])
+  }, [known, isLead, activeRcId, fetchReports])
 
-  useEffect(() => { if (open) void loadList() }, [open, loadList])
+  // Opening the bell also refreshes the badge, so it never sits on a stale number.
+  useEffect(() => {
+    if (!open) return
+    void loadList()
+    if (activeRcId) void refreshInboxCount(activeRcId)
+  }, [open, loadList, activeRcId])
+
+  // Tapping a report opens it in place. Reading it is what marks it seen, which
+  // is the only thing that clears it from the cook's badge.
+  const tapReport = useCallback(async (id: string) => {
+    if (openId === id) { setOpenId(null); return }
+    setOpenId(id)
+    setDetails(d => ({ ...d, [id]: 'loading' }))
+    try {
+      const detail = await openReport<ReportDetailResponse>({
+        id,
+        rcId: activeRcId,
+        read: async rid => {
+          const r = await fetch(`/api/inbox/${encodeURIComponent(rid)}`, { cache: 'no-store' })
+          if (!r.ok) throw new Error(String(r.status))
+          return r.json()
+        },
+        refreshCount: refreshInboxCount,
+        reloadReports: () => fetchReports().catch(() => {}),
+      })
+      setDetails(d => ({ ...d, [id]: detail }))
+    } catch {
+      setDetails(d => ({ ...d, [id]: 'error' }))
+    }
+  }, [openId, activeRcId, fetchReports])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -92,7 +130,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
       <button
         ref={buttonRef}
         onClick={() => setOpen(o => !o)}
-        aria-label={bellAriaLabel(isLead, badgeCount)}
+        aria-label={bellAriaLabel(kind, count)}
         aria-haspopup="true"
         aria-expanded={open}
         className="relative min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-ink-4 hover:text-ink-3 hover:bg-bg-2 transition-colors"
@@ -109,7 +147,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
         <div className={`absolute ${dropdownPos} top-full mt-2 w-[min(320px,calc(100vw-16px))] bg-white rounded-2xl shadow-xl border border-line z-50 overflow-hidden`}>
           {/* Header */}
           <div className="flex items-center justify-between pl-4 pr-1 border-b border-line">
-            <span className="font-semibold text-ink text-sm py-3">{isLead ? 'Inbox' : 'Your reports'}</span>
+            <span className="font-semibold text-ink text-sm py-3">{kind === 'staff' ? 'Your reports' : 'Inbox'}</span>
             <button
               onClick={() => setOpen(false)}
               aria-label="Close"
@@ -120,6 +158,9 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           </div>
 
           <div className="max-h-80 overflow-y-auto">
+            {/* Role not known yet: don't guess which list this is */}
+            {!known && <div className="text-center py-6 text-ink-4 text-sm">Loading…</div>}
+
             {/* ── Inbox (LEAD+) ─────────────────────────────────────────── */}
             {isLead && (
               load === 'error' ? (
@@ -162,19 +203,47 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
               ) : (
                 reports.map(r => {
                   const pill = reportPill(r.status)
+                  const expanded = openId === r.id
+                  const det = details[r.id]
+                  const info = det && typeof det === 'object' ? reportDetail(det, now) : null
                   return (
-                    <div key={r.id} className="px-4 py-2.5 min-h-[44px] border-b border-line">
-                      <div className="flex items-center gap-2">
-                        <span className="flex-1 min-w-0 text-sm font-medium text-ink-2 truncate">{r.title}</span>
-                        <span
-                          className={`flex-none font-mono text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${
-                            pill.fixed ? 'bg-green-soft text-green-text' : 'bg-gold-soft text-gold-2'
-                          }`}
-                        >
-                          {pill.label}
-                        </span>
-                      </div>
-                      <p className="font-mono text-[10.5px] text-ink-4 mt-0.5">{reportMeta(r, now)}</p>
+                    <div key={r.id} className="border-b border-line">
+                      <button
+                        type="button"
+                        onClick={() => void tapReport(r.id)}
+                        aria-expanded={expanded}
+                        className="w-full text-left px-4 py-2.5 min-h-[44px] hover:bg-bg"
+                      >
+                        <div className="flex items-center gap-2">
+                          {r.fixedSinceSeen && (
+                            <span className="flex-none w-2 h-2 rounded-full bg-gold" title="New" aria-label="New" role="img" />
+                          )}
+                          <span className="flex-1 min-w-0 text-sm font-medium text-ink-2 truncate">{r.title}</span>
+                          <span
+                            className={`flex-none font-mono text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${
+                              pill.fixed ? 'bg-green-soft text-green-text' : 'bg-gold-soft text-gold-2'
+                            }`}
+                          >
+                            {pill.label}
+                          </span>
+                        </div>
+                        <p className="font-mono text-[10.5px] text-ink-4 mt-0.5">{reportMeta(r, now)}</p>
+                      </button>
+                      {expanded && (
+                        <div className="px-4 pb-3 text-xs text-ink-3 space-y-1">
+                          {det === 'loading' || det === undefined ? (
+                            <p className="text-ink-4">Loading…</p>
+                          ) : det === 'error' ? (
+                            <p className="text-ink-4">Couldn’t open this report</p>
+                          ) : info && (
+                            <>
+                              {info.body && <p className="whitespace-pre-wrap text-ink-2">{info.body}</p>}
+                              {info.resolution && <p className="font-mono text-[10.5px] text-ink-4">{info.resolution}</p>}
+                              {info.note && <p className="whitespace-pre-wrap">{info.note}</p>}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })

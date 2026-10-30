@@ -18,6 +18,8 @@ export type BellItem = {
 
 export type BellReport = {
   id: string
+  /** Fixed since this cook last opened it: the gold "new" dot. */
+  fixedSinceSeen?: boolean
   status: string
   title: string
   createdAt: string
@@ -44,9 +46,12 @@ export function badgeText(n: number): string {
   return n > 9 ? '9+' : String(n)
 }
 
-/** Screen-reader name of the bell button. */
-export function bellAriaLabel(isLead: boolean, count: number): string {
-  if (!isLead) return count > 0 ? `Your reports, ${count} fixed` : 'Your reports'
+export type BellKind = 'lead' | 'staff' | 'unknown'
+
+/** Screen-reader name of the bell button. Until the role is known it is just "Inbox". */
+export function bellAriaLabel(kind: BellKind, count: number): string {
+  if (kind === 'unknown') return 'Inbox'
+  if (kind === 'staff') return count > 0 ? `Your reports, ${count} fixed` : 'Your reports'
   return `Inbox, ${Math.max(0, count)} open`
 }
 
@@ -69,4 +74,53 @@ export function reportMeta(r: BellReport, now: Date = new Date()): string {
 /** The phone "More" badge: invoices to review, price alerts, and the Inbox. */
 export function moreBadgeTotal(c: { invoicesReview: number; priceAlerts: number; inbox: number }): number {
   return c.invoicesReview + c.priceAlerts + c.inbox
+}
+
+// ── a cook taps one of their reports ───────────────────────────────────────
+
+export type ReportDetailResponse = {
+  item: { body: string | null; status: string; doneAt: string | null; doneByName: string | null; createdAt: string }
+  events: { kind: string; byName: string | null; note: string | null; at: string }[]
+  limited?: true
+}
+
+/** What an opened report shows under its title: the body, how it ended, and the closing note. */
+export function reportDetail(
+  d: ReportDetailResponse,
+  now: Date = new Date(),
+): { body: string | null; resolution: string | null; note: string | null } {
+  const last = (kind: string) => [...d.events].reverse().find(e => e.kind === kind)
+  const cleared = last('CLEARED')
+  if (d.item.status === 'DONE') {
+    const done = last('DONE')
+    return {
+      body: d.item.body,
+      resolution: reportMeta({ id: '', title: '', createdAt: d.item.createdAt, status: 'DONE', doneAt: d.item.doneAt, doneByName: d.item.doneByName }, now),
+      note: done?.note ?? cleared?.note ?? null,
+    }
+  }
+  if (cleared) {
+    const when = whenLabel(cleared.at, now)
+    return { body: d.item.body, resolution: when ? `Cleared · ${when}` : 'Cleared', note: cleared.note }
+  }
+  return { body: d.item.body, resolution: null, note: null }
+}
+
+/**
+ * The STAFF badge only drops once a SEEN event exists, and only the item
+ * detail read writes it. So opening a report is: read it (writes SEEN), refresh
+ * the badge, then re-fetch the list so the "new" dot goes. A failed read stops
+ * there: nothing changed, so nothing is refreshed.
+ */
+export async function openReport<D>(deps: {
+  id: string
+  rcId: string | null
+  read: (id: string) => Promise<D>
+  refreshCount: (rcId: string) => Promise<unknown>
+  reloadReports: () => Promise<unknown>
+}): Promise<D> {
+  const detail = await deps.read(deps.id)
+  if (deps.rcId) await deps.refreshCount(deps.rcId)
+  await deps.reloadReports()
+  return detail
 }

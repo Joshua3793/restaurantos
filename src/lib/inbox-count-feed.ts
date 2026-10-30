@@ -19,9 +19,17 @@ function visible(): boolean {
   return typeof document === 'undefined' || document.visibilityState !== 'hidden'
 }
 
-async function refresh(rcId: string): Promise<void> {
+async function refresh(rcId: string, force = false): Promise<void> {
   const feed = feeds.get(rcId)
-  if (!feed || feed.inflight || !visible()) return
+  if (!feed || !visible()) return
+  if (feed.inflight) {
+    if (!force) return feed.inflight
+    // A forced refresh follows something we just changed (a report opened):
+    // the request already in the air may have read the old state, so wait for
+    // it and ask again.
+    await feed.inflight
+    return refresh(rcId, false)
+  }
   feed.inflight = fetch(`/api/inbox/count?rcId=${encodeURIComponent(rcId)}`, { cache: 'no-store' })
     .then(r => (r.ok ? r.json() : null))
     .then(d => {
@@ -35,9 +43,12 @@ async function refresh(rcId: string): Promise<void> {
   return feed.inflight
 }
 
-/** Re-fetch now (e.g. after the dropdown opens). Safe when nobody is subscribed. */
+/**
+ * Re-fetch now, even if a poll is in flight (the dropdown opened, or the user
+ * just did something that changes the number). Safe when nobody is subscribed.
+ */
 export function refreshInboxCount(rcId: string): Promise<void> {
-  return refresh(rcId)
+  return refresh(rcId, true)
 }
 
 /** Listen to one kitchen's count. Returns the unsubscribe. */
