@@ -11,6 +11,12 @@ export const dynamic = 'force-dynamic'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/** A real calendar day: '2026-13-45' and '2026-02-30' are not. */
+function isRealDate(raw: string): boolean {
+  const t = Date.parse(raw + 'T00:00:00Z')
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === raw
+}
+
 /**
  * GET ?rcId=&date=YYYY-MM-DD&userId=&stationId= — MANAGER+ review of one day's
  * opening and closing lists, with a 7-day strip of how each day went.
@@ -30,7 +36,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Revenue center is outside your access.' }, { status: 403 })
     }
     const rawDate = q.get('date')
-    const date = rawDate && DATE_RE.test(rawDate) ? rawDate : shiftBusinessDate('CLOSE')
+    const date = rawDate && DATE_RE.test(rawDate) && isRealDate(rawDate) ? rawDate : shiftBusinessDate('CLOSE')
     const userId = q.get('userId') || null
     const stationId = q.get('stationId') || null
 

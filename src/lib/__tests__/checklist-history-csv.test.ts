@@ -61,4 +61,18 @@ describe('historyCsv', () => {
     const csv = historyCsv([run({ status: 'OPEN', signedOffByName: null, signedOffAt: null, lines: [line({})] })])
     expect(csv.split('\n')[1]).toBe('2026-10-28,CLOSE,Grill,Grill off,TODO,,,,,,,,')
   })
+
+  it('defuses spreadsheet formulas in free text, and only there', () => {
+    const csv = historyCsv([run({
+      stationName: '@Grill', signedOffByName: '+Leo',
+      lines: [line({
+        title: '-bad', status: 'FLAGGED', value: -4, doneByName: '=Leo', doneAt: '2026-10-29T05:35:00.000Z',
+        flagReason: 'OTHER', flagNote: '=HYPERLINK("x")',
+      })],
+    })])
+    expect(csv).toContain('"\'=HYPERLINK(""x"")"')
+    expect(csv.split('\n')[1]).toBe(
+      "2026-10-28,CLOSE,'@Grill,'-bad,FLAGGED,-4,,'=Leo,22:35,OTHER,\"'=HYPERLINK(\"\"x\"\")\",'+Leo,22:48",
+    )
+  })
 })

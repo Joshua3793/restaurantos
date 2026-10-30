@@ -98,6 +98,14 @@ describe('GET /api/checklists/history', () => {
     expect((await (await getHistory('rcId=rc1&date=2026-10-20')).json()).date).toBe('2026-10-20')
   })
 
+  it('a calendar-invalid date falls back to the default instead of failing', async () => {
+    for (const bad of ['2026-13-45', '2026-02-30', '2026-00-10']) {
+      const res = await getHistory(`rcId=rc1&date=${bad}`)
+      expect(res.status).toBe(200)
+      expect((await res.json()).date).toBe('2026-10-28')
+    }
+  })
+
   it('strip: ok when every non-shared run is signed, miss when one is not, none with no runs; shared runs never count', async () => {
     runFindMany.mockImplementation(async (arg: { select?: unknown }) => arg.select
       ? [

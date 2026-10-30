@@ -17,6 +17,14 @@ function field(v: string | number | null | undefined): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
+/**
+ * Free text a spreadsheet could run as a formula (=, +, -, @) gets a leading
+ * apostrophe, which Excel and Sheets read as "this is text".
+ */
+function text(v: string | null | undefined): string {
+  return v != null && /^[=+\-@]/.test(v) ? `'${v}` : (v ?? '')
+}
+
 const time = (iso: string | null): string => (iso ? pacificHHMM(new Date(iso)) : '')
 
 /** One row per line, in the order given. Times are Pacific HH:MM. */
@@ -25,8 +33,8 @@ export function historyCsv(runs: HistoryRun[]): string {
   for (const r of runs) {
     for (const l of r.lines) {
       rows.push([
-        r.businessDate, r.phase, r.stationName, l.title, l.status, l.value, l.unit, l.doneByName,
-        time(l.doneAt), l.flagReason, l.flagNote, r.signedOffByName, time(r.signedOffAt),
+        r.businessDate, r.phase, text(r.stationName), text(l.title), l.status, l.value, l.unit, text(l.doneByName),
+        time(l.doneAt), l.flagReason, text(l.flagNote), text(r.signedOffByName), time(r.signedOffAt),
       ].map(field).join(','))
     }
   }

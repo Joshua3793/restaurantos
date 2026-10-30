@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { LineAction } from '@/lib/checklists/apply-line'
 import { NOTE_MAX } from '@/lib/checklists/apply-line'
-import { inRange, pacificHHMM, parseReading, type Phase } from '@/lib/checklists/rules'
+import { inRange, parseReading, type Phase } from '@/lib/checklists/rules'
+import { lastTimeLabel } from '@/lib/checklists/format'
 import type { LastReading } from '@/lib/checklists/history-types'
 import { Pill, firstName, fmtReading, rangeText, unitOf, type RowLine } from './LineRow'
 
@@ -252,7 +253,7 @@ export function LineSheet({
               {[
                 fmtReading(last.value, unitOf({ answer: line.answer, unit: last.unit })),
                 firstName(last.byName),
-                pacificHHMM(new Date(last.at)),
+                lastTimeLabel(last.at),
               ].filter(Boolean).join(' · ')}
             </span>
           </div>

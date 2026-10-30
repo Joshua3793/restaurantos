@@ -8,7 +8,7 @@ export type Phase = 'OPEN' | 'CLOSE'
 const TZ = 'America/Los_Angeles'
 
 /** Pacific 'YYYY-MM-DD'. Mirrors businessDateLocal() in src/lib/eod-close.ts. */
-function pacificDate(d: Date): string {
+export function pacificDate(d: Date): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(d)
