@@ -48,10 +48,11 @@ export async function POST(req: NextRequest) {
       })
     }
     // One shift, one pick: leave any station of this kitchen that is no longer chosen.
+    // Only open runs: a signed run keeps its crew, so history still shows who worked it.
     await prisma.checklistRunCrew.deleteMany({
       where: {
         userId: who.id,
-        run: { phase, businessDate, station: { revenueCenterId: rcId, id: { notIn: ids } } },
+        run: { status: 'OPEN', phase, businessDate, station: { revenueCenterId: rcId, id: { notIn: ids } } },
       },
     })
 

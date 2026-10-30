@@ -103,6 +103,8 @@ describe('POST /api/checklists/pick', () => {
       userId: 'u1',
       run: { phase: 'CLOSE', businessDate: shiftBusinessDate('CLOSE'), station: { revenueCenterId: 'rc1', id: { notIn: ['a', 'b'] } } },
     })
+    // A signed run keeps its crew (history shows who worked it): only open runs are left.
+    expect(crewDeleteMany.mock.calls[0][0].where.run.status).toBe('OPEN')
     expect(buildCookView).toHaveBeenCalled()
   })
 })
