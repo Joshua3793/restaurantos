@@ -18,6 +18,7 @@
 ## Global Constraints
 
 - Every Global Constraint in the station-checklists plan applies, including the live-database stops.
+- PINs are the Toast clock-in PINs as they are: 3 to 5 digits today, accepted as 3–8. Never pad them, and never assume a length.
 - The PIN is NOT a secret: it is printed on clock reports and tip exports. **Never create a session for an unapproved device.** Never log a PIN or a raw device token. Never return whether a PIN exists without counting the attempt.
 - Lockout is exactly **5 failed tries in 15 minutes, per IP and per cook**. The answer is 429 `{ error: 'Too many tries — wait 15 minutes' }`.
 - The device cookie is `pin_device`: httpOnly, `secure` in production, `sameSite: 'lax'`, `path: '/'`, `maxAge` 400 days. The DB stores only `sha256(token)` as hex.
@@ -114,7 +115,7 @@
   - lock keys: `ip:<ip>` and `cook:<cookId>` (the cook key only once a cook is known)
   - `POST /api/auth/pin { pin: string; confirm?: boolean }`:
     - Check the IP lock → 429.
-    - `pin` must be 1–10 digits, else 400 'Enter your PIN'.
+    - `pin` must be 3–8 digits, else 400 'Enter your PIN'. Toast PINs are 3, 4 or 5 digits: the live data on 2026-10-29 was 7, 15 and 2 of the 24 active cooks. Joshua keeps the Toast PINs as they are.
     - Find the active cook with `clockId = pin`. If none: record a failed IP attempt → 401 `{ error: 'PIN not recognised' }`.
     - Check the cook lock → 429.
     - Read the `pin_device` cookie. If its hash has an APPROVED device for this cook: `ensurePinUser` → `mintSession` → update `lastUsedAt` → record ok → 200 `{ signedIn: true }` with the session cookies.
@@ -190,7 +191,11 @@
 - Consumes: Tasks 3–4. `useUser()` for the role on the Today board.
 
 - [ ] **Step 1: `/auth/pin`** follows the "Sign in · PIN" and "First time on a phone" boards, with the PIN-first change from the spec. States:
-  - **enter**: "Type the PIN you clock in with.", 4 dots, a 3×4 keypad of 64 px keys, auto-submit at 4 digits. Wider PINs: show a "Go" key once ≥ 4 digits are typed.
+  - **enter**: "Type the PIN you clock in with." with a 3×4 keypad of 64 px keys.
+    - One dot appears per digit typed. There are no fixed placeholder dots, so the PIN length isn't hinted.
+    - **No auto-submit.** PINs are 3–5 digits and "123" may be the start of another cook's "1234".
+    - The keypad's bottom-right key is ⌫. A full-width "Sign in" button below it is enabled from 3 digits.
+    - Max 8 digits.
   - **confirm**: "Sam L., is this you?" with "Yes, it's me" (POST `confirm: true`) and "No — try again".
   - **waiting**: the three-step list (PIN matched ✓ / Is this you ✓ / Manager OKs this phone · waiting) and the "Why the extra step?" card. Poll `/status` every 4 s. When it turns APPROVED, re-POST the held PIN, which signs in. REJECTED shows "This phone wasn't OK'd. Ask a manager." Also "Manager standing next to you? → Manager types their PIN here", which opens the keypad in manager mode and POSTs approve-here.
   - **locked**: the 429 message.
