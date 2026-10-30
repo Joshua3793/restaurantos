@@ -84,6 +84,9 @@ describe('moreBadgeTotal', () => {
     expect(moreBadgeTotal({ invoicesReview: 0, priceAlerts: 1, inbox: 1 }, 'MANAGER')).toBe(1)
     expect(moreBadgeTotal({ invoicesReview: 3, priceAlerts: 1, inbox: 2 }, 'OWNER')).toBe(2)
   })
+  it('a manager with no single kitchen picked still sees invoices and price rises', () => {
+    expect(moreBadgeTotal({ invoicesReview: 3, priceAlerts: 1, inbox: 0 }, 'MANAGER', false)).toBe(4)
+  })
 })
 
 describe('reportDetail', () => {

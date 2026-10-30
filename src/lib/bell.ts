@@ -88,8 +88,10 @@ export function reportMeta(r: BellReport, now: Date = new Date()): string {
 export function moreBadgeTotal(
   c: { invoicesReview: number; priceAlerts: number; inbox: number },
   role: Role | null,
+  // false when no single kitchen is picked: there is no Inbox count to lean on.
+  inboxKnown = true,
 ): number {
-  if (role != null && atLeast(role, 'MANAGER')) return c.inbox
+  if (role != null && atLeast(role, 'MANAGER')) return inboxKnown ? c.inbox : c.invoicesReview + c.priceAlerts
   return c.invoicesReview + c.priceAlerts + c.inbox
 }
 

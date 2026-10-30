@@ -287,7 +287,7 @@ function NavigationInner() {
       <MobileTabBar
         onAdd={() => setQuickAddOpen(true)}
         onMore={() => setMoreOpen(true)}
-        moreBadge={moreBadgeTotal(inboxCounts, role)}
+        moreBadge={moreBadgeTotal(inboxCounts, role, ready && !!activeRcId)}
       />
       <QuickAddSheet open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
 
