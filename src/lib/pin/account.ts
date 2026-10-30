@@ -54,6 +54,17 @@ async function linkedUser(userId: string): Promise<{ userId: string; email: stri
 }
 
 /**
+ * The early gate on the PIN screen, run before any phone is queued for
+ * approval: a cook whose linked login is a manager's (RULING P3) or switched
+ * off is refused with the same 403 `ensurePinUser` would give. A cook with no
+ * login yet, or a link to a missing row, passes — `ensurePinUser` makes one.
+ */
+export async function assertPinLoginAllowed(cook: Pick<PinCook, 'userId'>): Promise<void> {
+  if (!cook.userId) return
+  await linkedUser(cook.userId)
+}
+
+/**
  * Returns the login a cook signs in as, creating a STAFF login on first use.
  *
  * A new login is written to BOTH stores (CLAUDE.md "Two-store sync invariant"):

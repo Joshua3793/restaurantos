@@ -44,7 +44,7 @@ vi.mock('@supabase/ssr', () => ({
   createServerClient: (...a: unknown[]) => createServerClient(...a),
 }))
 
-const { ensurePinUser, mintSession } = await import('@/lib/pin/account')
+const { ensurePinUser, mintSession, assertPinLoginAllowed } = await import('@/lib/pin/account')
 const { PinError } = await import('@/lib/pin/errors')
 
 const unlinked = { id: 'c1', name: 'Sam', lastName: 'Lee', userId: null }
@@ -346,6 +346,40 @@ describe('ensurePinUser — two first sign-ins at once', () => {
     cookFindUnique.mockResolvedValue({ userId: null })
     await expect(ensurePinUser(unlinked)).rejects.toBe(dup)
     expect(deleteUser).toHaveBeenCalledWith('auth-new')
+  })
+})
+
+describe('assertPinLoginAllowed', () => {
+  it('passes a cook with no login yet without reading the user table', async () => {
+    await expect(assertPinLoginAllowed({ userId: null })).resolves.toBeUndefined()
+    expect(userFindUnique).not.toHaveBeenCalled()
+  })
+
+  it('passes a dangling link (ensurePinUser makes a fresh login later)', async () => {
+    userFindUnique.mockResolvedValue(null)
+    await expect(assertPinLoginAllowed({ userId: 'gone' })).resolves.toBeUndefined()
+  })
+
+  it('passes an active STAFF or LEAD login', async () => {
+    userFindUnique.mockResolvedValue(staffRow('u9', { role: 'LEAD' }))
+    await expect(assertPinLoginAllowed({ userId: 'u9' })).resolves.toBeUndefined()
+    expect(createUser).not.toHaveBeenCalled()
+  })
+
+  it.each(['MANAGER', 'ADMIN', 'OWNER'])('refuses a linked %s with 403', async (role) => {
+    userFindUnique.mockResolvedValue(staffRow('u9', { role }))
+    await expect(assertPinLoginAllowed({ userId: 'u9' })).rejects.toMatchObject({
+      status: 403,
+      message: 'Managers sign in with email and password',
+    })
+  })
+
+  it('refuses a switched-off login with 403', async () => {
+    userFindUnique.mockResolvedValue(staffRow('u9', { isActive: false }))
+    await expect(assertPinLoginAllowed({ userId: 'u9' })).rejects.toMatchObject({
+      status: 403,
+      message: 'This login is switched off',
+    })
   })
 })
 
