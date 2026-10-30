@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic'
 //
 // Both stores are written or neither is:
 //   - Prisma User row        → read by requireSession() (API auth)
-//   - Supabase user_metadata → read by middleware (page auth)
+//   - Supabase app_metadata  → read by middleware (page auth); user_metadata
+//     gets the same keys for display only — never trusted, users can edit it
 // A half-written pair is a half-locked-out account, so a failed Supabase write
 // rolls the Prisma row back and returns 500.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -86,6 +87,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   // Sync the gating fields to Supabase. Only send keys that actually changed.
+  // app_metadata merges key by key, so a partial write keeps pinCookId.
   const metadata: { role?: string; isActive?: boolean } = {}
   if (clearance) metadata.role = clearance
   if (typeof isActive === 'boolean') metadata.isActive = isActive
@@ -100,6 +102,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     let metaError: { message: string } | null = null
     try {
       const { error } = await supabaseAdmin.auth.admin.updateUserById(params.id, {
+        app_metadata: metadata,
         user_metadata: metadata,
       })
       metaError = error

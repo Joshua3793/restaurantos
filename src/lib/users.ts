@@ -3,8 +3,10 @@ import type { SupabaseClient, User as AuthUser } from '@supabase/supabase-js'
 
 /**
  * The Users system spans two stores that must stay in sync:
- *   - Supabase Auth  — the real account; `user_metadata.{role,isActive}` is what
- *     `src/middleware.ts` reads to gate every page request.
+ *   - Supabase Auth  — the real account; `app_metadata.{role,isActive}` (service
+ *     role only — see src/lib/auth-access.ts) is what `src/middleware.ts` reads
+ *     to gate every page request. user_metadata carries the same keys for
+ *     display, but the user can edit it, so nothing trusts it.
  *   - Prisma `User`  — `id` = the Supabase UUID; `requireSession()` reads its
  *     `{role,isActive}` to gate API routes.
  *

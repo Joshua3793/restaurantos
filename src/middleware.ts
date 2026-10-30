@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import type { Role } from '@prisma/client'
-import { atLeast, ROLE_RANK } from '@/lib/roles'
+import { atLeast } from '@/lib/roles'
+import { pageAccess } from '@/lib/auth-access'
 import { requiredClearance } from '@/lib/route-access'
 
 // Routes that never require authentication
@@ -86,20 +86,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Deactivated users → redirect to login
-  // Use !== true (not === false) so a missing isActive key is also treated as
-  // blocked — e.g. the first admin created manually without setting metadata.
-  if (user.user_metadata?.isActive !== true) {
+  // Page access comes from app_metadata, which only the service role can
+  // write — never user_metadata, which any signed-in user can rewrite from the
+  // browser. A missing isActive is blocked (e.g. a login no writer has stamped
+  // yet); an unknown role falls back to STAFF; a PIN login caps at LEAD.
+  const { active, role } = pageAccess(user)
+  if (!active) {
     return NextResponse.redirect(new URL('/login?error=deactivated', request.url))
   }
-
-  // Role-based route restrictions (read from user_metadata — no DB query needed)
-  // Unknown / missing metadata falls back to STAFF, the least privileged level.
-  const rawRole = user.user_metadata?.role as string | undefined
-  const role: Role =
-    rawRole && Object.prototype.hasOwnProperty.call(ROLE_RANK, rawRole)
-      ? (rawRole as Role)
-      : 'STAFF'
 
   // Role-gated route the user cannot reach → RENDER the no-access screen at
   // this URL. Deliberately a rewrite, not a redirect: the address bar keeps
