@@ -9,6 +9,7 @@ import { atLeast } from '@/lib/roles'
 import { InboxList } from '@/components/inbox/InboxList'
 import { InboxFilters } from '@/components/inbox/InboxFilters'
 import { TagChips } from '@/components/inbox/TagChips'
+import { call, type Result } from '@/components/inbox/api'
 import { ItemPane, ItemSheet, type ItemDetailProps } from '@/components/inbox/ItemSheet'
 import {
   applyFilter, countByTag, peopleOf, placesOf,
@@ -21,23 +22,6 @@ import {
 // the one shared selection below.
 
 const POLL_MS = 30_000
-
-type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number }
-
-async function call<T>(url: string, init?: RequestInit): Promise<Result<T>> {
-  try {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      ...init,
-      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-    })
-    const data = await res.json().catch(() => null)
-    if (!res.ok) return { ok: false, status: res.status, error: (data && typeof data.error === 'string' && data.error) || 'Could not save — try again.' }
-    return { ok: true, data: data as T }
-  } catch {
-    return { ok: false, status: 0, error: 'No connection — try again.' }
-  }
-}
 
 const isPhone = () => typeof window !== 'undefined' && !window.matchMedia('(min-width: 768px)').matches
 
