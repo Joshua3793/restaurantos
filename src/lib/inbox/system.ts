@@ -43,23 +43,49 @@ const CLOSE_LOOKBACK_DAYS = 2
 export const CLEARED_ITSELF = CLEAR_NOTES.resolved
 
 /**
+ * While a sync runs its throttle row is stamped this far in the future, so a
+ * request that loses the claim can tell "running now" from "ran recently".
+ */
+const SYNC_RUNNING_MS = 30_000
+/** How long a request that lost the claim waits for a running sync to land. */
+const SYNC_WAIT_MS = 8_000
+const SYNC_POLL_MS = 250
+
+/**
  * Claim this minute's sync for the kitchen in one conditional write: bump `at`
  * only if it is older than a minute; with no row yet, insert one with
  * skipDuplicates — so a throttled poll never raises a unique-violation error,
  * and of two racing first syncs only the one whose insert lands goes ahead.
+ * The winner stamps `at` in the future (running) and back to `now` when done.
  */
 async function claimSync(key: string, now: Date): Promise<boolean> {
   const cutoff = new Date(now.getTime() - SYNC_EVERY_MS)
+  const running = new Date(now.getTime() + SYNC_RUNNING_MS)
   const bumped = await prisma.inboxSync.updateMany({
     where: { revenueCenterId: key, at: { lt: cutoff } },
-    data: { at: now },
+    data: { at: running },
   })
   if (bumped.count > 0) return true
   const inserted = await prisma.inboxSync.createMany({
-    data: [{ revenueCenterId: key, at: now }],
+    data: [{ revenueCenterId: key, at: running }],
     skipDuplicates: true,
   })
   return inserted.count === 1 // 0 = synced within the last minute
+}
+
+/**
+ * The Pass, the bell and the Inbox load together: the one that lost the claim
+ * waits (briefly) for a running sync to land, so the first load of the day
+ * never reads the Inbox from before the sync and shows "All clear".
+ */
+async function waitForRunningSync(key: string, now: Date): Promise<void> {
+  const runningAfter = now.getTime() + SYNC_RUNNING_MS / 2
+  const deadline = Date.now() + SYNC_WAIT_MS
+  for (;;) {
+    const row = await prisma.inboxSync.findUnique({ where: { revenueCenterId: key } })
+    if (!row || row.at.getTime() <= runningAfter || Date.now() >= deadline) return
+    await new Promise(r => setTimeout(r, SYNC_POLL_MS))
+  }
 }
 
 // ── Loading the inputs (Prisma reads only) ──────────────────────────────────
@@ -446,12 +472,21 @@ export async function applyConditions(rcId: string | null, input: ConditionsInpu
  * only). Called by GET /api/inbox and GET /api/inbox/count. Never throws.
  */
 export async function syncSystemItems(rcId: string | null, now: Date = new Date()): Promise<void> {
+  const key = rcId ?? GLOBAL_SYNC_KEY
+  let claimed = false
   try {
-    if (!(await claimSync(rcId ?? GLOBAL_SYNC_KEY, now))) return
+    claimed = await claimSync(key, now)
+    if (!claimed) return await waitForRunningSync(key, now)
     await ensureInboxSeeded()
     const input = await loadInput(rcId, now)
     await applyConditions(rcId, input)
   } catch (e) {
     console.error(`[inbox sync] rc=${rcId ?? 'global'} failed`, e)
+  } finally {
+    // Done (or failed): stamp the real time, so the next minute's sync runs on time.
+    if (claimed) {
+      await prisma.inboxSync.update({ where: { revenueCenterId: key }, data: { at: now } })
+        .catch(e => console.error(`[inbox sync] rc=${rcId ?? 'global'} stamp failed`, e))
+    }
   }
 }

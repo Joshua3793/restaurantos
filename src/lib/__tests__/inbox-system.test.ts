@@ -98,12 +98,25 @@ const agedRuns = (ids: string[]) => runFindMany.mockImplementation(async (a?: un
   const w = (a as { where: { id?: { in: string[] } } }).where
   return w.id ? w.id.in.filter(id => ids.includes(id)).map(id => ({ id })) : []
 })
+const syncFindUnique = vi.fn(async (a: { where: { revenueCenterId: string } }) => {
+  const at = syncRows.get(a.where.revenueCenterId)
+  return at ? { revenueCenterId: a.where.revenueCenterId, at } : null
+})
+const syncUpdate = vi.fn(async (a: { where: { revenueCenterId: string }; data: { at: Date } }) => {
+  syncRows.set(a.where.revenueCenterId, a.data.at)
+  return { revenueCenterId: a.where.revenueCenterId, at: a.data.at }
+})
 const countFindFirst = vi.fn()
 const rcFindUnique = vi.fn(async () => ({ isDefault: false }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    inboxSync: { updateMany: (a: never) => syncUpdateMany(a), createMany: (a: never) => syncCreateMany(a) },
+    inboxSync: {
+      updateMany: (a: never) => syncUpdateMany(a),
+      createMany: (a: never) => syncCreateMany(a),
+      findUnique: (a: never) => syncFindUnique(a),
+      update: (a: never) => syncUpdate(a),
+    },
     inboxItem: {
       findMany: (a: never) => itemFindMany(a),
       createMany: (a: never) => itemCreateMany(a),
@@ -181,7 +194,7 @@ describe('syncSystemItems — throttle', () => {
     expect(itemCreateMany).not.toHaveBeenCalled()
     expect(syncRows.get('rcA')).toEqual(new Date(NOW.getTime() - 30_000))
     // One conditional write, no unique-violation: the insert just skips.
-    expect(syncCreateMany).toHaveBeenCalledWith({ data: [{ revenueCenterId: 'rcA', at: NOW }], skipDuplicates: true })
+    expect(syncCreateMany).toHaveBeenCalledWith({ data: [{ revenueCenterId: 'rcA', at: new Date(NOW.getTime() + 30_000) }], skipDuplicates: true })
     expect(errSpy).not.toHaveBeenCalled()
   })
 
@@ -206,6 +219,36 @@ describe('syncSystemItems — throttle', () => {
     await syncSystemItems('rcA', NOW)
     expect(countInvoicesAwaiting).toHaveBeenCalled()
     expect(syncRows.get('rcA')).toEqual(NOW)
+  })
+
+  it('marks the row as running while the sync works, then stamps the time', async () => {
+    let during: Date | undefined
+    countInvoicesAwaiting.mockImplementation(async () => { during = syncRows.get('rcA'); return 0 })
+    await syncSystemItems('rcA', NOW)
+    expect(during!.getTime()).toBeGreaterThan(NOW.getTime())
+    expect(syncRows.get('rcA')).toEqual(NOW)
+  })
+
+  it('a failed sync still stamps the time, so it is not left looking busy', async () => {
+    ensureInboxSeeded.mockRejectedValueOnce(new Error('db down'))
+    await syncSystemItems('rcA', NOW)
+    expect(syncRows.get('rcA')).toEqual(NOW)
+  })
+
+  it('a request that loses the claim waits for the running sync to land', async () => {
+    syncRows.set('rcA', new Date(NOW.getTime() + 30_000)) // another request is syncing
+    syncFindUnique
+      .mockImplementationOnce(async () => ({ revenueCenterId: 'rcA', at: new Date(NOW.getTime() + 30_000) }))
+      .mockImplementationOnce(async () => ({ revenueCenterId: 'rcA', at: NOW })) // ...and finishes
+    await syncSystemItems('rcA', NOW)
+    expect(syncFindUnique).toHaveBeenCalledTimes(2)
+    expect(countInvoicesAwaiting).not.toHaveBeenCalled()
+  })
+
+  it('a request that loses to a recent sync does not wait', async () => {
+    syncRows.set('rcA', new Date(NOW.getTime() - 30_000))
+    await syncSystemItems('rcA', NOW)
+    expect(syncFindUnique).toHaveBeenCalledTimes(1)
   })
 
   it('keeps one throttle row per kitchen, and one for the whole house', async () => {
