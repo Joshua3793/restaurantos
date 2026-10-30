@@ -38,9 +38,16 @@ describe('reconcile', () => {
   it('leaves a DONE-by-a-person item alone even if present', () => {
     expect(reconcile({ status: 'DONE', clearedAt: null, doneById: 'u1' }, true, NOW)).toEqual({ action: 'none' })
   })
-  it('leaves a DONE item alone when the condition is absent', () => {
+  it('leaves a self-cleared DONE item alone when the condition is absent', () => {
     expect(reconcile({ status: 'DONE', clearedAt: '2026-10-29T10:00:00Z', doneById: null }, false, NOW))
       .toEqual({ action: 'none' })
+  })
+  it('re-arms a DONE-by-a-person item once its condition is gone', () => {
+    expect(reconcile({ status: 'DONE', clearedAt: null, doneById: 'u1' }, false, NOW)).toEqual({ action: 'rearm' })
+  })
+  it('a re-armed item (clearedAt now set) reopens when the condition returns', () => {
+    expect(reconcile({ status: 'DONE', clearedAt: '2026-10-30T17:00:00Z', doneById: 'u1' }, true, NOW))
+      .toEqual({ action: 'reopen' })
   })
 })
 

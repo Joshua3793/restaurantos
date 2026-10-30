@@ -22,10 +22,15 @@ const syncUpdateMany = vi.fn(async (a: { where: { revenueCenterId: string; at: {
   if (at && at < a.where.at.lt) { syncRows.set(a.where.revenueCenterId, a.data.at); return { count: 1 } }
   return { count: 0 }
 })
-const syncCreate = vi.fn(async (a: { data: { revenueCenterId: string; at: Date } }) => {
-  if (syncRows.has(a.data.revenueCenterId)) throw P2002
-  syncRows.set(a.data.revenueCenterId, a.data.at)
-  return a.data
+const syncCreateMany = vi.fn(async (a: { data: { revenueCenterId: string; at: Date }[]; skipDuplicates: boolean }) => {
+  // Real skipDuplicates: an existing row is skipped silently, never a P2002.
+  let count = 0
+  for (const r of a.data) {
+    if (syncRows.has(r.revenueCenterId)) continue
+    syncRows.set(r.revenueCenterId, r.at)
+    count++
+  }
+  return { count }
 })
 
 type FindWhere = {
@@ -60,18 +65,20 @@ const itemUpdate = vi.fn(async (a: { where: { id: string }; data: Partial<Item> 
 })
 const eventCreateMany = vi.fn(async (a: { data: Event[] }) => { events.push(...a.data); return { count: a.data.length } })
 
-type GuardWhere = { id: string; status: string | { not: string }; clearedAt?: { not: null } }
+type GuardWhere = { id: string; status: string | { not: string }; clearedAt?: { not: null } | null }
 const matches = (i: Item, w: GuardWhere) =>
   i.id === w.id &&
   (typeof w.status === 'string' ? i.status === w.status : i.status !== w.status.not) &&
-  (w.clearedAt ? i.clearedAt != null : true)
+  (w.clearedAt === null ? i.clearedAt == null : w.clearedAt ? i.clearedAt != null : true)
+const guardedUpdate = async (a: { where: GuardWhere; data: Partial<Item> }) => {
+  const hit = items.filter(i => matches(i, a.where))
+  hit.forEach(i => Object.assign(i, a.data))
+  return { count: hit.length }
+}
+const itemUpdateMany = vi.fn(guardedUpdate)
 const tx = {
   inboxItem: {
-    updateMany: vi.fn(async (a: { where: GuardWhere; data: Partial<Item> }) => {
-      const hit = items.filter(i => matches(i, a.where))
-      hit.forEach(i => Object.assign(i, a.data))
-      return { count: hit.length }
-    }),
+    updateMany: vi.fn(guardedUpdate),
   },
   inboxEvent: {
     create: vi.fn(async (a: { data: Event }) => { events.push(a.data); return a.data }),
@@ -82,16 +89,22 @@ const priceAlertFindMany = vi.fn(async (_a?: unknown): Promise<unknown[]> => [])
 const pinDeviceFindMany = vi.fn(async (_a?: unknown): Promise<unknown[]> => [])
 const stationFindMany = vi.fn(async (_a?: unknown): Promise<unknown[]> => [])
 const runFindMany = vi.fn(async (_a?: unknown): Promise<unknown[]> => [])
+/** checklistRun.findMany for the "aged out of the close window" lookup (by id). */
+const agedRuns = (ids: string[]) => runFindMany.mockImplementation(async (a?: unknown) => {
+  const w = (a as { where: { id?: { in: string[] } } }).where
+  return w.id ? w.id.in.filter(id => ids.includes(id)).map(id => ({ id })) : []
+})
 const countFindFirst = vi.fn()
 const rcFindUnique = vi.fn(async () => ({ isDefault: false }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    inboxSync: { updateMany: (a: never) => syncUpdateMany(a), create: (a: never) => syncCreate(a) },
+    inboxSync: { updateMany: (a: never) => syncUpdateMany(a), createMany: (a: never) => syncCreateMany(a) },
     inboxItem: {
       findMany: (a: never) => itemFindMany(a),
       createMany: (a: never) => itemCreateMany(a),
       update: (a: never) => itemUpdate(a),
+      updateMany: (a: never) => itemUpdateMany(a),
     },
     inboxEvent: { createMany: (a: never) => eventCreateMany(a) },
     inboxTag: {
@@ -125,6 +138,7 @@ vi.mock('@/lib/invoice-awaiting', () => ({
 }))
 
 const { syncSystemItems, CLEARED_ITSELF } = await import('@/lib/inbox/system')
+const { CLEAR_NOTES } = await import('@/lib/inbox/conditions')
 
 const NOW = new Date('2026-10-30T16:00:00Z') // 09:00 Pacific — the opening window
 const DATE = '2026-10-30'
@@ -146,6 +160,9 @@ beforeEach(() => {
   countFindFirst.mockResolvedValue({ status: 'FINALIZED', finalizedAt: new Date(NOW.getTime() - 86_400_000) })
   countInvoicesAwaiting.mockResolvedValue(0)
   loadPrepItems.mockResolvedValue([])
+  runFindMany.mockResolvedValue([])
+  priceAlertFindMany.mockResolvedValue([])
+  pinDeviceFindMany.mockResolvedValue([])
   errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
@@ -158,6 +175,25 @@ describe('syncSystemItems — throttle', () => {
     expect(countInvoicesAwaiting).not.toHaveBeenCalled()
     expect(itemCreateMany).not.toHaveBeenCalled()
     expect(syncRows.get('rcA')).toEqual(new Date(NOW.getTime() - 30_000))
+    // One conditional write, no unique-violation: the insert just skips.
+    expect(syncCreateMany).toHaveBeenCalledWith({ data: [{ revenueCenterId: 'rcA', at: NOW }], skipDuplicates: true })
+    expect(errSpy).not.toHaveBeenCalled()
+  })
+
+  it('the first sync for a kitchen inserts its row and goes ahead', async () => {
+    await syncSystemItems('rcA', NOW)
+    expect(syncRows.get('rcA')).toEqual(NOW)
+    expect(countInvoicesAwaiting).toHaveBeenCalled()
+  })
+
+  it('of two racing first syncs only the one whose insert lands goes ahead', async () => {
+    // The other request inserts between our update (0 rows) and our insert.
+    syncUpdateMany.mockImplementationOnce(async () => {
+      syncRows.set('rcA', NOW)
+      return { count: 0 }
+    })
+    await syncSystemItems('rcA', NOW)
+    expect(countInvoicesAwaiting).not.toHaveBeenCalled()
   })
 
   it('runs again once a minute has passed, and stamps the time', async () => {
@@ -274,6 +310,10 @@ describe('syncSystemItems — reconcile', () => {
       OR: [
         { sourceKey: { in: ['invoices:rcA'] } },
         { status: { not: 'DONE' }, OR: [{ revenueCenterId: 'rcA' }, { revenueCenterId: null }] },
+        {
+          status: 'DONE', clearedAt: null, doneAt: { gte: new Date(NOW.getTime() - 30 * 86_400_000) },
+          OR: [{ revenueCenterId: 'rcA' }, { revenueCenterId: null }],
+        },
       ],
     })
   })
@@ -330,5 +370,83 @@ describe('syncSystemItems — failures', () => {
     tx.inboxItem.updateMany.mockRejectedValueOnce(new Error('deadlock'))
     await syncSystemItems('rcA', NOW)
     expect(find('count-stale:rcA')!.status).toBe('DONE')
+  })
+})
+
+describe('syncSystemItems — a person-closed alert comes back', () => {
+  it('invoices: done by a person → condition gone → re-armed (no event) → present → reopened', async () => {
+    items.push(item({
+      sourceKey: 'invoices:rcA', status: 'DONE', doneById: 'u-mgr', doneByName: 'Max',
+      doneAt: new Date(NOW.getTime() - 3600_000), title: '2 invoices to approve',
+    }))
+    // Still waiting: the manager said it's handled — leave it.
+    countInvoicesAwaiting.mockResolvedValue(2)
+    await syncSystemItems('rcA', NOW)
+    expect(find('invoices:rcA')).toMatchObject({ status: 'DONE', clearedAt: null })
+
+    // All approved: re-armed quietly.
+    const t1 = new Date(NOW.getTime() + 2 * 60_000)
+    countInvoicesAwaiting.mockResolvedValue(0)
+    await syncSystemItems('rcA', t1)
+    expect(find('invoices:rcA')).toMatchObject({ status: 'DONE', clearedAt: t1, doneById: 'u-mgr' })
+    expect(events).toEqual([])
+
+    // New invoices arrive: the same item reopens.
+    const t2 = new Date(NOW.getTime() + 4 * 60_000)
+    countInvoicesAwaiting.mockResolvedValue(1)
+    await syncSystemItems('rcA', t2)
+    expect(find('invoices:rcA')).toMatchObject({ status: 'OPEN', clearedAt: null, doneById: null, title: '1 invoice to approve' })
+    expect(eventsFor('invoices:rcA').map(e => e.kind)).toEqual(['REOPENED'])
+    expect(itemCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('count-stale: a person-closed item re-arms once a new count lands', async () => {
+    items.push(item({ sourceKey: 'count-stale:rcA', status: 'DONE', doneById: 'u-mgr', doneAt: NOW }))
+    await syncSystemItems('rcA', NOW) // default count: yesterday — not stale
+    expect(find('count-stale:rcA')!.clearedAt).toEqual(NOW)
+  })
+
+  it('never re-arms another kitchen’s person-closed item', async () => {
+    items.push(item({ sourceKey: 'invoices:rcB', revenueCenterId: 'rcB', status: 'DONE', doneById: 'u-mgr', doneAt: NOW }))
+    await syncSystemItems('rcA', NOW)
+    expect(find('invoices:rcB')!.clearedAt).toBeNull()
+  })
+})
+
+describe('syncSystemItems — every clear says why', () => {
+  const noteOf = (key: string) => eventsFor(key).find(e => e.kind === 'CLEARED')?.note
+
+  it('"Cleared itself" when today’s condition genuinely went away', async () => {
+    items.push(item({ sourceKey: `temp-missing:rcA:${DATE}` }))
+    items.push(item({ sourceKey: 'invoices:rcA' }))
+    await syncSystemItems('rcA', NOW)
+    expect(noteOf(`temp-missing:rcA:${DATE}`)).toBe(CLEAR_NOTES.resolved)
+    expect(noteOf('invoices:rcA')).toBe(CLEARED_ITSELF)
+  })
+
+  it('"Opening window ended — never started" for a station once the phase is CLOSE', async () => {
+    const afternoon = new Date('2026-10-30T22:00:00Z') // 15:00 Pacific
+    items.push(item({ sourceKey: `station-open:s1:${DATE}` }))
+    await syncSystemItems('rcA', afternoon)
+    expect(find(`station-open:s1:${DATE}`)!.status).toBe('DONE')
+    expect(noteOf(`station-open:s1:${DATE}`)).toBe(CLEAR_NOTES.openingEnded)
+  })
+
+  it('"Day ended — not fixed" for yesterday’s dated keys', async () => {
+    const keys = [
+      'temp-bad:u1:2026-10-29', 'temp-missing:rcA:2026-10-29', 'station-open:s1:2026-10-29', 'prep:p1:2026-10-29',
+    ]
+    for (const k of keys) items.push(item({ sourceKey: k }))
+    await syncSystemItems('rcA', NOW)
+    for (const k of keys) expect(noteOf(k)).toBe(CLEAR_NOTES.dayEnded)
+  })
+
+  it('"Older than 2 days — never signed" for a closing list that left the window unsigned', async () => {
+    items.push(item({ sourceKey: 'close-unsigned:r1' }))
+    items.push(item({ sourceKey: 'close-unsigned:r2' }))
+    agedRuns(['r1']) // r2 was signed (or is gone)
+    await syncSystemItems('rcA', NOW)
+    expect(noteOf('close-unsigned:r1')).toBe(CLEAR_NOTES.closeAged)
+    expect(noteOf('close-unsigned:r2')).toBe(CLEAR_NOTES.resolved)
   })
 })

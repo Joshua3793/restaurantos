@@ -92,6 +92,8 @@ export type ConditionsInput = {
   temps?: TempUnitIn[]
   stations?: { phase: Phase; businessDate: string; list: StationIn[] }
   closeRuns?: CloseRunIn[]
+  /** Run ids of open close-unsigned items whose run is still unsigned but has left the window. */
+  closeAged?: string[]
   prep?: PrepItemIn[]
   priceAlerts?: PriceAlertIn[]
   invoices?: { awaiting: number }
@@ -305,4 +307,36 @@ export function ownsItem(
   if (GLOBAL.has(family)) return true
   if (item.revenueCenterId == null) return SHARED_OK.has(family)
   return rcId != null && item.revenueCenterId === rcId
+}
+
+// ── Why an item cleared ─────────────────────────────────────────────────────
+
+export const CLEAR_NOTES = {
+  resolved: 'Cleared itself',
+  openingEnded: 'Opening window ended — never started',
+  dayEnded: 'Day ended — not fixed',
+  closeAged: 'Older than 2 days — never signed',
+} as const
+
+/** The 'YYYY-MM-DD' a daily key ends with, or null for an undated key. */
+export function keyDate(sourceKey: string): string | null {
+  const last = sourceKey.slice(sourceKey.lastIndexOf(':') + 1)
+  return /^\d{4}-\d{2}-\d{2}$/.test(last) ? last : null
+}
+
+/**
+ * The CLEARED note for an owned item whose condition is absent. "Cleared
+ * itself" only when the problem genuinely went away; an expiry says so.
+ */
+export function clearNote(sourceKey: string, input: ConditionsInput): string {
+  const family = familyOf(sourceKey)
+  const date = keyDate(sourceKey)
+  if (date && date < input.date) return CLEAR_NOTES.dayEnded
+  if (family === 'station-open' && input.stations && input.stations.phase !== 'OPEN') {
+    return CLEAR_NOTES.openingEnded
+  }
+  if (family === 'close-unsigned' && input.closeAged?.includes(sourceKey.slice('close-unsigned:'.length))) {
+    return CLEAR_NOTES.closeAged
+  }
+  return CLEAR_NOTES.resolved
 }

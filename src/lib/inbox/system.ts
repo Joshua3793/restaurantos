@@ -4,12 +4,11 @@
 // Throttled to once a minute per kitchen; never throws to the caller.
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { ensureInboxSeeded } from '@/lib/inbox/tags'
 import { reconcile } from '@/lib/inbox/rules'
 import {
-  collectConditions, loadedFamilies, ownsItem,
+  collectConditions, loadedFamilies, ownsItem, clearNote, CLEAR_NOTES,
   type Condition, type ConditionsInput, type TempUnitIn, type PrepItemIn,
 } from '@/lib/inbox/conditions'
 import { defaultPhase, minusDays, pacificDate, shiftBusinessDate } from '@/lib/checklists/rules'
@@ -25,21 +24,20 @@ export const SYNC_EVERY_MS = 60_000
 const GLOBAL_SYNC_KEY = '__global__'
 const DAY_MS = 24 * 60 * 60 * 1000
 const PRICE_PREFIX = 'price:'
+const CLOSE_PREFIX = 'close-unsigned:'
+/** A person-closed item is re-armed only if it was closed within this many days. */
+const REARM_LOOKBACK_DAYS = 30
 /** How far back a NEW price rise is filed (older unacknowledged ones stay behind the bell). */
 const PRICE_LOOKBACK_DAYS = 14
 /** The two days before the current closing shift. */
 const CLOSE_LOOKBACK_DAYS = 2
-export const CLEARED_ITSELF = 'Cleared itself'
-
-const isP2002 = (e: unknown) =>
-  e instanceof Prisma.PrismaClientKnownRequestError
-    ? e.code === 'P2002'
-    : (e as { code?: unknown } | null)?.code === 'P2002'
+export const CLEARED_ITSELF = CLEAR_NOTES.resolved
 
 /**
- * Claim this minute's sync for the kitchen. Atomic: bump `at` only if it is
- * older than a minute; with no row yet, create one — a P2002 there means a
- * concurrent request just claimed it.
+ * Claim this minute's sync for the kitchen in one conditional write: bump `at`
+ * only if it is older than a minute; with no row yet, insert one with
+ * skipDuplicates — so a throttled poll never raises a unique-violation error,
+ * and of two racing first syncs only the one whose insert lands goes ahead.
  */
 async function claimSync(key: string, now: Date): Promise<boolean> {
   const cutoff = new Date(now.getTime() - SYNC_EVERY_MS)
@@ -48,13 +46,11 @@ async function claimSync(key: string, now: Date): Promise<boolean> {
     data: { at: now },
   })
   if (bumped.count > 0) return true
-  try {
-    await prisma.inboxSync.create({ data: { revenueCenterId: key, at: now } })
-    return true
-  } catch (e) {
-    if (isP2002(e)) return false // synced within the last minute
-    throw e
-  }
+  const inserted = await prisma.inboxSync.createMany({
+    data: [{ revenueCenterId: key, at: now }],
+    skipDuplicates: true,
+  })
+  return inserted.count === 1 // 0 = synced within the last minute
 }
 
 // ── Loading the inputs (Prisma reads only) ──────────────────────────────────
@@ -201,6 +197,28 @@ function loaders(rcId: string | null, now: Date): Loaders {
         id: r.id, stationName: r.station.name, revenueCenterId: rcId, businessDate: r.businessDate,
       }))
     },
+    closeAged: async () => {
+      // Open close-unsigned items whose run is still unsigned but now older
+      // than the window: they expire, and the note must say so.
+      const open = await prisma.inboxItem.findMany({
+        where: {
+          source: 'SYSTEM', sourceKey: { startsWith: CLOSE_PREFIX }, status: { not: 'DONE' },
+          revenueCenterId: rcId,
+        },
+        select: { sourceKey: true },
+      })
+      if (open.length === 0) return []
+      const windowStart = minusDays(shiftBusinessDate('CLOSE', now), CLOSE_LOOKBACK_DAYS)
+      const aged = await prisma.checklistRun.findMany({
+        where: {
+          id: { in: open.map(o => o.sourceKey!.slice(CLOSE_PREFIX.length)) },
+          status: { not: 'SIGNED' },
+          businessDate: { lt: windowStart },
+        },
+        select: { id: true },
+      })
+      return aged.map(r => r.id)
+    },
     invoices: async () => ({
       awaiting: await countInvoicesAwaiting(
         invoiceRcWhere({ rcId, isDefault: await rcIsDefault(), locRcIds: null }),
@@ -292,14 +310,25 @@ async function createItems(rcId: string | null, conds: Condition[], tagIds: Map<
   })
 }
 
-async function clearItem(item: Existing, now: Date): Promise<void> {
+async function clearItem(item: Existing, now: Date, note: string): Promise<void> {
   await prisma.$transaction(async tx => {
     const res = await tx.inboxItem.updateMany({
       where: { id: item.id, status: { not: 'DONE' } },
       data: { status: 'DONE', snoozeUntil: null, clearedAt: now, doneById: null, doneByName: null, doneAt: null },
     })
     if (res.count === 0) return
-    await tx.inboxEvent.create({ data: { itemId: item.id, kind: 'CLEARED', note: CLEARED_ITSELF } })
+    await tx.inboxEvent.create({ data: { itemId: item.id, kind: 'CLEARED', note } })
+  })
+}
+
+/**
+ * A person closed it and the condition has since gone: stamp clearedAt (no
+ * event) so the alert reopens if the condition comes back.
+ */
+async function rearmItem(item: Existing, now: Date): Promise<void> {
+  await prisma.inboxItem.updateMany({
+    where: { id: item.id, status: 'DONE', clearedAt: null },
+    data: { clearedAt: now },
   })
 }
 
@@ -340,6 +369,12 @@ export async function applyConditions(rcId: string | null, input: ConditionsInpu
       OR: [
         ...(presentKeys.length ? [{ sourceKey: { in: presentKeys } }] : []),
         { status: { not: 'DONE' }, OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] },
+        // Closed by a person recently and not yet re-armed (ownsItem narrows it below).
+        {
+          status: 'DONE', clearedAt: null,
+          doneAt: { gte: new Date(now.getTime() - REARM_LOOKBACK_DAYS * DAY_MS) },
+          OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }],
+        },
       ],
     },
     select: {
@@ -381,8 +416,12 @@ export async function applyConditions(rcId: string | null, input: ConditionsInpu
     if (!item.sourceKey || byKey.has(item.sourceKey)) continue
     if (!ownsItem(item, rcId, loaded)) continue
     const lite = { status: item.status, clearedAt: iso(item.clearedAt), doneById: item.doneById }
-    if (reconcile(lite, false, now).action === 'clear') {
-      await guarded(rcId, `clear ${item.sourceKey}`, () => clearItem(item, now))
+    const { action } = reconcile(lite, false, now)
+    if (action === 'clear') {
+      const note = clearNote(item.sourceKey, input)
+      await guarded(rcId, `clear ${item.sourceKey}`, () => clearItem(item, now, note))
+    } else if (action === 'rearm') {
+      await guarded(rcId, `rearm ${item.sourceKey}`, () => rearmItem(item, now))
     }
   }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  collectConditions, loadedFamilies, ownsItem, familyOf,
+  collectConditions, loadedFamilies, ownsItem, familyOf, clearNote, keyDate, CLEAR_NOTES,
   type ConditionsInput, type TempUnitIn, type PrepItemIn,
 } from '@/lib/inbox/conditions'
 import { canSee } from '@/lib/inbox/rules'
@@ -223,5 +223,37 @@ describe('which items a sync may clear', () => {
   it('flag and unknown keys are never the system sync’s', () => {
     expect(familyOf('flag:l1')).toBeNull()
     expect(ownsItem({ sourceKey: 'flag:l1', revenueCenterId: 'rcA' }, 'rcA', loadedFamilies(everything))).toBe(false)
+  })
+})
+
+describe('clearNote — why an absent condition closed its item', () => {
+  const open = base({ stations: { phase: 'OPEN', businessDate: DATE, list: [] }, closeRuns: [], closeAged: ['r1'] })
+
+  it('reads the day off a dated key; undated keys have none', () => {
+    expect(keyDate('prep:p1:2026-10-29')).toBe('2026-10-29')
+    expect(keyDate('invoices:rcA')).toBeNull()
+    expect(keyDate('close-unsigned:r1')).toBeNull()
+  })
+
+  it('today’s or undated keys that went away: "Cleared itself"', () => {
+    expect(clearNote(`temp-bad:u1:${DATE}`, open)).toBe(CLEAR_NOTES.resolved)
+    expect(clearNote('invoices:rcA', open)).toBe('Cleared itself')
+    expect(clearNote(`station-open:s1:${DATE}`, open)).toBe(CLEAR_NOTES.resolved)
+  })
+
+  it('a dated key from an earlier day: "Day ended — not fixed"', () => {
+    for (const k of ['temp-bad:u1:2026-10-29', 'temp-missing:rcA:2026-10-29', 'station-open:s1:2026-10-29', 'prep:p1:2026-10-28']) {
+      expect(clearNote(k, open)).toBe('Day ended — not fixed')
+    }
+  })
+
+  it('a station today once the phase is CLOSE: "Opening window ended — never started"', () => {
+    const close = base({ stations: { phase: 'CLOSE', businessDate: DATE, list: [] } })
+    expect(clearNote(`station-open:s1:${DATE}`, close)).toBe('Opening window ended — never started')
+  })
+
+  it('a closing list that aged out unsigned: "Older than 2 days — never signed"; a signed one cleared itself', () => {
+    expect(clearNote('close-unsigned:r1', open)).toBe('Older than 2 days — never signed')
+    expect(clearNote('close-unsigned:r2', open)).toBe(CLEAR_NOTES.resolved)
   })
 })

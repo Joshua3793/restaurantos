@@ -35,19 +35,23 @@ const TZ = 'America/Los_Angeles'
 /**
  * How a system alert meets its live condition.
  * - no item + present: create
- * - open / snoozed / waiting + gone: clear (the app closes it, "Cleared itself")
+ * - open / snoozed / waiting + gone: clear (the app closes it, with a note saying why)
  * - DONE by the app (clearedAt set) + present again: reopen
- * - anything else (including DONE by a person): none
+ * - DONE by a person (clearedAt null) + gone: rearm — stamp clearedAt, no event,
+ *   so the next time the condition appears it reopens. Without this a key that
+ *   never changes (invoices:<rc>, count-stale:<rc>) would stay silent forever.
+ * - DONE by a person + still present: none (they said it's handled)
  */
 export function reconcile(
   existing: Pick<ItemLite, 'status' | 'clearedAt' | 'doneById'> | null,
   present: boolean,
   now: Date,
-): { action: 'create' | 'clear' | 'reopen' | 'none' } {
+): { action: 'create' | 'clear' | 'reopen' | 'rearm' | 'none' } {
   void now
   if (!existing) return { action: present ? 'create' : 'none' }
   if (existing.status === 'DONE') {
-    return { action: present && existing.clearedAt ? 'reopen' : 'none' }
+    if (existing.clearedAt) return { action: present ? 'reopen' : 'none' }
+    return { action: present ? 'none' : 'rearm' }
   }
   return { action: present ? 'none' : 'clear' }
 }
