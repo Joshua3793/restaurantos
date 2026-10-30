@@ -1378,6 +1378,7 @@ model ChecklistRunLine {
   safeMin        Decimal?
   safeMax        Decimal?
   tempUnitId     String? // plain column, no relation (history survives unit deletion)
+  tempReadingId  String? // plain column, no relation: the Temps-log row this answer wrote, so a re-answer or untick keeps the log true
   sortOrder      Int
   // Result
   status         ChecklistLineStatus  @default(TODO)
