@@ -268,6 +268,9 @@ function StationClosingCard({ rcId, closeState, refreshTick }: { rcId: string; c
           <span className="min-w-0 flex-1 text-[13px] font-medium text-red-text">
             Whole kitchen · <span className="font-mono tabular-nums">{p.sharedBlockersLeft}</span> before you leave
           </span>
+          <Link href="/checklist?phase=CLOSE" className="shrink-0 text-[12.5px] font-medium text-gold-2 hover:text-ink whitespace-nowrap">
+            Open the closing list →
+          </Link>
         </div>
       )}
       {stations === null ? (
@@ -293,9 +296,12 @@ function StationClosingCard({ rcId, closeState, refreshTick }: { rcId: string; c
           ))}
         </div>
       )}
-      <div className="px-[18px] py-3 border-t border-line bg-bg-2">
+      <div className="px-[18px] py-3 border-t border-line bg-bg-2 flex flex-wrap gap-x-5 gap-y-1">
         <Link href="/checklist/today?phase=CLOSE" className="text-[12.5px] font-medium text-gold-2 hover:text-ink">
           Open the station board →
+        </Link>
+        <Link href="/checklist?phase=CLOSE" className="text-[12.5px] font-medium text-gold-2 hover:text-ink">
+          Open the closing list →
         </Link>
       </div>
     </div>

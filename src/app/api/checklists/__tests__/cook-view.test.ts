@@ -33,7 +33,8 @@ vi.mock('@/lib/checklists/runs', () => ({
 }))
 
 const { buildCookView } = await import('@/lib/checklists/cook-view')
-const user = { id: 'u1', name: 'Sam Lee', email: 's@x.ca' } as never
+const user = { id: 'u1', name: 'Sam Lee', email: 's@x.ca', role: 'STAFF' } as never
+const lead = { id: 'u9', name: 'Kai', email: 'k@x.ca', role: 'LEAD' } as never
 
 const stations = [
   { id: 'grill', name: 'Grill', color: '#111', isShared: false },
@@ -93,6 +94,23 @@ describe('buildCookView', () => {
     expect(by.all).toMatchObject({ jobCount: 3 })
     // the item query only asks about stations that have no run
     expect(itemFindMany.mock.calls[0][0].where.category.stationId.in).toEqual(['fry'])
+  })
+
+  it('a LEAD with no pick still gets the whole-kitchen run (its blockers gate the close)', async () => {
+    ensureRun.mockResolvedValue({ id: 'r-all', created: true })
+    loadRunView.mockResolvedValue({ id: 'r-all', stationId: 'all', lines: [{}, {}] })
+    const v = await buildCookView(lead, 'rc1', 'CLOSE')
+    expect(v.mine).toEqual([])
+    expect(ensureRun).toHaveBeenCalledWith('all', 'CLOSE', expect.any(String))
+    expect(v.shared?.id).toBe('r-all')
+    const by = Object.fromEntries(v.stations.map(s => [s.id, s]))
+    expect(by.all).toMatchObject({ jobCount: 2, picked: false })
+  })
+
+  it('a STAFF cook with no pick gets no whole-kitchen run', async () => {
+    const v = await buildCookView(user, 'rc1', 'CLOSE')
+    expect(v.shared).toBeNull()
+    expect(ensureRun).not.toHaveBeenCalled()
   })
 
   it('CLOSE has no handover lookup', async () => {

@@ -6,6 +6,7 @@ import { LineRow, firstName, type RowLine } from './LineRow'
 
 // The cook's list: a progress card, then one card per picked station. The
 // whole-kitchen run's lines are merged into the first card with a KITCHEN pill.
+// A lead with no station picked gets the whole-kitchen run as its own card.
 // Each card: blockers first ("BEFORE DOORS" / "BEFORE YOU LEAVE"), then each
 // category in line order.
 
@@ -135,6 +136,36 @@ export function ChecklistView({
           </div>
         )
       })}
+
+      {mine.length === 0 && shared && (() => {
+        const station = stationById.get(shared.stationId)
+        const locked = shared.status === 'SIGNED'
+        const rows: Row[] = shared.lines.map(line => ({ line, shared: false, locked }))
+        return (
+          <div className="bg-paper border border-line rounded-[14px] overflow-hidden">
+            <div className="flex items-center gap-2 px-4 pt-3.5 pb-1">
+              {station && <span className="w-2 h-2 rounded-full" style={{ background: station.color }} />}
+              <span className="text-[14px] font-semibold tracking-[-0.01em]">{station?.name ?? 'Whole kitchen'}</span>
+              {locked && <span className="ml-auto font-mono text-[10px] text-green-text">SIGNED OFF</span>}
+            </div>
+            {rows.length === 0 ? (
+              <p className="m-0 px-4 py-4 text-[14px] text-ink-3">Nothing on the {station?.name ?? 'whole-kitchen'} list today.</p>
+            ) : (
+              sectionsFor(rows, phase).map(sec => (
+                <div key={sec.key}>
+                  <div className="px-4 pt-3.5 pb-1.5 font-mono text-[10px] font-medium tracking-[0.08em] flex justify-between gap-3">
+                    <span className={sec.urgent ? 'text-red-text' : 'text-ink-3'}>{sec.label}</span>
+                    <span className="text-ink-3">{sec.count}</span>
+                  </div>
+                  {sec.rows.map(r => (
+                    <LineRow key={r.line.id} line={r.line} shared={r.shared} locked={r.locked} busy={busyIds.has(r.line.id)} onTap={onTap} onMore={onMore} />
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

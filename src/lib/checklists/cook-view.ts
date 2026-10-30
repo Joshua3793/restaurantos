@@ -3,6 +3,7 @@ import type { User } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
+import { atLeast } from '@/lib/roles'
 import { appliesOn, shiftBusinessDate, type Phase } from './rules'
 import { seedStationsIfEmpty } from './seed'
 import { ensureRun, loadRunView, lastHandover, type RunView } from './runs'
@@ -69,10 +70,11 @@ export async function buildCookView(user: User, rcId: string, phase: Phase): Pro
   const mineRows = runRows.filter(r => r.crew.some(c => c.userId === user.id))
   const mine = await Promise.all(mineRows.map(r => loadRunView(r.id)))
 
-  // The whole-kitchen list shows for anyone who has picked a station.
+  // The whole-kitchen list shows for anyone who has picked a station, and for
+  // a LEAD+ even with no pick: its blockers gate the end-of-day close (R15).
   let shared: RunView | null = null
   const sharedStation = stations.find(s => s.isShared)
-  if (mine.length > 0 && sharedStation) {
+  if (sharedStation && (mine.length > 0 || atLeast(user.role, 'LEAD'))) {
     const { id } = await ensureRun(sharedStation.id, phase, businessDate)
     shared = await loadRunView(id)
     runByStation.set(sharedStation.id, {

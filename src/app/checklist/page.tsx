@@ -144,7 +144,8 @@ function ChecklistScreen() {
   }, [ready, activeRcId, load])
 
   useEffect(() => {
-    if (!view || !meLoaded || view.mine.length > 0 || autoOpened.current === key) return
+    // A lead with no pick lands on the whole-kitchen list instead (it gates the close).
+    if (!view || !meLoaded || view.mine.length > 0 || view.shared || autoOpened.current === key) return
     // Never on a view left over from the kitchen or phase we just switched away from.
     if (viewFor !== key || (paramPhase && view.phase !== paramPhase)) return
     autoOpened.current = key
@@ -281,8 +282,18 @@ function ChecklistScreen() {
     ? [crumbDay(view.businessDate), phase === 'OPEN' ? 'OPENING' : 'CLOSING', ...(phase === 'CLOSE' && picked.length ? [picked.map(s => s.name.toUpperCase()).join(' + ')] : [])].join(' · ')
     : phase === 'OPEN' ? 'OPENING' : 'CLOSING'
 
+  // A lead with no station picked still works the whole-kitchen list.
+  const sharedOnly = !!view && mine.length === 0 && !!view.shared
+  const sharedLeft = sharedOnly && view?.shared?.status === 'OPEN'
+    ? view.shared.lines.filter(l => l.isBlocker && l.status === 'TODO').length
+    : 0
+
   let lede: React.ReactNode = null
-  if (view && mine.length === 0) {
+  if (sharedOnly) {
+    lede = sharedLeft > 0
+      ? <><b className="font-semibold text-red-text">{sharedLeft} whole-kitchen {sharedLeft === 1 ? 'job' : 'jobs'}</b> {phase === 'OPEN' ? 'before doors' : 'before you leave'}. Pick a station for its own list.</>
+      : <>Whole-kitchen list below. Pick a station for its own list.</>
+  } else if (view && mine.length === 0) {
     lede = <>{phase === 'OPEN' && doors && <>Doors at <b className="font-mono font-semibold">{doors}</b>. </>}Pick your station to see your list.</>
   } else if (view && openMine.length === 0) {
     lede = <span className="text-green-text">{phase === 'OPEN' ? 'Opening signed off. Nice work.' : 'Closing signed off. Good night.'}</span>
@@ -359,6 +370,20 @@ function ChecklistScreen() {
           <div className="bg-paper border border-line rounded-[14px] p-4 flex flex-col gap-3">
             <p className="m-0 text-[14px] text-red-text">{loadError}</p>
             <button type="button" onClick={load} className="self-start min-h-[44px] px-4 rounded-[10px] border border-line-2 text-[13px] font-medium text-ink-2">Try again</button>
+          </div>
+        ) : sharedOnly ? (
+          <div className="flex flex-col gap-4">
+            <button type="button" onClick={() => setPickerOpen(true)} className="self-start min-h-[44px] px-4 rounded-full border border-line bg-paper text-[13px] font-medium text-ink-2">Pick your station</button>
+            <ChecklistView
+              phase={phase}
+              mine={[]}
+              shared={view.shared}
+              stations={stations}
+              handover={view.handover}
+              busyIds={busyIds}
+              onTap={tapLine}
+              onMore={l => setSheetLineId(l.id)}
+            />
           </div>
         ) : mine.length === 0 ? (
           <div className="bg-paper border border-line rounded-[14px] p-4 flex flex-col gap-3">
