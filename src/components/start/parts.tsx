@@ -1,6 +1,6 @@
 'use client'
 import type { ReactNode } from 'react'
-import { Flame, Thermometer, TrendingUp, FileText, ClipboardList } from 'lucide-react'
+import { Flame, Thermometer, TrendingUp, FileText, ClipboardList, ClipboardCheck } from 'lucide-react'
 import type { NeedItem, NeedKind } from '@/lib/start-page'
 import { fmtDurationWords } from '@/lib/start-page'
 import type { ServiceStatus } from '@/lib/service-hours'
@@ -12,6 +12,7 @@ export const NEED_ICON: Record<NeedKind, typeof Flame> = {
   price: TrendingUp,
   invoice: FileText,
   count: ClipboardList,
+  checklist: ClipboardCheck,
 }
 
 export function greetingFor(d: Date): 'morning' | 'afternoon' | 'evening' {

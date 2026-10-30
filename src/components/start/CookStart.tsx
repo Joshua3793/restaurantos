@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, Hourglass } from 'lucide-react'
+import { ArrowRight, ChevronRight, Hourglass, Thermometer } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
@@ -10,11 +10,11 @@ import { planDayContext, withLadderTimes, PLAN_URG_META } from '@/lib/prep-plan'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { ymd } from '@/components/temps/temp-utils'
 import type { PrepItemRich } from '@/components/prep/types'
-import { clockText, tempNeeds, fmtTimeOfDay, type StartTempUnit } from '@/lib/start-page'
+import { clockText, tempNeeds, fmtTimeOfDay, type StartTempUnit, type NeedItem } from '@/lib/start-page'
+import { defaultPhase } from '@/lib/checklists/rules'
 import { cookBoard, makeText, type CookJob } from '@/lib/cook-start'
 import { greetingFor, crumbDate } from './parts'
-import { OpeningCard } from './OpeningCard'
-import type { OpenCheckRow } from '@/lib/open-checklist'
+import { ChecklistCard } from './ChecklistCard'
 
 // The cook's start page (/today for STAFF, phone and line iPad). One question:
 // what do I cook next? Rules in src/lib/cook-start.ts. No money anywhere.
@@ -34,8 +34,6 @@ export function CookStart() {
   const [items, setItems] = useState<PrepItemRich[] | null>(null)
   const [temps, setTemps] = useState<StartTempUnit[]>([])
   const [count, setCount] = useState<CountSession | null>(null)
-  const [opening, setOpening] = useState<OpenCheckRow[]>([])
-  const [openError, setOpenError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!ready) return
@@ -49,10 +47,6 @@ export function CookStart() {
       getJson('/api/prep/me').then(v => { if (!cancelled) setMe(v?.cook ?? null) })
       getJson(`/api/prep/items${qs}`).then(v => { if (!cancelled) setItems(Array.isArray(v) ? v : []) })
       getJson(`/api/temps/units?${tempQs}`).then(v => { if (!cancelled) setTemps(Array.isArray(v) ? v : []) })
-      // The opening list is per revenue center (a leaf) — none for a location/all view.
-      if (activeKind === 'rc' && activeRcId) {
-        getJson(`/api/open-checklist?rcId=${activeRcId}`).then(v => { if (!cancelled) setOpening(v?.items ?? []) })
-      } else setOpening([])
       getJson(`/api/count/sessions${qs}`).then((v: CountSession[] | null) => {
         if (!cancelled) setCount(Array.isArray(v) ? v.find(s => s.status === 'IN_PROGRESS') ?? null : null)
       })
@@ -102,24 +96,10 @@ export function CookStart() {
   // Out-of-range readings come first in tempNeeds, then the "not logged" row.
   const tempRow = tempNeeds(temps)[0] ?? null
 
-  // Tick / untick an opening item. Optimistic — the row flips at once and rolls
-  // back if the save fails.
-  const toggleOpening = async (row: OpenCheckRow, done: boolean) => {
-    const before = opening
-    setOpenError(null)
-    setOpening(prev => prev.map(r => r.id === row.id
-      ? { ...r, done, doneByName: done ? (user?.name || user?.email || null) : null, doneAt: done ? new Date().toISOString() : null }
-      : r))
-    try {
-      const res = await fetch(`/api/open-checklist/${row.id}/tick`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done }),
-      })
-      if (!res.ok) throw new Error()
-    } catch {
-      setOpening(before)
-      setOpenError(`Could not save "${row.title}" — try again.`)
-    }
-  }
+  // The station checklist is per revenue center (a leaf) — none for a location/all view.
+  // Opening from 5:00 to 13:59 Pacific, closing otherwise (the cook screen's own default).
+  const checklistRc = activeKind === 'rc' && activeRcId ? activeRcId : null
+  const phase = defaultPhase(new Date(nowMs))
 
   const loaded = items !== null && me !== undefined
   const name = me?.name.split(' ')[0] ?? (user?.name || user?.email?.split('@')[0] || 'chef').split(' ')[0]
@@ -181,10 +161,10 @@ export function CookStart() {
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-start">
         <section aria-label={me ? 'My jobs' : 'Jobs'} className="min-w-0">
-          {(opening.length > 0 || tempRow) && (
-            <div className="mb-4">
-              <OpeningCard rows={opening} temp={tempRow} beforeDoors={status.kind === 'upcoming'} onToggle={toggleOpening} />
-              {openError && <p className="text-[12.5px] text-red-text mt-2 px-0.5">{openError}</p>}
+          {(tempRow || checklistRc) && (
+            <div className="flex flex-col gap-2 mb-4">
+              {tempRow && <TempPrompt temp={tempRow} />}
+              <ChecklistCard rcId={checklistRc} phase={phase} />
             </div>
           )}
           {board.doing.length > 0 && (
@@ -246,6 +226,20 @@ export function CookStart() {
         </aside>
       </div>
     </div>
+  )
+}
+
+/** Today's temps prompt (unlogged or out of range) — temps live in the Temps log, so this links there. */
+function TempPrompt({ temp }: { temp: NeedItem }) {
+  return (
+    <Link href="/temps" className="flex items-center gap-3 bg-paper border border-line rounded-[14px] px-4 py-3 min-h-[56px]">
+      <span className="w-7 h-7 rounded-lg grid place-items-center bg-red-soft text-red-text shrink-0"><Thermometer size={15} /></span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-[14.5px] font-semibold">{temp.id === 'temp-missing' ? 'Log temps' : temp.title}</span>
+        <span className="block text-[12.5px] text-ink-3 mt-0.5">{temp.id === 'temp-missing' ? `${temp.detail} — not done today` : temp.detail}</span>
+      </span>
+      <ChevronRight size={17} className="text-ink-4 shrink-0" />
+    </Link>
   )
 }
 

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { shiftBusinessDate } from '@/lib/checklists/rules'
 
 // Restaurant-local calendar day (Pacific). MUST NOT use server wall-clock — on
 // Vercel that's UTC, which rolls to "tomorrow" during evening Pacific service.
@@ -42,26 +43,72 @@ export async function computeTempsReady(revenueCenterId: string, date: string): 
   return { total, ready: logged === total && flagged === 0 }
 }
 
-export interface EodProgress {
-  done: number      // checklist items done + (tempsReady ? 1 : 0)
-  total: number     // active checklist items + (hasTempUnits ? 1 : 0)
-  blockers: number  // open blocker checklist items + (tempsReady ? 0 : 1 when hasTempUnits)
-  ready: boolean    // all checklist items done AND tempsReady
-  tempsReady: boolean
-  hasTempUnits: boolean
+// ── Station closing (the station checklists) ────────────────────────────────
+
+export interface StationsClosed {
+  signed: number
+  total: number
+  ready: boolean
 }
 
+/**
+ * Pure: how many station closing runs are signed off. The whole-kitchen
+ * (shared) station never signs off, so it is left out. Ready when every
+ * counted run is signed — and when there are none.
+ */
+export function stationsClosed(runs: Array<{ isShared: boolean; status: 'OPEN' | 'SIGNED' }>): StationsClosed {
+  const counted = runs.filter(r => !r.isShared)
+  const signed = counted.filter(r => r.status === 'SIGNED').length
+  return { signed, total: counted.length, ready: signed === counted.length }
+}
+
+/**
+ * Tonight's CLOSE runs for the RC's active stations, at the closing shift's
+ * business date (shiftBusinessDate('CLOSE') — the date the station board and
+ * the cook screen use, so a close finished after midnight still counts).
+ * A station nobody picked has no run, so it does not hold the day open.
+ */
+export async function loadStationsClosed(revenueCenterId: string): Promise<StationsClosed> {
+  const runs = await prisma.checklistRun.findMany({
+    where: {
+      phase: 'CLOSE',
+      businessDate: shiftBusinessDate('CLOSE'),
+      station: { revenueCenterId, isActive: true },
+    },
+    select: { status: true, station: { select: { isShared: true } } },
+  })
+  return stationsClosed(runs.map(r => ({ isShared: r.station.isShared, status: r.status })))
+}
+
+// ── The sign-off gate ────────────────────────────────────────────────────────
+
+export interface EodProgress {
+  done: number      // stations signed + (tempsReady ? 1 : 0)
+  total: number     // stations with a closing run + (hasTempUnits ? 1 : 0)
+  blockers: number  // stations not signed + (tempsReady ? 0 : 1 when hasTempUnits)
+  ready: boolean    // every station signed AND tempsReady
+  tempsReady: boolean
+  hasTempUnits: boolean
+  stationsSigned: number
+  stationsTotal: number
+}
+
+/**
+ * The end-of-day sign-off gate: temps ready AND every non-shared station with a
+ * closing run tonight is signed off. (The old kitchen-wide EOD checklist no
+ * longer gates; its tables stay until a later drop.)
+ */
 export function computeProgress(
-  items: { id: string; isBlocker: boolean }[],
-  doneItemIds: Set<string>,
+  stations: StationsClosed,
   temps: { total: number; ready: boolean },
 ): EodProgress {
-  const checklistDone = items.filter(i => doneItemIds.has(i.id)).length
-  const checklistBlockersOpen = items.filter(i => i.isBlocker && !doneItemIds.has(i.id)).length
   const hasTempUnits = temps.total > 0
-  const done = checklistDone + (hasTempUnits && temps.ready ? 1 : 0)
-  const total = items.length + (hasTempUnits ? 1 : 0)
-  const blockers = checklistBlockersOpen + (hasTempUnits && !temps.ready ? 1 : 0)
-  const ready = checklistDone === items.length && temps.ready
-  return { done, total, blockers, ready, tempsReady: temps.ready, hasTempUnits }
+  const done = stations.signed + (hasTempUnits && temps.ready ? 1 : 0)
+  const total = stations.total + (hasTempUnits ? 1 : 0)
+  const blockers = (stations.total - stations.signed) + (hasTempUnits && !temps.ready ? 1 : 0)
+  const ready = stations.ready && temps.ready
+  return {
+    done, total, blockers, ready, tempsReady: temps.ready, hasTempUnits,
+    stationsSigned: stations.signed, stationsTotal: stations.total,
+  }
 }

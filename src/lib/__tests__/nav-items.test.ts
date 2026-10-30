@@ -11,6 +11,7 @@ const EXPECTED: Record<string, string | null> = {
   '/prep': null,
   '/count': null,
   '/temps': null,
+  '/checklist': null,
   '/end-of-day': 'LEAD',
   '/invoices': 'LEAD',
   '/tips': 'MANAGER',
@@ -39,6 +40,14 @@ describe('nav tables', () => {
       expect(item.label.length).toBeGreaterThan(0)
       expect(item.icon).toBeTruthy()
     }
+  })
+
+  it('offers the cook checklist in TODAY, with End-of-day right after it', () => {
+    const today = navGroups.find(g => g.label === 'TODAY')!.items
+    const i = today.findIndex(x => x.href === '/checklist')
+    expect(i).toBeGreaterThanOrEqual(0)
+    expect(today[i].label).toBe('Open & close')
+    expect(today[i + 1]?.href).toBe('/end-of-day')
   })
 
   it('has no duplicate hrefs', () => {
@@ -80,6 +89,7 @@ describe('navLabelFor', () => {
   it('names the page behind a gated path', () => {
     expect(navLabelFor('/pass')).toBe('Pass')
     expect(navLabelFor('/end-of-day')).toBe('End-of-day')
+    expect(navLabelFor('/checklist/today')).toBe('Open & close')
     expect(navLabelFor('/setup/revenue-centers')).toBe('Revenue centers')
   })
 

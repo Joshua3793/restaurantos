@@ -11,6 +11,7 @@
 
 import { isSafe, rangeText, fmtTemp } from '@/components/temps/temp-utils'
 import type { RcService, ServiceStatus } from '@/lib/service-hours'
+import { runProgress, sharedRunComplete, type LineLike } from '@/lib/checklists/rules'
 
 // ── Inputs (the slices of each API response the rules read) ─────────────────
 
@@ -63,7 +64,7 @@ export interface StartOrderLine {
 
 /** `now` = fix before doors; `today` = deal with it sometime today. */
 export type NeedWhen = 'now' | 'today'
-export type NeedKind = 'prep' | 'temp' | 'price' | 'invoice' | 'count'
+export type NeedKind = 'prep' | 'temp' | 'price' | 'invoice' | 'count' | 'checklist'
 
 export interface NeedItem {
   id: string
@@ -167,6 +168,58 @@ export function tempNeeds(units: StartTempUnit[]): NeedItem[] {
   return out
 }
 
+// ── Station checklists ──────────────────────────────────────────────────────
+
+/** An open flagged job from the station board (GET /api/checklists/today `flags`). */
+export interface StartChecklistFlag {
+  lineId: string
+  title: string
+  stationName: string
+  byName: string | null
+}
+
+/** One "now" row per open flag: "Mixer guard broken · flagged" / "Pastry · Ana". */
+export function checklistNeeds(flags: StartChecklistFlag[]): NeedItem[] {
+  return flags.map(f => ({
+    id: `checklist-${f.lineId}`,
+    when: 'now',
+    kind: 'checklist',
+    title: `${f.title} · flagged`,
+    detail: f.byName ? `${f.stationName} · ${f.byName}` : f.stationName,
+    href: '/checklist/today',
+    cta: 'Open board',
+  }))
+}
+
+/** The slice of GET /api/checklists (the cook view) the cook start card reads. */
+export interface StartCookChecklist {
+  stations: { id: string; name: string }[]
+  mine: { stationId: string; status: 'OPEN' | 'SIGNED'; lines: LineLike[] }[]
+  shared: { lines: LineLike[] } | null
+}
+
+export type ChecklistSummary =
+  | { state: 'pick' }
+  | { state: 'doing'; names: string; handled: number; total: number; blockersLeft: number }
+  | { state: 'done'; handled: number; total: number }
+
+/**
+ * What the cook's start card says: no station picked yet; in progress across the
+ * cook's stations plus the whole-kitchen list ("Grill + Fry"); or done, once
+ * every station of theirs is signed off and the whole-kitchen list is handled.
+ */
+export function checklistSummary(view: StartCookChecklist): ChecklistSummary {
+  if (view.mine.length === 0) return { state: 'pick' }
+  const nameOf = new Map(view.stations.map(s => [s.id, s.name]))
+  const names = view.mine.map(r => nameOf.get(r.stationId) ?? 'Station').join(' + ')
+  const p = runProgress([...view.mine.flatMap(r => r.lines), ...(view.shared?.lines ?? [])])
+  const sharedDone = !view.shared || view.shared.lines.length === 0 || sharedRunComplete(view.shared.lines)
+  if (view.mine.every(r => r.status === 'SIGNED') && sharedDone) {
+    return { state: 'done', handled: p.handled, total: p.total }
+  }
+  return { state: 'doing', names, handled: p.handled, total: p.total, blockersLeft: p.blockersLeft }
+}
+
 // ── Prices, invoices, counts ────────────────────────────────────────────────
 
 /** One row for supplier price rises: the biggest rise leads, the rest are counted. */
@@ -241,9 +294,11 @@ export interface NeedsInput {
   countDays: number | null
   /** The service the "before doors" items are for (e.g. "Brunch"), if any. */
   serviceName: string | null
+  /** Open flagged jobs from the station checklists (LEAD+ only; [] otherwise). */
+  checklistFlags: StartChecklistFlag[]
 }
 
-/** Critical prep rows shown one by one; beyond this they fold into one row. */
+/** Critical prep rows (and flagged jobs) shown one by one; beyond this they fold into one row. */
 const PREP_ROWS = 2
 
 /**
@@ -256,6 +311,23 @@ export function buildNeeds(input: NeedsInput): NeedItem[] {
 
   const temps = tempNeeds(input.temps)
   now.push(...temps.filter(t => t.id !== 'temp-missing'))
+
+  // Flagged station jobs (broken kit, ran out, out of range) sit with the
+  // out-of-range temps, ahead of prep. Same fold rule as critical prep.
+  const flags = input.checklistFlags
+  if (flags.length > PREP_ROWS) {
+    now.push({
+      id: 'checklist-flags',
+      when: 'now',
+      kind: 'checklist',
+      title: `${flags.length} flagged jobs`,
+      detail: listNames(flags.map(f => f.title)),
+      href: '/checklist/today',
+      cta: 'Open board',
+    })
+  } else {
+    now.push(...checklistNeeds(flags))
+  }
 
   const critical = unattendedCriticalPrep(input.prep)
   if (critical.length > PREP_ROWS) {

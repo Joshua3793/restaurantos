@@ -1,6 +1,8 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 import { setScopeParams } from '@/lib/scope-params'
 import { serviceStatus, type RcService, type ServiceStatus } from '@/lib/service-hours'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
@@ -8,7 +10,7 @@ import { ymd } from '@/components/temps/temp-utils'
 import {
   buildNeeds, prepProgress, daysSinceCount, runningLow,
   type StartPrepItem, type StartTempUnit, type StartPriceAlert, type StartRecipeAlert,
-  type StartCountSession, type StartOrderLine, type NeedItem,
+  type StartCountSession, type StartOrderLine, type NeedItem, type StartChecklistFlag,
 } from '@/lib/start-page'
 
 // The last close for the active RC (GET /api/eod/handover).
@@ -39,11 +41,12 @@ interface Raw {
   yesterday: { netSales: number; covers: number } | null
   lastClose: LastClose | null
   orders: OrdersResponse | null
+  checklistFlags: StartChecklistFlag[]
 }
 
 const EMPTY: Raw = {
   prep: [], temps: [], priceAlerts: [], recipeAlerts: [], invoicesAwaiting: 0,
-  counts: [], foodCost: null, yesterday: null, lastClose: null, orders: null,
+  counts: [], foodCost: null, yesterday: null, lastClose: null, orders: null, checklistFlags: [],
 }
 
 const getJson = (url: string) =>
@@ -58,6 +61,9 @@ const getJson = (url: string) =>
  */
 export function useStartData() {
   const { activeRcId, activeRc, activeKind, activeLocationId, ready } = useRc()
+  const { role } = useUser()
+  // The station board (and its flags) is LEAD+; below that the fetch would 403.
+  const seesFlags = role != null && atLeast(role, 'LEAD')
   const { nowMs, nowMin } = useNowMinute()
   const [raw, setRaw] = useState<Raw>(EMPTY)
   const [loaded, setLoaded] = useState(false)
@@ -95,6 +101,10 @@ export function useStartData() {
         }),
         getJson(`/api/invoices/kpis${qs}`).then(v => put('invoicesAwaiting', Number(v?.awaitingApprovalCount ?? 0))),
         getJson(`/api/count/sessions${qs}`).then(v => put('counts', arr<StartCountSession>(v))),
+        // Open flagged station jobs — per revenue center, LEAD+ only.
+        rcOnly && seesFlags
+          ? getJson(`/api/checklists/today?rcId=${rcOnly}&phase=OPEN`).then(v => put('checklistFlags', arr<StartChecklistFlag>(v?.flags)))
+          : Promise.resolve(put('checklistFlags', [])),
       ])
       needsSources.then(() => { if (!cancelled) setLoaded(true) })
 
@@ -120,7 +130,7 @@ export function useStartData() {
     load()
     const id = setInterval(load, 60_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [ready, activeKind, activeRcId, activeRc, activeLocationId, tick])
+  }, [ready, activeKind, activeRcId, activeRc, activeLocationId, tick, seesFlags])
 
   const services = useMemo<RcService[]>(
     () => (activeKind === 'rc' ? ((activeRc?.services ?? []) as RcService[]) : []),
@@ -141,6 +151,7 @@ export function useStartData() {
     invoicesAwaiting: raw.invoicesAwaiting,
     countDays: daysSinceCount(raw.counts, nowMs),
     serviceName,
+    checklistFlags: raw.checklistFlags,
   }), [raw, nowMs, serviceName])
 
   const progress = useMemo(() => prepProgress(raw.prep), [raw.prep])

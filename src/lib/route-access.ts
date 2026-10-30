@@ -39,6 +39,11 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   // the handover note (PATCH /api/eod/close), but does not read the handover
   // money recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.
   ['/end-of-day', 'LEAD'],
+  // Station checklists. /checklist itself (the cook's own list) is open to
+  // STAFF, so it has no entry; the board, history and editor are gated here.
+  ['/checklist/today', 'LEAD'],
+  ['/checklist/history', 'MANAGER'],
+  ['/checklist/edit', 'MANAGER'],
 ] as const
 
 /**

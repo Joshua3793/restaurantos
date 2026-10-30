@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { Activity, Clock, Moon, RefreshCw, ArrowRight } from 'lucide-react'
+import { Activity, Clock, Moon, RefreshCw, ArrowRight, ListChecks } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { formatCurrency } from '@/lib/utils'
 import { clockText, dayTimeline, type NeedItem } from '@/lib/start-page'
@@ -26,6 +26,8 @@ export function StartDesktop() {
         tabs={[
           { href: '/pass', label: 'Pass' },
           { href: '/preshift', label: 'Pre-shift', icon: <Activity size={14} /> },
+          // The manager's view of the station checklists is the board, not the cook screen.
+          { href: '/checklist/today', label: 'Open & close', icon: <ListChecks size={14} /> },
           { href: '/end-of-day', label: 'End-of-day', icon: <Clock size={14} /> },
         ]}
       />
