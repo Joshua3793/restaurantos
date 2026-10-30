@@ -44,6 +44,13 @@ describe('requiredClearance', () => {
     expect(canAccess('LEAD', '/checklist/edit')).toBe(false)
   })
 
+  it('gates Crew sign-in to managers', () => {
+    expect(requiredClearance('/checklist/crew')).toBe('MANAGER')
+    expect(canAccess('LEAD', '/checklist/crew')).toBe(false)
+    expect(canAccess('MANAGER', '/checklist/crew')).toBe(true)
+    expect(canAccess('STAFF', '/checklist')).toBe(true)
+  })
+
   it('keeps invoices, inventory and sales off STAFF but open to LEAD', () => {
     for (const path of ['/invoices', '/inventory', '/sales']) {
       expect(requiredClearance(path)).toBe('LEAD')

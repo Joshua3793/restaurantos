@@ -44,6 +44,8 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/checklist/today', 'LEAD'],
   ['/checklist/history', 'MANAGER'],
   ['/checklist/edit', 'MANAGER'],
+  // Crew sign-in: OK / reject / remove the phones cooks sign in on with a PIN.
+  ['/checklist/crew', 'MANAGER'],
 ] as const
 
 /**

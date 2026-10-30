@@ -201,6 +201,9 @@ function TodayBoard() {
   const [fixing, setFixing] = useState<ReadonlySet<string>>(() => new Set())
 
   const allowed = !role || atLeast(role as Role, 'LEAD')
+  const isManager = !!role && atLeast(role as Role, 'MANAGER')
+  // Phones waiting for a manager's OK (PIN sign-in) — MANAGER+ only.
+  const [pendingPhones, setPendingPhones] = useState(0)
 
   // The kitchen + phase whose reply may land; a slow reply for an older pick is dropped.
   const latestKey = useRef({ rc: activeRcId, phase: paramPhase })
@@ -219,6 +222,22 @@ function TodayBoard() {
     setView(r.data)
   }, [activeRcId, paramPhase])
 
+  const loadPhones = useCallback(async () => {
+    if (!isManager) return
+    const r = await call<{ pending: unknown[] }>('/api/pin-devices')
+    // A failed check leaves the last count up; the next poll tries again.
+    if (r.ok) setPendingPhones(Array.isArray(r.data.pending) ? r.data.pending.length : 0)
+  }, [isManager])
+
+  // Fetched on load (once the role is known) and on every board poll below.
+  // The board's effect reads it through a ref so the role arriving doesn't reset the board.
+  const loadPhonesRef = useRef(loadPhones)
+  loadPhonesRef.current = loadPhones
+  useEffect(() => {
+    if (isManager) loadPhones()
+    else setPendingPhones(0)
+  }, [isManager, loadPhones])
+
   useEffect(() => {
     if (!ready || !allowed) return
     setView(null)
@@ -226,8 +245,9 @@ function TodayBoard() {
     setOpenId(null)
     if (!activeRcId) return
     load()
-    const id = setInterval(() => { if (document.visibilityState === 'visible') load() }, POLL_MS)
-    const onVis = () => { if (document.visibilityState === 'visible') load() }
+    const tick = () => { load(); loadPhonesRef.current() }
+    const id = setInterval(() => { if (document.visibilityState === 'visible') tick() }, POLL_MS)
+    const onVis = () => { if (document.visibilityState === 'visible') tick() }
     document.addEventListener('visibilitychange', onVis)
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
   }, [ready, allowed, activeRcId, load])
@@ -298,6 +318,17 @@ function TodayBoard() {
 
   return (
     <div className="max-w-[640px] mx-auto w-full flex flex-col gap-4">
+      {isManager && pendingPhones > 0 && (
+        <Link
+          href="/checklist/crew"
+          className="flex items-center justify-between gap-3 bg-paper border border-line rounded-[14px] px-4 min-h-[52px] text-[15px] text-ink-2"
+        >
+          <span>
+            <b className="font-semibold text-ink">{pendingPhones} {pendingPhones === 1 ? 'phone' : 'phones'}</b> waiting for your OK
+          </span>
+          <span className="flex-none font-mono text-[13px] text-gold-2" aria-hidden>→</span>
+        </Link>
+      )}
       <header className="flex items-center justify-between gap-3">
         <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Opening or closing">
           {(['OPEN', 'CLOSE'] as Phase[]).map(p => (
