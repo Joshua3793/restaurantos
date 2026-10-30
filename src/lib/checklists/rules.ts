@@ -28,9 +28,13 @@ export function shiftBusinessDate(phase: Phase, now: Date = new Date()): string 
     : pacificDate(new Date(now.getTime() - 5 * 3600_000))
 }
 
-/** OPEN before 14:00 Pacific, CLOSE after. */
+/**
+ * OPEN from 05:00 to 13:59 Pacific, CLOSE otherwise (14:00 onward, and before
+ * 05:00 so a cook closing at 00:30 lands on Closing, matching the 5-hour close shift).
+ */
 export function defaultPhase(now: Date = new Date()): Phase {
-  return pacificHour(now) < 14 ? 'OPEN' : 'CLOSE'
+  const h = pacificHour(now)
+  return h >= 5 && h < 14 ? 'OPEN' : 'CLOSE'
 }
 
 export const DAY_BITS = { MON: 1, TUE: 2, WED: 4, THU: 8, FRI: 16, SAT: 32, SUN: 64 } as const

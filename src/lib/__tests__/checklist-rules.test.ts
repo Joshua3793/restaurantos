@@ -1,4 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('@/lib/prisma', () => ({ prisma: {} }))
+
+import { businessDateLocal } from '@/lib/eod-close'
 import {
   shiftBusinessDate, defaultPhase, DAY_BITS, EVERY_DAY, dayBitFor, appliesOn,
   parseReading, inRange, runProgress, canSignOff, sharedRunComplete, daysLabel,
@@ -16,7 +20,23 @@ describe('shiftBusinessDate', () => {
   })
 })
 
+describe('shiftBusinessDate extras', () => {
+  it('OPEN matches businessDateLocal', () => {
+    const d = new Date('2026-10-30T07:40:00Z')
+    expect(shiftBusinessDate('OPEN', d)).toBe(businessDateLocal(d))
+  })
+  it('CLOSE across the fall-back DST night', () => {
+    expect(shiftBusinessDate('CLOSE', new Date('2026-11-01T07:40:00Z'))).toBe('2026-10-31')
+  })
+})
+
 describe('defaultPhase', () => {
+  it('is CLOSE at 00:30 Pacific (closing shift)', () => {
+    expect(defaultPhase(new Date('2026-10-30T07:30:00Z'))).toBe('CLOSE')
+  })
+  it('is OPEN from 05:00 Pacific', () => {
+    expect(defaultPhase(new Date('2026-10-30T12:00:00Z'))).toBe('OPEN')
+  })
   it('is OPEN before 14:00 Pacific', () => {
     expect(defaultPhase(new Date('2026-10-29T20:59:00Z'))).toBe('OPEN')
   })
