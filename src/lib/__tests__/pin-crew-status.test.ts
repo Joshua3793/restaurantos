@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { crewStatus } from '@/lib/pin/crew-status'
+import { crewStatus, pinBlocked } from '@/lib/pin/crew-status'
 
 describe('crewStatus', () => {
   it('no clock number → NO PIN red, even with devices', () => {
@@ -52,5 +52,28 @@ describe('crewStatus', () => {
   it('blocked wins over NO PIN; null blocked changes nothing', () => {
     expect(crewStatus({ clockId: null }, [], 'MANAGER').label).toBe('EMAIL LOGIN')
     expect(crewStatus({ clockId: null }, [], null).label).toBe('NO PIN')
+  })
+})
+
+describe('pinBlocked', () => {
+  const PIN = 'pin.c1@crew.controlaos.vercel.app'
+  it('no login yet → not blocked', () => {
+    expect(pinBlocked('c1', null)).toBeNull()
+  })
+  it("the cook's own PIN login → not blocked", () => {
+    expect(pinBlocked('c1', { role: 'LEAD', isActive: true, email: PIN })).toBeNull()
+  })
+  it('a manager → MANAGER, even on a PIN login', () => {
+    expect(pinBlocked('c1', { role: 'MANAGER', isActive: true, email: PIN })).toBe('MANAGER')
+  })
+  it('switched off → SWITCHED_OFF', () => {
+    expect(pinBlocked('c1', { role: 'STAFF', isActive: false, email: 'robyn@gmail.com' })).toBe('SWITCHED_OFF')
+  })
+  it('an email login, or another cook’s PIN login → EMAIL_LOGIN, shown as EMAIL LOGIN grey', () => {
+    expect(pinBlocked('c1', { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' })).toBe('EMAIL_LOGIN')
+    expect(pinBlocked('c1', { role: 'STAFF', isActive: true, email: 'pin.c2@crew.controlaos.vercel.app' })).toBe('EMAIL_LOGIN')
+    expect(crewStatus({ clockId: '1234' }, [{ status: 'PENDING' }], 'EMAIL_LOGIN')).toEqual({
+      label: 'EMAIL LOGIN', tone: 'grey', phones: 0,
+    })
   })
 })

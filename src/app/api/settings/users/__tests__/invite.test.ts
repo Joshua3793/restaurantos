@@ -112,6 +112,19 @@ describe('inviteOne', () => {
     expect(inviteUserByEmail).toHaveBeenCalledTimes(1)
   })
 
+  it('stamps the new auth user pending in app_metadata (the page gate), matching the inactive row', async () => {
+    await inviteOne(opts())
+    expect(updateUserById).toHaveBeenCalledWith('auth-1', { app_metadata: { role: 'STAFF', isActive: false } })
+  })
+
+  it('still reports the invite sent when that pending stamp fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    updateUserById.mockResolvedValueOnce({ error: { message: 'down' } })
+    expect((await inviteOne(opts())).status).toBe('invited')
+    updateUserById.mockRejectedValueOnce(new Error('network'))
+    expect((await inviteOne(opts())).status).toBe('invited')
+  })
+
   it('creates the Prisma row inactive — it is activated by /auth/callback on accept', async () => {
     await inviteOne(opts())
     expect(userCreate).toHaveBeenCalledWith(
@@ -201,6 +214,15 @@ describe('inviteOne', () => {
     expect(res.warning).toBeUndefined()
     expect(userUpsert).toHaveBeenCalledTimes(1)
     expect(deleteUser).not.toHaveBeenCalled()
+  })
+
+  it('reactivating writes role + isActive to app_metadata (the page gate)', async () => {
+    alreadyRegistered()
+    priorPrismaUser({ name: 'Sam Lee', role: 'STAFF', isActive: false })
+    await inviteOne(opts())
+    expect(updateUserById).toHaveBeenCalledWith('auth-1', expect.objectContaining({
+      app_metadata: { role: 'STAFF', isActive: true },
+    }))
   })
 
   it('reverts Prisma to its PRIOR values when the Supabase metadata write returns an error', async () => {

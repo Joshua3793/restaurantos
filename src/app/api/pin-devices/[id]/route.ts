@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { atLeast } from '@/lib/roles'
+import { pinBlocked } from '@/lib/pin/crew-status'
 import { PENDING_MAX_AGE_MS } from '@/lib/pin/rules'
 
 export const dynamic = 'force-dynamic'
@@ -50,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
         id: true,
         status: true,
         createdAt: true,
-        cook: { select: { isActive: true, user: { select: { role: true, isActive: true } } } },
+        cook: { select: { id: true, isActive: true, user: { select: { role: true, isActive: true, email: true } } } },
       },
     })
     if (!device) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -59,9 +59,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     // to the guarded updateMany, which answers 'Already handled'.
     if (action === 'approve' && device.status === 'PENDING') {
       const refuse = (error: string) => NextResponse.json({ error }, { status: 409 })
-      const u = device.cook.user
-      if (u && atLeast(u.role, 'MANAGER')) return refuse('Managers sign in with email and password')
-      if (u && !u.isActive) return refuse('This login is switched off')
+      const blocked = pinBlocked(device.cook.id, device.cook.user)
+      if (blocked === 'MANAGER') return refuse('Managers sign in with email and password')
+      if (blocked === 'SWITCHED_OFF') return refuse('This login is switched off')
+      if (blocked === 'EMAIL_LOGIN') return refuse('This cook has an email login — they sign in with email and password')
       if (!device.cook.isActive) return refuse('This cook is switched off')
       if (Date.now() - device.createdAt.getTime() > PENDING_MAX_AGE_MS) {
         return refuse('This request is too old — ask them to try again on their phone')

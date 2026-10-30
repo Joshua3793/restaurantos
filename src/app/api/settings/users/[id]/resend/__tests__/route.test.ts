@@ -54,6 +54,7 @@ class MockAuthError extends Error {
 }
 
 const deleteUser = vi.fn(async () => { CALLS.push('supabase.deleteUser'); return { error: null } })
+const updateUserById = vi.fn(async (..._a: unknown[]) => ({ data: {}, error: null as { message: string } | null }))
 const inviteUserByEmail = vi.fn(async () => ({
   data: { user: { id: 'user-new' } as { id: string } | null },
   error: null as { message: string } | null,
@@ -79,7 +80,7 @@ vi.mock('@/lib/auth', () => ({
   AuthError: MockAuthError,
 }))
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({ auth: { admin: { deleteUser, inviteUserByEmail } } }),
+  createAdminClient: () => ({ auth: { admin: { deleteUser, inviteUserByEmail, updateUserById } } }),
 }))
 vi.mock('@/lib/users', () => ({
   findAuthUserByEmail: (...a: unknown[]) => findAuthUserByEmail(...(a as [])),
@@ -109,6 +110,11 @@ beforeEach(() => {
 })
 
 describe('POST /api/settings/users/[id]/resend', () => {
+  it('stamps the new auth user pending in app_metadata (the page gate)', async () => {
+    await POST(req(), params)
+    expect(updateUserById).toHaveBeenCalledWith('user-new', { app_metadata: { role: 'STAFF', isActive: false } })
+  })
+
   it('re-points the linked roster row onto the new auth UUID', async () => {
     const res = await POST(req(), params)
     expect(res.status).toBe(200)

@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { atLeast } from '@/lib/roles'
-import { crewStatus, type Blocked } from '@/lib/pin/crew-status'
+import { crewStatus, pinBlocked } from '@/lib/pin/crew-status'
 import { PENDING_MAX_AGE_MS, pairCode, pinFullName } from '@/lib/pin/rules'
 
 export const dynamic = 'force-dynamic'
@@ -37,7 +36,7 @@ export async function GET() {
         homeStation: true,
         clockId: true,
         sortOrder: true,
-        user: { select: { role: true, isActive: true } },
+        user: { select: { role: true, isActive: true, email: true } },
         pinDevices: {
           where: {
             NOT: { status: 'REJECTED', createdAt: { lt: new Date(Date.now() - REJECTED_KEEP_MS) } },
@@ -80,15 +79,10 @@ export async function GET() {
     const crew = cooks.map((c) => {
       const devices = [...c.pinDevices].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       const name = pinFullName(c)
-      // A manager signs in with email, and a switched-off login can't sign in at
-      // all: no phone of theirs is waiting on anyone, so keep them out of `pending`.
-      const blocked: Blocked | null = !c.user
-        ? null
-        : atLeast(c.user.role, 'MANAGER')
-          ? 'MANAGER'
-          : !c.user.isActive
-            ? 'SWITCHED_OFF'
-            : null
+      // A manager or a cook with an email login signs in with email, and a
+      // switched-off login can't sign in at all: no phone of theirs is waiting
+      // on anyone, so keep them out of `pending`.
+      const blocked = pinBlocked(c.id, c.user)
       for (const d of devices) {
         if (!blocked && d.status === 'PENDING') {
           pending.push({
