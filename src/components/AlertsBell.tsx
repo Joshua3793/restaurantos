@@ -1,121 +1,106 @@
 'use client'
-import { useEffect, useState, useRef } from 'react'
-import { Bell, TrendingUp, TrendingDown, ChevronRight, X, Check, FileText, CheckCircle2 } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Bell, X, Check, FileText, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
-import { formatCurrency } from '@/lib/utils'
 import { useNotifications } from '@/contexts/NotificationContext'
-
-interface PriceAlert {
-  id: string
-  previousPrice: number
-  newPrice: number
-  changePct: number
-  direction: string
-  acknowledged: boolean
-  inventoryItem: { id: string; itemName: string }
-  session: { id: string; supplierName: string | null; invoiceDate: string | null }
-}
-
-interface RecipeAlert {
-  id: string
-  previousCost: number
-  newCost: number
-  changePct: number
-  newFoodCostPct: number | null
-  exceededThreshold: boolean
-  acknowledged: boolean
-  recipe: { id: string; name: string; menuPrice: number | null }
-  session: { id: string; supplierName: string | null; invoiceDate: string | null }
-}
-
-interface AlertsData { priceAlerts: PriceAlert[]; recipeAlerts: RecipeAlert[]; totalUnread: number }
-
-// ONE alerts feed for every bell on screen. The desktop cost strip and the phone
-// top bar each mount a bell (one is always hidden), and each used to fetch on
-// mount and poll every 30 s on its own — twice the requests for one badge.
-const feed = {
-  data: null as AlertsData | null,
-  listeners: new Set<(d: AlertsData) => void>(),
-  timer: null as ReturnType<typeof setInterval> | null,
-  inflight: null as Promise<void> | null,
-}
-
-function refreshFeed(): Promise<void> {
-  if (feed.inflight) return feed.inflight
-  feed.inflight = fetch('/api/invoices/alerts')
-    .then(r => r.json())
-    .then(d => {
-      feed.data = { priceAlerts: d.priceAlerts || [], recipeAlerts: d.recipeAlerts || [], totalUnread: d.totalUnread || 0 }
-      feed.listeners.forEach(l => l(feed.data!))
-    })
-    .catch(() => {})
-    .finally(() => { feed.inflight = null })
-  return feed.inflight
-}
-
-function subscribeFeed(listener: (d: AlertsData) => void): () => void {
-  feed.listeners.add(listener)
-  if (feed.data) listener(feed.data)
-  if (feed.listeners.size === 1) {
-    refreshFeed()
-    feed.timer = setInterval(refreshFeed, 30000)
-  }
-  return () => {
-    feed.listeners.delete(listener)
-    if (feed.listeners.size === 0 && feed.timer) { clearInterval(feed.timer); feed.timer = null }
-  }
-}
+import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
+import { subscribeInboxCount } from '@/lib/inbox-count-feed'
+import {
+  topBellItems, badgeText, bellAriaLabel, reportPill, reportMeta,
+  type BellItem, type BellReport,
+} from '@/lib/bell'
+import { whenLabel } from '@/components/inbox/format'
 
 interface AlertsBellProps {
   dropdownAlign?: 'left' | 'right'
 }
 
+type LoadState = 'idle' | 'loading' | 'ready' | 'error'
+
+// The bell is the Inbox's doorway. Leads and up see the open NOW + TODAY items;
+// a cook sees their own reports and which ones got fixed. The soft invoice
+// notifications (toasts) are still listed here, under the Inbox list.
 export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
   const [open, setOpen] = useState(false)
-  const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>([])
-  const [recipeAlerts, setRecipeAlerts] = useState<RecipeAlert[]>([])
-  const [totalUnread, setTotalUnread] = useState(0)
+  const [count, setCount] = useState(0)
+  const [items, setItems] = useState<BellItem[]>([])
+  const [reports, setReports] = useState<BellReport[]>([])
+  const [load, setLoad] = useState<LoadState>('idle')
   const ref = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const { notifications, dismiss, dismissAll } = useNotifications()
+  const { activeRcId, ready } = useRc()
+  const { role } = useUser()
 
-  const fetchAlerts = refreshFeed
+  const isLead = role != null && atLeast(role, 'LEAD')
+  const known = role != null
 
-  useEffect(() => subscribeFeed(d => {
-    setPriceAlerts(d.priceAlerts)
-    setRecipeAlerts(d.recipeAlerts)
-    setTotalUnread(d.totalUnread)
-  }), [])
+  // The badge: one shared poll per kitchen. No single kitchen, no badge.
+  useEffect(() => {
+    if (!known || !ready || !activeRcId) { setCount(0); return }
+    return subscribeInboxCount(activeRcId, setCount)
+  }, [known, ready, activeRcId])
+
+  // The list is fetched only when the dropdown opens.
+  const loadList = useCallback(async () => {
+    if (!known) return
+    setLoad('loading')
+    try {
+      if (isLead) {
+        if (!activeRcId) { setItems([]); setLoad('ready'); return }
+        const r = await fetch(`/api/inbox?rcId=${encodeURIComponent(activeRcId)}&status=open`, { cache: 'no-store' })
+        if (!r.ok) throw new Error(String(r.status))
+        const d = await r.json()
+        setItems(topBellItems<BellItem>(d.items ?? []))
+      } else {
+        const r = await fetch('/api/inbox/mine', { cache: 'no-store' })
+        if (!r.ok) throw new Error(String(r.status))
+        const d = await r.json()
+        setReports(d.items ?? [])
+      }
+      setLoad('ready')
+    } catch {
+      setLoad('error')
+    }
+  }, [known, isLead, activeRcId])
+
+  useEffect(() => { if (open) void loadList() }, [open, loadList])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setOpen(false); buttonRef.current?.focus() }
+    }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [])
 
-  const acknowledgeAll = async () => {
-    await fetch('/api/invoices/alerts', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ acknowledgeAll: true }),
-    })
-    fetchAlerts()
-  }
-
-  const badgeCount = totalUnread + notifications.length
+  const badgeCount = count + notifications.length
   const dropdownPos = dropdownAlign === 'right' ? 'right-0' : 'left-0'
+  const now = new Date()
 
   return (
     <div ref={ref} className="relative">
       <button
+        ref={buttonRef}
         onClick={() => setOpen(o => !o)}
-        className="relative p-2 rounded-lg text-ink-4 hover:text-ink-3 hover:bg-bg-2 transition-colors"
+        aria-label={bellAriaLabel(isLead, badgeCount)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        className="relative min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-ink-4 hover:text-ink-3 hover:bg-bg-2 transition-colors"
       >
         <Bell size={18} />
         {badgeCount > 0 && (
-          <span className="absolute top-1 right-1 w-4 h-4 bg-red text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-            {badgeCount > 9 ? '9+' : badgeCount}
+          <span className="absolute top-2 right-2 min-w-4 h-4 px-0.5 bg-red text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+            {badgeText(badgeCount)}
           </span>
         )}
       </button>
@@ -123,31 +108,91 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
       {open && (
         <div className={`absolute ${dropdownPos} top-full mt-2 w-[min(320px,calc(100vw-16px))] bg-white rounded-2xl shadow-xl border border-line z-50 overflow-hidden`}>
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-line">
-            <span className="font-semibold text-ink text-sm">Notifications</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { acknowledgeAll(); dismissAll() }}
-                disabled={badgeCount === 0}
-                className={`text-xs flex items-center gap-1 ${badgeCount > 0 ? 'text-gold hover:underline' : 'text-ink-4 cursor-default'}`}
-              >
-                <Check size={10} /> Clear all
-              </button>
-              <button onClick={() => setOpen(false)}>
-                <X size={14} className="text-ink-4" />
-              </button>
-            </div>
+          <div className="flex items-center justify-between pl-4 pr-1 border-b border-line">
+            <span className="font-semibold text-ink text-sm py-3">{isLead ? 'Inbox' : 'Your reports'}</span>
+            <button
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center"
+            >
+              <X size={14} className="text-ink-4" />
+            </button>
           </div>
 
-          {/* Content */}
           <div className="max-h-80 overflow-y-auto">
-            {notifications.length === 0 && priceAlerts.length === 0 && recipeAlerts.length === 0 ? (
-              <div className="text-center py-8 text-ink-4 text-sm">
-                No notifications
-              </div>
-            ) : (
+            {/* ── Inbox (LEAD+) ─────────────────────────────────────────── */}
+            {isLead && (
+              load === 'error' ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Couldn’t load the Inbox</div>
+              ) : load !== 'ready' ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Loading…</div>
+              ) : !activeRcId ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Pick one kitchen to see its Inbox</div>
+              ) : items.length === 0 ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Nothing needs you</div>
+              ) : (
+                items.map(it => (
+                  <Link
+                    key={it.id}
+                    href="/inbox"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2.5 px-4 min-h-[44px] py-2 border-b border-line hover:bg-bg"
+                  >
+                    <span
+                      className="flex-none w-2 h-2 rounded-full"
+                      style={{ background: it.tag.color }}
+                      title={it.tag.name}
+                      aria-hidden
+                    />
+                    <span className="flex-1 min-w-0 text-sm font-medium text-ink-2 truncate">{it.title}</span>
+                    <span className="flex-none font-mono text-[10.5px] text-ink-4">{whenLabel(it.createdAt, now)}</span>
+                  </Link>
+                ))
+              )
+            )}
+
+            {/* ── Your reports (STAFF) ──────────────────────────────────── */}
+            {!isLead && known && (
+              load === 'error' ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Couldn’t load your reports</div>
+              ) : load !== 'ready' ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Loading…</div>
+              ) : reports.length === 0 ? (
+                <div className="text-center py-6 text-ink-4 text-sm">Nothing reported yet</div>
+              ) : (
+                reports.map(r => {
+                  const pill = reportPill(r.status)
+                  return (
+                    <div key={r.id} className="px-4 py-2.5 min-h-[44px] border-b border-line">
+                      <div className="flex items-center gap-2">
+                        <span className="flex-1 min-w-0 text-sm font-medium text-ink-2 truncate">{r.title}</span>
+                        <span
+                          className={`flex-none font-mono text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${
+                            pill.fixed ? 'bg-green-soft text-green-text' : 'bg-gold-soft text-gold-2'
+                          }`}
+                        >
+                          {pill.label}
+                        </span>
+                      </div>
+                      <p className="font-mono text-[10.5px] text-ink-4 mt-0.5">{reportMeta(r, now)}</p>
+                    </div>
+                  )
+                })
+              )
+            )}
+
+            {/* ── Soft notifications (invoice ready / applied) ──────────── */}
+            {notifications.length > 0 && (
               <>
-                {/* ── Soft notifications (invoice ready / applied) ──────────── */}
+                <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                  <span className="font-mono text-[10px] text-ink-4 tracking-[0.04em]">INVOICES</span>
+                  <button
+                    onClick={dismissAll}
+                    className="text-xs flex items-center gap-1 text-gold hover:underline min-h-[44px]"
+                  >
+                    <Check size={10} /> Clear all
+                  </button>
+                </div>
                 {notifications.map(n => (
                   <div key={n.id} className="px-4 py-3 border-b border-line hover:bg-bg">
                     <div className="flex items-start gap-2">
@@ -169,59 +214,17 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => { n.onAction(); setOpen(false) }}
-                          className="text-[10px] text-gold hover:underline font-medium"
+                          className="text-[10px] text-gold hover:underline font-medium min-h-[44px] px-1"
                         >
                           {n.actionLabel}
                         </button>
-                        <button onClick={() => dismiss(n.id)} className="ml-1 text-ink-4 hover:text-ink-3">
+                        <button
+                          onClick={() => dismiss(n.id)}
+                          aria-label="Dismiss"
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center text-ink-4 hover:text-ink-3"
+                        >
                           <X size={12} />
                         </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* ── DB price alerts ───────────────────────────────────────── */}
-                {priceAlerts.map(alert => (
-                  <div key={alert.id} className="px-4 py-3 border-b border-line hover:bg-bg">
-                    <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${alert.direction === 'UP' ? 'bg-red-soft' : 'bg-green-soft'}`}>
-                        {alert.direction === 'UP'
-                          ? <TrendingUp size={12} className="text-red" />
-                          : <TrendingDown size={12} className="text-green" />
-                        }
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-ink-2 truncate">{alert.inventoryItem.itemName}</p>
-                        <p className="text-xs text-ink-3">
-                          {formatCurrency(Number(alert.previousPrice))} → {formatCurrency(Number(alert.newPrice))}
-                          {' '}<span className={`font-semibold ${alert.direction === 'UP' ? 'text-red' : 'text-green'}`}>
-                            ({alert.direction === 'UP' ? '+' : ''}{Number(alert.changePct).toFixed(1)}%)
-                          </span>
-                        </p>
-                        {alert.session.supplierName && (
-                          <p className="text-[10px] text-ink-4">{alert.session.supplierName}</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* ── DB recipe alerts ──────────────────────────────────────── */}
-                {recipeAlerts.map(alert => (
-                  <div key={alert.id} className="px-4 py-3 border-b border-line hover:bg-bg">
-                    <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 p-1 rounded-full ${alert.exceededThreshold ? 'bg-red-soft' : 'bg-gold-soft'}`}>
-                        <TrendingUp size={12} className={alert.exceededThreshold ? 'text-red' : 'text-gold'} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-ink-2 truncate">{alert.recipe.name}</p>
-                        {alert.exceededThreshold && alert.newFoodCostPct !== null && (
-                          <p className="text-xs text-red font-semibold">
-                            Food cost {(Number(alert.newFoodCostPct) * 100).toFixed(1)}% — exceeds 30% threshold
-                          </p>
-                        )}
-                        <p className="text-xs text-ink-3">Recipe cost changed</p>
                       </div>
                     </div>
                   </div>
@@ -231,13 +234,15 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           </div>
 
           {/* Footer */}
-          <Link
-            href="/invoices"
-            onClick={() => setOpen(false)}
-            className="flex items-center justify-center gap-1 px-4 py-2.5 text-xs text-gold hover:bg-gold/10 transition-colors border-t border-line"
-          >
-            View all invoices <ChevronRight size={12} />
-          </Link>
+          {isLead && (
+            <Link
+              href="/inbox"
+              onClick={() => setOpen(false)}
+              className="flex items-center justify-center min-h-[44px] px-4 text-xs font-medium text-gold hover:bg-gold/10 transition-colors border-t border-line"
+            >
+              Open Inbox →
+            </Link>
+          )}
         </div>
       )}
     </div>
