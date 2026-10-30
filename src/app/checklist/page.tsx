@@ -345,27 +345,27 @@ function ChecklistScreen() {
             </Link>
           )}
         </div>
-        <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setReportOpen(true)}
-          className="min-h-[44px] px-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper text-[13px] font-medium text-ink-2"
-        >
-          <Flag size={14} aria-hidden /> Report
-        </button>
-        <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Opening or closing">
-          {(['OPEN', 'CLOSE'] as Phase[]).map(p => (
-            <button
-              key={p}
-              type="button"
-              aria-pressed={phase === p}
-              onClick={() => setPhase(p)}
-              className={`rounded-full font-mono text-[11px] font-medium px-3.5 min-h-[44px] ${phase === p ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3'}`}
-            >
-              {p === 'OPEN' ? 'Opening' : 'Closing'}
-            </button>
-          ))}
-        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="min-h-[44px] px-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper text-[13px] font-medium text-ink-2"
+          >
+            <Flag size={14} aria-hidden /> Report
+          </button>
+          <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Opening or closing">
+            {(['OPEN', 'CLOSE'] as Phase[]).map(p => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={phase === p}
+                onClick={() => setPhase(p)}
+                className={`rounded-full font-mono text-[11px] font-medium px-3.5 min-h-[44px] ${phase === p ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3'}`}
+              >
+                {p === 'OPEN' ? 'Opening' : 'Closing'}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reportState, reportsLine, ageLabel } from '../format'
+import { reportState, reportsLine, ageLabel, pickableTags } from '../format'
 
 describe('reportState', () => {
   it('is OPEN while the item is not done (waiting / snoozed too)', () => {
@@ -35,5 +35,20 @@ describe('ageLabel', () => {
     expect(ageLabel('2026-10-30T19:48:00Z', now)).toBe('12 min ago')
     expect(ageLabel('2026-10-30T17:00:00Z', now)).toBe('3 h ago')
     expect(ageLabel('2026-10-28T20:00:00Z', now)).toBe('2 d ago')
+  })
+})
+
+describe('pickableTags', () => {
+  const t = (id: string, o: Partial<{ isActive: boolean; managerOnly: boolean; cookCanPick: boolean }> = {}) =>
+    ({ id, isActive: true, managerOnly: false, cookCanPick: true, ...o })
+  it('keeps only active, non-manager-only tags cooks can pick, in order', () => {
+    const all = [
+      t('a'), t('archived', { isActive: false }), t('money', { managerOnly: true }),
+      t('checklists', { cookCanPick: false }), t('b'),
+    ]
+    expect(pickableTags(all).map(x => x.id)).toEqual(['a', 'b'])
+  })
+  it('is empty when nothing qualifies', () => {
+    expect(pickableTags([t('x', { cookCanPick: false })])).toEqual([])
   })
 })

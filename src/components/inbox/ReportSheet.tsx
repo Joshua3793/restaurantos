@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TagLite } from '@/lib/inbox/rules'
 import { useToast } from '@/components/Toast'
-import { defaultPhase } from '@/lib/checklists/rules'
 import { call } from './api'
+import { pickableTags } from './format'
 import { TagDot } from './TagChips'
 
 // "Report something" — any cook sends the managers a tagged note. A bottom
@@ -16,8 +16,6 @@ const NOT_SURE = ''
 const FIXED_PLACES = ['Walk-in', 'Dry store', 'Dish pit', 'Front of house']
 
 const LABEL = 'font-mono text-[10px] font-medium tracking-[0.08em] text-ink-3'
-
-type StationLite = { name: string; isShared: boolean }
 
 export type ReportSheetProps = {
   open: boolean
@@ -56,6 +54,9 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
   // A double tap must not send twice.
   const sendLock = useRef(false)
   const [loadTick, setLoadTick] = useState(0)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+  // A typed note survives a stray tap outside or Escape; the Close button always closes.
+  const typed = useRef(false)
 
   // Opening starts a clean report.
   useEffect(() => {
@@ -76,8 +77,10 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
     call<{ tags: TagLite[] }>('/api/inbox/tags').then(r => {
       if (stale) return
       if (!r.ok) { setTagsFailed(true); return }
-      setTags(r.data.tags)
-      setTagId(cur => (cur && r.data.tags.some(t => t.id === cur) ? cur : r.data.tags[0]?.id ?? null))
+      // Every role gets the same short list, so the pre-selected tag can always be sent.
+      const pickable = pickableTags(r.data.tags)
+      setTags(pickable)
+      setTagId(cur => (cur && pickable.some(t => t.id === cur) ? cur : pickable[0]?.id ?? null))
     })
     return () => { stale = true }
   }, [open, loadTick])
@@ -86,19 +89,26 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
   useEffect(() => {
     if (!open || !rcId) { setStations([]); return }
     let stale = false
-    call<{ stations: StationLite[] }>(`/api/checklists?${new URLSearchParams({ rcId, phase: defaultPhase() })}`).then(r => {
+    call<{ names: string[] }>(`/api/checklists/station-names?${new URLSearchParams({ rcId })}`).then(r => {
       if (stale) return
-      setStations(r.ok ? (r.data.stations ?? []).filter(s => !s.isShared).map(s => s.name) : [])
+      setStations(r.ok ? r.data.names ?? [] : [])
     })
     return () => { stale = true }
   }, [open, rcId])
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !typed.current) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  // Start on the note box.
+  useEffect(() => {
+    if (open) noteRef.current?.focus()
+  }, [open])
+
+  typed.current = text.trim().length > 0
 
   if (!open) return null
 
@@ -132,7 +142,7 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center" role="presentation">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-black/40" onClick={() => { if (!typed.current) onClose() }} aria-hidden />
       <section
         role="dialog"
         aria-modal="true"
@@ -141,7 +151,10 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
       >
         <div className="self-center w-10 h-1 rounded-full bg-line-2" />
         <div className="flex flex-col gap-1.5">
-          <h2 className="m-0 text-[20px] leading-[1.2] font-semibold tracking-[-0.03em]">Report something</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="m-0 text-[20px] leading-[1.2] font-semibold tracking-[-0.03em]">Report something</h2>
+            <button type="button" onClick={onClose} className="-mr-2 min-h-[44px] px-2 font-mono text-[11px] text-ink-3">Close</button>
+          </div>
           <p className="m-0 text-[14px] leading-[1.45] text-ink-3">Anything a manager should know — not tied to a job on your list.</p>
         </div>
 
@@ -156,6 +169,8 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
             </div>
           ) : !tags ? (
             <span className="font-mono text-[11px] text-ink-3">Loading…</span>
+          ) : tags.length === 0 ? (
+            <p className="m-0 text-[14px] text-ink-3">No tags cooks can pick yet — ask a manager.</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {tags.map(t => {
@@ -182,6 +197,7 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
         <label className="flex flex-col gap-1.5">
           <span className={LABEL}>WHAT’S GOING ON</span>
           <textarea
+            ref={noteRef}
             rows={3}
             maxLength={TEXT_MAX}
             value={text}

@@ -256,3 +256,8 @@ export function ageLabel(iso: string, now: Date = new Date()): string {
   if (hrs < 24) return `${hrs} h ago`
   return `${Math.floor(hrs / 24)} d ago`
 }
+
+/** The tags the "Report something" sheet offers, for every role: active, not manager-only, cooks can pick. */
+export function pickableTags<T extends Pick<TagLite, 'isActive' | 'managerOnly' | 'cookCanPick'>>(tags: T[]): T[] {
+  return tags.filter(t => t.isActive && !t.managerOnly && t.cookCanPick)
+}
