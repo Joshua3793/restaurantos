@@ -102,6 +102,9 @@ function ChecklistScreen() {
   const reqKey = useRef('')
   // The picker opens by itself once per rc + phase, not on every poll.
   const autoOpened = useRef('')
+  // With no ?phase= the server picks one by the clock. Once a list is on screen
+  // its phase is pinned, so a poll at 05:00 or 14:00 never swaps it under the cook.
+  const pinnedPhase = useRef<Phase | null>(null)
 
   const showError = useCallback((msg: string) => toast.show({ type: 'error', title: msg }), [toast])
 
@@ -119,10 +122,12 @@ function ChecklistScreen() {
     reqKey.current = myKey
     const seq = mutSeq.current
     const qs = new URLSearchParams({ rcId: activeRcId })
-    if (paramPhase) qs.set('phase', paramPhase)
+    const askPhase = paramPhase ?? pinnedPhase.current
+    if (askPhase) qs.set('phase', askPhase)
     const r = await call<CookView>(`/api/checklists?${qs}`)
     if (reqKey.current !== myKey) return
     if (!r.ok) { setLoadError(r.error); return }
+    if (!paramPhase && !pinnedPhase.current) pinnedPhase.current = r.data.phase
     if (inflight.current > 0 || seq !== mutSeq.current) return
     setLoadError(null)
     setView(r.data)
@@ -135,6 +140,7 @@ function ChecklistScreen() {
     setLoadError(null)
     setSheetLineId(null)
     setPickerOpen(false)
+    pinnedPhase.current = null   // a new kitchen or an explicit phase: let the server pick again
     if (!activeRcId) return
     load()
     const id = setInterval(() => { if (document.visibilityState === 'visible') load() }, POLL_MS)
