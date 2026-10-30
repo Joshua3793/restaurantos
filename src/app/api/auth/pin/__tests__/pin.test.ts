@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
-import { hashToken, LOCK_WINDOW_MS } from '@/lib/pin/rules'
+import { hashToken, LOCK_WINDOW_MS, pairCode } from '@/lib/pin/rules'
 import { PinError } from '@/lib/pin/errors'
 
 // ── Prisma ────────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ const signIn = (body: unknown, opts?: Parameters<typeof post>[2]) =>
   pinRoute.POST(post('/api/auth/pin', body, opts))
 
 const recent = (n: number, key: string) =>
-  Array.from({ length: n }, (_, i) => ({ key, createdAt: new Date(Date.now() - (i + 1) * 60_000) }))
+  Array.from({ length: n }, (_, i) => ({ key, createdAt: new Date(Date.now() - (i + 1) * 30_000) }))
 
 /** Every attempt row written, flattened across createMany calls. */
 const written = () =>
@@ -150,14 +150,14 @@ describe('checkLock', () => {
 })
 
 describe('checkLock — confirm keys', () => {
-  it('counts ok=true rows and locks at 10', async () => {
-    attemptFindMany.mockResolvedValue(recent(10, confirmKey('1.2.3.4')))
+  it('counts ok=true rows and locks at 20', async () => {
+    attemptFindMany.mockResolvedValue(recent(20, confirmKey('1.2.3.4')))
     await expect(checkLock([confirmKey('1.2.3.4')])).rejects.toMatchObject({ status: 429 })
     expect(attemptFindMany.mock.calls[0][0].where).toMatchObject({ key: { in: ['confirm:ip:1.2.3.4'] }, ok: true })
   })
 
-  it('does not lock at 9', async () => {
-    attemptFindMany.mockResolvedValue(recent(9, confirmKey('1.2.3.4')))
+  it('does not lock at 19', async () => {
+    attemptFindMany.mockResolvedValue(recent(19, confirmKey('1.2.3.4')))
     await expect(checkLock([confirmKey('1.2.3.4')])).resolves.toBeUndefined()
   })
 
@@ -338,14 +338,56 @@ describe('POST /api/auth/pin', () => {
     expect(written()).toEqual(OK_BOTH)
   })
 
-  it('confirm on an already PENDING device leaves it as it is', async () => {
+  it('confirm again on a fresh PENDING request: no write, no confirm budget spent', async () => {
     cookFindFirst.mockResolvedValue(sam)
-    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING' })
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', createdAt: new Date(Date.now() - 23 * 3600_000) })
     const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
     expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    expect(res.cookies.get('pin_device')?.value).toBe(TOKEN)
     expect(deviceUpsert).not.toHaveBeenCalled()
     expect(deviceUpdateMany).not.toHaveBeenCalled()
     expect(deviceDeleteMany).not.toHaveBeenCalled()
+    expect(deviceFindMany).not.toHaveBeenCalled()
+    const lockKeys = attemptFindMany.mock.calls.flatMap((c) => (c[0] as { where: { key: { in: string[] } } }).where.key.in)
+    expect(lockKeys.some((k) => k.startsWith('confirm:'))).toBe(false)
+    expect(written()).toEqual(OK_BOTH)
+  })
+
+  it('a fresh repeat confirm still answers pending even when the confirm budget is used up', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', createdAt: new Date() })
+    attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] } } }) =>
+      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(20, 'confirm:ip:1.2.3.4') : [],
+    )
+    const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+  })
+
+  it('confirm on a stale PENDING request (over 24 h) restarts its clock and runs the cap', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', createdAt: new Date(Date.now() - 25 * 3600_000) })
+    deviceUpdateMany.mockResolvedValue({ count: 1 })
+    const before = Date.now()
+    const res = await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
+    expect(await res.json()).toEqual({ pending: true, name: 'Sam L.' })
+    const arg = deviceUpdateMany.mock.calls[0][0]
+    expect(arg.where).toMatchObject({ tokenHash: HASH, cookId: 'c1', status: 'PENDING' })
+    const lt = (arg.where.createdAt.lt as Date).getTime()
+    expect(Math.abs(lt - (before - 24 * 3600_000))).toBeLessThan(5_000)
+    expect(arg.data).toEqual({ createdAt: expect.any(Date) })
+    expect((arg.data.createdAt as Date).getTime()).toBeGreaterThanOrEqual(before)
+    expect(deviceFindMany).toHaveBeenCalled() // cap ran
+    expect(deviceUpsert).not.toHaveBeenCalled()
+    expect(written()).toEqual(OK_CONFIRM)
+  })
+
+  it('a stale PENDING row that changed meanwhile is not capped (nothing reopened)', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'PENDING', createdAt: new Date(Date.now() - 25 * 3600_000) })
+    deviceUpdateMany.mockResolvedValue({ count: 0 })
+    await signIn({ pin: '1234', confirm: true }, { cookie: `pin_device=${TOKEN}` })
+    expect(deviceFindMany).not.toHaveBeenCalled()
   })
 
   it('keeps at most 3 PENDING requests per cook, dropping the oldest', async () => {
@@ -369,10 +411,10 @@ describe('POST /api/auth/pin', () => {
     expect(deviceDeleteMany).not.toHaveBeenCalled()
   })
 
-  it('10 confirms from one IP in the window → 429, nothing queued', async () => {
+  it('20 confirms from one IP in the window → 429, nothing queued', async () => {
     cookFindFirst.mockResolvedValue(sam)
     attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] }; ok: boolean } }) =>
-      a.where.key.in.includes('confirm:ip:1.2.3.4') && a.where.ok === true ? recent(10, 'confirm:ip:1.2.3.4') : [],
+      a.where.key.in.includes('confirm:ip:1.2.3.4') && a.where.ok === true ? recent(20, 'confirm:ip:1.2.3.4') : [],
     )
     const res = await signIn({ pin: '1234', confirm: true })
     expect(res.status).toBe(429)
@@ -381,10 +423,10 @@ describe('POST /api/auth/pin', () => {
     expect(written().some((r) => r.key.startsWith('confirm:'))).toBe(false)
   })
 
-  it('9 confirms is still allowed', async () => {
+  it('19 confirms is still allowed', async () => {
     cookFindFirst.mockResolvedValue(sam)
     attemptFindMany.mockImplementation(async (a: { where: { key: { in: string[] } } }) =>
-      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(9, 'confirm:ip:1.2.3.4') : [],
+      a.where.key.in.includes('confirm:ip:1.2.3.4') ? recent(19, 'confirm:ip:1.2.3.4') : [],
     )
     const res = await signIn({ pin: '1234', confirm: true })
     expect(res.status).toBe(200)
@@ -489,10 +531,26 @@ describe('GET /api/auth/pin/status', () => {
     expect(deviceFindMany).not.toHaveBeenCalled()
   })
 
+  it('a cookie with no requests → no devices and no pair code', async () => {
+    deviceFindMany.mockResolvedValue([])
+    const res = await get(`pin_device=${TOKEN}`)
+    expect(await res.json()).toEqual({ devices: [] })
+  })
+
+  it('never returns the token or its hash', async () => {
+    deviceFindMany.mockResolvedValue([{ status: 'PENDING', cook: { name: 'Sam', lastName: 'Lee' } }])
+    const text = JSON.stringify(await (await get(`pin_device=${TOKEN}`)).json())
+    expect(text).not.toContain(TOKEN)
+    expect(text).not.toContain(HASH)
+  })
+
   it('lists this phone’s requests, newest first, at most 5', async () => {
     deviceFindMany.mockResolvedValue([{ status: 'PENDING', cook: { name: 'Sam', lastName: 'Lee' } }])
     const res = await get(`pin_device=${TOKEN}`)
-    expect(await res.json()).toEqual({ devices: [{ cookName: 'Sam L.', status: 'PENDING' }] })
+    expect(await res.json()).toEqual({
+      devices: [{ cookName: 'Sam L.', status: 'PENDING' }],
+      pairCode: pairCode(HASH),
+    })
     expect(res.headers.get('cache-control')).toContain('no-store')
     const arg = deviceFindMany.mock.calls[0][0]
     expect(arg.where).toEqual({ tokenHash: HASH })

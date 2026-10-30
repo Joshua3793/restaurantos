@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { createHash } from 'node:crypto'
 import {
   newDeviceToken,
   hashToken,
@@ -6,6 +7,7 @@ import {
   LOCK_WINDOW_MS,
   isLocked,
   CONFIRM_LIMIT,
+  pairCode,
   pinDisplayName,
   pinFullName,
   pinEmail,
@@ -42,11 +44,30 @@ describe('isLocked', () => {
   it('ignores a failure older than the window', () => {
     expect(isLocked([1, 2, 3, 4, 16].map((m) => ago(m * 60_000)), now)).toBe(false)
   })
-  it('takes its own limit (the confirm limit is 10)', () => {
-    const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => ago(m * 60_000))
-    expect(CONFIRM_LIMIT).toBe(10)
-    expect(isLocked(nine, now, CONFIRM_LIMIT)).toBe(false)
-    expect(isLocked([...nine, ago(10 * 60_000)], now, CONFIRM_LIMIT)).toBe(true)
+  it('takes its own limit (the confirm limit is 20)', () => {
+    const nineteen = Array.from({ length: 19 }, (_, i) => ago((i + 1) * 30_000))
+    expect(CONFIRM_LIMIT).toBe(20)
+    expect(isLocked(nineteen, now, CONFIRM_LIMIT)).toBe(false)
+    expect(isLocked([...nineteen, ago(10 * 60_000)], now, CONFIRM_LIMIT)).toBe(true)
+  })
+})
+
+describe('pairCode', () => {
+  const h1 = 'a'.repeat(64)
+  const h2 = 'b'.repeat(64)
+  it('is 4 uppercase hex characters', () => {
+    expect(pairCode(h1)).toMatch(/^[0-9A-F]{4}$/)
+  })
+  it('is deterministic and differs between phones', () => {
+    expect(pairCode(h1)).toBe(pairCode(h1))
+    expect(pairCode(h1)).not.toBe(pairCode(h2))
+  })
+  it('is the first 4 hex of sha256("pair:" + hash), uppercased', () => {
+    const want = createHash('sha256').update('pair:' + h1).digest('hex').slice(0, 4).toUpperCase()
+    expect(pairCode(h1)).toBe(want)
+  })
+  it('does not leak a prefix of the hash itself', () => {
+    expect(pairCode(h1)).not.toBe(h1.slice(0, 4).toUpperCase())
   })
 })
 

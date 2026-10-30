@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { atLeast } from '@/lib/roles'
 import { crewStatus, type Blocked } from '@/lib/pin/crew-status'
-import { pinFullName } from '@/lib/pin/rules'
+import { pairCode, pinFullName } from '@/lib/pin/rules'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +13,8 @@ const STATUS_ORDER = ['WAITING', 'NOT YET', 'NO PIN', 'SET UP', 'EMAIL LOGIN', '
 /**
  * GET — phones waiting for approval, and every active cook's sign-in status.
  * MANAGER+. Cooks have no revenue center, so there is no RC scoping here: a
- * manager sees every active cook. tokenHash is never selected.
+ * manager sees every active cook. tokenHash is read only to derive each
+ * phone's pair code; it is never returned.
  */
 export async function GET() {
   try {
@@ -36,12 +37,14 @@ export async function GET() {
             NOT: { status: 'REJECTED', createdAt: { lt: new Date(Date.now() - REJECTED_KEEP_MS) } },
           },
           orderBy: { createdAt: 'desc' },
-          select: { id: true, label: true, status: true, createdAt: true, lastUsedAt: true, approvedByName: true },
+          select: {
+            id: true, label: true, status: true, createdAt: true, lastUsedAt: true, approvedByName: true, tokenHash: true,
+          },
         },
       },
     })
 
-    const pending: Array<{ id: string; cookName: string; label: string | null; createdAt: Date }> = []
+    const pending: Array<{ id: string; cookName: string; label: string | null; createdAt: Date; pairCode: string }> = []
     const crew = cooks.map((c) => {
       const devices = [...c.pinDevices].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       const name = pinFullName(c)
@@ -55,7 +58,9 @@ export async function GET() {
             ? 'SWITCHED_OFF'
             : null
       for (const d of devices) {
-        if (!blocked && d.status === 'PENDING') pending.push({ id: d.id, cookName: name, label: d.label, createdAt: d.createdAt })
+        if (!blocked && d.status === 'PENDING') {
+          pending.push({ id: d.id, cookName: name, label: d.label, createdAt: d.createdAt, pairCode: pairCode(d.tokenHash) })
+        }
       }
       return {
         cookId: c.id,
@@ -70,6 +75,7 @@ export async function GET() {
           createdAt: d.createdAt,
           lastUsedAt: d.lastUsedAt,
           approvedByName: d.approvedByName,
+          pairCode: pairCode(d.tokenHash),
         })),
         sortOrder: c.sortOrder,
       }

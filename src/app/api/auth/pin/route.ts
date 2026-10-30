@@ -11,7 +11,7 @@ import {
   readBody,
   readDeviceToken,
 } from '@/lib/pin/http'
-import { deviceLabel, hashToken, newDeviceToken, pinDisplayName } from '@/lib/pin/rules'
+import { PENDING_MAX_AGE_MS, deviceLabel, hashToken, newDeviceToken, pinDisplayName } from '@/lib/pin/rules'
 
 // Public (no requireSession): this IS the sign-in. Never log the PIN or token.
 export const dynamic = 'force-dynamic'
@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
 
     const cookKey = `cook:${cook.id}`
     const keys = [ipKey, cookKey]
+    // Nothing writes `cook:` failures since approve-here went; kept as a cheap guard for future failure writers.
     await checkLock([cookKey])
 
     // Managers (and switched-off logins) are refused here, before any phone
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     const device = tokenHash
       ? await prisma.pinDevice.findUnique({
           where: { tokenHash_cookId: { tokenHash, cookId: cook.id } },
-          select: { id: true, status: true },
+          select: { id: true, status: true, createdAt: true },
         })
       : null
 
@@ -89,6 +90,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ rejected: true, name })
     }
 
+    const staleBefore = new Date(Date.now() - PENDING_MAX_AGE_MS)
+
+    // Pressed again on a phone already waiting (fresh) for this cook: nothing to
+    // do, and it must not spend the confirm budget the whole kitchen Wi-Fi shares.
+    if (token && device?.status === 'PENDING' && device.createdAt >= staleBefore) {
+      await recordAttempt(keys, true)
+      const res = NextResponse.json({ pending: true, name })
+      res.cookies.set(PIN_DEVICE_COOKIE, token, pinDeviceCookieOptions())
+      return res
+    }
+
     const cKey = confirmKey(ip)
     await checkLock([cKey])
     await recordAttempt([...keys, cKey], true)
@@ -96,7 +108,14 @@ export async function POST(req: NextRequest) {
     const deviceToken = token ?? newDeviceToken()
     const hash = tokenHash ?? hashToken(deviceToken)
     let opened = false
-    if (device?.status === 'REVOKED') {
+    if (device?.status === 'PENDING') {
+      // Stale (a manager can no longer approve it): restart its clock.
+      const { count } = await prisma.pinDevice.updateMany({
+        where: { tokenHash: hash, cookId: cook.id, status: 'PENDING', createdAt: { lt: staleBefore } },
+        data: { createdAt: new Date() },
+      })
+      opened = count > 0
+    } else if (device?.status === 'REVOKED') {
       // Conditional: only a row that is STILL revoked reopens.
       const { count } = await prisma.pinDevice.updateMany({
         where: { tokenHash: hash, cookId: cook.id, status: 'REVOKED' },

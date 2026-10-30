@@ -29,6 +29,7 @@ vi.mock('@/lib/auth', () => ({
 
 const { PATCH } = await import('@/app/api/pin-devices/[id]/route')
 const { GET } = await import('@/app/api/pin-devices/route')
+const { pairCode } = await import('@/lib/pin/rules')
 
 const patch = (body: unknown, id = 'd1') =>
   PATCH({ json: async () => body } as unknown as NextRequest, { params: { id } })
@@ -166,7 +167,8 @@ describe('PATCH /api/pin-devices/[id]', () => {
 
 const NOW = Date.now()
 const dev = (id: string, status: string, ageDays: number, extra: Record<string, unknown> = {}) => ({
-  id, status, label: 'iPhone', createdAt: new Date(NOW - ageDays * 86_400_000), lastUsedAt: null, approvedByName: null, ...extra,
+  id, status, label: 'iPhone', createdAt: new Date(NOW - ageDays * 86_400_000), lastUsedAt: null, approvedByName: null,
+  tokenHash: `hash-${id}`, ...extra,
 })
 const cook = (id: string, name: string, over: Record<string, unknown> = {}) => ({
   id, name, lastName: null, homeStation: null, clockId: '1111', sortOrder: 0, user: null, pinDevices: [], ...over,
@@ -180,17 +182,29 @@ describe('GET /api/pin-devices', () => {
     expect(cookFindMany).not.toHaveBeenCalled()
   })
 
-  it('never selects or returns tokenHash', async () => {
+  it('never returns tokenHash (it is read only to derive the pair code)', async () => {
     cookFindMany.mockResolvedValue([
-      cook('c1', 'Sam', { pinDevices: [dev('d1', 'APPROVED', 1, { tokenHash: 'SECRET' })] }),
+      cook('c1', 'Sam', { pinDevices: [dev('d1', 'APPROVED', 1, { tokenHash: 'SECRET' }), dev('d2', 'PENDING', 0, { tokenHash: 'SECRET2' })] }),
     ])
     const res = await GET()
     const text = JSON.stringify(await res.json())
     expect(text).not.toContain('tokenHash')
     expect(text).not.toContain('SECRET')
     const args = cookFindMany.mock.calls[0][0]
-    expect(JSON.stringify(args.select)).not.toContain('tokenHash')
+    expect(args.select.pinDevices.select.tokenHash).toBe(true)
     expect(args.where).toEqual({ isActive: true })
+  })
+
+  it('carries the pair code on each pending item and each crew device', async () => {
+    cookFindMany.mockResolvedValue([
+      cook('c1', 'Sam', { pinDevices: [dev('d1', 'APPROVED', 2, { tokenHash: 'h-one' }), dev('d2', 'PENDING', 1, { tokenHash: 'h-two' })] }),
+    ])
+    const body = await (await GET()).json()
+    expect(body.pending).toEqual([expect.objectContaining({ id: 'd2', pairCode: pairCode('h-two') })])
+    expect(body.crew[0].devices).toEqual([
+      expect.objectContaining({ id: 'd2', pairCode: pairCode('h-two') }),
+      expect.objectContaining({ id: 'd1', pairCode: pairCode('h-one') }),
+    ])
   })
 
   it('builds pending (full name, newest first) and crew ordered by status then sortOrder then name', async () => {
