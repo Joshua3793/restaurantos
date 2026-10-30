@@ -137,7 +137,7 @@ export function SignOffFooter({
           )
         })}
         {phase === 'CLOSE' && openRuns.length > 0 && (
-          <span className="text-center font-mono text-[10.5px] text-ink-3">SIGNING OFF SAVES YOUR NAME + TIME ON EVERY TICK</span>
+          <span className="text-center font-mono text-[10.5px] text-ink-3">YOUR NAME AND TIME ARE SAVED ON EVERY JOB</span>
         )}
       </footer>
     </>

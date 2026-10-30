@@ -152,6 +152,9 @@ export function LineSheet({
                 <button
                   type="button"
                   onClick={() => setRaw(flipSign)}
+                  // Keep focus (and the iPhone number pad) on the reading.
+                  onPointerDown={e => e.preventDefault()}
+                  onMouseDown={e => e.preventDefault()}
                   aria-label={value != null && value < 0 ? 'Make positive' : 'Make negative'}
                   className="flex-none -mr-2 w-11 h-11 rounded-[10px] bg-bg-2 grid place-items-center font-mono text-[20px] font-semibold text-ink-2"
                 >
