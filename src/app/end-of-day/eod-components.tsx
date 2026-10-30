@@ -7,7 +7,9 @@ import { formatCurrency } from '@/lib/utils'
 import { computeDayMetrics, type TempUnit } from '@/components/temps/temp-utils'
 import { SafetyTempsSummary } from '@/components/preshift/SafetyTempsSummary'
 import type { RevenueCenter } from '@/contexts/RevenueCenterContext'
-import type { EodSummary, EodCloseState, EodCheckItemDTO } from './page'
+import type { EodSummary, EodCloseState } from './page'
+import type { StationTone } from '@/lib/checklists/station-status'
+import type { TodayStation, TodayView } from '@/lib/checklists/today-types'
 import type { PrepItemRich } from '@/components/prep/types'
 
 const card = 'bg-paper border border-line rounded-[12px] overflow-hidden'
@@ -179,29 +181,28 @@ function FlagsCard({ data }: { data: EodSummary | null }) {
   )
 }
 
-// ── Close-down checklist + safety temps ────────────────────────────────────────
-export function CloseDown({ closeState, tempUnits, onToggleItem }: {
+// ── Close-down: safety temps + station closing ─────────────────────────────────
+const PILL: Record<StationTone, string> = {
+  red: 'bg-red-soft text-red-text',
+  gold: 'bg-gold-soft text-gold-2',
+  green: 'bg-green-soft text-green-text',
+  grey: 'bg-bg-2 text-ink-2',
+}
+
+export function CloseDown({ rcId, closeState, tempUnits, refreshTick }: {
+  rcId: string
   closeState: EodCloseState | null
   tempUnits: TempUnit[]
-  onToggleItem: (itemId: string, done: boolean) => void
+  /** Bumps each time the page re-reads the gate, so the station list follows. */
+  refreshTick: number
 }) {
   const router = useRouter()
   const m = computeDayMetrics(tempUnits)
   const locked = closeState?.close.status === 'CLOSED'
 
-  // Group items by section, preserving section order by first appearance.
-  const sections: { key: string; items: EodCheckItemDTO[] }[] = []
-  ;(closeState?.items ?? []).forEach(it => {
-    let sec = sections.find(s => s.key === it.section)
-    if (!sec) { sec = { key: it.section, items: [] }; sections.push(sec) }
-    sec.items.push(it)
-  })
-
-  const doneIds = new Set(closeState?.doneItemIds ?? [])
-
   return (
     <div className="mt-1">
-      <BandLabel title="Close-down" note={locked ? 'SIGNED OFF · READ-ONLY' : 'CHECKLIST · GATES SIGN-OFF'} />
+      <BandLabel title="Close-down" note={locked ? 'SIGNED OFF · READ-ONLY' : 'STATIONS + TEMPS · GATE SIGN-OFF'} />
 
       <div className={`${card} mb-3`}>
         <div className={cardHead}>
@@ -217,49 +218,92 @@ export function CloseDown({ closeState, tempUnits, onToggleItem }: {
         />
       </div>
 
-      {!closeState ? (
-        <div className={card}>
-          <div className="p-6 text-center text-ink-3 font-mono text-[11px]">Loading close checklist…</div>
+      <StationClosingCard rcId={rcId} closeState={closeState} refreshTick={refreshTick} />
+    </div>
+  )
+}
+
+/**
+ * "Station closing · 4 of 6 signed off": each station's closing run from the
+ * station board (GET /api/checklists/today?phase=CLOSE). The count and the gate
+ * come from the close's own progress, so they always agree with sign-off.
+ */
+function StationClosingCard({ rcId, closeState, refreshTick }: { rcId: string; closeState: EodCloseState | null; refreshTick: number }) {
+  const [stations, setStations] = useState<TodayStation[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const p = closeState?.progress
+  // Refetch when the page re-reads the gate, or the close's own answer changes
+  // (a sign-off attempt, a reopen) — not on every closeState change, which
+  // includes each handover keystroke.
+  const refreshKey = `${refreshTick}|${closeState?.close.status ?? ''}|${p?.stationsSigned ?? ''}|${p?.stationsTotal ?? ''}|${p?.sharedBlockersLeft ?? ''}`
+
+  useEffect(() => {
+    let cancelled = false
+    setFailed(false)
+    fetch(`/api/checklists/today?rcId=${rcId}&phase=CLOSE`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: TodayView | null) => {
+        if (cancelled) return
+        if (d && Array.isArray(d.stations)) setStations(d.stations)
+        else setFailed(true)
+      })
+      .catch(() => { if (!cancelled) setFailed(true) })
+    return () => { cancelled = true }
+  }, [rcId, refreshKey])
+
+  const count = !p ? '…'
+    : p.stationsTotal === 0 ? 'none started'
+    : `${p.stationsSigned} of ${p.stationsTotal} signed off`
+  const allSigned = p ? p.stationsSigned === p.stationsTotal : false
+
+  return (
+    <div className={`${card} mb-3`}>
+      <div className={cardHead}>
+        <h3 className="text-[13px] font-semibold">
+          Station closing <span className={`font-normal ${p && !allSigned ? 'text-red-text' : 'text-ink-3'}`}>· <span className="font-mono tabular-nums">{count}</span></span>
+        </h3>
+      </div>
+      {p && p.sharedBlockersLeft > 0 && (
+        <div className="flex items-center gap-3 px-[18px] py-2.5 border-b border-line bg-red-soft/30">
+          <span className="min-w-0 flex-1 text-[13px] font-medium text-red-text">
+            Whole kitchen · <span className="font-mono tabular-nums">{p.sharedBlockersLeft}</span> before you leave
+          </span>
+          <Link href="/checklist?phase=CLOSE" className="shrink-0 text-[12.5px] font-medium text-gold-2 hover:text-ink whitespace-nowrap">
+            Open the closing list →
+          </Link>
         </div>
-      ) : sections.length === 0 ? (
-        <div className={card}>
-          <div className="p-6 text-center text-ink-3 font-mono text-[11px]">No close-down checks configured for this revenue centre.</div>
+      )}
+      {stations === null ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">{failed ? 'Could not load the stations.' : 'Loading stations…'}</div>
+      ) : stations.length === 0 ? (
+        <div className="p-6 text-center text-ink-3 font-mono text-[11px]">No stations set up for this revenue centre.</div>
+      ) : (
+        <div className="divide-y divide-line">
+          {stations.map(s => (
+            <div key={s.id} className="flex items-center gap-3 px-[18px] py-2.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium text-ink truncate">{s.name}</span>
+                <span className="block font-mono text-[10.5px] text-ink-3 mt-px truncate">
+                  {[s.isShared ? 'Shared by everyone' : s.crew.length > 0 ? s.crew.join(', ') : 'Nobody yet',
+                    s.total > 0 ? `${s.handled}/${s.total}` : null].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+              <span className={`shrink-0 font-mono text-[10px] font-medium px-[9px] py-[3px] rounded-full whitespace-nowrap ${PILL[s.status.tone]}`}>
+                {s.status.label}
+              </span>
+            </div>
+          ))}
         </div>
-      ) : sections.map(sec => (
-        <div key={sec.key} className={`${card} mb-3`}>
-          <div className={cardHead}>
-            <h3 className="text-[13px] font-semibold">{sec.key}</h3>
-            <span className="font-mono text-[10px] text-ink-3">
-              {sec.items.filter(it => doneIds.has(it.id)).length} / {sec.items.length}
-            </span>
-          </div>
-          <div className="divide-y divide-line">
-            {sec.items.map(it => {
-              const done = doneIds.has(it.id)
-              const blocking = it.isBlocker && !done
-              return (
-                <button
-                  key={it.id}
-                  type="button"
-                  disabled={locked}
-                  onClick={() => onToggleItem(it.id, !done)}
-                  className={`w-full flex items-center gap-3 px-[18px] py-2.5 text-left transition-colors ${locked ? 'cursor-default' : 'hover:bg-bg-2/40 cursor-pointer'} ${blocking ? 'bg-red-soft/30' : ''}`}
-                  style={blocking ? { boxShadow: 'inset 3px 0 0 #dc2626' } : undefined}
-                >
-                  <span className={`w-[20px] h-[20px] rounded-[6px] border-[1.5px] grid place-items-center shrink-0 transition-all ${done ? 'bg-green border-green text-white' : 'border-line-2 text-transparent'}`}>
-                    <Check size={12} strokeWidth={3} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className={`block text-[13px] font-medium truncate ${done ? 'text-ink-3 line-through decoration-ink-4' : 'text-ink'}`}>{it.title}</span>
-                    {it.meta && <span className="block font-mono text-[10.5px] text-ink-3 mt-px truncate">{it.meta}</span>}
-                  </span>
-                  {blocking && <span className="font-mono text-[10px] text-red-text font-semibold shrink-0">blocker</span>}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
+      )}
+      <div className="px-[18px] py-3 border-t border-line bg-bg-2 flex flex-wrap gap-x-5 gap-y-1">
+        <Link href="/checklist/today?phase=CLOSE" className="text-[12.5px] font-medium text-gold-2 hover:text-ink">
+          Open the station board →
+        </Link>
+        <Link href="/checklist?phase=CLOSE" className="text-[12.5px] font-medium text-gold-2 hover:text-ink">
+          Open the closing list →
+        </Link>
+      </div>
     </div>
   )
 }
@@ -606,10 +650,14 @@ function GateCard({ closeState, isRcScoped, canSeeMoney, signoffError, onSignOff
     sub = `signed off by ${closeState?.close.signedOffByName ?? 'unknown'}${time ? ` · ${time}` : ''}`
   } else if (blockers > 0) {
     title = 'Not ready to close'
-    sub = `${blockers} blocker${blockers > 1 ? 's' : ''} must clear`
-  } else if (!ready) {
-    title = 'Almost closed'
-    sub = `${total - done} check${total - done > 1 ? 's' : ''} left`
+    const stationsLeft = (progress?.stationsTotal ?? 0) - (progress?.stationsSigned ?? 0)
+    const sharedLeft = progress?.sharedBlockersLeft ?? 0
+    const parts = [
+      stationsLeft > 0 ? `${stationsLeft} station${stationsLeft > 1 ? 's' : ''} to sign off` : null,
+      sharedLeft > 0 ? `${sharedLeft} whole-kitchen job${sharedLeft > 1 ? 's' : ''} left` : null,
+      progress?.hasTempUnits && !progress.tempsReady ? 'temps not clear' : null,
+    ].filter(Boolean)
+    sub = parts.length > 0 ? parts.join(' · ') : `${blockers} blocker${blockers > 1 ? 's' : ''} must clear`
   } else {
     title = 'Ready to close'
     sub = 'Every check is clear. Sign off the day.'

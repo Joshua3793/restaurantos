@@ -3,8 +3,9 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { Role, Prisma } from '@prisma/client'
-import { assignableLevels } from '@/lib/roles'
+import { assignableLevels, atLeast } from '@/lib/roles'
 import { recordAccessEvent } from '@/lib/access-audit'
+import { isPinAccount, PIN_NEEDS_EMAIL_LOGIN } from '@/lib/pin/people'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,6 +48,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json(
       { error: `Clearance must be one of: ${allowed.join(', ')}` }, { status: 400 },
     )
+  }
+
+  // RULING P9: a PIN login is never more than a LEAD — its PIN is printed on
+  // clock reports. A manager needs an email login of their own.
+  if (clearance && atLeast(clearance as Role, 'MANAGER') && (await isPinAccount(createAdminClient(), target))) {
+    return NextResponse.json({ error: PIN_NEEDS_EMAIL_LOGIN }, { status: 409 })
   }
 
   const updateData: { role?: Role; name?: string | null; isActive?: boolean } = {}
@@ -168,6 +175,18 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json(
       { error: 'The owner cannot be removed. Transfer ownership first.' }, { status: 403 },
     )
+  }
+
+  // RULING P9: deleting the login unlinks the cook (Cook.userId SetNull), and
+  // the cook's next PIN sign-in would make a fresh login on any phone still
+  // OK'd. Revoke those phones first, so every phone needs a manager's OK again.
+  // Done before anything is deleted: if it fails, nothing has changed.
+  const linkedCook = await prisma.cook.findUnique({ where: { userId: params.id }, select: { id: true } })
+  if (linkedCook) {
+    await prisma.pinDevice.updateMany({
+      where: { cookId: linkedCook.id, status: { in: ['APPROVED', 'PENDING'] } },
+      data: { status: 'REVOKED' },
+    })
   }
 
   // Delete the Supabase Auth account first so the email is freed for future

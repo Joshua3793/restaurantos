@@ -1,0 +1,31 @@
+# PIN sign-in — rulings made during the build
+
+Decisions taken on Joshua's behalf while building (from the build ledger), with what each costs if wrong.
+
+- | T1 self | step 5 applies to the live DB | Ruling P1 |
+- ## Rulings
+- Ruling P1: the Task 1 implementer generates the SQL but doesn't apply it; the controller applies it only after Joshua's explicit yes — a live-DB write — cost if wrong: none.
+- Ruling P0: before Task 1, a small fix of the two plan-1 issues found in the live test (greeting/crew show the email prefix when User.name is null → use the linked Cook's name, else "chef"; the CLOSE lede vs section-header count mismatch) — found by the live test — cost if wrong: copy only.
+- Ruling P2: pinDisplayName takes the LAST word of the name for the initial when lastName is null (spec said "second word") — "Mary Jo Smith" → "Mary S." is the surname — cost if wrong: an initial differs for 3-word names.
+- Ruling P3: PIN sign-in refuses any linked login above LEAD (MANAGER/ADMIN/OWNER) with 403 "Managers sign in with email and password" — a 3–5 digit PIN printed on clock reports must never open a money- or admin-level session — cost if wrong: managers who are also cooks use the normal login on their phone.
+- Ruling P4: synthetic email is pin.<cookId>@crew.controlaos.vercel.app — nobody but Vercel can receive mail there; controlaos.app isn't known to be owned — cost if wrong: cosmetic email in People.
+- Ruling P5: PIN accounts are stamped app_metadata.pinCookId; reuse only a stamped account; an unstamped, unconfirmed auth user with no Prisma row is deleted and recreated; anything else → 409; on reuse, user_metadata is synced to Prisma — a public signup can't pre-plant a PIN account — cost if wrong: an odd legacy account needs a manager.
+- Ruling P6: approve-here is REMOVED; phones are OK'd only from a manager's own signed-in session (Crew sign-in screen / Today card). Departs from the mockup's "Manager types their PIN here" — the manager PIN is printed on clock reports, so it can't be the second factor — cost if wrong: the manager taps Approve on their own phone instead of typing on the cook's.
+- Ruling P7: cap 3 pending devices per cook (oldest dropped); 10 confirms / 15 min per IP; REJECTED is sticky for that phone+cook (REVOKED can re-request); correct-PIN calls write ok rows (audit, no lock) — stops queue flooding and a rejected attacker reappearing — cost if wrong: a cook who was wrongly rejected must clear the cookie or ask the manager to approve on a new request.
+- Ruling P8: a 4-char pair code (from the token hash) is shown on the phone's waiting screen and beside each request in the manager list — with the manager's tap now the only second factor, they must match the phone in hand — cost if wrong: one extra line on two screens.
+- Ruling P9: requireSession requires PIN-stamped accounts (app_metadata.pinCookId) to present an APPROVED pin_device cookie for that cook, and caps their effective role at LEAD; People refuses raising a PIN account above LEAD; deleting a PIN login revokes the cook's phones — closes the password/promotion/delete bypasses of phone approval — cost if wrong: a PIN user on a phone with cleared cookies is signed out of the APIs until re-approved.
+- Ruling P10: failure lock 20 / 15 min per IP (cook key unchanged), confirm limit 60 per IP — the PIN isn't the secret; launch day puts 24 cooks on one Wi-Fi — cost if wrong: slower brute-force throttling (the PIN is printed anyway).
+
+## Deferred minors and follow-ups (reviewed: none block merge)
+
+- Task 0: minor (deferred): one extra cook lookup per tick; the two-station lede reads "Grill + Fry's"; the greeting can flash from login name to cook name.
+- Task 1: minor (deferred): blank name + lastName gives " L."; no window-boundary tests for isLocked; no @@index([cookId]) on PinDevice; deviceLabel calls Android tablets / iPadOS-as-Mac "Browser".
+- Task 2: minor (deferred) / follow-up: the middleware reads role/isActive from user_metadata, which any signed-in user can rewrite (pages only; APIs read Prisma) — move to app_metadata in its own task. Joshua should switch off public signup in Supabase (a security setting; his action).
+- Task 2: minor (deferred): N1 a sync throw (vs an {error}) skips the unlink; N3 a narrow race can leave an orphan Prisma User holding the PIN email (needs a manual fix); N4 concurrent (b) deletes → a retryable 500; the 409 "needs a manager" has no in-app fixing tool; smoke-test createUser with the vercel.app domain before release; isAlreadyRegisteredError treats any 422 as registered.
+- Task 3: minor (deferred): a shared restaurant-Wi-Fi IP means 5 typos lock the whole kitchen for 15 min (tell Joshua); Supabase session cookies aren't httpOnly (pre-existing @supabase/ssr default); the distinct manager 403 reveals manager PINs (harmless after P6).
+- Task 4: minor (deferred): a blocked cook's pending phone is hidden from the queue (can still be rejected from the crew row); the 24h age rule lives only in PATCH.
+- Task 3: minor (deferred): B2 someone who knows a PIN can evict a cook's pending request via the cap (the waiting screen must handle its row vanishing); B4 I3 rows add uncapped writes; O3 the shared IP failure lock (guest Wi-Fi can lock the kitchen 15 min) — tell Joshua.
+- Task 3: minor (deferred, fix in final wave): pin-devices/[id] keeps its own 24h constant — import PENDING_MAX_AGE_MS from rules; the manager list shows PENDING rows >24h (approve gives 409) — label them "too old".
+- Task 5: minor (deferred): the Today card fetches the whole crew list to count pending; Y includes NO PIN cooks; no aria-controls on crew rows.
+- Task 5: minor (deferred): Enter after mouse-clicking a keypad key types the digit; a shared phone with >10 cooks can push a waiting row out of /status (look up by id instead); a cancelled successful sign-in leaves the session set (retype the PIN).
+- Final: minor (deferred / follow-ups): B3 cooks linked to EMAIL logins (4 of 24) sign in via PIN as unstamped accounts, outside P9 (no phone binding, no LEAD cap); middleware trusts user_metadata (move to app_metadata); UserScope.clearance not capped for PIN accounts; password recovery reactivates a switched-off email login (/auth/callback) — its own ticket.

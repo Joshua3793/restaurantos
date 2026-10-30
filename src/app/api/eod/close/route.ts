@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { businessDateLocal, computeTempsReady, computeProgress } from '@/lib/eod-close'
+import { businessDateLocal, computeTempsReady, computeProgress, loadStationsClosed } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,12 +12,11 @@ export async function GET(req: NextRequest) {
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     const date = businessDateLocal()
 
-    const [items, close] = await Promise.all([
-      prisma.eodCheckItem.findMany({
-        where: { revenueCenterId: rcId, isActive: true },
-        select: { id: true, section: true, title: true, meta: true, sortOrder: true, isBlocker: true },
-        orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
-      }),
+    const [stations, temps, close] = await Promise.all([
+      // The gate: every station's closing run signed off (station checklists,
+      // at the closing shift's date) AND temps — see computeProgress.
+      loadStationsClosed(rcId),
+      computeTempsReady(rcId, date),
       prisma.eodClose.upsert({
         where: { revenueCenterId_businessDate: { revenueCenterId: rcId, businessDate: date } },
         create: { revenueCenterId: rcId, businessDate: date },
@@ -25,19 +24,14 @@ export async function GET(req: NextRequest) {
         select: {
           id: true, status: true, handoverNote: true, signedOffByName: true, signedOffAt: true, snapshot: true,
           labourCost: true, grossSales: true, compsVoids: true, discounts: true,
-          entries: { select: { itemId: true, done: true } },
         },
       }),
     ])
 
-    const doneIds = new Set(close.entries.filter(e => e.done).map(e => e.itemId))
-    const temps = await computeTempsReady(rcId, date)
-    const progress = computeProgress(items.map(i => ({ id: i.id, isBlocker: i.isBlocker })), doneIds, temps)
+    const progress = computeProgress(stations, temps)
 
     return NextResponse.json({
       date,
-      items,
-      doneItemIds: [...doneIds],
       close: {
         id: close.id, status: close.status, handoverNote: close.handoverNote,
         signedOffByName: close.signedOffByName, signedOffAt: close.signedOffAt,

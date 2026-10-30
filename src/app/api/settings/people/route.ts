@@ -8,6 +8,8 @@ import type { Role } from '@prisma/client'
 import { assignableLevels } from '@/lib/roles'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { inviteOne, type InviteResult } from '@/lib/user-invite'
+import { isPinEmail } from '@/lib/pin/rules'
+import { PIN_EMAIL_NOT_INVITABLE } from '@/lib/pin/people'
 import { loadSettings } from '@/lib/tips/settings'
 import {
   type AssignmentInput, validateAssignmentRows, dedupeAssignmentRows,
@@ -176,6 +178,9 @@ export async function POST(req: NextRequest) {
     if (!email) return NextResponse.json({ error: 'An email is required for an app login' }, { status: 400 })
     if (email === admin.email.toLowerCase()) {
       return NextResponse.json({ error: 'Cannot invite yourself' }, { status: 400 })
+    }
+    if (isPinEmail(email)) {
+      return NextResponse.json({ error: PIN_EMAIL_NOT_INVITABLE }, { status: 400 })
     }
     const allowed = assignableLevels(admin.role)
     if (!body.login.clearance || !allowed.includes(body.login.clearance as Role)) {

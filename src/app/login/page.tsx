@@ -2,6 +2,7 @@
 import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Role } from '@prisma/client'
 import { atLeast } from '@/lib/roles'
@@ -212,6 +213,15 @@ function LoginPageInner() {
             </form>
           )}
         </div>
+
+        {/* Cooks sign in on their own phone with their Toast clock-in PIN. */}
+        <Link
+          href="/auth/pin"
+          className="mt-4 w-full min-h-[44px] rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.75)' }}
+        >
+          Kitchen crew? Sign in with your PIN
+        </Link>
 
         <p className="text-xs text-center mt-5" style={{ color: 'rgba(255,255,255,0.2)' }}>
           Don&apos;t have an account? Ask your admin for an invite.

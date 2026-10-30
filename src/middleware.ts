@@ -22,6 +22,9 @@ const REDIRECTS: Array<[string, string]> = [
   ['/reports/theoretical-usage','/variance'],
   ['/reports/signals',         '/signals'],
   ['/cost',                    '/reports'],
+  // The old kitchen-wide lists were replaced by station checklists.
+  ['/setup/open-checklist',    '/checklist/edit'],
+  ['/setup/eod-checklist',     '/checklist/edit'],
 ]
 
 export async function middleware(request: NextRequest) {

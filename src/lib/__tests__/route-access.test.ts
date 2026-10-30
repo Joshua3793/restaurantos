@@ -33,6 +33,24 @@ describe('requiredClearance', () => {
     expect(requiredClearance('/end-of-day')).toBe('LEAD')
   })
 
+  it('opens the cook checklist to STAFF and gates the board, history and editor', () => {
+    expect(requiredClearance('/checklist')).toBeNull()
+    expect(requiredClearance('/checklist/today')).toBe('LEAD')
+    expect(requiredClearance('/checklist/history')).toBe('MANAGER')
+    expect(requiredClearance('/checklist/edit')).toBe('MANAGER')
+    expect(canAccess('STAFF', '/checklist')).toBe(true)
+    expect(canAccess('STAFF', '/checklist/today')).toBe(false)
+    expect(canAccess('LEAD', '/checklist/today')).toBe(true)
+    expect(canAccess('LEAD', '/checklist/edit')).toBe(false)
+  })
+
+  it('gates Crew sign-in to managers', () => {
+    expect(requiredClearance('/checklist/crew')).toBe('MANAGER')
+    expect(canAccess('LEAD', '/checklist/crew')).toBe(false)
+    expect(canAccess('MANAGER', '/checklist/crew')).toBe(true)
+    expect(canAccess('STAFF', '/checklist')).toBe(true)
+  })
+
   it('keeps invoices, inventory and sales off STAFF but open to LEAD', () => {
     for (const path of ['/invoices', '/inventory', '/sales']) {
       expect(requiredClearance(path)).toBe('LEAD')

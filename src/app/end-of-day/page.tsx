@@ -31,15 +31,8 @@ export interface EodSummary {
   forecastBasis: number
 }
 
-export interface EodCheckItemDTO {
-  id: string
-  section: string
-  title: string
-  meta: string | null
-  sortOrder: number
-  isBlocker: boolean
-}
-
+// The sign-off gate (computeProgress in src/lib/eod-close.ts): temps ready AND
+// every station's closing run signed off. done/total count stations + 1 for temps.
 export interface EodProgressDTO {
   done: number
   total: number
@@ -47,12 +40,14 @@ export interface EodProgressDTO {
   ready: boolean
   tempsReady: boolean
   hasTempUnits: boolean
+  stationsSigned: number
+  stationsTotal: number
+  /** Blocker jobs left on the whole-kitchen closing list (e.g. gas off). */
+  sharedBlockersLeft: number
 }
 
 export interface EodCloseState {
   date: string
-  items: EodCheckItemDTO[]
-  doneItemIds: string[]
   close: {
     id: string
     status: 'DRAFT' | 'CLOSED'
@@ -125,27 +120,56 @@ export default function EndOfDayPage() {
 
   useEffect(() => { loadClose() }, [loadClose])
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-  const toggleItem = useCallback((itemId: string, done: boolean) => {
-    if (!activeRcId) return
-    // Optimistic doneItemIds update; progress + authoritative doneItemIds come back from the API.
-    setCloseState(prev => prev ? {
-      ...prev,
-      doneItemIds: done ? [...new Set([...prev.doneItemIds, itemId])] : prev.doneItemIds.filter(id => id !== itemId),
-    } : prev)
-    fetch('/api/eod/close/entry', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rcId: activeRcId, itemId, done }),
-    })
+  // Cooks sign their stations off on their phones, so the gate must re-read
+  // itself: every 30 s while the close is open and the tab is visible, and on
+  // returning to the tab. Only the gate is merged — the handover note and the
+  // money fields stay exactly as the user left them (a save may be pending).
+  const [gateTick, setGateTick] = useState(0)
+  const rcRef = useRef(activeRcId)
+  rcRef.current = activeRcId
+  const lastGateRead = useRef(0)
+  const refreshGate = useCallback(() => {
+    if (!isRcScoped || !activeRcId) return
+    if (Date.now() - lastGateRead.current < 2_000) return   // focus + visibilitychange fire together
+    lastGateRead.current = Date.now()
+    const rcId = activeRcId
+    fetch(`/api/eod/close?rcId=${rcId}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
-      .then((d: { progress: EodProgressDTO; doneItemIds: string[] } | null) => {
-        if (!d) return
-        setCloseState(prev => prev ? { ...prev, progress: d.progress, doneItemIds: d.doneItemIds } : prev)
+      .then((d: EodCloseState | null) => {
+        if (!d || rcRef.current !== rcId) return
+        setCloseState(prev => {
+          // No close yet, or a new day's close after midnight: take the whole
+          // answer, as loadClose does. The handover and money inputs are keyed
+          // on the close id, so a new id remounts them with the new day's values.
+          if (!prev || prev.close.id !== d.close.id) return d
+          // Closed or reopened elsewhere: take the whole answer.
+          if (prev.close.status !== d.close.status) return d
+          return { ...prev, date: d.date, progress: d.progress }
+        })
+        setSignoffError(null)
+        setGateTick(t => t + 1)
+        return fetch(`/api/temps/units?rcId=${rcId}&date=${d.date}`, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : [])
+          .then(units => { if (Array.isArray(units) && rcRef.current === rcId) setTempUnits(units) })
       })
       .catch(() => {})
-  }, [activeRcId])
+  }, [isRcScoped, activeRcId])
 
+  const isDraft = closeState?.close.status === 'DRAFT'
+  useEffect(() => {
+    if (!isRcScoped || !isDraft) return
+    const tick = () => { if (document.visibilityState === 'visible') refreshGate() }
+    const id = setInterval(tick, 30_000)
+    document.addEventListener('visibilitychange', tick)
+    window.addEventListener('focus', tick)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', tick)
+      window.removeEventListener('focus', tick)
+    }
+  }, [isRcScoped, isDraft, refreshGate])
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveHandover = useCallback((text: string) => {
     if (!activeRcId) return
@@ -259,9 +283,9 @@ export default function EndOfDayPage() {
 
         {/* Cost-chrome strip */}
         <div className="eod-no-print hidden md:flex items-center gap-4 mb-5 px-4 py-2.5 bg-paper border border-line rounded-[10px] font-mono text-[11px]">
-          <span className="text-ink-3">Close checklist</span>
+          <span className="text-ink-3">Stations signed off</span>
           <span className="text-ink-3 tabular-nums">
-            {closeState ? `${closeState.progress.done} / ${closeState.progress.total}` : '— / —'}
+            {closeState ? `${closeState.progress.stationsSigned} / ${closeState.progress.stationsTotal}` : '— / —'}
           </span>
           {showMoney ? (
             <>
@@ -287,7 +311,7 @@ export default function EndOfDayPage() {
           title={<>Service is <em className="font-fraunces italic font-medium text-gold-2">closed</em>.</>}
           sub={
             !showMoney
-              ? <>Sales and cost figures are managed by your manager. Run the checklist and temps, then sign off to hand over.</>
+              ? <>Sales and cost figures are managed by your manager. Get every station signed off and temps logged, then sign off to hand over.</>
               : data
                 ? <>{data.covers} covers · <b>{formatCurrency(data.netSales)}</b> net · food cost ran <b className={over ? 'text-red-text' : ''}>{fcPct != null ? `${fcPct.toFixed(1)}%` : '—'}</b>. Review the day, then sign off to open tomorrow with real numbers.</>
                 : <>Loading today&apos;s close…</>
@@ -324,9 +348,10 @@ export default function EndOfDayPage() {
             <DayInReview data={data} target={PH_TARGET_PCT} />
             {isRcScoped ? (
               <CloseDown
+                rcId={activeRcId!}
                 closeState={closeState}
                 tempUnits={tempUnits}
-                onToggleItem={toggleItem}
+                refreshTick={gateTick}
               />
             ) : (
               <RcPicker revenueCenters={revenueCenters} onPick={setActiveRcId} />

@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { Role } from '@prisma/client'
 import { assignableLevels } from '@/lib/roles'
 import { inviteOne, type InviteResult } from '@/lib/user-invite'
+import { isPinEmail } from '@/lib/pin/rules'
+import { PIN_EMAIL_NOT_INVITABLE } from '@/lib/pin/people'
 import {
   type AssignmentInput,
   validateAssignmentRows,
@@ -116,6 +118,9 @@ export async function POST(req: NextRequest) {
   }
   if (emails.includes(admin.email.toLowerCase())) {
     return NextResponse.json({ error: 'Cannot invite yourself' }, { status: 400 })
+  }
+  if (emails.some(isPinEmail)) {
+    return NextResponse.json({ error: PIN_EMAIL_NOT_INVITABLE }, { status: 400 })
   }
 
   // Validate BEFORE dedupe: dedupe keeps only the first row for a given node,

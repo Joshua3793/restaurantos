@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { businessDateLocal, computeTempsReady, computeProgress } from '@/lib/eod-close'
+import { businessDateLocal, computeTempsReady, computeProgress, loadStationsClosed } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,13 +18,12 @@ export async function POST(req: NextRequest) {
       update: {},
       select: { id: true },
     })
-    const [items, entries, temps] = await Promise.all([
-      prisma.eodCheckItem.findMany({ where: { revenueCenterId: rcId, isActive: true }, select: { id: true, isBlocker: true } }),
-      prisma.eodCheckEntry.findMany({ where: { closeId: close.id, done: true }, select: { itemId: true } }),
+    // The gate: temps ready AND every station's closing run signed off.
+    const [stations, temps] = await Promise.all([
+      loadStationsClosed(rcId),
       computeTempsReady(rcId, date),
     ])
-    const doneIds = new Set(entries.map(e => e.itemId))
-    const progress = computeProgress(items, doneIds, temps)
+    const progress = computeProgress(stations, temps)
     if (!progress.ready) return NextResponse.json({ error: 'Not ready to close', progress }, { status: 409 })
 
     const dayStart = new Date(`${date}T00:00:00.000Z`)
@@ -45,6 +44,7 @@ export async function POST(req: NextRequest) {
       netSales, covers, foodCostDollars,
       foodCostPct: foodSales > 0 ? (foodCostDollars / foodSales) * 100 : null,
       checklist: { done: progress.done, total: progress.total },
+      stations: { signed: progress.stationsSigned, total: progress.stationsTotal },
       tempsReady: progress.tempsReady,
       signedOffByName: user.name ?? user.email ?? null,
       signedOffAt: signedOffAt.toISOString(),

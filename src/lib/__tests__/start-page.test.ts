@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildNeeds, prepProgress, unattendedCriticalPrep, tempNeeds, priceNeed, countNeed,
+  buildNeeds, checklistNeeds, checklistSummary, prepProgress, unattendedCriticalPrep, tempNeeds, priceNeed, countNeed,
   daysSinceCount, runningLow, dayTimeline, fmtTimeOfDay, fmtCountdown, fmtDurationWords, clockText,
   type StartPrepItem, type StartTempUnit, type NeedsInput,
 } from '../start-page'
@@ -15,6 +15,7 @@ const fridge = (over: Partial<StartTempUnit> & { id: string }): StartTempUnit =>
 
 const base: NeedsInput = {
   prep: [], temps: [], priceAlerts: [], recipeAlerts: [], invoicesAwaiting: 0, countDays: 1, serviceName: 'Brunch',
+  checklistFlags: [],
 }
 
 describe('prepProgress', () => {
@@ -123,8 +124,79 @@ describe('buildNeeds', () => {
     expect(needs[0]).toMatchObject({ title: '3 critical prep items — nobody on them', detail: 'A, B, C' })
   })
 
+  it('ranks a flagged checklist job with the before-doors items', () => {
+    const needs = buildNeeds({
+      ...base,
+      prep: [prep({ id: 'Hollandaise' })],
+      temps: [fridge({ id: 'Walk-in' }), fridge({ id: 'Reach-in', readings: [{ time: '07:00', temp: 9 }] })],
+      invoicesAwaiting: 2,
+      checklistFlags: [{ lineId: 'l1', title: 'Mixer guard broken', stationName: 'Pastry', byName: 'Ana' }],
+    })
+    expect(needs.map(n => [n.when, n.kind, n.id])).toEqual([
+      ['now', 'temp', 'temp-bad-Reach-in'],
+      ['now', 'checklist', 'checklist-l1'],
+      ['now', 'prep', 'prep-Hollandaise'],
+      ['now', 'temp', 'temp-missing'],
+      ['today', 'invoice', 'invoices'],
+    ])
+    expect(needs[1]).toMatchObject({
+      title: 'Mixer guard broken · flagged',
+      detail: 'Pastry · Ana',
+      href: '/checklist/today',
+    })
+  })
+
+  it('folds more than two flagged jobs into one row, like critical prep', () => {
+    const flag = (n: number) => ({ lineId: `l${n}`, title: `Job ${n}`, stationName: 'Grill', byName: null })
+    const needs = buildNeeds({ ...base, checklistFlags: [flag(1), flag(2), flag(3)] })
+    expect(needs).toHaveLength(1)
+    expect(needs[0]).toMatchObject({
+      kind: 'checklist', when: 'now', title: '3 flagged jobs', detail: 'Job 1, Job 2, Job 3', href: '/checklist/today',
+    })
+  })
+
   it('is empty on a clean morning', () => {
     expect(buildNeeds(base)).toEqual([])
+  })
+})
+
+describe('checklistNeeds', () => {
+  it('gives one now need per flag and leaves off a missing name', () => {
+    expect(checklistNeeds([
+      { lineId: 'a', title: 'Mixer guard broken', stationName: 'Pastry', byName: 'Ana' },
+      { lineId: 'b', title: 'Out of fryer oil', stationName: 'Fry', byName: null },
+    ])).toEqual([
+      { id: 'checklist-a', when: 'now', kind: 'checklist', title: 'Mixer guard broken · flagged', detail: 'Pastry · Ana', href: '/checklist/today', cta: 'Open board' },
+      { id: 'checklist-b', when: 'now', kind: 'checklist', title: 'Out of fryer oil · flagged', detail: 'Fry', href: '/checklist/today', cta: 'Open board' },
+    ])
+  })
+})
+
+describe('checklistSummary', () => {
+  const line = (status: 'TODO' | 'DONE' | 'FLAGGED', isBlocker = false) => ({ status, isBlocker })
+  const stations = [{ id: 'g', name: 'Grill' }, { id: 'f', name: 'Fry' }, { id: 'k', name: 'Whole kitchen' }]
+
+  it('asks the cook to pick a station first', () => {
+    expect(checklistSummary({ stations, mine: [], shared: null })).toEqual({ state: 'pick' })
+  })
+
+  it('joins the cook\'s stations; whole-kitchen blockers add to "before doors"', () => {
+    expect(checklistSummary({
+      stations,
+      mine: [
+        { stationId: 'g', status: 'OPEN', lines: [line('DONE'), line('TODO', true), line('TODO', true)] },
+        { stationId: 'f', status: 'OPEN', lines: [line('FLAGGED', true), line('TODO')] },
+      ],
+      shared: { lines: [line('DONE'), line('TODO', true), line('TODO')] },
+    })).toEqual({ state: 'doing', names: 'Grill + Fry', handled: 2, total: 5, blockersLeft: 3 })
+  })
+
+  it('is done once every one of the cook\'s runs is signed, whatever the whole-kitchen list says', () => {
+    const signed = { stationId: 'g', status: 'SIGNED' as const, lines: [line('DONE'), line('DONE'), line('TODO')] }
+    expect(checklistSummary({ stations, mine: [signed], shared: { lines: [line('TODO'), line('TODO', true)] } }))
+      .toEqual({ state: 'done', handled: 2, total: 3 })
+    const open = { stationId: 'f', status: 'OPEN' as const, lines: [line('DONE')] }
+    expect(checklistSummary({ stations, mine: [signed, open], shared: null }).state).toBe('doing')
   })
 })
 

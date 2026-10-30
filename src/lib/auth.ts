@@ -1,8 +1,12 @@
 import 'server-only'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { Role, User } from '@prisma/client'
-import { ROLE_RANK } from '@/lib/roles'
+import { ROLE_RANK, atLeast } from '@/lib/roles'
+import { PIN_DEVICE_COOKIE, isDeviceToken } from '@/lib/pin/http'
+import { hashToken } from '@/lib/pin/rules'
+import { PIN_PHONE_NEEDED } from '@/lib/pin/session-lost'
 
 export class AuthError extends Error {
   constructor(
@@ -34,12 +38,36 @@ async function devBypassUser(): Promise<User | null> {
   )
 }
 
+
+/**
+ * RULING P9 (a): a PIN account (auth `app_metadata.pinCookId`, which only the
+ * service role can write) is only good on a phone a manager OK'd for that
+ * cook. Without this, a PIN session could set itself a password and sign in
+ * anywhere. One indexed lookup on the (tokenHash, cookId) unique key; Remove
+ * phone (REVOKED) therefore takes effect on the very next request.
+ */
+async function assertApprovedPinPhone(pinCookId: unknown): Promise<void> {
+  if (typeof pinCookId !== 'string' || !pinCookId) throw new AuthError(401, PIN_PHONE_NEEDED)
+  const token = cookies().get(PIN_DEVICE_COOKIE)?.value
+  if (!isDeviceToken(token)) throw new AuthError(401, PIN_PHONE_NEEDED)
+  const device = await prisma.pinDevice.findUnique({
+    where: { tokenHash_cookId: { tokenHash: hashToken(token), cookId: pinCookId } },
+    select: { status: true },
+  })
+  if (device?.status !== 'APPROVED') throw new AuthError(401, PIN_PHONE_NEEDED)
+}
+
 /**
  * Verifies the current request has a valid Supabase session and returns
  * the corresponding Prisma User.
  *
  * Throws AuthError(401) if no session.
  * Throws AuthError(403) if user is inactive or below minRole.
+ *
+ * PIN accounts (RULING P9): the request must carry the `pin_device` cookie
+ * of a phone APPROVED for that cook (else 401), and the returned user's role
+ * is capped at LEAD — a PIN is printed on clock reports, so it never opens a
+ * manager-level session even if the login was promoted. Nothing is written.
  *
  * Usage in a Route Handler:
  *   import { requireSession, AuthError } from '@/lib/auth'
@@ -78,9 +106,16 @@ export async function requireSession(minRole?: Role): Promise<User> {
     throw new AuthError(403, 'Account is inactive or not found')
   }
 
-  if (minRole !== undefined && ROLE_RANK[user.role] < ROLE_RANK[minRole]) {
+  let effective: User = user
+  const pinCookId: unknown = authUser.app_metadata?.pinCookId
+  if (pinCookId !== undefined && pinCookId !== null) {
+    await assertApprovedPinPhone(pinCookId)
+    if (atLeast(user.role, 'MANAGER')) effective = { ...user, role: 'LEAD' }
+  }
+
+  if (minRole !== undefined && ROLE_RANK[effective.role] < ROLE_RANK[minRole]) {
     throw new AuthError(403, 'Insufficient permissions')
   }
 
-  return user
+  return effective
 }

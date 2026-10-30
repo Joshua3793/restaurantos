@@ -7,6 +7,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
 import { recordAccessEvent } from '@/lib/access-audit'
 import { findAuthUserByEmail, hasAcceptedInvite, isAlreadyRegisteredError } from '@/lib/users'
+import { atLeast } from '@/lib/roles'
+import { isPinEmail } from '@/lib/pin/rules'
+import { PIN_EMAIL_NOT_INVITABLE, PIN_NEEDS_EMAIL_LOGIN } from '@/lib/pin/people'
 
 export interface InviteOptions {
   email: string
@@ -35,6 +38,10 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
   // pooler, an audit write failure, …) must be reported as this email's own
   // outcome, never abort a caller's wider loop.
   try {
+    // RULING P9: the PIN sign-in domain is never an email login. The routes
+    // refuse it with 400 first; this keeps every caller of inviteOne honest.
+    if (isPinEmail(email)) return { email, status: 'failed', error: PIN_EMAIL_NOT_INVITABLE }
+
     const inviteMeta = { role, isActive: true, name }
 
     const sendInvite = async (action: 'INVITED' | 'REINVITED') => {
@@ -85,6 +92,13 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
     })
     if (existingPrismaUser?.role === 'OWNER') {
       return { email, status: 'failed', error: 'The owner cannot be changed. Transfer ownership first.' }
+    }
+
+    // RULING P9: a PIN-stamped account (app_metadata only the service role can
+    // write) is never raised above LEAD by a re-invite or reactivation.
+    const pinStamp = existing.app_metadata?.pinCookId
+    if (pinStamp !== undefined && pinStamp !== null && atLeast(role, 'MANAGER')) {
+      return { email, status: 'failed', error: PIN_NEEDS_EMAIL_LOGIN }
     }
 
     if (!hasAcceptedInvite(existing)) {
