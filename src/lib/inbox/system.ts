@@ -25,8 +25,17 @@ const GLOBAL_SYNC_KEY = '__global__'
 const DAY_MS = 24 * 60 * 60 * 1000
 const PRICE_PREFIX = 'price:'
 const CLOSE_PREFIX = 'close-unsigned:'
-/** A person-closed item is re-armed only if it was closed within this many days. */
+/**
+ * A person-closed daily item is re-armed only if it was closed within this
+ * many days. The rolling, undated keys (REARM_ALWAYS) re-arm at any age.
+ */
 const REARM_LOOKBACK_DAYS = 30
+/**
+ * Undated keys that live forever, one per kitchen: their condition can stay
+ * present for longer than the lookback after a person closes them, so they
+ * are always read back for re-arming — or the alert would go silent for good.
+ */
+const REARM_ALWAYS = ['invoices:', 'count-stale:'] as const
 /** How far back a NEW price rise is filed (older unacknowledged ones stay behind the bell). */
 const PRICE_LOOKBACK_DAYS = 14
 /** The two days before the current closing shift. */
@@ -369,11 +378,17 @@ export async function applyConditions(rcId: string | null, input: ConditionsInpu
       OR: [
         ...(presentKeys.length ? [{ sourceKey: { in: presentKeys } }] : []),
         { status: { not: 'DONE' }, OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] },
-        // Closed by a person recently and not yet re-armed (ownsItem narrows it below).
+        // Closed by a person and not yet re-armed: recently, or any time for a
+        // rolling key (at most one row per kitchen each). ownsItem narrows it below.
         {
           status: 'DONE', clearedAt: null,
-          doneAt: { gte: new Date(now.getTime() - REARM_LOOKBACK_DAYS * DAY_MS) },
           OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }],
+          AND: [{
+            OR: [
+              { doneAt: { gte: new Date(now.getTime() - REARM_LOOKBACK_DAYS * DAY_MS) } },
+              ...REARM_ALWAYS.map(prefix => ({ sourceKey: { startsWith: prefix } })),
+            ],
+          }],
         },
       ],
     },

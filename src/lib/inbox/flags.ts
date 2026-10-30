@@ -133,7 +133,13 @@ export async function syncFlagItem(
     return
   }
 
-  await tx.inboxItem.update({ where: { id: existing.id }, data: fields })
+  // Still open: refresh what the cook wrote, but never the tag. A manager may
+  // have re-filed it (e.g. into Money, which LEAD cannot see); a cook editing
+  // their note must not move it back.
+  await tx.inboxItem.update({
+    where: { id: existing.id },
+    data: { severity: fields.severity, title: fields.title, body: fields.body },
+  })
 }
 
 /**

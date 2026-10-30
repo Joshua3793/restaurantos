@@ -3,7 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
 import { ensureInboxSeeded, loadTags } from '@/lib/inbox/tags'
 import { syncSystemItems } from '@/lib/inbox/system'
-import { loadItems, loadCounts, visibleTags, InboxError, type ListStatus } from '@/lib/inbox/store'
+import { loadItems, loadCounts, visibleTags, assertKitchenExists, InboxError, type ListStatus } from '@/lib/inbox/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
       throw new AuthError(403, 'Revenue center is outside your access.')
     }
 
+    await assertKitchenExists(rcId) // before the sync: its throttle is keyed on rcId
     await ensureInboxSeeded()
     await syncSystemItems(rcId)
     const now = new Date()

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { matchWhere } from '@/test/match-where'
 
 // ── A tiny in-memory Inbox behind a mocked Prisma ──────────────────────────
 
@@ -14,6 +15,7 @@ let items: Item[] = []
 let events: Event[] = []
 let syncRows: Map<string, Date>
 let seq = 0
+let honestRead = false
 
 const P2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' })
 
@@ -45,8 +47,10 @@ const itemFindMany = vi.fn(async (a: { where: FindWhere }) => {
     return items.filter(i => i.source === 'SYSTEM' && i.sourceKey?.startsWith(w.sourceKey!.startsWith!) && i.status !== 'DONE')
   }
   if (w.sourceKey?.in) return items.filter(i => i.sourceKey && w.sourceKey!.in!.includes(i.sourceKey))
-  // The sync's "existing" read. Deliberately over-fetch every SYSTEM item, from
-  // every kitchen: the ownership guard — not the query — must keep rc B safe.
+  // The sync's "existing" read. By default, deliberately over-fetch every
+  // SYSTEM item, from every kitchen: the ownership guard — not the query —
+  // must keep rc B safe. `honestRead` makes it apply the query as Postgres would.
+  if (honestRead) return items.filter(i => matchWhere(i as unknown as Record<string, unknown>, w as Record<string, unknown>))
   return items.filter(i => i.source === 'SYSTEM')
 })
 const itemCreateMany = vi.fn(async (a: { data: Item[]; skipDuplicates: boolean }) => {
@@ -156,6 +160,7 @@ beforeEach(() => {
   items = []
   events = []
   seq = 0
+  honestRead = false
   syncRows = new Map()
   countFindFirst.mockResolvedValue({ status: 'FINALIZED', finalizedAt: new Date(NOW.getTime() - 86_400_000) })
   countInvoicesAwaiting.mockResolvedValue(0)
@@ -311,8 +316,15 @@ describe('syncSystemItems — reconcile', () => {
         { sourceKey: { in: ['invoices:rcA'] } },
         { status: { not: 'DONE' }, OR: [{ revenueCenterId: 'rcA' }, { revenueCenterId: null }] },
         {
-          status: 'DONE', clearedAt: null, doneAt: { gte: new Date(NOW.getTime() - 30 * 86_400_000) },
+          status: 'DONE', clearedAt: null,
           OR: [{ revenueCenterId: 'rcA' }, { revenueCenterId: null }],
+          AND: [{
+            OR: [
+              { doneAt: { gte: new Date(NOW.getTime() - 30 * 86_400_000) } },
+              { sourceKey: { startsWith: 'invoices:' } },
+              { sourceKey: { startsWith: 'count-stale:' } },
+            ],
+          }],
         },
       ],
     })
@@ -406,6 +418,49 @@ describe('syncSystemItems — a person-closed alert comes back', () => {
     expect(find('count-stale:rcA')!.clearedAt).toEqual(NOW)
   })
 
+  // Read the real query (no over-fetch), a minute apart so the throttle lets each sync run.
+  const DAY = 86_400_000
+  const at = (days: number) => new Date(NOW.getTime() + days * DAY)
+  const finalizedDaysBefore = (when: Date, days: number) =>
+    countFindFirst.mockResolvedValue({ status: 'FINALIZED', finalizedAt: new Date(when.getTime() - days * DAY) })
+
+  it('count-stale: closed by a person, stale for 40 days, then counted — re-arms and comes back', async () => {
+    honestRead = true
+    // Day 0: "Count is 5 days old", marked done by a manager.
+    items.push(item({ sourceKey: 'count-stale:rcA', status: 'DONE', doneById: 'u-mgr', doneByName: 'Max', doneAt: NOW }))
+    // Day 33: still stale, and the manager's close is now older than 30 days.
+    finalizedDaysBefore(at(33), 38)
+    await syncSystemItems('rcA', at(33))
+    expect(find('count-stale:rcA')).toMatchObject({ status: 'DONE', clearedAt: null })
+    // Day 40: the kitchen counts. The old close must still be found and re-armed.
+    finalizedDaysBefore(at(40), 0)
+    await syncSystemItems('rcA', at(40))
+    expect(find('count-stale:rcA')!.clearedAt).toEqual(at(40))
+    // Day 47: stale again — the alert comes back.
+    finalizedDaysBefore(at(47), 7)
+    await syncSystemItems('rcA', at(47))
+    expect(find('count-stale:rcA')).toMatchObject({ status: 'OPEN', clearedAt: null, doneById: null })
+    expect(eventsFor('count-stale:rcA').map(e => e.kind)).toEqual(['REOPENED'])
+  })
+
+  it('invoices: a backlog older than 30 days after the close still re-arms once cleared', async () => {
+    honestRead = true
+    items.push(item({ sourceKey: 'invoices:rcA', status: 'DONE', doneById: 'u-mgr', doneAt: NOW, title: '2 invoices to approve' }))
+    countInvoicesAwaiting.mockResolvedValue(0)
+    await syncSystemItems('rcA', at(45))
+    expect(find('invoices:rcA')!.clearedAt).toEqual(at(45))
+    countInvoicesAwaiting.mockResolvedValue(1)
+    await syncSystemItems('rcA', at(46))
+    expect(find('invoices:rcA')).toMatchObject({ status: 'OPEN', title: '1 invoice to approve' })
+  })
+
+  it('a daily key closed more than 30 days ago is left alone (the lookback still holds)', async () => {
+    honestRead = true
+    items.push(item({ sourceKey: 'temp-missing:rcA:2026-09-01', status: 'DONE', doneById: 'u-mgr', doneAt: at(-40) }))
+    await syncSystemItems('rcA', NOW)
+    expect(find('temp-missing:rcA:2026-09-01')!.clearedAt).toBeNull()
+  })
+
   it('never re-arms another kitchen’s person-closed item', async () => {
     items.push(item({ sourceKey: 'invoices:rcB', revenueCenterId: 'rcB', status: 'DONE', doneById: 'u-mgr', doneAt: NOW }))
     await syncSystemItems('rcA', NOW)
@@ -448,5 +503,17 @@ describe('syncSystemItems — every clear says why', () => {
     await syncSystemItems('rcA', NOW)
     expect(noteOf('close-unsigned:r1')).toBe(CLEAR_NOTES.closeAged)
     expect(noteOf('close-unsigned:r2')).toBe(CLEAR_NOTES.resolved)
+  })
+
+  it('a failed age check leaves the closing items as they are — no false "Cleared itself"', async () => {
+    items.push(item({ sourceKey: 'close-unsigned:r1' }))
+    runFindMany.mockImplementation(async (a?: unknown) => {
+      if ((a as { where: { id?: unknown } }).where.id) throw new Error('timeout')
+      return [] // the window read worked: r1 is no longer in it
+    })
+    await syncSystemItems('rcA', NOW)
+    expect(find('close-unsigned:r1')!.status).toBe('OPEN')
+    expect(eventsFor('close-unsigned:r1')).toEqual([])
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('source=closeAged'), expect.any(Error))
   })
 })

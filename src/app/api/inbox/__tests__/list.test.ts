@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { NextRequest } from 'next/server'
+import { matchWhere } from '@/test/match-where'
 
 class MockAuthError extends Error {
   constructor(public readonly status: 401 | 403, message: string) {
@@ -21,6 +22,11 @@ const itemGroupBy = vi.fn()
 const itemCount = vi.fn()
 const tagCount = vi.fn(async () => 9)
 const tagFindMany = vi.fn()
+/** Real kitchens: rc1 (on) and rc-off (switched off). */
+const rcFindFirst = vi.fn(async (a: unknown) => {
+  const w = (a as { where: { id: string; isActive?: boolean } }).where
+  return w.id === 'rc1' ? { id: 'rc1' } : null
+})
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -31,6 +37,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: (...a: unknown[]) => tagFindMany(...a),
     },
     inboxFlagRoute: { createMany: async () => ({ count: 0 }) },
+    revenueCenter: { findFirst: (...a: unknown[]) => rcFindFirst(...a) },
     inboxItem: {
       findMany: (...a: unknown[]) => itemFindMany(...a),
       groupBy: (...a: unknown[]) => itemGroupBy(...a),
@@ -116,6 +123,16 @@ describe('GET /api/inbox', () => {
     expect(itemFindMany).not.toHaveBeenCalled()
   })
 
+  it('404 for a kitchen that does not exist (or is switched off): no sync, no list', async () => {
+    for (const rc of ['rc-made-up', 'rc-off']) {
+      const res = await listRoute.GET(req(`?rcId=${rc}`))
+      expect(res.status).toBe(404)
+    }
+    expect(rcFindFirst).toHaveBeenCalledWith({ where: { id: 'rc-made-up', isActive: true }, select: { id: true } })
+    expect(syncSystemItems).not.toHaveBeenCalled()
+    expect(itemFindMany).not.toHaveBeenCalled()
+  })
+
   it('syncs the app’s alerts, then lists this kitchen + whole-house items, open only', async () => {
     await listRoute.GET(req('?rcId=rc1'))
     expect(syncSystemItems).toHaveBeenCalledWith('rc1')
@@ -186,6 +203,22 @@ describe('GET /api/inbox', () => {
     ]))
   })
 
+  it('done ages a person-closed item by when they closed it, not by a later re-arm stamp', async () => {
+    await listRoute.GET(req('?rcId=rc1&status=done'))
+    const where = (itemFindMany.mock.calls[0][0] as { where: { AND: Record<string, unknown>[] } }).where
+    const done = where.AND.find(w => w.status === 'DONE')!
+    const day = 86_400_000
+    // "Count is 5 days old" marked done 25 days ago; re-armed by the sync yesterday.
+    const rearmed = { status: 'DONE', doneAt: new Date(NOW - 25 * day), clearedAt: new Date(NOW - day) }
+    // Closed by a person 3 days ago (and re-armed since): still in Done.
+    const recent = { status: 'DONE', doneAt: new Date(NOW - 3 * day), clearedAt: new Date(NOW - day) }
+    // Cleared itself 2 days ago (no person): in Done.
+    const cleared = { status: 'DONE', doneAt: null, clearedAt: new Date(NOW - 2 * day) }
+    expect(matchWhere(rearmed, done)).toBe(false)
+    expect(matchWhere(recent, done)).toBe(true)
+    expect(matchWhere(cleared, done)).toBe(true)
+  })
+
   it('returns open + snoozed + done totals', async () => {
     itemGroupBy.mockResolvedValue([
       { tagId: 'tag-food_safety', _count: { _all: 2 } },
@@ -242,6 +275,16 @@ describe('GET /api/inbox/count', () => {
     const res = await countRoute.GET(creq(''))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'rcId required' })
+  })
+
+  it('a made-up kitchen id never gets past the throttle: 404 before any sync', async () => {
+    // isRcInScope says yes to any id for an unscoped user — so check the kitchen itself.
+    for (let n = 0; n < 3; n++) {
+      const res = await countRoute.GET(creq(`?rcId=junk-${n}`))
+      expect(res.status).toBe(404)
+    }
+    expect(syncSystemItems).not.toHaveBeenCalled()
+    expect(itemFindMany).not.toHaveBeenCalled()
   })
 
   it('LEAD: open NOW + TODAY items they can see — never a manager-only one', async () => {

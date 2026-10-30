@@ -65,10 +65,32 @@ function isFiveAmOn(d: Date, ymd: string): boolean {
   return pacificDate(d) === ymd && get('hour') === 5 && get('minute') === 0
 }
 
-/** 05:00 Pacific on the next Pacific calendar day (DST-safe). */
+/** The Pacific wall-clock hour (0–23) of `d`. */
+function pacificHour(d: Date): number {
+  const h = new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' })
+    .formatToParts(d).find(p => p.type === 'hour')?.value
+  return Number(h)
+}
+
+/** The hour the business day starts (see shiftBusinessDate / defaultPhase). */
+const DAY_STARTS_AT = 5
+
+/**
+ * Before 05:00 Pacific: the close crew is still on yesterday's business day
+ * (shiftBusinessDate('CLOSE') is still yesterday), so today has not started.
+ */
+export function beforeOpening(now: Date): boolean {
+  return pacificHour(now) < DAY_STARTS_AT
+}
+
+/**
+ * The next 05:00 Pacific — the coming opening (DST-safe). Before 05:00 that is
+ * this Pacific date (a closer snoozing at 00:30 wakes at this morning's
+ * opening, not a day later); from 05:00 on it is the next Pacific date.
+ */
 export function snoozeUntilTomorrow(now: Date): Date {
   const [y, m, d] = pacificDate(now).split('-').map(Number)
-  const next = new Date(Date.UTC(y, m - 1, d + 1))
+  const next = new Date(Date.UTC(y, m - 1, beforeOpening(now) ? d : d + 1))
   const ymd = next.toISOString().slice(0, 10)
   // Pacific is UTC-7 (PDT) or UTC-8 (PST): 05:00 local is 12:00Z or 13:00Z.
   for (const offset of [7, 8]) {

@@ -52,6 +52,24 @@ describe('collectConditions — temps', () => {
     expect(c.revenueCenterId).toBeNull()
   })
 
+  it('temp-missing waits for the business day to start at 05:00 (no alert for the close crew after midnight)', () => {
+    const at = (iso: string) => {
+      const now = new Date(iso)
+      return collectConditions({ rcId: 'rcA', now, date: '2026-10-31', temps: [unit()] }).map(c => c.sourceKey)
+    }
+    expect(at('2026-10-31T07:05:00Z')).toEqual([]) // 00:05 PDT Sat — the close crew
+    expect(at('2026-10-31T11:59:00Z')).toEqual([]) // 04:59
+    expect(at('2026-10-31T12:00:00Z')).toEqual(['temp-missing:rcA:2026-10-31']) // 05:00 — opening
+  })
+
+  it('a bad reading still raises before 05:00 (only the not-logged alert waits)', () => {
+    const conds = collectConditions({
+      rcId: 'rcA', now: new Date('2026-10-31T08:00:00Z'), date: '2026-10-31',
+      temps: [unit({ readings: [{ time: '00:50', temp: 9 }] })],
+    })
+    expect(conds.map(c => c.sourceKey)).toEqual(['temp-bad:u1:2026-10-31'])
+  })
+
   it('no kitchen → no temp-missing', () => {
     expect(collectConditions(base({ rcId: null, temps: [unit()] }))).toEqual([])
   })
@@ -186,7 +204,7 @@ describe('collectConditions — phones', () => {
 
 describe('which items a sync may clear', () => {
   const everything = base({
-    temps: [], stations: { phase: 'OPEN', businessDate: DATE, list: [] }, closeRuns: [], prep: [],
+    temps: [], stations: { phase: 'OPEN', businessDate: DATE, list: [] }, closeRuns: [], closeAged: [], prep: [],
     priceAlerts: [], invoices: { awaiting: 0 }, count: { days: 1 }, phones: [],
   })
 
@@ -218,6 +236,12 @@ describe('which items a sync may clear', () => {
     const loaded = loadedFamilies(base({ invoices: { awaiting: 0 } }))
     expect(ownsItem({ sourceKey: 'invoices:rcA', revenueCenterId: 'rcA' }, 'rcA', loaded)).toBe(true)
     expect(ownsItem({ sourceKey: 'count-stale:rcA', revenueCenterId: 'rcA' }, 'rcA', loaded)).toBe(false)
+  })
+
+  it('close-unsigned clears only when the age check loaded too (else it would claim "Cleared itself")', () => {
+    const key = { sourceKey: 'close-unsigned:r1', revenueCenterId: 'rcA' }
+    expect(ownsItem(key, 'rcA', loadedFamilies(base({ closeRuns: [] })))).toBe(false)
+    expect(ownsItem(key, 'rcA', loadedFamilies(base({ closeRuns: [], closeAged: [] })))).toBe(true)
   })
 
   it('flag and unknown keys are never the system sync’s', () => {

@@ -2,7 +2,7 @@
 // system sync has already read. One Condition per live alert, keyed so the
 // same alert always lands on the same item (see the spec's "Where items come
 // from" table). No Prisma, no React — the sync in ./system.ts does the I/O.
-import type { Severity } from '@/lib/inbox/rules'
+import { beforeOpening, type Severity } from '@/lib/inbox/rules'
 import type { Phase } from '@/lib/checklists/rules'
 import { PENDING_MAX_AGE_MS } from '@/lib/pin/rules'
 import {
@@ -124,7 +124,11 @@ function tempConditions(input: ConditionsInput, units: TempUnitIn[]): Condition[
         managerOnly: false,
         revenueCenterId: unit.revenueCenterId,
       })
-    } else if (need.id === 'temp-missing' && input.rcId) {
+    } else if (need.id === 'temp-missing' && input.rcId && !beforeOpening(input.now)) {
+      // "Cold units not logged today" waits for today's business day to start
+      // (05:00): just after midnight the close crew is still on yesterday, and
+      // nobody logs the new day's temps until opening. An item already open
+      // still clears as usual (its family is loaded either way).
       out.push({
         sourceKey: `temp-missing:${input.rcId}:${input.date}`,
         tagBuiltIn: 'FOOD_SAFETY',
@@ -282,7 +286,10 @@ export function loadedFamilies(input: ConditionsInput): Set<Family> {
     if (input.rcId) f.add('temp-missing')
   }
   if (input.stations && input.rcId) f.add('station-open')
-  if (input.closeRuns && input.rcId) f.add('close-unsigned')
+  // Both halves are needed to clear one honestly: closeRuns says it is gone
+  // from the window, closeAged says whether it was signed or just aged out.
+  // Without the age check a clear would claim "Cleared itself" (Ruling Q4).
+  if (input.closeRuns && input.closeAged && input.rcId) f.add('close-unsigned')
   if (input.prep) f.add('prep')
   if (input.priceAlerts) f.add('price')
   if (input.invoices && input.rcId) f.add('invoices')

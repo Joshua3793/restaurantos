@@ -32,6 +32,17 @@ export class InboxError extends Error {
   }
 }
 
+/**
+ * The kitchen must exist (and be switched on) before anything syncs for it.
+ * `isRcInScope` lets an unscoped user through with any string, and the sync's
+ * once-a-minute throttle is keyed on the rcId — so a made-up id would get a
+ * fresh full sync (and a junk throttle row) on every call.
+ */
+export async function assertKitchenExists(rcId: string): Promise<void> {
+  const rc = await prisma.revenueCenter.findFirst({ where: { id: rcId, isActive: true }, select: { id: true } })
+  if (!rc) throw new InboxError(404, 'Kitchen not found.')
+}
+
 export type ItemView = ItemLite & {
   title: string
   body: string | null
@@ -175,10 +186,15 @@ const snoozedWhere = (now: Date): Prisma.InboxItemWhereInput => ({ status: 'SNOO
 const statusWhere = (status: ListStatus, now: Date): Prisma.InboxItemWhereInput =>
   status === 'done' ? doneWhere(now) : status === 'snoozed' ? snoozedWhere(now) : openWhere(now)
 
-/** DONE in the lookback window — by a person (doneAt) or by itself (clearedAt). */
+/**
+ * DONE in the lookback window — by a person (aged by doneAt) or by itself
+ * (aged by clearedAt). A person-closed item ages by doneAt only: the system
+ * sync later stamps clearedAt on it to re-arm the alert, and that stamp must
+ * not pull a weeks-old item back into Done.
+ */
 const doneWhere = (now: Date): Prisma.InboxItemWhereInput => {
   const since = new Date(now.getTime() - LOOKBACK_DAYS * DAY_MS)
-  return { status: 'DONE', OR: [{ doneAt: { gte: since } }, { clearedAt: { gte: since } }] }
+  return { status: 'DONE', OR: [{ doneAt: { gte: since } }, { doneAt: null, clearedAt: { gte: since } }] }
 }
 
 // ── reads ──────────────────────────────────────────────────────────────────

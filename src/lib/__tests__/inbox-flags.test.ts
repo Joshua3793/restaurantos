@@ -118,10 +118,21 @@ describe('syncFlagItem — a flagged job', () => {
     await sync(flagged({ flagReason: 'OTHER', flagNote: 'new note' }))
     expect(itemUpdate).toHaveBeenCalledWith({
       where: { id: 'i1' },
-      data: { tagId: 'tag-checklists', severity: 'NOW', title: 'Walk-in temp · Flagged', body: 'new note', managerOnly: false },
+      data: { severity: 'NOW', title: 'Walk-in temp · Flagged', body: 'new note' },
     })
     expect(eventCreate).not.toHaveBeenCalled()
     expect(itemCreate).not.toHaveBeenCalled()
+  })
+
+  it('a cook re-saving their flag never undoes a manager re-filing it into Money', async () => {
+    // A manager moved the open item into Money (manager-only). The cook then
+    // edits their note on the same line: the item must stay where it was put.
+    itemFind.mockResolvedValue({ id: 'i1', status: 'OPEN', tagId: 'tag-money', managerOnly: true })
+    await sync(flagged({ flagNote: 'still no gloves' }))
+    const data = itemUpdate.mock.calls[0][0].data
+    expect(data).not.toHaveProperty('tagId')
+    expect(data).not.toHaveProperty('managerOnly')
+    expect(data).toMatchObject({ body: 'still no gloves' })
   })
 })
 

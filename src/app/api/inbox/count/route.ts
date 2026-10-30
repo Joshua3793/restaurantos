@@ -3,7 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { atLeast } from '@/lib/roles'
 import { isRcInScope } from '@/lib/rc-scope'
 import { syncSystemItems } from '@/lib/inbox/system'
-import { leadBadge, staffBadge } from '@/lib/inbox/store'
+import { leadBadge, staffBadge, assertKitchenExists, InboxError } from '@/lib/inbox/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,10 +23,13 @@ export async function GET(req: NextRequest) {
     if (!atLeast(user.role, 'LEAD')) {
       return NextResponse.json({ count: await staffBadge(user) })
     }
+    await assertKitchenExists(rcId) // before the sync: its throttle is keyed on rcId
     await syncSystemItems(rcId)
     return NextResponse.json({ count: await leadBadge(user, rcId) })
   } catch (e) {
-    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    if (e instanceof AuthError || e instanceof InboxError) {
+      return NextResponse.json({ error: e.message }, { status: e.status })
+    }
     console.error('GET /api/inbox/count', e)
     return NextResponse.json({ error: 'Failed to load' }, { status: 500 })
   }

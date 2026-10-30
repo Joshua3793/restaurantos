@@ -52,18 +52,37 @@ describe('reconcile', () => {
 })
 
 describe('snoozeUntilTomorrow', () => {
-  it('is 05:00 PDT the next Pacific day', () => {
-    expect(snoozeUntilTomorrow(new Date('2026-10-30T07:52:00Z')).toISOString()).toBe('2026-10-31T12:00:00.000Z')
+  // The business day rolls at 05:00 Pacific: before then, "tomorrow" is the
+  // coming opening (same Pacific date); from 05:00 on, the next day's.
+  it('from 05:00 on, is 05:00 the next Pacific day', () => {
+    // 2026-10-30T16:52Z is 09:52 PDT Fri -> Sat 05:00 PDT
+    expect(snoozeUntilTomorrow(new Date('2026-10-30T16:52:00Z')).toISOString()).toBe('2026-10-31T12:00:00.000Z')
+    // 2026-10-31T06:30Z is 23:30 PDT Fri -> Sat 05:00 PDT
+    expect(snoozeUntilTomorrow(new Date('2026-10-31T06:30:00Z')).toISOString()).toBe('2026-10-31T12:00:00.000Z')
   })
-  it('is 05:00 PST after the fall back', () => {
-    // Nov 1 2026 11:00 PST (fall-back day) -> Nov 2 05:00 PST
+  it('a closer snoozing at 00:30 wakes at this morning’s opening, not a day later', () => {
+    // 2026-10-31T07:30Z is 00:30 PDT Sat -> Sat 05:00 PDT (4.5 h later)
+    expect(snoozeUntilTomorrow(new Date('2026-10-31T07:30:00Z')).toISOString()).toBe('2026-10-31T12:00:00.000Z')
+  })
+  it('04:59 still wakes the same morning; 05:00 sharp moves to the next day', () => {
+    expect(snoozeUntilTomorrow(new Date('2026-10-31T11:59:00Z')).toISOString()).toBe('2026-10-31T12:00:00.000Z')
+    expect(snoozeUntilTomorrow(new Date('2026-10-31T12:00:00Z')).toISOString()).toBe('2026-11-01T13:00:00.000Z')
+  })
+  it('on the fall-back day (Nov 1 2026)', () => {
+    // 00:30 PDT Nov 1 (07:30Z) -> 05:00 PST Nov 1 (13:00Z), same Pacific day
+    expect(snoozeUntilTomorrow(new Date('2026-11-01T07:30:00Z')).toISOString()).toBe('2026-11-01T13:00:00.000Z')
+    // 01:30 PST, the repeated hour (09:30Z) -> still 05:00 PST Nov 1
+    expect(snoozeUntilTomorrow(new Date('2026-11-01T09:30:00Z')).toISOString()).toBe('2026-11-01T13:00:00.000Z')
+    // 11:00 PST Nov 1 -> 05:00 PST Nov 2
     expect(snoozeUntilTomorrow(new Date('2026-11-01T19:00:00Z')).toISOString()).toBe('2026-11-02T13:00:00.000Z')
   })
-  it('uses the Pacific date, not the UTC date, near midnight', () => {
-    // 2026-11-01T06:30Z is 23:30 PDT on Oct 31 -> Nov 1 05:00 PST (the day after the fall back began)
-    expect(snoozeUntilTomorrow(new Date('2026-11-01T06:30:00Z')).toISOString()).toBe('2026-11-01T13:00:00.000Z')
-    // 2026-10-31T08:30Z is 01:30 PDT on Oct 31 -> Nov 1 05:00 PST
-    expect(snoozeUntilTomorrow(new Date('2026-10-31T08:30:00Z')).toISOString()).toBe('2026-11-01T13:00:00.000Z')
+  it('on the spring-forward day (Mar 14 2027)', () => {
+    // 00:30 PST Mar 14 (08:30Z) -> 05:00 PDT Mar 14 (12:00Z)
+    expect(snoozeUntilTomorrow(new Date('2027-03-14T08:30:00Z')).toISOString()).toBe('2027-03-14T12:00:00.000Z')
+    // 03:30 PDT Mar 14, just after the jump (10:30Z) -> 05:00 PDT Mar 14
+    expect(snoozeUntilTomorrow(new Date('2027-03-14T10:30:00Z')).toISOString()).toBe('2027-03-14T12:00:00.000Z')
+    // 22:00 PST Mar 13 (06:00Z Mar 14) -> 05:00 PDT Mar 14
+    expect(snoozeUntilTomorrow(new Date('2027-03-14T06:00:00Z')).toISOString()).toBe('2027-03-14T12:00:00.000Z')
   })
 })
 
