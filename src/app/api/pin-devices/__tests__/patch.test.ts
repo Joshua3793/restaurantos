@@ -33,10 +33,18 @@ const { GET } = await import('@/app/api/pin-devices/route')
 const patch = (body: unknown, id = 'd1') =>
   PATCH({ json: async () => body } as unknown as NextRequest, { params: { id } })
 
+const pendingDevice = (over: Record<string, unknown> = {}, cookOver: Record<string, unknown> = {}) => ({
+  id: 'd1',
+  status: 'PENDING',
+  createdAt: new Date(Date.now() - 60_000),
+  cook: { isActive: true, user: { role: 'STAFF', isActive: true }, ...cookOver },
+  ...over,
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   requireSession.mockResolvedValue({ id: 'm1', name: 'Leo', email: 'leo@x.ca', role: 'MANAGER' })
-  deviceFindUnique.mockResolvedValue({ id: 'd1' })
+  deviceFindUnique.mockResolvedValue(pendingDevice())
   deviceUpdateMany.mockResolvedValue({ count: 1 })
 })
 
@@ -64,6 +72,42 @@ describe('PATCH /api/pin-devices/[id]', () => {
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'Already handled' })
     expect(deviceUpdateMany.mock.calls[0][0].where).toEqual({ id: 'd1', status: 'PENDING' })
+  })
+
+  it('approving a phone with no linked login is allowed (the PIN flow creates it)', async () => {
+    deviceFindUnique.mockResolvedValue(pendingDevice({}, { user: null }))
+    expect((await patch({ action: 'approve' })).status).toBe(200)
+  })
+
+  it.each([
+    ['a manager', pendingDevice({}, { user: { role: 'MANAGER', isActive: true } }), 'Managers sign in with email and password'],
+    ['an owner', pendingDevice({}, { user: { role: 'OWNER', isActive: true } }), 'Managers sign in with email and password'],
+    ['a switched-off login', pendingDevice({}, { user: { role: 'STAFF', isActive: false } }), 'This login is switched off'],
+    ['a switched-off cook', pendingDevice({}, { isActive: false }), 'This cook is switched off'],
+    [
+      'a request over 24 h old',
+      pendingDevice({ createdAt: new Date(Date.now() - 25 * 3_600_000) }),
+      'This request is too old — ask them to try again on their phone',
+    ],
+  ])('approve refuses %s with 409 and writes nothing', async (_n, device, message) => {
+    deviceFindUnique.mockResolvedValue(device)
+    const res = await patch({ action: 'approve' })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: message })
+    expect(deviceUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('approves a request just under 24 h old', async () => {
+    deviceFindUnique.mockResolvedValue(pendingDevice({ createdAt: new Date(Date.now() - 23 * 3_600_000) }))
+    expect((await patch({ action: 'approve' })).status).toBe(200)
+  })
+
+  it('reject and revoke are not blocked by those checks', async () => {
+    deviceFindUnique.mockResolvedValue(
+      pendingDevice({ createdAt: new Date(Date.now() - 48 * 3_600_000) }, { isActive: false, user: { role: 'MANAGER', isActive: false } }),
+    )
+    expect((await patch({ action: 'reject' })).status).toBe(200)
+    expect((await patch({ action: 'revoke' })).status).toBe(200)
   })
 
   it('reject moves PENDING → REJECTED and leaves the approver fields alone', async () => {
@@ -125,7 +169,7 @@ const dev = (id: string, status: string, ageDays: number, extra: Record<string, 
   id, status, label: 'iPhone', createdAt: new Date(NOW - ageDays * 86_400_000), lastUsedAt: null, approvedByName: null, ...extra,
 })
 const cook = (id: string, name: string, over: Record<string, unknown> = {}) => ({
-  id, name, lastName: null, homeStation: null, clockId: '1111', sortOrder: 0, pinDevices: [], ...over,
+  id, name, lastName: null, homeStation: null, clockId: '1111', sortOrder: 0, user: null, pinDevices: [], ...over,
 })
 
 describe('GET /api/pin-devices', () => {
@@ -183,5 +227,29 @@ describe('GET /api/pin-devices', () => {
     ])
     const body = await (await GET()).json()
     expect(body.crew[0].devices.map((x: { id: string }) => x.id)).toEqual(['new', 'old'])
+  })
+
+  it('marks managers and switched-off logins as blocked and keeps their phones out of pending', async () => {
+    cookFindMany.mockResolvedValue([
+      cook('m', 'Mia', { user: { role: 'MANAGER', isActive: true }, pinDevices: [dev('dm', 'PENDING', 1)] }),
+      cook('s', 'Sid', { user: { role: 'STAFF', isActive: false }, pinDevices: [dev('ds', 'PENDING', 1)] }),
+      cook('l', 'Lou', { user: { role: 'LEAD', isActive: true }, pinDevices: [dev('dl', 'PENDING', 1)] }),
+      cook('n', 'Nia'),
+    ])
+    const body = await (await GET()).json()
+    expect(cookFindMany.mock.calls[0][0].select.user).toEqual({ select: { role: true, isActive: true } })
+    expect(body.pending.map((p: { id: string }) => p.id)).toEqual(['dl'])
+    const by = Object.fromEntries(body.crew.map((c: { cookId: string }) => [c.cookId, c]))
+    expect(by.m).toMatchObject({ blocked: 'MANAGER', status: { label: 'EMAIL LOGIN', tone: 'grey' } })
+    expect(by.s).toMatchObject({ blocked: 'SWITCHED_OFF', status: { label: 'SWITCHED OFF', tone: 'red' } })
+    expect(by.l.blocked).toBeNull()
+    expect(by.n.blocked).toBeNull()
+    expect(body.crew.map((c: { cookId: string }) => c.cookId).slice(0, 2)).toEqual(['l', 'n'])
+  })
+
+  it('includes createdAt on each crew device', async () => {
+    cookFindMany.mockResolvedValue([cook('a', 'Ann', { pinDevices: [dev('d1', 'APPROVED', 1)] })])
+    const body = await (await GET()).json()
+    expect(body.crew[0].devices[0].createdAt).toEqual(expect.any(String))
   })
 })

@@ -1,7 +1,10 @@
 // Pure: the one-word sign-in status shown for each cook on "Crew sign-in".
 
+/** Why a cook can never sign in with a PIN, whatever phones they have. */
+export type Blocked = 'MANAGER' | 'SWITCHED_OFF'
+
 export type CrewStatus = {
-  label: 'SET UP' | 'WAITING' | 'NOT YET' | 'NO PIN'
+  label: 'SET UP' | 'WAITING' | 'NOT YET' | 'NO PIN' | 'EMAIL LOGIN' | 'SWITCHED OFF'
   tone: 'green' | 'gold' | 'grey' | 'red'
   /** How many phones are approved for this cook. */
   phones: number
@@ -10,8 +13,11 @@ export type CrewStatus = {
 export function crewStatus(
   cook: { clockId: string | null },
   devices: Array<{ status: string }>,
+  blocked: Blocked | null = null,
 ): CrewStatus {
   const phones = devices.filter((d) => d.status === 'APPROVED').length
+  if (blocked === 'MANAGER') return { label: 'EMAIL LOGIN', tone: 'grey', phones }
+  if (blocked === 'SWITCHED_OFF') return { label: 'SWITCHED OFF', tone: 'red', phones }
   if (!cook.clockId) return { label: 'NO PIN', tone: 'red', phones }
   if (devices.some((d) => d.status === 'PENDING')) return { label: 'WAITING', tone: 'gold', phones }
   if (phones > 0) return { label: 'SET UP', tone: 'green', phones }

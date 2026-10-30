@@ -36,4 +36,21 @@ describe('crewStatus', () => {
   it('counts every approved phone', () => {
     expect(crewStatus({ clockId: '1234' }, [{ status: 'APPROVED' }, { status: 'APPROVED' }]).phones).toBe(2)
   })
+
+  it('a manager (email login) → EMAIL LOGIN grey, even with a PIN and a pending phone', () => {
+    expect(crewStatus({ clockId: '1234' }, [{ status: 'PENDING' }], 'MANAGER')).toEqual({
+      label: 'EMAIL LOGIN', tone: 'grey', phones: 0,
+    })
+  })
+
+  it('a switched-off login → SWITCHED OFF red, even with an approved phone', () => {
+    expect(crewStatus({ clockId: '1234' }, [{ status: 'APPROVED' }], 'SWITCHED_OFF')).toEqual({
+      label: 'SWITCHED OFF', tone: 'red', phones: 1,
+    })
+  })
+
+  it('blocked wins over NO PIN; null blocked changes nothing', () => {
+    expect(crewStatus({ clockId: null }, [], 'MANAGER').label).toBe('EMAIL LOGIN')
+    expect(crewStatus({ clockId: null }, [], null).label).toBe('NO PIN')
+  })
 })

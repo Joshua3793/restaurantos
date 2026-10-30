@@ -1,18 +1,14 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { crewStatus } from '@/lib/pin/crew-status'
+import { atLeast } from '@/lib/roles'
+import { crewStatus, type Blocked } from '@/lib/pin/crew-status'
+import { pinFullName } from '@/lib/pin/rules'
 
 export const dynamic = 'force-dynamic'
 
 const REJECTED_KEEP_MS = 30 * 24 * 60 * 60_000
-const STATUS_ORDER = ['WAITING', 'NOT YET', 'NO PIN', 'SET UP']
-
-function fullName(c: { name: string; lastName: string | null }): string {
-  const last = c.lastName?.trim()
-  const first = c.name.trim()
-  return last && !first.toLowerCase().endsWith(last.toLowerCase()) ? `${first} ${last}` : first
-}
+const STATUS_ORDER = ['WAITING', 'NOT YET', 'NO PIN', 'SET UP', 'EMAIL LOGIN', 'SWITCHED OFF']
 
 /**
  * GET — phones waiting for approval, and every active cook's sign-in status.
@@ -34,6 +30,7 @@ export async function GET() {
         homeStation: true,
         clockId: true,
         sortOrder: true,
+        user: { select: { role: true, isActive: true } },
         pinDevices: {
           where: {
             NOT: { status: 'REJECTED', createdAt: { lt: new Date(Date.now() - REJECTED_KEEP_MS) } },
@@ -47,19 +44,30 @@ export async function GET() {
     const pending: Array<{ id: string; cookName: string; label: string | null; createdAt: Date }> = []
     const crew = cooks.map((c) => {
       const devices = [...c.pinDevices].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      const name = fullName(c)
+      const name = pinFullName(c)
+      // A manager signs in with email, and a switched-off login can't sign in at
+      // all: no phone of theirs is waiting on anyone, so keep them out of `pending`.
+      const blocked: Blocked | null = !c.user
+        ? null
+        : atLeast(c.user.role, 'MANAGER')
+          ? 'MANAGER'
+          : !c.user.isActive
+            ? 'SWITCHED_OFF'
+            : null
       for (const d of devices) {
-        if (d.status === 'PENDING') pending.push({ id: d.id, cookName: name, label: d.label, createdAt: d.createdAt })
+        if (!blocked && d.status === 'PENDING') pending.push({ id: d.id, cookName: name, label: d.label, createdAt: d.createdAt })
       }
       return {
         cookId: c.id,
         name,
         station: c.homeStation,
-        status: crewStatus(c, devices),
+        status: crewStatus(c, devices, blocked),
+        blocked,
         devices: devices.map((d) => ({
           id: d.id,
           label: d.label,
           status: d.status,
+          createdAt: d.createdAt,
           lastUsedAt: d.lastUsedAt,
           approvedByName: d.approvedByName,
         })),

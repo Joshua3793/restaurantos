@@ -5,7 +5,9 @@ import {
   LOCK_LIMIT,
   LOCK_WINDOW_MS,
   isLocked,
+  CONFIRM_LIMIT,
   pinDisplayName,
+  pinFullName,
   pinEmail,
   deviceLabel,
 } from '@/lib/pin/rules'
@@ -40,6 +42,12 @@ describe('isLocked', () => {
   it('ignores a failure older than the window', () => {
     expect(isLocked([1, 2, 3, 4, 16].map((m) => ago(m * 60_000)), now)).toBe(false)
   })
+  it('takes its own limit (the confirm limit is 10)', () => {
+    const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => ago(m * 60_000))
+    expect(CONFIRM_LIMIT).toBe(10)
+    expect(isLocked(nine, now, CONFIRM_LIMIT)).toBe(false)
+    expect(isLocked([...nine, ago(10 * 60_000)], now, CONFIRM_LIMIT)).toBe(true)
+  })
 })
 
 describe('pinDisplayName', () => {
@@ -51,6 +59,19 @@ describe('pinDisplayName', () => {
   })
   it('keeps a single name as is', () => {
     expect(pinDisplayName({ name: 'Raj', lastName: null })).toBe('Raj')
+  })
+})
+
+describe('pinFullName', () => {
+  it('joins first and last name', () => {
+    expect(pinFullName({ name: 'Sam', lastName: 'Lee' })).toBe('Sam Lee')
+  })
+  it('does not double the surname when the name already has it', () => {
+    expect(pinFullName({ name: 'Sam Lee', lastName: 'Lee' })).toBe('Sam Lee')
+  })
+  it('keeps a lone name as is, trimmed', () => {
+    expect(pinFullName({ name: ' Raj ', lastName: null })).toBe('Raj')
+    expect(pinFullName({ name: 'Raj', lastName: '  ' })).toBe('Raj')
   })
 })
 

@@ -28,6 +28,13 @@ export function pinDisplayName(cook: { name: string; lastName: string | null }):
   return last ? `${first} ${last[0].toUpperCase()}.` : first
 }
 
+/** "Sam Lee" — the full name a manager sees; no doubled surname if `name` already ends with it. */
+export function pinFullName(cook: { name: string; lastName: string | null }): string {
+  const first = cook.name.trim()
+  const last = cook.lastName?.trim()
+  return last && !first.toLowerCase().endsWith(last.toLowerCase()) ? `${first} ${last}` : first
+}
+
 /** Synthetic login email for a cook's PIN account (never mailed). */
 export function pinEmail(cookId: string): string {
   return `pin.${cookId}@crew.controlaos.vercel.app`
