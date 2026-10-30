@@ -45,9 +45,5 @@ export type TodayView = {
   flags: TodayFlag[]
 }
 
-/** 'YYYY-MM-DD' minus n days, by calendar arithmetic in UTC (no timezone drift). */
-export function minusDays(businessDate: string, n: number): string {
-  const d = new Date(businessDate + 'T00:00:00Z')
-  d.setUTCDate(d.getUTCDate() - n)
-  return d.toISOString().slice(0, 10)
-}
+// Lives in rules.ts now (history needs it too); re-exported so existing imports keep working.
+export { minusDays } from './rules'

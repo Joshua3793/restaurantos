@@ -106,16 +106,11 @@ export type RunView = {
 const num = (v: unknown): number | null => (v == null ? null : Number(v))
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null)
 
-export async function loadRunView(runId: string): Promise<RunView> {
-  const run = await prisma.checklistRun.findUnique({
-    where: { id: runId },
-    include: {
-      lines: { orderBy: { sortOrder: 'asc' } },
-      crew: { orderBy: { joinedAt: 'asc' } },
-    },
-  })
-  if (!run) throw new Error(`Checklist run ${runId} not found`)
+/** The row `toRunView` reads: a run with its lines and crew. */
+export type RunRow = Prisma.ChecklistRunGetPayload<{ include: { lines: true; crew: true } }>
 
+/** Maps a run row (lines by sortOrder, crew by joinedAt, as the caller ordered them) to the shape the screens read. */
+export function toRunView(run: RunRow): RunView {
   return {
     id: run.id,
     stationId: run.stationId,
@@ -152,6 +147,18 @@ export async function loadRunView(runId: string): Promise<RunView> {
     })),
     crew: run.crew.map(c => ({ userId: c.userId, userName: c.userName })),
   }
+}
+
+export async function loadRunView(runId: string): Promise<RunView> {
+  const run = await prisma.checklistRun.findUnique({
+    where: { id: runId },
+    include: {
+      lines: { orderBy: { sortOrder: 'asc' } },
+      crew: { orderBy: { joinedAt: 'asc' } },
+    },
+  })
+  if (!run) throw new Error(`Checklist run ${runId} not found`)
+  return toRunView(run)
 }
 
 /**

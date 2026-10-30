@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { LineAction } from '@/lib/checklists/apply-line'
 import { NOTE_MAX } from '@/lib/checklists/apply-line'
-import { inRange, parseReading, type Phase } from '@/lib/checklists/rules'
-import { Pill, fmtReading, rangeText, unitOf, type RowLine } from './LineRow'
+import { inRange, pacificHHMM, parseReading, type Phase } from '@/lib/checklists/rules'
+import type { LastReading } from '@/lib/checklists/history-types'
+import { Pill, firstName, fmtReading, rangeText, unitOf, type RowLine } from './LineRow'
 
 // "Log a number or flag a problem" — the bottom sheet for one job.
 //
@@ -60,6 +61,24 @@ export function LineSheet({
   )
   const [note, setNote] = useState(manualFlag ? line.flagNote ?? '' : '')
   const [busy, setBusy] = useState(false)
+  // What this job read last time. Shown for readings only; silent while loading, when
+  // there is none, and when the request fails — it is a hint, never a blocker.
+  const [last, setLast] = useState<LastReading | null>(null)
+
+  const lineId = line.id
+  useEffect(() => {
+    if (isTick) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/checklists/lines/${lineId}/last`, { cache: 'no-store' })
+        if (!res.ok) return
+        const data = (await res.json().catch(() => null)) as LastReading | null
+        if (!cancelled && data && typeof data.value === 'number') setLast(data)
+      } catch { /* ignore: the hint is optional */ }
+    })()
+    return () => { cancelled = true }
+  }, [lineId, isTick])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -223,6 +242,19 @@ export function LineSheet({
                 </button>
               </>
             )}
+          </div>
+        )}
+
+        {last && (
+          <div className="flex items-center gap-2.5 bg-bg-2 rounded-[10px] px-3 py-2.5">
+            <span className="flex-none font-mono text-[10px] tracking-[0.08em] text-ink-3">LAST TIME</span>
+            <span className="min-w-0 font-mono text-[11px] text-ink-2">
+              {[
+                fmtReading(last.value, unitOf({ answer: line.answer, unit: last.unit })),
+                firstName(last.byName),
+                pacificHHMM(new Date(last.at)),
+              ].filter(Boolean).join(' · ')}
+            </span>
           </div>
         )}
       </section>

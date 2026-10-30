@@ -114,3 +114,10 @@ export function pacificHHMM(d: Date = new Date()): string {
   const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
   return `${get('hour').padStart(2, '0')}:${get('minute').padStart(2, '0')}`
 }
+
+/** 'YYYY-MM-DD' minus n days, by calendar arithmetic in UTC (no timezone drift). */
+export function minusDays(businessDate: string, n: number): string {
+  const d = new Date(businessDate + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() - n)
+  return d.toISOString().slice(0, 10)
+}

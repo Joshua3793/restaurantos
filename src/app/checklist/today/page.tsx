@@ -310,9 +310,12 @@ function TodayBoard() {
             </button>
           ))}
         </div>
-        <Link href="/checklist/history" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
-          History →
-        </Link>
+        {/* The History page is for managers; a lead sees the board only. */}
+        {role && atLeast(role as Role, 'MANAGER') && (
+          <Link href="/checklist/history" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
+            History →
+          </Link>
+        )}
       </header>
 
       <section className="flex flex-col gap-2">
