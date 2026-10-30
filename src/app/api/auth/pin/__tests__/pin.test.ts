@@ -486,6 +486,21 @@ describe('POST /api/auth/pin', () => {
     expect(written()).toEqual(OK_BOTH)
   })
 
+  it('an approved sign-in refreshes the phone cookie: same token, full 400 days', async () => {
+    cookFindFirst.mockResolvedValue(sam)
+    deviceFindUnique.mockResolvedValue({ id: 'd1', status: 'APPROVED' })
+    const res = await signIn({ pin: '1234' }, { cookie: `pin_device=${TOKEN}` })
+    expect(await res.json()).toEqual({ signedIn: true })
+    expect(res.cookies.get('pin_device')?.value).toBe(TOKEN)
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain(`pin_device=${TOKEN}`)
+    expect(setCookie).toContain(`Max-Age=${400 * 24 * 3600}`)
+    expect(setCookie).toMatch(/HttpOnly/i)
+    expect(setCookie).toMatch(/SameSite=lax/i)
+    // The session cookies still ride along.
+    expect(res.cookies.get('sb-x-auth-token')?.value).toBe('session-value')
+  })
+
   it("a phone OK'd for cook A, used with cook B's PIN → needsConfirm, no session", async () => {
     const kim = { id: 'c2', name: 'Kim', lastName: 'Ng', userId: null, isActive: true }
     cookFindFirst.mockResolvedValue(kim)

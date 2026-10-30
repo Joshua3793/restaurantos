@@ -6,6 +6,7 @@ import { Role, User } from '@prisma/client'
 import { ROLE_RANK, atLeast } from '@/lib/roles'
 import { PIN_DEVICE_COOKIE, isDeviceToken } from '@/lib/pin/http'
 import { hashToken } from '@/lib/pin/rules'
+import { PIN_PHONE_NEEDED } from '@/lib/pin/session-lost'
 
 export class AuthError extends Error {
   constructor(
@@ -37,7 +38,6 @@ async function devBypassUser(): Promise<User | null> {
   )
 }
 
-const PIN_PHONE_NEEDED = 'Sign in again with your PIN on an OK’d phone'
 
 /**
  * RULING P9 (a): a PIN account (auth `app_metadata.pinCookId`, which only the

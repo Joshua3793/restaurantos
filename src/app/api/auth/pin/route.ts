@@ -77,6 +77,9 @@ export async function POST(req: NextRequest) {
       for (const { name: cookieName, value, options } of sessionCookies) {
         res.cookies.set(cookieName, value, options)
       }
+      // Refresh the phone cookie (same token, full 400 days) on every approved
+      // sign-in: requireSession needs it on every API call (RULING P9).
+      if (token) res.cookies.set(PIN_DEVICE_COOKIE, token, pinDeviceCookieOptions())
       return res
     }
 

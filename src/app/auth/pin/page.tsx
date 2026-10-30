@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Keypad, PinDots, PIN_MAX, PIN_MIN } from '@/components/pin/Keypad'
+import { PIN_REMOVED_NOTICE } from '@/lib/pin/session-lost'
 
 // /auth/pin — public. A cook signs in on their own phone with their Toast
 // clock-in PIN. PIN first, then "is this you?"; a phone a manager hasn't OK'd
@@ -139,6 +140,11 @@ export default function PinSignInPage() {
   const [busy, setBusy] = useState(false)
   const [pairCode, setPairCode] = useState<string | null>(null)
   const [waitError, setWaitError] = useState<string | null>(null)
+  // Arrived from a page whose phone was removed (UserContext → ?reason=removed).
+  const [removed, setRemoved] = useState(false)
+  useEffect(() => {
+    setRemoved(new URLSearchParams(window.location.search).get('reason') === 'removed')
+  }, [])
 
   // Mirrors of state for async callbacks (component memory only).
   const pinRef = useRef('')
@@ -466,6 +472,7 @@ export default function PinSignInPage() {
           </p>
         )}
         {!step.error && step.notice && <p className="m-0 text-[13.5px] text-ink-2">{step.notice}</p>}
+        {!step.error && !step.notice && removed && <p className="m-0 text-[13.5px] text-ink-2">{PIN_REMOVED_NOTICE}</p>}
       </div>
 
       <Keypad length={pin.length} disabled={busy} onDigit={addDigit} onBack={backspace} />
