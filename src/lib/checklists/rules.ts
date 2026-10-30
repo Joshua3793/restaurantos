@@ -105,3 +105,12 @@ export function daysLabel(days: number): string {
   if (names.length === 1) return `${names[0]} ONLY`
   return names.join(' · ')
 }
+
+/** Pacific 'HH:MM' (24h), the clock time stored on a TempReading. */
+export function pacificHHMM(d: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d)
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
+  return `${get('hour').padStart(2, '0')}:${get('minute').padStart(2, '0')}`
+}
