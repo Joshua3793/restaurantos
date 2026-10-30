@@ -11,14 +11,14 @@ class MockAuthError extends Error {
 const requireSession = vi.fn(async (_min?: string) => ({ id: 'u1', name: null, email: 'sam@x.ca', role: 'STAFF', isActive: true }))
 const assertRcWritable = vi.fn(async () => {})
 const runFindUnique = vi.fn()
-const runUpdate = vi.fn(async (a: unknown) => a)
+const runUpdate = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const loadRunView = vi.fn(async () => ({ id: 'r1', status: 'SIGNED' }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     checklistRun: {
       findUnique: (...a: unknown[]) => runFindUnique(...a),
-      update: (...a: unknown[]) => runUpdate(...a),
+      updateMany: (...a: unknown[]) => runUpdate(...a),
     },
   },
 }))
@@ -49,6 +49,7 @@ const run = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  runUpdate.mockResolvedValue({ count: 1 })
   runFindUnique.mockResolvedValue(run())
 })
 
@@ -93,6 +94,15 @@ describe('POST /api/checklists/runs/[id]/signoff', () => {
     expect(res.status).toBe(409)
     expect((await res.json()).error).toBe('The whole-kitchen list has no sign-off')
     expect(runUpdate).not.toHaveBeenCalled()
+  })
+
+  it('writes only while the run is still OPEN, and 409s when someone else signed first', async () => {
+    runUpdate.mockResolvedValueOnce({ count: 0 })
+    const res = await sign()
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('Already signed off')
+    expect(runUpdate.mock.calls[0][0].where).toEqual({ id: 'r1', status: 'OPEN' })
+    expect(loadRunView).not.toHaveBeenCalled()
   })
 
   it('409 when already signed, and when there are no lines', async () => {
@@ -148,6 +158,14 @@ describe('POST /api/checklists/runs/[id]/reopen', () => {
     const res = await reopen()
     expect(res.status).toBe(409)
     expect(runUpdate).not.toHaveBeenCalled()
+  })
+
+  it('writes only while the run is still SIGNED, and 409s when it was reopened first', async () => {
+    runFindUnique.mockResolvedValue(run({ status: 'SIGNED' }))
+    runUpdate.mockResolvedValueOnce({ count: 0 })
+    const res = await reopen()
+    expect(res.status).toBe(409)
+    expect(runUpdate.mock.calls[0][0].where).toEqual({ id: 'r1', status: 'SIGNED' })
   })
 
   it('403 below LEAD', async () => {

@@ -51,8 +51,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const who = whoOf(user)
-    await prisma.checklistRun.update({
-      where: { id: run.id },
+    // Guarded on still being OPEN, so two sign-offs at once cannot both win.
+    const { count } = await prisma.checklistRun.updateMany({
+      where: { id: run.id, status: 'OPEN' },
       data: {
         status: 'SIGNED',
         signedOffById: who.id,
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ...(handoverNote !== undefined ? { handoverNote } : {}),
       },
     })
+    if (count === 0) return NextResponse.json({ error: 'Already signed off' }, { status: 409 })
     return NextResponse.json({ run: await loadRunView(run.id) })
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })

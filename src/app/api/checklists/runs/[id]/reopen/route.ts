@@ -18,10 +18,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     await assertRcWritable(user, run.station.revenueCenterId)
     if (run.status !== 'SIGNED') return NextResponse.json({ error: 'Not signed off' }, { status: 409 })
 
-    await prisma.checklistRun.update({
-      where: { id: run.id },
+    const { count } = await prisma.checklistRun.updateMany({
+      where: { id: run.id, status: 'SIGNED' },
       data: { status: 'OPEN', signedOffById: null, signedOffByName: null, signedOffAt: null },
     })
+    if (count === 0) return NextResponse.json({ error: 'Not signed off' }, { status: 409 })
     return NextResponse.json({ run: await loadRunView(run.id) })
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })

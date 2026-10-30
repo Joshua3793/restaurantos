@@ -14,10 +14,10 @@ export type LineInput = {
   safeMax: number | null
 }
 
-/** Prisma update data for ChecklistRunLine. `value` is left out when the action does not touch it. */
+/** Prisma update data for ChecklistRunLine. Every action sets `value`: a new answer replaces the old reading. */
 export type LinePatch = {
   status: 'TODO' | 'DONE' | 'FLAGGED'
-  value?: number | null
+  value: number | null
   doneById: string | null
   doneByName: string | null
   doneAt: Date | null
@@ -76,7 +76,7 @@ export function applyLine(
       const note = typeof input.note === 'string' ? input.note.trim() : ''
       if (note.length > NOTE_MAX) return { error: `Note is too long (${NOTE_MAX} characters max)`, status: 400 }
       return {
-        data: { status: 'FLAGGED', ...done, flagReason: input.reason, flagNote: note || null, ...UNRESOLVED },
+        data: { status: 'FLAGGED', value: null, ...done, flagReason: input.reason, flagNote: note || null, ...UNRESOLVED },
       }
     }
 

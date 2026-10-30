@@ -40,6 +40,7 @@ vi.mock('@/lib/checklists/cook-view', () => ({
   whoOf: (u: { id: string; name: string | null; email: string }) => ({ id: u.id, name: u.name ?? u.email }),
 }))
 
+const { shiftBusinessDate } = await import('@/lib/checklists/rules')
 const { POST } = await import('@/app/api/checklists/pick/route')
 
 const call = (body: unknown) => POST({ json: async () => body } as unknown as NextRequest)
@@ -50,11 +51,20 @@ beforeEach(() => {
 })
 
 describe('POST /api/checklists/pick', () => {
-  it('400 "Pick one or two stations" for three, none, or duplicates of one', async () => {
+  it('400 "Pick one or two stations" for three, none, or a missing list', async () => {
     for (const ids of [['a', 'b', 'c'], [], undefined]) {
       const res = await call({ rcId: 'rc1', phase: 'OPEN', stationIds: ids })
       expect(res.status).toBe(400)
       expect((await res.json()).error).toBe('Pick one or two stations')
+    }
+    expect(crewUpsert).not.toHaveBeenCalled()
+  })
+
+  it('400 "Pick opening or closing" for a bad or missing phase', async () => {
+    for (const phase of ['LUNCH', undefined]) {
+      const res = await call({ rcId: 'rc1', phase, stationIds: ['a'] })
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe('Pick opening or closing')
     }
     expect(crewUpsert).not.toHaveBeenCalled()
   })
@@ -84,13 +94,14 @@ describe('POST /api/checklists/pick', () => {
     const res = await call({ rcId: 'rc1', phase: 'CLOSE', stationIds: ['a', 'b', 'a'] })
     expect(res.status).toBe(200)
     expect(crewUpsert).toHaveBeenCalledTimes(2)
+    expect(ensureRun).toHaveBeenCalledWith('a', 'CLOSE', shiftBusinessDate('CLOSE'))
     expect(crewUpsert.mock.calls[0][0]).toMatchObject({
       where: { runId_userId: { runId: 'run-a', userId: 'u1' } },
       create: { runId: 'run-a', userId: 'u1', userName: 'Sam Lee' },
     })
     expect(crewDeleteMany.mock.calls[0][0].where).toMatchObject({
       userId: 'u1',
-      run: { phase: 'CLOSE', station: { revenueCenterId: 'rc1', id: { notIn: ['a', 'b'] } } },
+      run: { phase: 'CLOSE', businessDate: shiftBusinessDate('CLOSE'), station: { revenueCenterId: 'rc1', id: { notIn: ['a', 'b'] } } },
     })
     expect(buildCookView).toHaveBeenCalled()
   })

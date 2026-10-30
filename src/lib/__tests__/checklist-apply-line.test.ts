@@ -65,7 +65,7 @@ describe('applyLine', () => {
     const r = applyLine(tick, { action: 'flag', reason: 'BROKEN', note: '  guard cracked  ' }, who, now)
     expect(r).toEqual({
       data: expect.objectContaining({
-        status: 'FLAGGED', flagReason: 'BROKEN', flagNote: 'guard cracked',
+        status: 'FLAGGED', value: null, flagReason: 'BROKEN', flagNote: 'guard cracked',
         doneById: 'u1', doneByName: 'Sam Lee', doneAt: now,
         resolvedById: null, resolvedAt: null,
       }),
