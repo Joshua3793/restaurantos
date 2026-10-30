@@ -116,11 +116,15 @@ export async function openReport<D>(deps: {
   id: string
   rcId: string | null
   read: (id: string) => Promise<D>
+  // Called as soon as the read lands, so the row opens without waiting on the
+  // badge refresh (which can sit behind a slow poll).
+  onRead?: (detail: D) => void
   refreshCount: (rcId: string) => Promise<unknown>
   reloadReports: () => Promise<unknown>
 }): Promise<D> {
   const detail = await deps.read(deps.id)
-  if (deps.rcId) await deps.refreshCount(deps.rcId)
-  await deps.reloadReports()
+  deps.onRead?.(detail)
+  if (deps.rcId) await deps.refreshCount(deps.rcId).catch(() => {})
+  await deps.reloadReports().catch(() => {})
   return detail
 }

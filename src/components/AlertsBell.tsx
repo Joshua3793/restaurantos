@@ -97,10 +97,10 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
           if (!r.ok) throw new Error(String(r.status))
           return r.json()
         },
+        onRead: detail => setDetails(d => ({ ...d, [id]: detail })),
         refreshCount: refreshInboxCount,
-        reloadReports: () => fetchReports().catch(() => {}),
+        reloadReports: fetchReports,
       })
-      setDetails(d => ({ ...d, [id]: detail }))
     } catch {
       setDetails(d => ({ ...d, [id]: 'error' }))
     }

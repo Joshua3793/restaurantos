@@ -122,6 +122,31 @@ describe('openReport', () => {
     expect(refreshCount).not.toHaveBeenCalled()
     expect(reloadReports).toHaveBeenCalledTimes(1)
   })
+  it('hands the detail over before the badge refresh finishes', async () => {
+    const calls: string[] = []
+    let release: () => void = () => {}
+    const stalled = new Promise<void>(r => { release = r })
+    const done = openReport({
+      id: 'r1', rcId: 'rc1',
+      read: async () => 'detail',
+      onRead: d => { calls.push(`shown:${d}`) },
+      refreshCount: () => stalled,
+      reloadReports: async () => { calls.push('mine') },
+    })
+    await new Promise(r => setTimeout(r, 0))
+    expect(calls).toEqual(['shown:detail'])
+    release()
+    await done
+    expect(calls).toEqual(['shown:detail', 'mine'])
+  })
+  it('a failed badge refresh still returns the detail', async () => {
+    const detail = await openReport({
+      id: 'r1', rcId: 'rc1', read: async () => 'd',
+      refreshCount: async () => { throw new Error('net') },
+      reloadReports: async () => { throw new Error('net') },
+    })
+    expect(detail).toBe('d')
+  })
   it('refreshes nothing when the read fails', async () => {
     const refreshCount = vi.fn()
     const reloadReports = vi.fn()
