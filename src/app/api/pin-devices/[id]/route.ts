@@ -2,10 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { atLeast } from '@/lib/roles'
+import { PENDING_MAX_AGE_MS } from '@/lib/pin/rules'
 
 export const dynamic = 'force-dynamic'
-
-const PENDING_MAX_AGE_MS = 24 * 60 * 60_000
 
 type Ctx = { params: { id: string } }
 
@@ -27,9 +26,10 @@ function isAction(v: unknown): v is Action {
  * Each move is a guarded updateMany on the expected current status, so two
  * managers tapping at once cannot both win (the loser gets 409).
  *
- * Revoke stops this phone signing in AGAIN. It does not end a session that is
- * already open on the phone: to lock someone out right now, switch off their
- * login in People (which deactivates both the Prisma and Supabase user).
+ * Revoke stops this phone signing in again, and (RULING P9) requireSession
+ * refuses a PIN login's API calls from a phone that is no longer APPROVED, so
+ * it takes effect on the next request. Pages already loaded stay on screen
+ * until they next fetch; switching the login off in People still ends it all.
  *
  * Approve refuses a phone the cook could never use (manager, switched-off login
  * or cook) and a request more than 24 h old: PATCH is the only way a phone gets

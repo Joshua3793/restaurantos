@@ -343,11 +343,16 @@ function TodayBoard() {
             </button>
           ))}
         </div>
-        {/* The History page is for managers; a lead sees the board only. */}
-        {role && atLeast(role as Role, 'MANAGER') && (
-          <Link href="/checklist/history" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
-            History →
-          </Link>
+        {/* History and Crew sign-in are for managers; a lead sees the board only. */}
+        {isManager && (
+          <nav aria-label="Manager pages" className="flex items-center gap-4">
+            <Link href="/checklist/crew" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
+              Crew sign-in →
+            </Link>
+            <Link href="/checklist/history" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
+              History →
+            </Link>
+          </nav>
         )}
       </header>
 

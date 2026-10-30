@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { atLeast } from '@/lib/roles'
 import { crewStatus, type Blocked } from '@/lib/pin/crew-status'
-import { pairCode, pinFullName } from '@/lib/pin/rules'
+import { PENDING_MAX_AGE_MS, pairCode, pinFullName } from '@/lib/pin/rules'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +14,13 @@ const STATUS_ORDER = ['WAITING', 'NOT YET', 'NO PIN', 'SET UP', 'EMAIL LOGIN', '
  * GET — phones waiting for approval, and every active cook's sign-in status.
  * MANAGER+. Cooks have no revenue center, so there is no RC scoping here: a
  * manager sees every active cook. tokenHash is read only to derive each
- * phone's pair code; it is never returned.
+ * phone's pair code and `sharedWith`; it is never returned.
+ *
+ * `sharedWith` (on each pending item and crew device): full names of the
+ * OTHER cooks with an APPROVED or PENDING request from the same phone, so a
+ * manager notices when the phone asking for Sam already signs in as Alex.
+ * `stale` (pending items): older than PENDING_MAX_AGE_MS, so it can't be
+ * OK'd until the cook asks again from their phone.
  */
 export async function GET() {
   try {
@@ -44,7 +50,33 @@ export async function GET() {
       },
     })
 
-    const pending: Array<{ id: string; cookName: string; label: string | null; createdAt: Date; pairCode: string }> = []
+    // Phone (token hash) → the cooks holding a live request or approval on it.
+    const holders = new Map<string, Map<string, string>>()
+    for (const c of cooks) {
+      const name = pinFullName(c)
+      for (const d of c.pinDevices) {
+        if (d.status !== 'APPROVED' && d.status !== 'PENDING') continue
+        const m = holders.get(d.tokenHash) ?? new Map<string, string>()
+        m.set(c.id, name)
+        holders.set(d.tokenHash, m)
+      }
+    }
+    const sharedWith = (tokenHash: string, cookId: string): string[] =>
+      [...(holders.get(tokenHash) ?? new Map<string, string>()).entries()]
+        .filter(([id]) => id !== cookId)
+        .map(([, n]) => n)
+        .sort((a, b) => a.localeCompare(b))
+
+    const staleBefore = Date.now() - PENDING_MAX_AGE_MS
+    const pending: Array<{
+      id: string
+      cookName: string
+      label: string | null
+      createdAt: Date
+      pairCode: string
+      sharedWith: string[]
+      stale: boolean
+    }> = []
     const crew = cooks.map((c) => {
       const devices = [...c.pinDevices].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       const name = pinFullName(c)
@@ -59,7 +91,15 @@ export async function GET() {
             : null
       for (const d of devices) {
         if (!blocked && d.status === 'PENDING') {
-          pending.push({ id: d.id, cookName: name, label: d.label, createdAt: d.createdAt, pairCode: pairCode(d.tokenHash) })
+          pending.push({
+            id: d.id,
+            cookName: name,
+            label: d.label,
+            createdAt: d.createdAt,
+            pairCode: pairCode(d.tokenHash),
+            sharedWith: sharedWith(d.tokenHash, c.id),
+            stale: d.createdAt.getTime() < staleBefore,
+          })
         }
       }
       return {
@@ -76,6 +116,7 @@ export async function GET() {
           lastUsedAt: d.lastUsedAt,
           approvedByName: d.approvedByName,
           pairCode: pairCode(d.tokenHash),
+          sharedWith: sharedWith(d.tokenHash, c.id),
         })),
         sortOrder: c.sortOrder,
       }

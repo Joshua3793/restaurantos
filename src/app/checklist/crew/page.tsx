@@ -16,7 +16,17 @@ import type { CrewStatus } from '@/lib/pin/crew-status'
 const POLL_PENDING_MS = 10_000
 const POLL_IDLE_MS = 60_000
 
-type Pending = { id: string; cookName: string; label: string | null; createdAt: string; pairCode: string }
+type Pending = {
+  id: string
+  cookName: string
+  label: string | null
+  createdAt: string
+  pairCode: string
+  /** Other cooks already asking or OK'd on this same phone. */
+  sharedWith: string[]
+  /** Over 24 h old: can't be OK'd until the cook asks again. */
+  stale: boolean
+}
 type DeviceStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVOKED'
 type Device = {
   id: string
@@ -26,6 +36,7 @@ type Device = {
   lastUsedAt: string | null
   approvedByName: string | null
   pairCode: string
+  sharedWith: string[]
 }
 type CrewRow = {
   cookId: string
@@ -69,6 +80,12 @@ function ago(iso: string, now: number): string {
 }
 
 const firstWord = (name: string) => name.trim().split(/\s+/)[0] || name
+
+/** "Alex Lo" → "Alex L." — short enough to list several on one line. */
+function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.` : name.trim()
+}
 
 /** "Turn this phone down? Sam won't be able to ask from it again." */
 const rejectQuestion = (cookName: string) => `Turn this phone down? ${firstWord(cookName)} won’t be able to ask from it again.`
@@ -171,6 +188,11 @@ function PendingCard({
         </span>
       </div>
       <p className="m-0 text-[12.5px] leading-[1.4] text-ink-3">Check the code on their phone matches before you OK it.</p>
+      {p.sharedWith.length > 0 && (
+        <p className="m-0 text-[12.5px] leading-[1.4] font-medium text-gold-2">
+          Same phone as {p.sharedWith.map(shortName).join(', ')}
+        </p>
+      )}
       {confirming ? (
         <InlineConfirm
           question={rejectQuestion(p.cookName)}
@@ -185,14 +207,21 @@ function PendingCard({
           <button type="button" disabled={busy} onClick={onAsk} className={`flex-1 ${OUTLINE_BTN}`}>
             Not them
           </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onAct('approve')}
-            className="flex-[2] min-h-[44px] rounded-[9px] bg-gold text-[13px] font-semibold text-ink disabled:opacity-50"
-          >
-            OK this phone
-          </button>
+          {p.stale ? (
+            // Past 24 h the server won't OK it; the cook's next "Yes, it's me" restarts it.
+            <span className="flex-[2] min-h-[44px] rounded-[9px] bg-bg-2 px-3 font-mono text-[10.5px] text-ink-3 inline-flex items-center justify-center text-center">
+              TOO OLD — ask them to try again
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onAct('approve')}
+              className="flex-[2] min-h-[44px] rounded-[9px] bg-gold text-[13px] font-semibold text-ink disabled:opacity-50"
+            >
+              OK this phone
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -231,6 +260,14 @@ function PhoneRow({
           <span className="text-[13.5px] font-medium text-ink-2">{d.label || 'Phone'}</span>
           <span className="font-mono text-[10.5px] text-ink-3">{meta}</span>
         </span>
+        {d.sharedWith.length > 0 && (
+          <span
+            title={`Same phone as ${d.sharedWith.map(shortName).join(', ')}`}
+            className={`flex-none font-mono text-[10px] font-medium px-[9px] py-[3px] rounded-full whitespace-nowrap ${PILL.gold}`}
+          >
+            SHARED
+          </span>
+        )}
         <span className={`flex-none font-mono text-[10px] font-medium px-[9px] py-[3px] rounded-full whitespace-nowrap ${pill.cls}`}>{pill.label}</span>
       </div>
       {d.status === 'APPROVED' && (confirming ? (

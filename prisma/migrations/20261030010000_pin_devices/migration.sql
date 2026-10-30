@@ -31,6 +31,9 @@ CREATE TABLE "PinAttempt" (
 CREATE INDEX "PinDevice_status_idx" ON "PinDevice"("status");
 
 -- CreateIndex
+CREATE INDEX "PinDevice_cookId_idx" ON "PinDevice"("cookId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "PinDevice_tokenHash_cookId_key" ON "PinDevice"("tokenHash", "cookId");
 
 -- CreateIndex

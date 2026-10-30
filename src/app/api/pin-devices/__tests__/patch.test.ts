@@ -261,6 +261,44 @@ describe('GET /api/pin-devices', () => {
     expect(body.crew.map((c: { cookId: string }) => c.cookId).slice(0, 2)).toEqual(['l', 'n'])
   })
 
+  it('sharedWith names the OTHER cooks with a live request or approval on the same phone', async () => {
+    cookFindMany.mockResolvedValue([
+      cook('a', 'Alex', { lastName: 'Lo', pinDevices: [dev('da', 'APPROVED', 3, { tokenHash: 'ipad' })] }),
+      cook('s', 'Sam', { lastName: 'Lee', pinDevices: [dev('ds', 'PENDING', 0, { tokenHash: 'ipad' })] }),
+      cook('k', 'Kim', { pinDevices: [dev('dk', 'PENDING', 0, { tokenHash: 'ipad' })] }),
+      // Turned down / removed on that phone: not a live holder.
+      cook('r', 'Rae', { pinDevices: [dev('dr', 'REJECTED', 1, { tokenHash: 'ipad' })] }),
+      cook('v', 'Viv', { pinDevices: [dev('dv', 'REVOKED', 1, { tokenHash: 'ipad' })] }),
+      // Another phone entirely.
+      cook('o', 'Oli', { pinDevices: [dev('do', 'PENDING', 0, { tokenHash: 'own-phone' })] }),
+    ])
+    const body = await (await GET()).json()
+    const pend = Object.fromEntries(body.pending.map((p: { id: string }) => [p.id, p]))
+    expect(pend.ds.sharedWith).toEqual(['Alex Lo', 'Kim'])
+    expect(pend.dk.sharedWith).toEqual(['Alex Lo', 'Sam Lee'])
+    expect(pend.do.sharedWith).toEqual([])
+    const crewDev = (cookId: string) => body.crew.find((c: { cookId: string }) => c.cookId === cookId).devices[0]
+    expect(crewDev('a').sharedWith).toEqual(['Kim', 'Sam Lee'])
+    expect(crewDev('r').sharedWith).toEqual(['Alex Lo', 'Kim', 'Sam Lee'])
+    expect(crewDev('o').sharedWith).toEqual([])
+    expect(JSON.stringify(body)).not.toContain('ipad')
+    expect(JSON.stringify(body)).not.toContain('own-phone')
+  })
+
+  it('marks a pending request older than 24 h as stale', async () => {
+    cookFindMany.mockResolvedValue([
+      cook('a', 'Ann', {
+        pinDevices: [
+          dev('fresh', 'PENDING', 0, { createdAt: new Date(Date.now() - 23 * 3_600_000) }),
+          dev('old', 'PENDING', 0, { createdAt: new Date(Date.now() - 25 * 3_600_000) }),
+        ],
+      }),
+    ])
+    const body = await (await GET()).json()
+    const pend = Object.fromEntries(body.pending.map((p: { id: string; stale: boolean }) => [p.id, p.stale]))
+    expect(pend).toEqual({ fresh: false, old: true })
+  })
+
   it('includes createdAt on each crew device', async () => {
     cookFindMany.mockResolvedValue([cook('a', 'Ann', { pinDevices: [dev('d1', 'APPROVED', 1)] })])
     const body = await (await GET()).json()

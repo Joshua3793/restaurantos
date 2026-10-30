@@ -1570,6 +1570,7 @@ model PinDevice {
 
   @@unique([tokenHash, cookId])
   @@index([status])
+  @@index([cookId])
 }
 
 // One row per PIN try, used to lock a PIN or phone after repeated misses.
