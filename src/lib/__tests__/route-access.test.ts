@@ -51,6 +51,17 @@ describe('requiredClearance', () => {
     expect(canAccess('STAFF', '/checklist')).toBe(true)
   })
 
+  it('opens the Inbox to leads and its tags to managers', () => {
+    expect(requiredClearance('/inbox')).toBe('LEAD')
+    expect(requiredClearance('/inbox/tags')).toBe('MANAGER')
+    expect(canAccess('STAFF', '/inbox')).toBe(false)
+    expect(canAccess('LEAD', '/inbox')).toBe(true)
+    expect(canAccess('LEAD', '/inbox/tags')).toBe(false)
+    expect(canAccess('MANAGER', '/inbox/tags')).toBe(true)
+    // Segment match: a lookalike path does not inherit the gate.
+    expect(requiredClearance('/inboxes')).toBeNull()
+  })
+
   it('keeps invoices, inventory and sales off STAFF but open to LEAD', () => {
     for (const path of ['/invoices', '/inventory', '/sales']) {
       expect(requiredClearance(path)).toBe('LEAD')
