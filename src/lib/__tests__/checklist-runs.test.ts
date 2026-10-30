@@ -13,16 +13,20 @@ const runFindFirst = vi.fn()
 const runUpsert = vi.fn()
 const categoryFindMany = vi.fn()
 const lineCreateMany = vi.fn()
+const outerUpsert = vi.fn()
+const outerCreateMany = vi.fn()
+const transaction = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     checklistRun: {
       findUnique: (...a: unknown[]) => runFindUnique(...a),
       findFirst: (...a: unknown[]) => runFindFirst(...a),
-      upsert: (...a: unknown[]) => runUpsert(...a),
+      upsert: (...a: unknown[]) => outerUpsert(...a),
     },
     checklistCategory: { findMany: (...a: unknown[]) => categoryFindMany(...a) },
-    checklistRunLine: { createMany: (...a: unknown[]) => lineCreateMany(...a) },
+    checklistRunLine: { createMany: (...a: unknown[]) => outerCreateMany(...a) },
+    $transaction: (...a: unknown[]) => transaction(...a),
   },
 }))
 vi.mock('@prisma/client', () => ({
@@ -41,7 +45,13 @@ const cats = [{
 }]
 
 beforeEach(() => {
-  for (const m of [runFindUnique, runFindFirst, runUpsert, categoryFindMany, lineCreateMany]) m.mockReset()
+  for (const m of [runFindUnique, runFindFirst, runUpsert, categoryFindMany, lineCreateMany, outerUpsert, outerCreateMany, transaction]) m.mockReset()
+  // Interactive transaction: run the callback against a tx client.
+  transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+    fn({
+      checklistRun: { upsert: (...a: unknown[]) => runUpsert(...a) },
+      checklistRunLine: { createMany: (...a: unknown[]) => lineCreateMany(...a) },
+    }))
 })
 
 describe('ensureRun', () => {
@@ -54,6 +64,9 @@ describe('ensureRun', () => {
     const out = await ensureRun('s1', 'OPEN', '2026-10-28')
 
     expect(out).toEqual({ id: 'r1', created: true })
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(outerUpsert).not.toHaveBeenCalled()
+    expect(outerCreateMany).not.toHaveBeenCalled()
     expect(runUpsert.mock.calls[0][0].where).toEqual({ stationId_phase_businessDate: KEY })
     expect(runUpsert.mock.calls[0][0].update).toEqual({})
     const arg = lineCreateMany.mock.calls[0][0]
@@ -69,22 +82,45 @@ describe('ensureRun', () => {
 
     expect(out).toEqual({ id: 'r1', created: false })
     expect(runFindUnique.mock.calls[0][0].where).toEqual({ stationId_phase_businessDate: KEY })
+    expect(transaction).not.toHaveBeenCalled()
     expect(runUpsert).not.toHaveBeenCalled()
     expect(categoryFindMany).not.toHaveBeenCalled()
     expect(lineCreateMany).not.toHaveBeenCalled()
   })
 
-  it('survives a concurrent first open (upsert P2002): re-reads the run and still snapshots', async () => {
+  it('lost create race (P2002): returns the winner\'s run without writing lines', async () => {
     runFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'r1' })
-    runUpsert.mockRejectedValue(new MockPrismaClientKnownRequestError('unique', 'P2002'))
     categoryFindMany.mockResolvedValue(cats)
-    lineCreateMany.mockResolvedValue({ count: 0 })
+    runUpsert.mockRejectedValue(new MockPrismaClientKnownRequestError('unique', 'P2002'))
 
     const out = await ensureRun('s1', 'OPEN', '2026-10-28')
 
-    expect(out).toEqual({ id: 'r1', created: true })
+    expect(out).toEqual({ id: 'r1', created: false })
     expect(runFindUnique).toHaveBeenCalledTimes(2)
-    expect(lineCreateMany.mock.calls[0][0].skipDuplicates).toBe(true)
+    expect(lineCreateMany).not.toHaveBeenCalled()
+  })
+
+  it('reads the template before the transaction, and writes only inside it', async () => {
+    const order: string[] = []
+    runFindUnique.mockResolvedValue(null)
+    categoryFindMany.mockImplementation(async () => { order.push('read'); return cats })
+    transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      order.push('tx')
+      return fn({
+        checklistRun: { upsert: async () => { order.push('upsert'); return { id: 'r1' } } },
+        checklistRunLine: { createMany: async () => { order.push('lines'); return { count: 1 } } },
+      })
+    })
+    await ensureRun('s1', 'OPEN', '2026-10-28')
+    expect(order).toEqual(['read', 'tx', 'upsert', 'lines'])
+  })
+
+  it('a failed line insert fails the open (nothing is left half-made)', async () => {
+    runFindUnique.mockResolvedValue(null)
+    categoryFindMany.mockResolvedValue(cats)
+    runUpsert.mockResolvedValue({ id: 'r1' })
+    lineCreateMany.mockRejectedValue(new Error('db down'))
+    await expect(ensureRun('s1', 'OPEN', '2026-10-28')).rejects.toThrow('db down')
   })
 
   it('rethrows other upsert errors', async () => {
@@ -150,7 +186,7 @@ describe('lastHandover', () => {
     expect(runFindFirst.mock.calls[0][0]).toMatchObject({
       where: {
         stationId: 's1', phase: 'CLOSE', status: 'SIGNED',
-        businessDate: { lt: '2026-10-28' }, handoverNote: { not: null },
+        businessDate: { lt: '2026-10-28' }, handoverNote: { not: null }, NOT: { handoverNote: '' },
       },
       orderBy: { businessDate: 'desc' },
     })

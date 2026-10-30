@@ -12,9 +12,10 @@ const keyWhere = (k: RunKey) => ({ stationId_phase_businessDate: k })
  * applicable items into run lines; after that the run is left alone, so later
  * list edits never change a run that has started.
  *
- * Two simultaneous first opens are safe: the run upsert lands on one unique
- * key (a lost create race, P2002, is re-read) and the lines are inserted with
- * skipDuplicates against @@unique([runId, itemId]).
+ * The run and its lines are written in one transaction, so a run is never
+ * visible without its lines. Two simultaneous first opens are safe: the loser
+ * either waits and finds the committed run, or hits P2002 and re-reads it; lines
+ * are also skipDuplicates against @@unique([runId, itemId]).
  */
 export async function ensureRun(
   stationId: string,
@@ -26,32 +27,36 @@ export async function ensureRun(
   const existing = await prisma.checklistRun.findUnique({ where: keyWhere(key), select: { id: true } })
   if (existing) return { id: existing.id, created: false }
 
-  let runId: string
-  try {
-    const run = await prisma.checklistRun.upsert({
-      where: keyWhere(key),
-      create: key,
-      update: {},
-      select: { id: true },
-    })
-    runId = run.id
-  } catch (e) {
-    if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') throw e
-    const won = await prisma.checklistRun.findUnique({ where: keyWhere(key), select: { id: true } })
-    if (!won) throw e
-    runId = won.id
-  }
-
+  // Read the template outside the transaction; only the two writes need to be atomic.
   const categories = await prisma.checklistCategory.findMany({
     where: { stationId, phase },
     orderBy: { sortOrder: 'asc' },
     include: { items: { orderBy: { sortOrder: 'asc' } } },
   })
-  await prisma.checklistRunLine.createMany({
-    data: snapshotLines(runId, categories, businessDate),
-    skipDuplicates: true,
-  })
-  return { id: runId, created: true }
+
+  try {
+    // The run becomes visible together with its lines, or not at all.
+    const runId = await prisma.$transaction(async tx => {
+      const run = await tx.checklistRun.upsert({
+        where: keyWhere(key),
+        create: key,
+        update: {},
+        select: { id: true },
+      })
+      await tx.checklistRunLine.createMany({
+        data: snapshotLines(run.id, categories, businessDate),
+        skipDuplicates: true,
+      })
+      return run.id
+    })
+    return { id: runId, created: true }
+  } catch (e) {
+    if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2002') throw e
+    // Lost the create race: the winner's transaction has committed the run and its lines.
+    const won = await prisma.checklistRun.findUnique({ where: keyWhere(key), select: { id: true } })
+    if (!won) throw e
+    return { id: won.id, created: false }
+  }
 }
 
 /** A run line as the screens read it. Decimals are numbers; dates are ISO strings. */
@@ -164,6 +169,7 @@ export async function lastHandover(
       status: 'SIGNED',
       businessDate: { lt: beforeDate },
       handoverNote: { not: null },
+      NOT: { handoverNote: '' },
     },
     orderBy: { businessDate: 'desc' },
     select: { handoverNote: true, signedOffByName: true, businessDate: true },
