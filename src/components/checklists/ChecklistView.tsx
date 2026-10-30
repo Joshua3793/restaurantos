@@ -54,6 +54,7 @@ export function ChecklistView({
   shared,
   stations,
   handover,
+  busyIds,
   onTap,
   onMore,
 }: {
@@ -62,6 +63,8 @@ export function ChecklistView({
   shared: RunView | null
   stations: StationCard[]
   handover: Record<string, Handover>
+  /** Lines with a save in flight. */
+  busyIds: ReadonlySet<string>
   onTap: (line: RowLine) => void
   onMore: (line: RowLine) => void
 }) {
@@ -124,7 +127,7 @@ export function ChecklistView({
                     <span className="text-ink-3">{sec.count}</span>
                   </div>
                   {sec.rows.map(r => (
-                    <LineRow key={r.line.id} line={r.line} shared={r.shared} locked={r.locked} onTap={onTap} onMore={onMore} />
+                    <LineRow key={r.line.id} line={r.line} shared={r.shared} locked={r.locked} busy={busyIds.has(r.line.id)} onTap={onTap} onMore={onMore} />
                   ))}
                 </div>
               ))

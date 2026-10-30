@@ -18,6 +18,7 @@ export function SignOffFooter({
   runs,
   stations,
   canReopen,
+  sharedBlockersOpen,
   onSignOff,
   onReopen,
 }: {
@@ -25,19 +26,26 @@ export function SignOffFooter({
   runs: RunView[]
   stations: StationCard[]
   canReopen: boolean
+  /**
+   * A whole-kitchen blocker is still to do. The lede and section header count
+   * it, but sign-off does not, so the footer says "N of yours left" (ruling R10).
+   */
+  sharedBlockersOpen: boolean
   /** Resolves true when it saved. */
   onSignOff: (run: RunView, handoverNote: string | undefined) => Promise<boolean>
   onReopen: (run: RunView) => Promise<boolean>
 }) {
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  // A reopened closing keeps its note: the box starts from it, so signing again does not wipe it.
+  const noteOf = (r: RunView) => notes[r.id] ?? r.handoverNote ?? ''
   const nameOf = (r: RunView) => stations.find(s => s.id === r.stationId)?.name ?? 'station'
   const many = runs.length > 1
 
   const sign = async (run: RunView) => {
     if (busy) return
     setBusy(run.id)
-    const ok = await onSignOff(run, phase === 'CLOSE' ? notes[run.id] ?? '' : undefined)
+    const ok = await onSignOff(run, phase === 'CLOSE' ? noteOf(run) : undefined)
     setBusy(null)
     if (ok) setNotes(prev => { const n = { ...prev }; delete n[run.id]; return n })
   }
@@ -64,7 +72,7 @@ export function SignOffFooter({
               id={id}
               rows={3}
               maxLength={HANDOVER_MAX}
-              value={notes[run.id] ?? ''}
+              value={noteOf(run)}
               onChange={e => setNotes(prev => ({ ...prev, [run.id]: e.target.value }))}
               placeholder="Low on anything? Something broken? Tell the opener."
               className="border border-line-2 rounded-[9px] px-3 py-2.5 text-[14px] leading-[1.45] text-ink resize-none outline-none focus:border-ink-3"
@@ -74,7 +82,8 @@ export function SignOffFooter({
         )
       })}
 
-      <footer className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-30 mt-4 -mx-4 px-4 py-3 bg-paper border-t border-line flex flex-col gap-2">
+      {/* z-[56]: above the AI chat bubble (z-[55], same bottom offset), below the sheets (z-[60]). */}
+      <footer className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-[56] mt-4 -mx-4 md:mx-0 px-4 py-3 bg-paper border-t border-line flex flex-col gap-2">
         {runs.map(run => {
           const name = nameOf(run)
           if (run.status === 'SIGNED') {
@@ -106,7 +115,9 @@ export function SignOffFooter({
           if (!ready) {
             const why = run.lines.length === 0
               ? 'nothing to sign off'
-              : phase === 'OPEN' ? `${left} before doors left` : `${left} left`
+              : sharedBlockersOpen
+                ? `${left} of yours left`
+                : phase === 'OPEN' ? `${left} before doors left` : `${left} left`
             return (
               <button key={run.id} type="button" disabled className="h-[50px] rounded-xl bg-bg-2 text-ink-3 text-[14px] font-medium">
                 {label} · {why}

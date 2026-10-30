@@ -2,14 +2,14 @@
 import { useRef } from 'react'
 import { Check, MoreHorizontal } from 'lucide-react'
 import type { LineView } from '@/lib/checklists/runs'
-import { daysLabel, pacificHHMM } from '@/lib/checklists/rules'
+import { pacificHHMM } from '@/lib/checklists/rules'
 
 // One job on the cook's list. TICK rows tick on tap (optimistic, in the page);
 // NUMBER/TEMP rows open the log sheet; "⋯" or a long-press opens the sheet on
 // a TICK row so it can be flagged. Rows in a signed-off run are not tappable.
 
-/** A line as the screen draws it. `days` is optional: run lines do not carry it yet. */
-export type RowLine = LineView & { days?: number }
+/** A line as the screen draws it. */
+export type RowLine = LineView
 
 /** "Leo Martin" / "leo@x.com" → "Leo" / "leo". */
 export function firstName(s: string | null | undefined): string {
@@ -74,6 +74,7 @@ export function LineRow({
   line,
   shared,
   locked,
+  busy,
   onTap,
   onMore,
 }: {
@@ -82,6 +83,8 @@ export function LineRow({
   shared: boolean
   /** The line's run is signed off: nothing is tappable. */
   locked: boolean
+  /** A save for this line is still in flight: dimmed, taps ignored. */
+  busy: boolean
   onTap: (line: RowLine) => void
   onMore: (line: RowLine) => void
 }) {
@@ -91,7 +94,6 @@ export function LineRow({
   const done = line.status === 'DONE'
   const flagged = line.status === 'FLAGGED'
   const urgent = line.isBlocker && line.status === 'TODO'
-  const days = line.days != null ? daysLabel(line.days) : ''
   const sub = subLine(line)
 
   const clearTimer = () => {
@@ -100,7 +102,7 @@ export function LineRow({
   }
   const startPress = () => {
     longFired.current = false
-    if (!isTick || locked) return
+    if (!isTick || locked || busy) return
     clearTimer()
     timer.current = setTimeout(() => {
       longFired.current = true
@@ -110,7 +112,7 @@ export function LineRow({
   const click = () => {
     clearTimer()
     if (longFired.current) { longFired.current = false; return }
-    if (!locked) onTap(line)
+    if (!locked && !busy) onTap(line)
   }
 
   const box = done
@@ -128,7 +130,7 @@ export function LineRow({
   const subTone = done ? 'text-green-text' : flagged ? 'text-red-text' : 'text-ink-3'
 
   return (
-    <div className="flex items-center border-t border-bg-2">
+    <div className={`flex items-center border-t border-bg-2 transition-opacity ${busy ? 'opacity-50' : ''}`} aria-busy={busy || undefined}>
       <button
         type="button"
         onClick={click}
@@ -150,7 +152,6 @@ export function LineRow({
           {sub && <span className={`font-mono text-[10.5px] leading-[1.4] truncate ${subTone}`}>{sub}</span>}
         </span>
         {shared && <Pill>KITCHEN</Pill>}
-        {days && <Pill tone="blue">{days}</Pill>}
         {flagged && <Pill tone="red">FLAGGED</Pill>}
         {!isTick && line.status === 'TODO' && !locked && (
           <span className="font-mono text-[11px] font-medium px-[11px] py-[7px] rounded-full border border-line-2 text-ink whitespace-nowrap">
@@ -161,7 +162,7 @@ export function LineRow({
       {isTick && !locked && (
         <button
           type="button"
-          onClick={() => onMore(line)}
+          onClick={() => { if (!busy) onMore(line) }}
           aria-label={`More for ${line.title}`}
           className="flex-none w-11 min-h-[58px] grid place-items-center text-ink-3 mr-1"
         >

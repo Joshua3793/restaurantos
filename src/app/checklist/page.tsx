@@ -23,7 +23,7 @@ import type { RowLine } from '@/components/checklists/LineRow'
 
 const POLL_MS = 30_000
 
-type Result<T> = { ok: true; data: T } | { ok: false; error: string }
+type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number }
 
 async function call<T>(url: string, init?: RequestInit): Promise<Result<T>> {
   try {
@@ -33,10 +33,10 @@ async function call<T>(url: string, init?: RequestInit): Promise<Result<T>> {
       headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     })
     const data = await res.json().catch(() => null)
-    if (!res.ok) return { ok: false, error: (data && typeof data.error === 'string' && data.error) || 'Could not save — try again.' }
+    if (!res.ok) return { ok: false, status: res.status, error: (data && typeof data.error === 'string' && data.error) || 'Could not save — try again.' }
     return { ok: true, data: data as T }
   } catch {
-    return { ok: false, error: 'No connection — try again.' }
+    return { ok: false, status: 0, error: 'No connection — try again.' }
   }
 }
 
@@ -85,6 +85,13 @@ function ChecklistScreen() {
   const [view, setView] = useState<CookView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [homeStation, setHomeStation] = useState<string | null>(null)
+  // The picker waits for this so the usual station can be pre-ticked.
+  const [meLoaded, setMeLoaded] = useState(false)
+  // Which rc|phase the view on screen was loaded for.
+  const [viewFor, setViewFor] = useState('')
+  // Lines with a save in flight: a second tap waits (no double-tap race).
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set())
+  const busyRef = useRef(new Set<string>())
   const [pickerOpen, setPickerOpen] = useState(false)
   const [sheetLineId, setSheetLineId] = useState<string | null>(null)
 
@@ -101,6 +108,7 @@ function ChecklistScreen() {
   useEffect(() => {
     call<{ cook: { homeStation: string | null } | null }>('/api/prep/me').then(r => {
       if (r.ok) setHomeStation(r.data.cook?.homeStation ?? null)
+      setMeLoaded(true)
     })
   }, [])
 
@@ -118,6 +126,7 @@ function ChecklistScreen() {
     if (inflight.current > 0 || seq !== mutSeq.current) return
     setLoadError(null)
     setView(r.data)
+    setViewFor(myKey)
   }, [activeRcId, paramPhase])
 
   useEffect(() => {
@@ -135,11 +144,12 @@ function ChecklistScreen() {
   }, [ready, activeRcId, load])
 
   useEffect(() => {
-    if (view && view.mine.length === 0 && autoOpened.current !== key) {
-      autoOpened.current = key
-      setPickerOpen(true)
-    }
-  }, [view, key])
+    if (!view || !meLoaded || view.mine.length > 0 || autoOpened.current === key) return
+    // Never on a view left over from the kitchen or phase we just switched away from.
+    if (viewFor !== key || (paramPhase && view.phase !== paramPhase)) return
+    autoOpened.current = key
+    setPickerOpen(true)
+  }, [view, viewFor, meLoaded, key, paramPhase])
 
   /** Wraps a save so a poll in flight cannot paint over it. */
   const mutate = async <T,>(fn: () => Promise<T>): Promise<T> => {
@@ -148,19 +158,36 @@ function ChecklistScreen() {
     try { return await fn() } finally { inflight.current--; mutSeq.current++ }
   }
 
-  const putLine = (line: RowLine, action: LineAction) =>
-    mutate(async () => {
-      const r = await call<{ line: LineView }>(`/api/checklists/lines/${line.id}`, {
+  const setBusy = (id: string, on: boolean) => {
+    if (on) busyRef.current.add(id)
+    else busyRef.current.delete(id)
+    setBusyIds(new Set(busyRef.current))
+  }
+
+  /** A 409 means the run was signed off (or changed) elsewhere: show the real state now. */
+  const reloadOnConflict = (r: { ok: boolean; status?: number }) => {
+    if (!r.ok && r.status === 409) load()
+  }
+
+  const putLine = async (line: RowLine, action: LineAction) => {
+    setBusy(line.id, true)
+    try {
+      const r = await mutate(() => call<{ line: LineView }>(`/api/checklists/lines/${line.id}`, {
         method: 'PUT',
         body: JSON.stringify(action),
-      })
+      }))
+      reloadOnConflict(r)
       return r
-    })
+    } finally {
+      setBusy(line.id, false)
+    }
+  }
 
   const myName = user?.name ?? user?.email ?? ''
 
   // A TICK tap flips at once and rolls back with a toast if the save fails.
   const tapLine = async (line: RowLine) => {
+    if (busyRef.current.has(line.id)) return
     if (line.answer !== 'TICK' || line.status === 'FLAGGED') { setSheetLineId(line.id); return }
     const tick = line.status === 'TODO'
     const before: LineView = line
@@ -177,6 +204,7 @@ function ChecklistScreen() {
   }
 
   const sheetAction = async (line: RowLine, action: LineAction): Promise<boolean> => {
+    if (busyRef.current.has(line.id)) return false
     const r = await putLine(line, action)
     if (!r.ok) { showError(r.error); return false }
     setView(v => (v ? replaceLine(v, r.data.line) : v))
@@ -191,6 +219,7 @@ function ChecklistScreen() {
     }))
     if (!r.ok) { showError(r.error); return false }
     setView(r.data)
+    setViewFor(key)
     return true
   }
 
@@ -199,6 +228,7 @@ function ChecklistScreen() {
       method: 'POST',
       body: JSON.stringify(handoverNote !== undefined ? { handoverNote } : {}),
     }))
+    reloadOnConflict(r)
     if (!r.ok) { showError(r.error); return false }
     setView(v => (v ? replaceRun(v, r.data.run) : v))
     return true
@@ -242,6 +272,10 @@ function ChecklistScreen() {
     ? [...mine, ...(view?.shared ? [view.shared] : [])].find(r => r.id === sheetLine.runId) ?? null
     : null
   const sheetOpen = !!(sheetLine && sheetRun && sheetRun.status === 'OPEN')
+  // A sheet that closed because its run got signed must not come back after a reopen.
+  useEffect(() => {
+    if (!sheetOpen && sheetLineId) setSheetLineId(null)
+  }, [sheetOpen, sheetLineId])
 
   const crumb = view
     ? [crumbDay(view.businessDate), phase === 'OPEN' ? 'OPENING' : 'CLOSING', ...(phase === 'CLOSE' && picked.length ? [picked.map(s => s.name.toUpperCase()).join(' + ')] : [])].join(' · ')
@@ -262,6 +296,9 @@ function ChecklistScreen() {
       : `Everything before you leave is done. Sign off ${openNames} when you’re ready.`}</span>
   }
 
+  const sharedBlockersOpen = !!view?.shared && view.shared.status === 'OPEN'
+    && view.shared.lines.some(l => l.isBlocker && l.status === 'TODO')
+
   const canReopen = !!role && atLeast(role as Role, 'LEAD')
 
   return (
@@ -270,15 +307,14 @@ function ChecklistScreen() {
         <Link href="/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center gap-0.5 -ml-1">
           <ChevronLeft size={16} aria-hidden /> Today
         </Link>
-        <div className="flex bg-bg-2 rounded-full p-[3px]" role="tablist" aria-label="Opening or closing">
+        <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Opening or closing">
           {(['OPEN', 'CLOSE'] as Phase[]).map(p => (
             <button
               key={p}
               type="button"
-              role="tab"
-              aria-selected={phase === p}
+              aria-pressed={phase === p}
               onClick={() => setPhase(p)}
-              className={`rounded-full font-mono text-[11px] font-medium px-3.5 min-h-[36px] ${phase === p ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3'}`}
+              className={`rounded-full font-mono text-[11px] font-medium px-3.5 min-h-[44px] ${phase === p ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3'}`}
             >
               {p === 'OPEN' ? 'Opening' : 'Closing'}
             </button>
@@ -327,6 +363,7 @@ function ChecklistScreen() {
             shared={view.shared}
             stations={stations}
             handover={view.handover}
+            busyIds={busyIds}
             onTap={tapLine}
             onMore={l => setSheetLineId(l.id)}
           />
@@ -339,6 +376,7 @@ function ChecklistScreen() {
           runs={mine}
           stations={stations}
           canReopen={canReopen}
+          sharedBlockersOpen={sharedBlockersOpen}
           onSignOff={signOff}
           onReopen={reopen}
         />

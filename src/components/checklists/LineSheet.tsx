@@ -15,6 +15,12 @@ import { Pill, fmtReading, rangeText, unitOf, type RowLine } from './LineRow'
 // TICK line's sheet offers Untick only.
 
 type Reason = 'BROKEN' | 'RAN_OUT' | 'OTHER'
+/** "4" ↔ "-4". iPhone's decimal keypad has no minus key, so freezer readings need this (ruling R9). */
+function flipSign(raw: string): string {
+  const t = raw.trim()
+  return t.startsWith('-') ? t.slice(1) : `-${t}`
+}
+
 const REASONS: { key: Reason; label: string }[] = [
   { key: 'BROKEN', label: 'Broken' },
   { key: 'RAN_OUT', label: 'Ran out' },
@@ -123,6 +129,14 @@ export function LineSheet({
                   className="flex-1 min-w-0 border-0 outline-none bg-transparent font-mono text-[30px] font-semibold tracking-[-0.04em] text-ink"
                 />
                 {unit && <span className="font-mono text-[18px] text-ink-3">{unit}</span>}
+                <button
+                  type="button"
+                  onClick={() => setRaw(flipSign)}
+                  aria-label={value != null && value < 0 ? 'Make positive' : 'Make negative'}
+                  className="flex-none -mr-2 w-11 h-11 rounded-[10px] bg-bg-2 grid place-items-center font-mono text-[20px] font-semibold text-ink-2"
+                >
+                  ±
+                </button>
               </span>
               {hint && <span className={`font-mono text-[11px] ${hint.tone}`}>{hint.text}</span>}
             </label>
@@ -172,15 +186,14 @@ export function LineSheet({
             <p className="m-0 text-[12.5px] leading-[1.45] text-ink-3">
               Shows on the manager’s screen. A flagged job counts as handled, so it won’t hold up your sign-off.
             </p>
-            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Reason">
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Reason">
               {REASONS.map(r => {
                 const on = reason === r.key
                 return (
                   <button
                     key={r.key}
                     type="button"
-                    role="radio"
-                    aria-checked={on}
+                    aria-pressed={on}
                     onClick={() => setReason(on ? null : r.key)}
                     className={`min-h-[44px] px-3.5 rounded-full text-[13px] border ${on ? 'border-red bg-red-soft text-red-text font-medium' : 'border-line-2 bg-paper text-ink-2'}`}
                   >
