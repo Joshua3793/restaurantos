@@ -256,8 +256,10 @@ function TodayBoard() {
   // ── Derived ──────────────────────────────────────────────────────────────
   const stations = view?.stations ?? []
   const flags = (view?.flags ?? []).filter(f => !fixing.has(f.lineId))
-  const doneCount = stations.filter(s => s.status.tone === 'green').length
-  const firstNotStarted = stations.find(s => s.status.label === 'NOT STARTED') ?? null
+  // A station with nothing on its list today is left out of the lede's counts.
+  const working = stations.filter(s => s.status.label !== 'NOTHING TODAY')
+  const doneCount = working.filter(s => s.status.tone === 'green').length
+  const firstNotStarted = working.find(s => s.status.label === 'NOT STARTED') ?? null
 
   const services = activeRc?.services ?? []
   let doorsIn: string | null = null
@@ -287,10 +289,10 @@ function TodayBoard() {
           {n > 0 && (firstNotStarted ? flagText : flagText.charAt(0).toUpperCase() + flagText.slice(1))}.
         </>
       )
-    } else if (stations.length > 0 && doneCount === stations.length) {
+    } else if (working.length > 0 && doneCount === working.length) {
       lede = <span className="text-green-text">Every station is done.</span>
-    } else if (stations.length > 0) {
-      lede = <>{doors}Every station has started. {doneCount} of {stations.length} done.</>
+    } else if (working.length > 0) {
+      lede = <>{doors}Every station has started. {doneCount} of {working.length} done.</>
     }
   }
 

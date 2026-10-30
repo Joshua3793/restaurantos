@@ -12,6 +12,20 @@ describe('stationStatus', () => {
     expect(stationStatus({ isShared: true, run: null, phase: 'CLOSE' })).toEqual({ label: 'NOT STARTED', tone: 'red' })
   })
 
+  it('no run and jobs that apply today is NOT STARTED, red', () => {
+    expect(stationStatus({ isShared: false, run: null, phase: 'OPEN', jobCount: 4 })).toEqual({ label: 'NOT STARTED', tone: 'red' })
+  })
+
+  it('no run and no job applies today is NOTHING TODAY, grey (shared too)', () => {
+    expect(stationStatus({ isShared: false, run: null, phase: 'CLOSE', jobCount: 0 })).toEqual({ label: 'NOTHING TODAY', tone: 'grey' })
+    expect(stationStatus({ isShared: true, run: null, phase: 'OPEN', jobCount: 0 })).toEqual({ label: 'NOTHING TODAY', tone: 'grey' })
+  })
+
+  it('a run is judged on its lines, whatever the job count', () => {
+    expect(stationStatus({ isShared: false, run: { status: 'OPEN', lines: [L('TODO')] }, phase: 'OPEN', jobCount: 0 }))
+      .toEqual({ label: 'IN PROGRESS', tone: 'grey' })
+  })
+
   it('a signed run is DONE, green, even with jobs left', () => {
     expect(stationStatus({ isShared: false, run: { status: 'SIGNED', lines: [L('TODO', true)] }, phase: 'OPEN' }))
       .toEqual({ label: 'DONE', tone: 'green' })

@@ -13,12 +13,14 @@ const isRcInScope = vi.fn(async (..._a: unknown[]) => true)
 const stationFindMany = vi.fn()
 const runFindMany = vi.fn()
 const lineFindMany = vi.fn()
+const itemFindMany = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     checklistStation: { findMany: (...a: unknown[]) => stationFindMany(...a) },
     checklistRun: { findMany: (...a: unknown[]) => runFindMany(...a) },
     checklistRunLine: { findMany: (...a: unknown[]) => lineFindMany(...a) },
+    checklistItem: { findMany: (...a: unknown[]) => itemFindMany(...a) },
   },
 }))
 vi.mock('@/lib/auth', () => ({
@@ -43,6 +45,9 @@ beforeEach(() => {
   stationFindMany.mockResolvedValue([st('s1', 'Grill'), st('s2', 'Pastry'), st('s3', 'Whole kitchen', true)])
   runFindMany.mockResolvedValue([])
   lineFindMany.mockResolvedValue([])
+  // Every station has one job that applies every day, unless a test says otherwise.
+  itemFindMany.mockImplementation(async (a: { where: { category: { stationId: { in: string[] } } } }) =>
+    a.where.category.stationId.in.map(id => ({ days: 127, category: { stationId: id } })))
 })
 
 describe('GET /api/checklists/today', () => {
@@ -64,6 +69,26 @@ describe('GET /api/checklists/today', () => {
     expect(body.businessDate).toBe('2026-10-29')
     expect(body.stations.map((s: { name: string }) => s.name)).toEqual(['Grill', 'Pastry', 'Whole kitchen'])
     expect(body.stations[0]).toMatchObject({ crew: [], handled: 0, total: 0, status: { label: 'NOT STARTED', tone: 'red' } })
+  })
+
+  it('a station with no run and no job that applies today is NOTHING TODAY, grey (one item query)', async () => {
+    // 2026-10-29 is a Thursday: Pastry's only job is Wednesday-only (bit 4), Grill's runs every day.
+    itemFindMany.mockResolvedValue([
+      { days: 127, category: { stationId: 's1' } },
+      { days: 4, category: { stationId: 's2' } },
+    ])
+    runFindMany.mockResolvedValue([{
+      stationId: 's3', status: 'OPEN', signedOffByName: null, signedOffAt: null, crew: [],
+      lines: [{ id: 'l1', title: 'Gas off', status: 'TODO', isBlocker: true, doneByName: null, resolvedAt: null }],
+    }])
+    const body = await (await get('rcId=rc1&phase=CLOSE')).json()
+    const by = Object.fromEntries(body.stations.map((s: { name: string; status: unknown }) => [s.name, s.status]))
+    expect(by.Grill).toEqual({ label: 'NOT STARTED', tone: 'red' })
+    expect(by.Pastry).toEqual({ label: 'NOTHING TODAY', tone: 'grey' })
+    expect(itemFindMany).toHaveBeenCalledTimes(1)
+    expect(itemFindMany.mock.calls[0][0].where).toEqual({
+      isActive: true, category: { isActive: true, phase: 'CLOSE', stationId: { in: ['s1', 's2'] } },
+    })
   })
 
   it('reads flags for the last 7 business dates, both phases, open only', async () => {

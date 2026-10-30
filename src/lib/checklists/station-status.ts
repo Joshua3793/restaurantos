@@ -9,9 +9,15 @@ export function stationStatus(input: {
   isShared: boolean
   run: { status: 'OPEN' | 'SIGNED'; lines: LineLike[] } | null
   phase: Phase
+  /** With no run: how many jobs would apply today. 0 means there is nothing to start. */
+  jobCount?: number
 }): StationStatus {
-  const { run, isShared, phase } = input
-  if (!run) return { label: 'NOT STARTED', tone: 'red' }
+  const { run, isShared, phase, jobCount } = input
+  if (!run) {
+    // Nothing on the list today: not a station that is late, and the close gate ignores it.
+    if (jobCount === 0) return { label: 'NOTHING TODAY', tone: 'grey' }
+    return { label: 'NOT STARTED', tone: 'red' }
+  }
   if (run.status === 'SIGNED' || (isShared && sharedRunComplete(run.lines))) {
     return { label: 'DONE', tone: 'green' }
   }
