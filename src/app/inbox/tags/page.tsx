@@ -1,6 +1,5 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import type { Role } from '@prisma/client'
 import { useUser } from '@/contexts/UserContext'
 import { useToast } from '@/components/Toast'
@@ -9,6 +8,8 @@ import type { TagLite } from '@/lib/inbox/rules'
 import { call } from '@/components/inbox/api'
 import { TagDot } from '@/components/inbox/TagChips'
 import { TagSheet, type TagDraft } from '@/components/inbox/TagSheet'
+import { SectionTabs } from '@/components/nav/SectionTabs'
+import { inboxTabs } from '@/lib/section-tabs'
 
 // /inbox/tags — MANAGER+: add, rename, recolour and remove Inbox tags, and say
 // which tag each kind of checklist flag lands in. One column on every screen.
@@ -219,9 +220,7 @@ export default function InboxTagsPage() {
   return (
     <>
       <div className="max-w-[640px] mx-auto w-full flex flex-col gap-3.5">
-        <Link href="/inbox" className="self-start text-[13px] text-ink-3 min-h-[44px] inline-flex items-center">
-          ‹ Inbox
-        </Link>
+        <SectionTabs tabs={inboxTabs(role as Role | null)} active="tags" label="Inbox pages" />
         <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Inbox tags</h1>
         <p className="m-0 text-[14px] leading-[1.45] text-ink-2">
           Tags sort the Inbox. Cooks pick one when they report something. Changes show up for everyone straight away.

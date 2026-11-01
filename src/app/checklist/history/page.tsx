@@ -1,6 +1,5 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -11,6 +10,7 @@ import { historyCsv, type HistoryRun } from '@/lib/checklists/history-csv'
 import type { HistoryDay, HistoryPeople, HistoryView } from '@/lib/checklists/history-types'
 import type { LineView } from '@/lib/checklists/runs'
 import { firstName, fmtReading, unitOf } from '@/components/checklists/LineRow'
+import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 
 // /checklist/history — MANAGER+ review of any day's opening and closing lists:
 // who ticked what and when, filtered by person or station, exportable as CSV.
@@ -373,8 +373,9 @@ export default function ChecklistHistoryPage() {
 
   return (
     <div className="max-w-[640px] mx-auto w-full flex flex-col gap-3.5">
+      <ChecklistTabs active="history" />
       <header className="flex items-center justify-between gap-3">
-        <Link href="/checklist/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center">‹ Today</Link>
+        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">History</h1>
         <button
           type="button"
           onClick={exportCsv}
@@ -384,8 +385,6 @@ export default function ChecklistHistoryPage() {
           Export ↓
         </button>
       </header>
-
-      <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">History</h1>
 
       {!allowed ? (
         <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">History is for managers.</div>

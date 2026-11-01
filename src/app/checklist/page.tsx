@@ -1,8 +1,7 @@
 'use client'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ChevronDown, ChevronLeft, Flag } from 'lucide-react'
+import { ChevronDown, Flag } from 'lucide-react'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -18,6 +17,7 @@ import { LineSheet } from '@/components/checklists/LineSheet'
 import { SignOffFooter } from '@/components/checklists/SignOffFooter'
 import { closingLede } from '@/lib/checklists/lede'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
+import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 import type { RowLine } from '@/components/checklists/LineRow'
 
 // /checklist — the cook's opening / closing list for their station(s).
@@ -329,22 +329,12 @@ function ChecklistScreen() {
     && view.shared.lines.some(l => l.isBlocker && l.status === 'TODO')
 
   const canReopen = !!role && atLeast(role as Role, 'LEAD')
-  const canSeeBoard = canReopen   // the board (/checklist/today) is LEAD+ too
 
   return (
     <div className="max-w-[480px] mx-auto w-full flex flex-col">
+      {/* Leads and up move between the section's pages here; a cook has no tabs. */}
+      <ChecklistTabs active="mine" />
       <header className="flex flex-wrap items-center justify-between gap-x-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <Link href="/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center gap-0.5 -ml-1">
-            <ChevronLeft size={16} aria-hidden /> Today
-          </Link>
-          {/* Leads and up run the whole kitchen from the board. */}
-          {canSeeBoard && (
-            <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center whitespace-nowrap">
-              Station board →
-            </Link>
-          )}
-        </div>
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"

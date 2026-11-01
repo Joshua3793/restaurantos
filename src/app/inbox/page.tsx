@@ -1,6 +1,6 @@
 'use client'
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -12,6 +12,8 @@ import { TagChips } from '@/components/inbox/TagChips'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
 import { call, sendInboxAction } from '@/components/inbox/api'
 import { refreshInboxCount } from '@/lib/inbox-count-feed'
+import { SectionTabs } from '@/components/nav/SectionTabs'
+import { inboxTabs, parseInboxView } from '@/lib/section-tabs'
 import { ItemPane, ItemSheet, type ItemDetailProps } from '@/components/inbox/ItemSheet'
 import {
   applyFilter, countByTag, peopleOf, placesOf,
@@ -21,7 +23,8 @@ import {
 // /inbox — LEAD+: everything waiting on a manager for the kitchen picked in the
 // top bar. One page, both layouts mounted (phone md:hidden, desktop md:grid);
 // the item opens as a bottom sheet on the phone and a pane on desktop, from
-// the one shared selection below.
+// the one shared selection below. Open / Waiting / Snoozed / Done are tabs at
+// the top (`?view=`), with Tags beside them for managers.
 
 const POLL_MS = 30_000
 
@@ -40,6 +43,16 @@ const Panel = ({ children }: { children: React.ReactNode }) => (
 )
 
 export default function InboxPage() {
+  // useSearchParams needs a Suspense boundary to build.
+  return (
+    <Suspense fallback={null}>
+      <Inbox />
+    </Suspense>
+  )
+}
+
+function Inbox() {
+  const params = useSearchParams()
   const { activeRcId, activeRc, ready } = useRc()
   const { role } = useUser()
   const toast = useToast()
@@ -49,7 +62,7 @@ export default function InboxPage() {
 
   // ── list + filters ───────────────────────────────────────────────────────
   const [reportOpen, setReportOpen] = useState(false)
-  const [view, setView] = useState<InboxView>('open')
+  const view: InboxView = parseInboxView(params.get('view'))
   // Waiting is a slice of the open list; Snoozed (still asleep) and Done are lists of their own.
   const status: 'open' | 'snoozed' | 'done' = view === 'done' || view === 'snoozed' ? view : 'open'
   const [tagId, setTagId] = useState<string | null>(null)
@@ -58,8 +71,10 @@ export default function InboxPage() {
   const [list, setList] = useState<InboxListData | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
-  // The Waiting count comes from the last open list, so it holds while Done / Snoozed is showing.
+  // The Waiting and NOW counts come from the last open list, so the tabs keep
+  // them while Done / Snoozed is showing.
   const [waiting, setWaiting] = useState(0)
+  const [nowCount, setNowCount] = useState(0)
   // Items opened here: their gold dot goes at once, before the next poll says so.
   const [readIds, setReadIds] = useState<ReadonlySet<string>>(() => new Set())
 
@@ -90,7 +105,10 @@ export default function InboxPage() {
     setLoadError(null)
     setNow(new Date())
     setList(r.data)
-    if (status === 'open') setWaiting(r.data.items.filter(i => i.status === 'WAITING').length)
+    if (status === 'open') {
+      setWaiting(r.data.items.filter(i => i.status === 'WAITING').length)
+      setNowCount(r.data.items.filter(i => i.severity === 'NOW').length)
+    }
   }, [activeRcId, status])
 
   const closeItem = useCallback(() => {
@@ -196,7 +214,8 @@ export default function InboxPage() {
   // The API's chip counts are open counts; on Done / Snoozed, count that list itself.
   const tagCounts = status === 'open' ? counts.byTag : countByTag(items)
   const tagTotal = status === 'open' ? counts.open : items.length
-  const statusCounts: Record<InboxView, number> = { open: counts.open, done: counts.done, snoozed: counts.snoozed, waiting }
+  const tabs = inboxTabs(role as Role | null, list ? { open: counts.open, now: nowCount, waiting, snoozed: counts.snoozed } : {})
+  const tabRow = allowed && <SectionTabs tabs={tabs} active={view} label="Inbox pages" />
 
   const places = placesOf(items)
   if (place && !places.includes(place)) places.push(place)
@@ -248,37 +267,11 @@ export default function InboxPage() {
     </button>
   )
 
-  const manageTags = isManager && (
-    <Link href="/inbox/tags" className="self-start font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
-      Manage tags →
-    </Link>
-  )
-
   return (
     <>
       {/* ── Phone ─────────────────────────────────────────────────────── */}
       <div className="md:hidden max-w-[640px] mx-auto w-full flex flex-col gap-3.5">
-        <header className="flex items-center justify-between gap-3">
-          <Link href="/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center">
-            ‹ {isManager ? 'Pass' : 'Today'}
-          </Link>
-          <div className="flex bg-bg-2 rounded-full p-[3px]" role="group" aria-label="Open or done">
-            {(['open', 'done'] as const).map(s => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={status === s}
-                onClick={() => setView(s)}
-                className={`rounded-full font-mono text-[11px] font-medium px-3.5 min-h-[44px] ${
-                  status === s ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3'
-                }`}
-              >
-                {s === 'open' ? `Open${list ? ` · ${counts.open}` : ''}` : 'Done'}
-              </button>
-            ))}
-          </div>
-        </header>
-
+        {tabRow}
         <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Inbox</h1>
         <p className="m-0 text-[14px] leading-[1.45] text-ink-2">
           Everything waiting on a manager: cooks’ flags and notes, readings, prep, stock, money and the team.
@@ -288,16 +281,6 @@ export default function InboxPage() {
         {gate ?? (
           <>
             <TagChips tags={tags} counts={tagCounts} total={tagTotal} tagId={tagId} onPick={setTagId} />
-            {view === 'snoozed' ? (
-              <button type="button" onClick={() => setView('open')} className="self-start font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
-                ‹ Snoozed · back to open
-              </button>
-            ) : status === 'open' && counts.snoozed > 0 && (
-              <button type="button" onClick={() => setView('snoozed')} className="self-start font-mono text-[11px] text-ink-3 min-h-[44px] inline-flex items-center">
-                {counts.snoozed} snoozed →
-              </button>
-            )}
-            {manageTags}
             <InboxList
               variant="phone"
               items={shown}
@@ -334,22 +317,15 @@ export default function InboxPage() {
             )}
           </div>
           <div className="flex-none flex items-center gap-4">
-            {isManager && (
-              <Link href="/inbox/tags" className="font-mono text-[11px] text-gold-2 min-h-[44px] inline-flex items-center">
-                Manage tags →
-              </Link>
-            )}
             {reportButton}
           </div>
         </header>
+        {tabRow}
 
         {gate ?? (
           <div className="grid gap-4 xl:gap-5 items-start grid-cols-[190px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_400px]">
             <div className="col-start-1 row-start-1 row-span-2 xl:row-span-1">
               <InboxFilters
-                view={view}
-                statusCounts={statusCounts}
-                onView={setView}
                 tags={tags}
                 tagCounts={tagCounts}
                 tagTotal={tagTotal}

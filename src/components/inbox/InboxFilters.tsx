@@ -1,9 +1,9 @@
 'use client'
 import type { TagLite } from '@/lib/inbox/rules'
-import type { InboxView } from './format'
 import { TagDot } from './TagChips'
 
-// Desktop filter column: Status, Tag, Where, From.
+// Desktop filter column: Tag, Where, From. Open / Waiting / Snoozed / Done are
+// the tabs above the page.
 
 function FilterButton({ on, onClick, children, count }: {
   on: boolean
@@ -33,14 +33,10 @@ const Label = ({ children }: { children: React.ReactNode }) => (
 const SELECT = 'h-10 border border-line-2 rounded-[9px] px-2.5 text-[13px] bg-paper text-ink min-w-0'
 
 export function InboxFilters({
-  view, statusCounts, onView,
   tags, tagCounts, tagTotal, tagId, onTag,
   places, place, onPlace,
   people, from, onFrom,
 }: {
-  view: InboxView
-  statusCounts: Record<InboxView, number>
-  onView: (v: InboxView) => void
   tags: TagLite[]
   tagCounts: Record<string, number>
   tagTotal: number
@@ -53,17 +49,8 @@ export function InboxFilters({
   from: string | null
   onFrom: (id: string | null) => void
 }) {
-  const STATUS: Array<[InboxView, string]> = [
-    ['open', 'Open'], ['snoozed', 'Snoozed'], ['waiting', 'Waiting on someone'], ['done', 'Done'],
-  ]
   return (
     <aside aria-label="Filters" className="flex flex-col gap-[18px] min-w-0">
-      <div className="flex flex-col gap-1">
-        <Label>STATUS</Label>
-        {STATUS.map(([v, label]) => (
-          <FilterButton key={v} on={view === v} onClick={() => onView(v)} count={statusCounts[v]}>{label}</FilterButton>
-        ))}
-      </div>
       <div className="flex flex-col gap-1">
         <Label>TAG</Label>
         <FilterButton on={tagId === null} onClick={() => onTag(null)} count={tagTotal}>All tags</FilterButton>
