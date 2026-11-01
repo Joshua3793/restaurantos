@@ -1,6 +1,5 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -16,6 +15,7 @@ import { StationChips } from '@/components/checklists/edit/StationChips'
 import { CategoryCard } from '@/components/checklists/edit/CategoryCard'
 import { ItemSheet } from '@/components/checklists/edit/ItemSheet'
 import { CategorySheet, CopySheet, StationSheet } from '@/components/checklists/edit/EditSheets'
+import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 
 // /checklist/edit — MANAGER+ editor for each station's opening and closing list:
 // stations, categories and jobs. Changes apply from the next shift; a list a
@@ -162,8 +162,9 @@ export default function ChecklistEditPage() {
 
   const shell = (body: React.ReactNode) => (
     <div className="max-w-[640px] mx-auto w-full flex flex-col gap-3.5 pb-6">
-      <header className="flex items-center justify-between">
-        <Link href="/checklist/today" className="text-[13px] text-ink-3 min-h-[44px] inline-flex items-center">‹ Today</Link>
+      <ChecklistTabs active="edit" />
+      <header className="flex items-center justify-between gap-3">
+        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Edit lists</h1>
         <button
           type="button"
           disabled={!station || station.isShared}
@@ -174,7 +175,6 @@ export default function ChecklistEditPage() {
           Copy from…
         </button>
       </header>
-      <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Checklists</h1>
       {body}
     </div>
   )
