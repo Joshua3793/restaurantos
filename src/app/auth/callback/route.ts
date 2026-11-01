@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
 import type { EmailOtpType } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
+import { accessAppMetadata, linkActivatesLogin } from '@/lib/auth-access'
 
 // A route handler that reads the request URL is already dynamic, but make it
 // explicit so it is never statically optimised.
@@ -51,25 +52,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/login?error=invalid_link', origin))
   }
 
-  // Activate the user's Prisma row (invites land here with isActive: false).
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser()
+  // Accepting an invite is the ONLY link that switches a login on (invites
+  // land here with isActive: false in both stores). A password-recovery link
+  // must never do it: "Forgot password" would otherwise undo a manager's
+  // switch-off. Both stores, Prisma first; the page gate's copy is written
+  // from the row so the two say the same thing.
+  if (linkActivatesLogin(type)) {
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser()
 
-  if (authUser) {
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { isActive: true },
-    }).catch(() => {
-      // User row may not exist yet — safe to ignore
-    })
-    // Self-heal the gating metadata middleware reads, so a user who accepts an
-    // invite is never left blocked by a stale isActive:false flag.
-    if (authUser.user_metadata?.isActive !== true) {
-      const { createAdminClient } = await import('@/lib/supabase/admin')
-      await createAdminClient()
-        .auth.admin.updateUserById(authUser.id, { user_metadata: { isActive: true } })
-        .catch(() => {})
+    if (authUser) {
+      const row = await prisma.user.update({
+        where: { id: authUser.id },
+        data: { isActive: true },
+        select: { role: true, isActive: true },
+      }).catch(() => null) // No User row (an invite made outside the app): nothing to switch on.
+      if (row) {
+        const { createAdminClient } = await import('@/lib/supabase/admin')
+        const { error } = await createAdminClient()
+          .auth.admin.updateUserById(authUser.id, {
+            app_metadata: accessAppMetadata(row),
+            user_metadata: { isActive: true },
+          })
+          .catch((e: unknown) => ({ error: { message: e instanceof Error ? e.message : String(e) } }))
+        if (error) {
+          // The person can still set a password; pages stay closed until an
+          // admin re-saves them on the People screen, which writes both stores.
+          console.error(`[auth/callback] invite accepted but app_metadata not written for ${authUser.id}: ${error.message}`)
+        }
+      }
     }
   }
 

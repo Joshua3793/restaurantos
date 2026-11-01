@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findAuthUserByEmail, isAlreadyRegisteredError } from '@/lib/users'
 import { atLeast } from '@/lib/roles'
+import { accessAppMetadata } from '@/lib/auth-access'
 import { pinEmail } from '@/lib/pin/rules'
 import { PinError } from '@/lib/pin/errors'
 
@@ -22,6 +23,7 @@ export interface PinCook {
 
 const SWITCHED_OFF = 'This login is switched off'
 const MANAGERS_USE_EMAIL = 'Managers sign in with email and password'
+const EMAIL_LOGIN_USE_EMAIL = 'You have an email login — sign in with your email and password'
 const NEEDS_A_MANAGER = 'This PIN account needs a manager to fix it'
 const SIGN_IN_FAILED = 'Could not sign in — try again'
 
@@ -37,31 +39,37 @@ function isUniqueViolation(e: unknown): boolean {
 }
 
 /**
- * The gate every PIN sign-in passes: the login must be on, and must not be a
- * manager's (MANAGER and above sign in with email and password — RULING P3).
+ * The gate every PIN sign-in passes: the login must be on, must not be a
+ * manager's (MANAGER and above sign in with email and password — RULING P3),
+ * and must be this cook's own PIN login. A cook linked to an email login signs
+ * in with that email: a PIN session on it would carry no phone binding and no
+ * LEAD cap (both key off the PIN stamp), and stamping it would lock its email
+ * sign-in to an OK'd phone.
  */
-function admit(user: PinUserRow): { userId: string; email: string } {
+function admit(user: PinUserRow, cookId: string): { userId: string; email: string } {
   if (!user.isActive) throw new PinError(403, SWITCHED_OFF)
   if (atLeast(user.role, 'MANAGER')) throw new PinError(403, MANAGERS_USE_EMAIL)
+  if (user.email.toLowerCase() !== pinEmail(cookId)) throw new PinError(403, EMAIL_LOGIN_USE_EMAIL)
   return { userId: user.id, email: user.email }
 }
 
-/** The linked login for `userId`, through `admit`; null when there is no row. */
-async function linkedUser(userId: string): Promise<{ userId: string; email: string } | null> {
+/** The cook's linked login `userId`, through `admit`; null when there is no row. */
+async function linkedUser(userId: string, cookId: string): Promise<{ userId: string; email: string } | null> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: PIN_USER_SELECT })
   if (!user) return null
-  return admit(user)
+  return admit(user, cookId)
 }
 
 /**
  * The early gate on the PIN screen, run before any phone is queued for
- * approval: a cook whose linked login is a manager's (RULING P3) or switched
- * off is refused with the same 403 `ensurePinUser` would give. A cook with no
- * login yet, or a link to a missing row, passes — `ensurePinUser` makes one.
+ * approval: a cook whose linked login is a manager's (RULING P3), switched
+ * off, or an email login is refused with the same 403 `ensurePinUser` would
+ * give. A cook with no login yet, or a link to a missing row, passes —
+ * `ensurePinUser` makes one.
  */
-export async function assertPinLoginAllowed(cook: Pick<PinCook, 'userId'>): Promise<void> {
+export async function assertPinLoginAllowed(cook: Pick<PinCook, 'id' | 'userId'>): Promise<void> {
   if (!cook.userId) return
-  await linkedUser(cook.userId)
+  await linkedUser(cook.userId, cook.id)
 }
 
 /**
@@ -76,7 +84,7 @@ export async function assertPinLoginAllowed(cook: Pick<PinCook, 'userId'>): Prom
  */
 export async function ensurePinUser(cook: PinCook): Promise<{ userId: string; email: string }> {
   if (cook.userId) {
-    const linked = await linkedUser(cook.userId)
+    const linked = await linkedUser(cook.userId, cook.id)
     if (linked) return linked
     console.warn(`[pin] cook ${cook.id} links to missing user ${cook.userId}; creating a fresh PIN login`)
   }
@@ -89,12 +97,13 @@ export async function ensurePinUser(cook: PinCook): Promise<{ userId: string; em
       email,
       email_confirm: true,
       user_metadata: { role: 'STAFF', isActive: true, name: fullName },
-      app_metadata: { pinCookId: cook.id },
+      // role + isActive are what the page gate reads (src/lib/auth-access.ts).
+      app_metadata: { pinCookId: cook.id, role: 'STAFF', isActive: true },
     })
 
   // Supabase first. `createdId` is set only when THIS call made the auth user —
   // only that one is ours to delete on rollback. `adopted` = an earlier run of
-  // this flow made it (stamped); its user_metadata is re-synced after linking.
+  // this flow made it (stamped); its metadata is re-synced after linking.
   let authId: string
   let createdId: string | null = null
   let adopted = false
@@ -144,7 +153,7 @@ export async function ensurePinUser(cook: PinCook): Promise<{ userId: string; em
         update: {},
         select: PIN_USER_SELECT,
       })
-      admit(row)
+      admit(row, cook.id)
       // Compare-and-set on the link we read: never overwrite someone else's.
       const { count } = await tx.cook.updateMany({
         where: { id: cook.id, userId: cook.userId },
@@ -160,7 +169,7 @@ export async function ensurePinUser(cook: PinCook): Promise<{ userId: string; em
       if (now?.userId) {
         // Never delete the auth user the winner linked the cook to.
         if (createdId && createdId !== now.userId) await rollbackAuthUser(admin, createdId)
-        const winner = await linkedUser(now.userId)
+        const winner = await linkedUser(now.userId, cook.id)
         if (winner) return winner
         throw new PinError(409, NEEDS_A_MANAGER)
       }
@@ -170,8 +179,9 @@ export async function ensurePinUser(cook: PinCook): Promise<{ userId: string; em
   }
 
   if (adopted) {
-    // Middleware reads user_metadata; make it say what the APIs read.
+    // Middleware reads app_metadata; make it say what the APIs read.
     const { error: syncError } = await admin.auth.admin.updateUserById(authId, {
+      app_metadata: accessAppMetadata(user),
       user_metadata: { role: user.role, isActive: user.isActive, name: user.name },
     })
     if (syncError) {
@@ -183,7 +193,7 @@ export async function ensurePinUser(cook: PinCook): Promise<{ userId: string; em
     }
   }
 
-  return admit(user)
+  return admit(user, cook.id)
 }
 
 async function rollbackAuthUser(admin: ReturnType<typeof createAdminClient>, id: string) {

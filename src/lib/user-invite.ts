@@ -51,6 +51,12 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
       })
       if (error || !data?.user) return { error }
       const newId = data.user.id
+      // inviteUserByEmail can only set user_metadata, which the person could
+      // edit; the page gate reads app_metadata. Pending = not active, same as
+      // the Prisma row below. Best effort: accepting the invite rewrites it
+      // from the Prisma row (/auth/callback), and until then the gate's
+      // fallback (no isActive → blocked, no role → STAFF) is the safe one.
+      await stampPendingInvite(supabaseAdmin, newId, role)
       // A re-invite mints a NEW auth UUID for an unchanged email, so any stale
       // Prisma row must be cleared before inserting the row keyed to the new
       // UUID. Both in ONE interactive transaction: under the pgBouncer
@@ -111,7 +117,7 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
     // Accepted before → reactivate in place. Both stores, or neither.
     //
     // Prisma is authoritative for API access (requireSession reads it), so it's
-    // written FIRST; Supabase user_metadata (what middleware reads for page
+    // written FIRST; Supabase app_metadata (what middleware reads for page
     // access) is written second. If Supabase then fails, we revert the Prisma
     // row + scopes rather than leave requireSession authorizing the new role
     // while middleware still gates on the old one.
@@ -145,6 +151,7 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
     let metaError: { message: string } | null = null
     try {
       const { error } = await supabaseAdmin.auth.admin.updateUserById(existing.id, {
+        app_metadata: { role, isActive: true },
         user_metadata: { role, isActive: true, name },
       })
       metaError = error
@@ -225,5 +232,21 @@ export async function inviteOne(opts: InviteOptions): Promise<InviteResult> {
       status: 'failed',
       error: e instanceof Error ? e.message : 'Unexpected error while processing this invite',
     }
+  }
+}
+
+/**
+ * Marks a just-invited auth user pending in app_metadata (`isActive: false`).
+ * Never throws: the invite already went out, and /auth/callback writes the
+ * real values when it is accepted. Shared with the resend route.
+ */
+export async function stampPendingInvite(supabaseAdmin: SupabaseClient, userId: string, role: Role): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      app_metadata: { role, isActive: false },
+    })
+    if (error) console.error(`[user-invite] could not stamp pending app_metadata on ${userId}: ${error.message}`)
+  } catch (e) {
+    console.error(`[user-invite] could not stamp pending app_metadata on ${userId}: ${e instanceof Error ? e.message : e}`)
   }
 }

@@ -4,6 +4,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { findAuthUserByEmail, hasAcceptedInvite } from '@/lib/users'
 import { recordAccessEvent } from '@/lib/access-audit'
+import { stampPendingInvite } from '@/lib/user-invite'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const newId = data.user.id
+  await stampPendingInvite(supabaseAdmin, newId, target.role)
   const scopes = await prisma.userScope.findMany({
     where: { userId: target.id },
     select: { locationId: true, revenueCenterId: true, clearance: true },

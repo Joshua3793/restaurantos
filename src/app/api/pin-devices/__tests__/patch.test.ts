@@ -38,7 +38,7 @@ const pendingDevice = (over: Record<string, unknown> = {}, cookOver: Record<stri
   id: 'd1',
   status: 'PENDING',
   createdAt: new Date(Date.now() - 60_000),
-  cook: { isActive: true, user: { role: 'STAFF', isActive: true }, ...cookOver },
+  cook: { id: 'c1', isActive: true, user: { role: 'STAFF', isActive: true, email: 'pin.c1@crew.controlaos.vercel.app' }, ...cookOver },
   ...over,
 })
 
@@ -84,6 +84,11 @@ describe('PATCH /api/pin-devices/[id]', () => {
     ['a manager', pendingDevice({}, { user: { role: 'MANAGER', isActive: true } }), 'Managers sign in with email and password'],
     ['an owner', pendingDevice({}, { user: { role: 'OWNER', isActive: true } }), 'Managers sign in with email and password'],
     ['a switched-off login', pendingDevice({}, { user: { role: 'STAFF', isActive: false } }), 'This login is switched off'],
+    [
+      'a cook with an email login',
+      pendingDevice({}, { user: { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' } }),
+      'This cook has an email login — they sign in with email and password',
+    ],
     ['a switched-off cook', pendingDevice({}, { isActive: false }), 'This cook is switched off'],
     [
       'a request over 24 h old',
@@ -247,15 +252,17 @@ describe('GET /api/pin-devices', () => {
     cookFindMany.mockResolvedValue([
       cook('m', 'Mia', { user: { role: 'MANAGER', isActive: true }, pinDevices: [dev('dm', 'PENDING', 1)] }),
       cook('s', 'Sid', { user: { role: 'STAFF', isActive: false }, pinDevices: [dev('ds', 'PENDING', 1)] }),
-      cook('l', 'Lou', { user: { role: 'LEAD', isActive: true }, pinDevices: [dev('dl', 'PENDING', 1)] }),
+      cook('e', 'Eve', { user: { role: 'STAFF', isActive: true, email: 'eve@gmail.com' }, pinDevices: [dev('de', 'PENDING', 1)] }),
+      cook('l', 'Lou', { user: { role: 'LEAD', isActive: true, email: 'pin.l@crew.controlaos.vercel.app' }, pinDevices: [dev('dl', 'PENDING', 1)] }),
       cook('n', 'Nia'),
     ])
     const body = await (await GET()).json()
-    expect(cookFindMany.mock.calls[0][0].select.user).toEqual({ select: { role: true, isActive: true } })
+    expect(cookFindMany.mock.calls[0][0].select.user).toEqual({ select: { role: true, isActive: true, email: true } })
     expect(body.pending.map((p: { id: string }) => p.id)).toEqual(['dl'])
     const by = Object.fromEntries(body.crew.map((c: { cookId: string }) => [c.cookId, c]))
     expect(by.m).toMatchObject({ blocked: 'MANAGER', status: { label: 'EMAIL LOGIN', tone: 'grey' } })
     expect(by.s).toMatchObject({ blocked: 'SWITCHED_OFF', status: { label: 'SWITCHED OFF', tone: 'red' } })
+    expect(by.e).toMatchObject({ blocked: 'EMAIL_LOGIN', status: { label: 'EMAIL LOGIN', tone: 'grey' } })
     expect(by.l.blocked).toBeNull()
     expect(by.n.blocked).toBeNull()
     expect(body.crew.map((c: { cookId: string }) => c.cookId).slice(0, 2)).toEqual(['l', 'n'])

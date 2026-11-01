@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import type { Role } from '@prisma/client'
+import { pageAccess } from '@/lib/auth-access'
 import { atLeast } from '@/lib/roles'
 
 function LoginPageInner() {
@@ -45,20 +45,20 @@ function LoginPageInner() {
     // already have in hand, and remounts every provider against the new cookie.
     //
     // Product decision: MANAGER+ lands on /pass, everyone else lands on /today.
-    // The role is read from user_metadata exactly as middleware does, and the
+    // The role is read through pageAccess exactly as middleware does, and the
     // landing test is the same atLeast(role, 'MANAGER') check that gates /pass
     // — /pass is gated on that same value from that same store, so mirroring
     // it (as a rank comparison, not a string comparison) is what guarantees we
     // never land somewhere middleware bounces straight back. A string check
     // against 'STAFF' would miss LEAD, which is neither STAFF nor MANAGER.
-    const rawRole = (data.user?.user_metadata?.role as string | undefined) ?? 'STAFF'
+    const { role } = pageAccess(data.user)
     const isDesktop = window.innerWidth >= 768
     // Rank-compare, never string-compare: LEAD is neither STAFF nor MANAGER, and
     // `role === 'STAFF' ? '/count' : '/pass'` sent Leads to a page they cannot
     // open. /pass is gated on atLeast(role,'MANAGER'), so the landing test has to
     // be that same test. Everyone below Manager lands on /today.
     window.location.assign(
-      isDesktop && atLeast(rawRole as Role, 'MANAGER') ? '/pass' : '/today'
+      isDesktop && atLeast(role, 'MANAGER') ? '/pass' : '/today'
     )
   }
 

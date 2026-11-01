@@ -17,7 +17,7 @@ import { loadTempUnits } from '@/lib/temps/units'
 import { loadPrepItems } from '@/lib/prep-items-server'
 import { countInvoicesAwaiting, invoiceRcWhere } from '@/lib/invoice-awaiting'
 import { daysSinceCount } from '@/lib/start-page'
-import { blockedOf } from '@/lib/pin/crew-status'
+import { pinBlocked } from '@/lib/pin/crew-status'
 import { PENDING_MAX_AGE_MS, pairCode, pinFullName } from '@/lib/pin/rules'
 
 export const SYNC_EVERY_MS = 60_000
@@ -141,7 +141,7 @@ function loaders(rcId: string | null, now: Date): Loaders {
         select: {
           id: true, status: true, createdAt: true, tokenHash: true,
           cook: {
-            select: { name: true, lastName: true, isActive: true, user: { select: { role: true, isActive: true } } },
+            select: { id: true, name: true, lastName: true, isActive: true, user: { select: { role: true, isActive: true, email: true } } },
           },
         },
       })
@@ -151,7 +151,7 @@ function loaders(rcId: string | null, now: Date): Loaders {
         pairCode: pairCode(d.tokenHash),
         status: d.status,
         createdAt: d.createdAt,
-        blocked: !d.cook.isActive || blockedOf(d.cook.user) != null,
+        blocked: !d.cook.isActive || pinBlocked(d.cook.id, d.cook.user) != null,
       }))
     },
   }

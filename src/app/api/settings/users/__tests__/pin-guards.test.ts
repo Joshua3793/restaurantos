@@ -123,6 +123,30 @@ describe('PATCH /api/settings/users/[id] — PIN accounts', () => {
   })
 })
 
+describe('PATCH /api/settings/users/[id] — page gate copy', () => {
+  it('a switch-off writes app_metadata (what the page gate reads), not just user_metadata', async () => {
+    expect((await patch({ isActive: false })).status).toBe(200)
+    expect(updateUserById).toHaveBeenCalledWith('u1', {
+      app_metadata: { isActive: false },
+      user_metadata: { isActive: false },
+    })
+  })
+
+  it('a clearance change writes the role to app_metadata', async () => {
+    expect((await patch({ clearance: 'LEAD' })).status).toBe(200)
+    expect(updateUserById).toHaveBeenCalledWith('u1', {
+      app_metadata: { role: 'LEAD' },
+      user_metadata: { role: 'LEAD' },
+    })
+  })
+
+  it('a failed write rolls the row back so the two stores never disagree', async () => {
+    updateUserById.mockResolvedValue({ error: { message: 'down' } })
+    expect((await patch({ isActive: false })).status).toBe(500)
+    expect(userUpdate).toHaveBeenLastCalledWith({ where: { id: 'u1' }, data: { role: 'STAFF', name: 'Sam', isActive: true } })
+  })
+})
+
 describe('DELETE /api/settings/users/[id] — linked cook', () => {
   it("revokes the linked cook's APPROVED and PENDING phones before deleting anything", async () => {
     cookFindUnique.mockResolvedValue({ id: 'c1' })
