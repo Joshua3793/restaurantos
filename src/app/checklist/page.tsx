@@ -19,9 +19,14 @@ import { closingLede } from '@/lib/checklists/lede'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
 import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 import type { RowLine } from '@/components/checklists/LineRow'
+import { JobPanel } from '@/components/checklists/JobPanel'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { lineOrder, type ListFilter } from '@/lib/checklists/list-layout'
 
 // /checklist — the cook's opening / closing list for their station(s).
-// Mobile first: one fluid column, centred at 480 px on a desktop.
+// Phone: one fluid column; a job opens in a bottom sheet. Desktop (lg+): the
+// list on the left, the picked job in a panel on the right with the hand-over
+// and sign-off under it, and the keyboard walks the list (↑ ↓ Space F 0–9).
 
 const POLL_MS = 30_000
 
@@ -98,6 +103,10 @@ function ChecklistScreen() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [sheetLineId, setSheetLineId] = useState<string | null>(null)
   const [reportOpen, setReportOpen] = useState(false)
+  // Desktop only: the job open in the side panel, and the list's filter chips.
+  const desk = useMediaQuery('(min-width: 1024px)') === true
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [filter, setFilter] = useState<ListFilter>('all')
 
   // A poll that started before (or during) a save must not overwrite it.
   const mutSeq = useRef(0)
@@ -146,6 +155,7 @@ function ChecklistScreen() {
     setView(null)
     setLoadError(null)
     setSheetLineId(null)
+    setSelectedId(null)
     setPickerOpen(false)
     pinnedPhase.current = null   // a new kitchen or an explicit phase: let the server pick again
     if (!activeRcId) return
@@ -289,11 +299,84 @@ function ChecklistScreen() {
   const sheetRun = sheetLine
     ? [...mine, ...(view?.shared ? [view.shared] : [])].find(r => r.id === sheetLine.runId) ?? null
     : null
-  const sheetOpen = !!(sheetLine && sheetRun && sheetRun.status === 'OPEN')
+  const sheetOpen = !desk && !!(sheetLine && sheetRun && sheetRun.status === 'OPEN')
   // A sheet that closed because its run got signed must not come back after a reopen.
   useEffect(() => {
     if (!sheetOpen && sheetLineId) setSheetLineId(null)
   }, [sheetOpen, sheetLineId])
+
+  // ── Desktop: selection, Next, keyboard ─────────────────────────────────
+  const fullOrder = view ? lineOrder(mine, view.shared, phase) : []
+  const shownOrder = view ? lineOrder(mine, view.shared, phase, filter) : []
+  const allRuns = [...mine, ...(view?.shared ? [view.shared] : [])]
+  const lineById = new Map(allLines.map(l => [l.id, l]))
+  const selectedLine = selectedId ? lineById.get(selectedId) ?? null : null
+  const selectedRun = selectedLine ? allRuns.find(r => r.id === selectedLine.runId) ?? null : null
+  const firstOpen = fullOrder.find(id => lineById.get(id)?.status === 'TODO') ?? fullOrder[0] ?? null
+  // Land on the first job still to do; pick again when the selected job leaves the list.
+  const selectedGone = !selectedId || !lineById.has(selectedId)
+  useEffect(() => {
+    if (desk && view && selectedGone) setSelectedId(firstOpen)
+  }, [desk, view, selectedGone, firstOpen])
+
+  /** The next job still to do after the selected one (wrapping), or stay put. */
+  const nextOpen = () => {
+    const at = selectedId ? fullOrder.indexOf(selectedId) : -1
+    for (let k = 1; k <= fullOrder.length; k++) {
+      const id = fullOrder[(at + k + fullOrder.length) % fullOrder.length]
+      if (lineById.get(id)?.status === 'TODO' && id !== selectedId) { selectRow(id); return }
+    }
+  }
+  const selectRow = (id: string) => {
+    setSelectedId(id)
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-line-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+  const move = (delta: 1 | -1) => {
+    if (shownOrder.length === 0) return
+    const at = selectedId ? shownOrder.indexOf(selectedId) : -1
+    const next = at < 0 ? (delta > 0 ? 0 : shownOrder.length - 1) : Math.min(shownOrder.length - 1, Math.max(0, at + delta))
+    selectRow(shownOrder[next])
+  }
+
+  // Keys go to the list unless the cook is typing or a sheet is open.
+  const keysRef = useRef({ move, tapLine, selectedLine, selectedRun })
+  keysRef.current = { move, tapLine, selectedLine, selectedRun }
+  useEffect(() => {
+    if (!desk || pickerOpen || reportOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable)) return
+      // A focused control outside the list keeps Space / Enter for itself.
+      const onList = !t || t === document.body || !!t.closest('[data-line-id]')
+      const k = keysRef.current
+      const line = k.selectedLine
+      const open = k.selectedRun?.status === 'OPEN'
+      if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); k.move(1); return }
+      if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); k.move(-1); return }
+      if (!line || !open) return
+      if (e.key === ' ' && onList && line.answer === 'TICK' && line.status !== 'FLAGGED') {
+        e.preventDefault()
+        k.tapLine(line)
+        return
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        const chip = document.querySelector<HTMLElement>('[data-flag-first]')
+        if (chip) { e.preventDefault(); chip.focus() }
+        return
+      }
+      // A digit (or minus) starts the reading: focus the box and let the key land in it.
+      if (/^[0-9.-]$/.test(e.key)) document.querySelector<HTMLElement>('[data-reading-input]')?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [desk, pickerOpen, reportOpen])
+
+  const flaggedTonight = phase === 'CLOSE'
+    ? allLines.filter(l => l.status === 'FLAGGED' && !l.resolvedAt)
+    : []
 
   const crumb = view
     ? [crumbDay(view.businessDate), phase === 'OPEN' ? 'OPENING' : 'CLOSING', ...(phase === 'CLOSE' && picked.length ? [picked.map(s => s.name.toUpperCase()).join(' + ')] : [])].join(' · ')
@@ -330,10 +413,16 @@ function ChecklistScreen() {
 
   const canReopen = !!role && atLeast(role as Role, 'LEAD')
 
+  const deskProps = desk
+    ? { filter, onFilter: setFilter, selectedId, onSelect: (l: RowLine) => selectRow(l.id) }
+    : {}
+
   return (
-    <div className="max-w-[480px] mx-auto w-full flex flex-col">
+    <div className="max-w-[480px] lg:max-w-none mx-auto w-full flex flex-col">
       {/* Leads and up move between the section's pages here; a cook has no tabs. */}
       <ChecklistTabs active="mine" />
+      {/* Desktop: the greeting on the left, Report + Opening/Closing on the right. */}
+      <div className="flex flex-col lg:flex-row-reverse lg:items-end lg:justify-between lg:gap-6">
       <header className="flex flex-wrap items-center justify-between gap-x-3">
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -377,8 +466,10 @@ function ChecklistScreen() {
           </button>
         )}
       </section>
+      </div>
 
-      <div className="mt-4">
+      <div className={desk ? 'mt-5 grid grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start' : 'mt-4'}>
+      <div className="min-w-0">
         {!ready || (activeRcId && !view && !loadError) ? (
           <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">Loading…</div>
         ) : !activeRcId ? (
@@ -400,6 +491,7 @@ function ChecklistScreen() {
               busyIds={busyIds}
               onTap={tapLine}
               onMore={l => setSheetLineId(l.id)}
+              {...deskProps}
             />
           </div>
         ) : mine.length === 0 ? (
@@ -417,11 +509,49 @@ function ChecklistScreen() {
             busyIds={busyIds}
             onTap={tapLine}
             onMore={l => setSheetLineId(l.id)}
+            {...deskProps}
           />
         )}
       </div>
 
-      {view && mine.length > 0 && (
+      {desk && view && (
+        <aside className="sticky top-[60px] max-h-[calc(100dvh-76px)] overflow-y-auto flex flex-col gap-3">
+          <JobPanel
+            line={selectedLine}
+            phase={phase}
+            placeLabel={selectedRun ? stationName(selectedRun.stationId) : ''}
+            locked={selectedRun?.status === 'SIGNED'}
+            onAction={sheetAction}
+            onNext={nextOpen}
+          />
+          {flaggedTonight.length > 0 && (
+            <section aria-label="Flagged tonight" className="bg-paper border border-line rounded-[14px] px-4 py-3.5 flex flex-col gap-2">
+              <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-ink-3">FLAGGED TONIGHT · ALREADY IN THE INBOX</span>
+              {flaggedTonight.map(l => (
+                <button key={l.id} type="button" onClick={() => selectRow(l.id)} className="flex items-center gap-2 text-left text-[13px] text-ink-2 min-h-[28px]">
+                  <span className="w-2 h-2 rounded-full bg-gold flex-none" aria-hidden />
+                  <span className="flex-1 min-w-0 truncate">{l.title}</span>
+                </button>
+              ))}
+            </section>
+          )}
+          {mine.length > 0 && (
+            <SignOffFooter
+              rail
+              phase={phase}
+              runs={mine}
+              stations={stations}
+              canReopen={canReopen}
+              sharedBlockersOpen={sharedBlockersOpen}
+              onSignOff={signOff}
+              onReopen={reopen}
+            />
+          )}
+        </aside>
+      )}
+      </div>
+
+      {!desk && view && mine.length > 0 && (
         <SignOffFooter
           phase={phase}
           runs={mine}

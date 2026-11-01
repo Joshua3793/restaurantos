@@ -8,7 +8,9 @@ import { lastTimeLabel } from '@/lib/checklists/format'
 import type { LastReading } from '@/lib/checklists/history-types'
 import { Pill, firstName, fmtReading, rangeText, unitOf, type RowLine } from './LineRow'
 
-// "Log a number or flag a problem" — the bottom sheet for one job.
+// "Log a number or flag a problem" for one job: LineEditor holds the controls;
+// LineSheet is the phone's bottom sheet around it, and the desktop job panel
+// (JobPanel) mounts the same editor beside the list.
 //
 // Ruling R8: a NUMBER/TEMP line that already holds a reading (DONE, or flagged
 // OUT_OF_RANGE with a value) opens with the number filled in to change it, and
@@ -35,20 +37,27 @@ export function holdsReading(line: RowLine): boolean {
   return line.status === 'DONE' || (line.status === 'FLAGGED' && line.flagReason === 'OUT_OF_RANGE')
 }
 
-export function LineSheet({
+export function LineEditor({
   line,
   phase,
   placeLabel,
-  onClose,
   onAction,
+  onSaved,
+  showLast = true,
+  autoFocus = true,
 }: {
   line: RowLine
   phase: Phase
   /** Station name, or the whole-kitchen station's name, for the pill. */
   placeLabel: string
-  onClose: () => void
   /** Sends the action; resolves true when it saved. */
   onAction: (line: RowLine, action: LineAction) => Promise<boolean>
+  /** After a save: the sheet closes, the desktop panel moves to the next job. */
+  onSaved: () => void
+  /** The LAST TIME strip (the desktop panel shows the last 7 days instead). */
+  showLast?: boolean
+  /** The sheet focuses the reading box; the panel leaves the keyboard on the list. */
+  autoFocus?: boolean
 }) {
   const isTick = line.answer === 'TICK'
   const unit = unitOf(line)
@@ -68,7 +77,7 @@ export function LineSheet({
 
   const lineId = line.id
   useEffect(() => {
-    if (isTick) return
+    if (isTick || !showLast) return
     let cancelled = false
     ;(async () => {
       try {
@@ -79,20 +88,14 @@ export function LineSheet({
       } catch { /* ignore: the hint is optional */ }
     })()
     return () => { cancelled = true }
-  }, [lineId, isTick])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [lineId, isTick, showLast])
 
   const run = async (action: LineAction) => {
     if (busy) return
     setBusy(true)
     const ok = await onAction(line, action)
     setBusy(false)
-    if (ok) onClose()
+    if (ok) onSaved()
   }
 
   const value = parseReading(raw)
@@ -113,16 +116,7 @@ export function LineSheet({
   const showUntick = tickDone || reading || manualFlag
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center" role="presentation">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label={line.title}
-        className="relative w-full max-w-[480px] bg-paper rounded-t-[22px] px-4 pt-2.5 pb-[calc(20px+env(safe-area-inset-bottom))] flex flex-col gap-4 max-h-[92vh] overflow-y-auto"
-      >
-        <div className="self-center w-10 h-1 rounded-full bg-line-2" />
-
+    <>
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap gap-1.5">
             {line.isBlocker && <Pill tone="red">{phase === 'OPEN' ? 'BEFORE DOORS' : 'BEFORE YOU LEAVE'}</Pill>}
@@ -141,7 +135,8 @@ export function LineSheet({
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
-                  autoFocus={!reading}
+                  autoFocus={autoFocus && !reading}
+                  data-reading-input
                   value={raw}
                   onChange={e => setRaw(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && value != null) run({ action: 'value', raw }) }}
@@ -210,12 +205,13 @@ export function LineSheet({
               Shows on the manager’s screen. A flagged job counts as handled, so it won’t hold up your sign-off.
             </p>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Reason">
-              {REASONS.map(r => {
+              {REASONS.map((r, i) => {
                 const on = reason === r.key
                 return (
                   <button
                     key={r.key}
                     type="button"
+                    data-flag-first={i === 0 || undefined}
                     aria-pressed={on}
                     onClick={() => setReason(on ? null : r.key)}
                     className={`min-h-[44px] px-3.5 rounded-full text-[13px] border ${on ? 'border-red bg-red-soft text-red-text font-medium' : 'border-line-2 bg-paper text-ink-2'}`}
@@ -261,6 +257,40 @@ export function LineSheet({
             </span>
           </div>
         )}
+    </>
+  )
+}
+
+export function LineSheet({
+  line,
+  phase,
+  placeLabel,
+  onClose,
+  onAction,
+}: {
+  line: RowLine
+  phase: Phase
+  placeLabel: string
+  onClose: () => void
+  onAction: (line: RowLine, action: LineAction) => Promise<boolean>
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center" role="presentation">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={line.title}
+        className="relative w-full max-w-[480px] bg-paper rounded-t-[22px] px-4 pt-2.5 pb-[calc(20px+env(safe-area-inset-bottom))] flex flex-col gap-4 max-h-[92vh] overflow-y-auto"
+      >
+        <div className="self-center w-10 h-1 rounded-full bg-line-2" />
+        <LineEditor line={line} phase={phase} placeLabel={placeLabel} onAction={onAction} onSaved={onClose} />
       </section>
     </div>
   )
