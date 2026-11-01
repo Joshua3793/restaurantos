@@ -7,6 +7,8 @@ import { applyLine, type LineAction } from '@/lib/checklists/apply-line'
 import { pacificHHMM, runProgress } from '@/lib/checklists/rules'
 import { loadRunView } from '@/lib/checklists/runs'
 import { whoOf } from '@/lib/checklists/who'
+import { ensureInboxSeeded } from '@/lib/inbox/tags'
+import { syncFlagItem } from '@/lib/inbox/flags'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,7 +28,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const user = await requireSession()
     const line = await prisma.checklistRunLine.findUnique({
       where: { id: params.id },
-      include: { run: { include: { station: { select: { revenueCenterId: true, isShared: true } } } } },
+      include: { run: { include: { station: { select: { name: true, revenueCenterId: true, isShared: true } } } } },
     })
     if (!line) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     await assertRcWritable(user, line.run.station.revenueCenterId)
@@ -54,6 +56,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     // Existing reading is replaced in place; a first answer gets a fresh id we can store on the line.
     const readingId = newReading ? oldReadingId ?? randomUUID() : null
 
+    // Tags + flag routes must exist before the transaction opens (it seeds them on first use).
+    await ensureInboxSeeded()
+
     try {
       await prisma.$transaction(async tx => {
         // Guarded on the run still being OPEN, so a sign-off that lands meanwhile wins.
@@ -80,6 +85,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           // deleteMany: a reading someone already removed from the Temps log is not an error.
           await tx.tempReading.deleteMany({ where: { id: oldReadingId } })
         }
+
+        // A flag lands in the Inbox; any other answer closes an open flag item. Same save, so they never disagree.
+        await syncFlagItem(tx, {
+          line: {
+            id: line.id, title: line.title, isBlocker: line.isBlocker, unit: line.unit,
+            status: data.status, flagReason: data.flagReason, flagNote: data.flagNote, value: data.value,
+          },
+          run: { id: line.runId },
+          station: { name: line.run.station.name, revenueCenterId: line.run.station.revenueCenterId },
+          who,
+        })
       })
     } catch (e) {
       if (e instanceof RunLockedError) return NextResponse.json({ error: SIGNED_MSG }, { status: 409 })

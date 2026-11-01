@@ -12,6 +12,9 @@ import { useUser } from '@/contexts/UserContext'
 import { createClient } from '@/lib/supabase/client'
 import { navGroups, setupItems, type NavItem } from '@/lib/nav-items'
 import { canAccess } from '@/lib/route-access'
+import { atLeast } from '@/lib/roles'
+import { subscribeInboxCount } from '@/lib/inbox-count-feed'
+import { moreBadgeTotal } from '@/lib/bell'
 
 export function Navigation() {
   return (
@@ -81,8 +84,8 @@ function NavigationInner() {
     window.addEventListener('offline', off)
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
-  const [inboxCounts, setInboxCounts] = useState({ invoicesReview: 0, priceAlerts: 0 })
-  useRc()
+  const [inboxCounts, setInboxCounts] = useState({ invoicesReview: 0, priceAlerts: 0, inbox: 0 })
+  const { activeRcId, ready } = useRc()
   const { role } = useUser()
 
   // Poll inbox badge counts
@@ -91,10 +94,11 @@ function NavigationInner() {
       try {
         const data = await fetch('/api/invoices/kpis').then(r => r.ok ? r.json() : null)
         if (data) {
-          setInboxCounts({
+          setInboxCounts(c => ({
+            ...c,
             invoicesReview: data.awaitingApprovalCount ?? 0,
             priceAlerts: data.priceAlertCount ?? 0,
-          })
+          }))
         }
       } catch {}
     }
@@ -102,6 +106,17 @@ function NavigationInner() {
     const interval = setInterval(fetchCounts, 60_000)
     return () => clearInterval(interval)
   }, [])
+
+  // The Inbox badge (LEAD+): open NOW + TODAY in the active kitchen. It shares
+  // one visible-only poll with the bell, and waits for the kitchen to be known.
+  const leadPlus = role != null && atLeast(role, 'LEAD')
+  useEffect(() => {
+    if (!leadPlus || !ready || !activeRcId) {
+      setInboxCounts(c => (c.inbox === 0 ? c : { ...c, inbox: 0 }))
+      return
+    }
+    return subscribeInboxCount(activeRcId, n => setInboxCounts(c => (c.inbox === n ? c : { ...c, inbox: n })))
+  }, [leadPlus, ready, activeRcId])
 
   const isActive = (item: Pick<NavItem, 'href' | 'exact'>) =>
     pathname === item.href || (!item.exact && item.href !== '/' && pathname.startsWith(item.href + '/'))
@@ -272,7 +287,7 @@ function NavigationInner() {
       <MobileTabBar
         onAdd={() => setQuickAddOpen(true)}
         onMore={() => setMoreOpen(true)}
-        moreBadge={inboxCounts.invoicesReview + inboxCounts.priceAlerts}
+        moreBadge={moreBadgeTotal(inboxCounts, role, ready && !!activeRcId)}
       />
       <QuickAddSheet open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
 

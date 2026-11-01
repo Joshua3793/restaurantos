@@ -1,7 +1,20 @@
 // Pure: the one-word sign-in status shown for each cook on "Crew sign-in".
+import type { Role } from '@prisma/client'
+import { atLeast } from '@/lib/roles'
 
 /** Why a cook can never sign in with a PIN, whatever phones they have. */
 export type Blocked = 'MANAGER' | 'SWITCHED_OFF'
+
+/**
+ * A manager signs in with email, and a switched-off login can't sign in at
+ * all: no phone of theirs is waiting on anyone. A cook with no login yet is
+ * not blocked.
+ */
+export function blockedOf(user: { role: Role; isActive: boolean } | null): Blocked | null {
+  if (!user) return null
+  if (atLeast(user.role, 'MANAGER')) return 'MANAGER'
+  return user.isActive ? null : 'SWITCHED_OFF'
+}
 
 export type CrewStatus = {
   label: 'SET UP' | 'WAITING' | 'NOT YET' | 'NO PIN' | 'EMAIL LOGIN' | 'SWITCHED OFF'

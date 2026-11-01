@@ -905,6 +905,7 @@ model RevenueCenter {
   services          Service[]         @relation("ServiceRC")
   tipPeriods        TipPeriod[]       @relation("TipPeriodRC")
   checklistStations ChecklistStation[] @relation("ChecklistStationRC")
+  inboxItems        InboxItem[]
 }
 
 model Service {
@@ -1515,4 +1516,118 @@ model PinAttempt {
   createdAt DateTime @default(now())
 
   @@index([key, createdAt])
+}
+
+// ── Manager Inbox (tagged alerts and reports) ──────────────────────────────
+enum InboxSeverity {
+  NOW
+  TODAY
+  FYI
+}
+
+enum InboxStatus {
+  OPEN
+  SNOOZED
+  WAITING
+  DONE
+}
+
+enum InboxSource {
+  REPORT
+  FLAG
+  SYSTEM
+}
+
+enum InboxEventKind {
+  RAISED
+  SEEN
+  NOTE
+  SNOOZED
+  WAITING
+  REOPENED
+  DONE
+  CLEARED
+  RETAGGED
+}
+
+enum InboxBuiltIn {
+  FOOD_SAFETY
+  CHECKLISTS
+  PREP
+  STOCK
+  MONEY
+  TEAM
+}
+
+model InboxTag {
+  id          String           @id @default(uuid())
+  builtIn     InboxBuiltIn?    @unique
+  name        String
+  color       String
+  cookCanPick Boolean          @default(false)
+  managerOnly Boolean          @default(false)
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  items       InboxItem[]
+  routes      InboxFlagRoute[]
+}
+
+model InboxFlagRoute {
+  reason    ChecklistFlagReason @id
+  tagId     String
+  tag       InboxTag            @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  updatedAt DateTime            @updatedAt
+}
+
+model InboxItem {
+  id              String         @id @default(uuid())
+  revenueCenterId String?
+  revenueCenter   RevenueCenter? @relation(fields: [revenueCenterId], references: [id], onDelete: SetNull)
+  tagId           String
+  tag             InboxTag       @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  severity        InboxSeverity
+  title           String
+  body            String?
+  place           String?
+  href            String?
+  source          InboxSource
+  sourceKey       String?        @unique
+  managerOnly     Boolean        @default(false)
+  status          InboxStatus    @default(OPEN)
+  snoozeUntil     DateTime?
+  raisedById      String?
+  raisedByName    String?
+  doneById        String?
+  doneByName      String?
+  doneAt          DateTime?
+  clearedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  events          InboxEvent[]
+
+  @@index([status, revenueCenterId])
+  @@index([tagId])
+  @@index([raisedById])
+}
+
+model InboxEvent {
+  id     String         @id @default(uuid())
+  itemId String
+  item   InboxItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  kind   InboxEventKind
+  byId   String?
+  byName String?
+  note   String?
+  at     DateTime       @default(now())
+
+  @@index([itemId, at])
+  @@index([byId, kind])
+}
+
+// Last time the system sweep ran for a revenue center.
+model InboxSync {
+  revenueCenterId String   @id
+  at              DateTime
 }

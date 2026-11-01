@@ -13,13 +13,20 @@ const assertRcWritable = vi.fn(async (..._a: unknown[]) => {})
 const lineFindUnique = vi.fn()
 const lineUpdateMany = vi.fn(async (_a: unknown) => ({ count: 1 }))
 
+const inboxFind = vi.fn(async (_a: unknown): Promise<unknown> => null)
+const inboxUpdate = vi.fn(async (a: unknown) => a)
+const eventCreate = vi.fn(async (a: unknown) => a)
+const tx = {
+  checklistRunLine: { updateMany: (a: unknown) => lineUpdateMany(a) },
+  inboxItem: { findUnique: (a: unknown) => inboxFind(a), update: (a: unknown) => inboxUpdate(a) },
+  inboxEvent: { create: (a: unknown) => eventCreate(a) },
+}
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     cook: { findUnique: async () => null },
-    checklistRunLine: {
-      findUnique: (...a: unknown[]) => lineFindUnique(...a),
-      updateMany: (a: unknown) => lineUpdateMany(a),
-    },
+    checklistRunLine: { findUnique: (...a: unknown[]) => lineFindUnique(...a) },
+    $transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
   },
 }))
 vi.mock('@/lib/auth', () => ({
@@ -37,6 +44,7 @@ const call = () => POST({} as unknown as NextRequest, { params: { id: 'l1' } })
 beforeEach(() => {
   vi.clearAllMocks()
   lineUpdateMany.mockResolvedValue({ count: 1 })
+  inboxFind.mockResolvedValue(null)
   lineFindUnique.mockResolvedValue({ id: 'l1', run: { station: { revenueCenterId: 'rc1' } } })
 })
 
@@ -53,11 +61,32 @@ describe('POST /api/checklists/lines/[id]/resolve', () => {
     expect(arg.data.resolvedAt).toBeInstanceOf(Date)
   })
 
+  it('closes the open Inbox item for the job, by the resolver', async () => {
+    inboxFind.mockResolvedValue({ id: 'i1', status: 'OPEN' })
+    await call()
+    expect(inboxFind).toHaveBeenCalledWith({ where: { sourceKey: 'flag:l1' }, select: { id: true, status: true } })
+    const arg = inboxUpdate.mock.calls[0][0] as { where: unknown; data: Record<string, unknown> }
+    expect(arg.where).toEqual({ id: 'i1' })
+    expect(arg.data).toMatchObject({ status: 'DONE', doneById: 'u9', doneByName: 'Lena Lead' })
+    expect(arg.data.doneAt).toBeInstanceOf(Date)
+    expect(eventCreate).toHaveBeenCalledWith({
+      data: { itemId: 'i1', kind: 'DONE', byId: 'u9', byName: 'Lena Lead', note: null },
+    })
+  })
+
+  it('leaves an Inbox item that is already done alone', async () => {
+    inboxFind.mockResolvedValue({ id: 'i1', status: 'DONE' })
+    await call()
+    expect(inboxUpdate).not.toHaveBeenCalled()
+    expect(eventCreate).not.toHaveBeenCalled()
+  })
+
   it('409 when it is already resolved (or no longer flagged)', async () => {
     lineUpdateMany.mockResolvedValue({ count: 0 })
     const res = await call()
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'Already handled' })
+    expect(inboxFind).not.toHaveBeenCalled()
   })
 
   it('404 when the job does not exist', async () => {
