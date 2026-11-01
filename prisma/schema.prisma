@@ -901,12 +901,11 @@ model RevenueCenter {
   itemMemberships   ItemRevenueCenter[]
   userScopes        UserScope[]
   defaultForLocations Location[]      @relation("LocationDefaultRC")
-  eodCheckItems     EodCheckItem[]    @relation("EodCheckItemRC")
-  openCheckItems    OpenCheckItem[]   @relation("OpenCheckItemRC")
   eodCloses         EodClose[]        @relation("EodCloseRC")
   services          Service[]         @relation("ServiceRC")
   tipPeriods        TipPeriod[]       @relation("TipPeriodRC")
   checklistStations ChecklistStation[] @relation("ChecklistStationRC")
+  inboxItems        InboxItem[]
 }
 
 model Service {
@@ -1181,22 +1180,6 @@ model ToastSyncLog {
   createdAt        DateTime @default(now())
 }
 
-model EodCheckItem {
-  id              String         @id @default(uuid())
-  revenueCenterId String
-  section         String
-  title           String
-  meta            String?
-  sortOrder       Int            @default(0)
-  isBlocker       Boolean        @default(false)
-  isActive        Boolean        @default(true)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  revenueCenter   RevenueCenter  @relation("EodCheckItemRC", fields: [revenueCenterId], references: [id])
-  entries         EodCheckEntry[]
-
-  @@index([revenueCenterId, isActive])
-}
 
 model EodClose {
   id              String          @id @default(uuid())
@@ -1215,45 +1198,9 @@ model EodClose {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   revenueCenter   RevenueCenter   @relation("EodCloseRC", fields: [revenueCenterId], references: [id])
-  entries         EodCheckEntry[]
 
   @@unique([revenueCenterId, businessDate])
   @@index([revenueCenterId, status])
-}
-
-// The opening checklist — what the kitchen does before doors (sanitiser
-// buckets, hand sinks, fryer oil…). Cooks tick it on their start page; a manager
-// edits it in /setup/open-checklist. Deliberately its own tables, not a phase on
-// EodCheckItem: the close flow reads EodCheckItem in several places and must
-// never pick up morning items. No money lives here.
-model OpenCheckItem {
-  id              String          @id @default(uuid())
-  revenueCenterId String
-  section         String
-  title           String
-  meta            String?
-  sortOrder       Int             @default(0)
-  // "Must be done before doors" — painted red on the cook screen until ticked.
-  isBlocker       Boolean         @default(false)
-  isActive        Boolean         @default(true)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  revenueCenter   RevenueCenter   @relation("OpenCheckItemRC", fields: [revenueCenterId], references: [id])
-  ticks           OpenCheckTick[]
-
-  @@index([revenueCenterId, isActive])
-}
-
-// One row = that item was done on that business day. Unticking deletes the row.
-model OpenCheckTick {
-  id           String        @id @default(uuid())
-  itemId       String
-  businessDate String        // 'YYYY-MM-DD' restaurant-local (Pacific) day — see businessDateLocal
-  doneByName   String?
-  doneAt       DateTime      @default(now())
-  item         OpenCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-
-  @@unique([itemId, businessDate])
 }
 
 // ─────────────────────────── STATION CHECKLISTS ───────────────────────────
@@ -1413,18 +1360,6 @@ model ChecklistRunCrew {
   @@index([userId])
 }
 
-model EodCheckEntry {
-  id            String       @id @default(uuid())
-  closeId       String
-  itemId        String
-  done          Boolean      @default(false)
-  updatedByName String?
-  updatedAt     DateTime     @updatedAt
-  close         EodClose     @relation(fields: [closeId], references: [id], onDelete: Cascade)
-  item          EodCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-
-  @@unique([closeId, itemId])
-}
 
 // ─────────────────────────── TIP PAYOUTS ───────────────────────────
 // One tip pool run = one TipPeriod. Daily net sales are NOT stored on the
@@ -1581,4 +1516,118 @@ model PinAttempt {
   createdAt DateTime @default(now())
 
   @@index([key, createdAt])
+}
+
+// ── Manager Inbox (tagged alerts and reports) ──────────────────────────────
+enum InboxSeverity {
+  NOW
+  TODAY
+  FYI
+}
+
+enum InboxStatus {
+  OPEN
+  SNOOZED
+  WAITING
+  DONE
+}
+
+enum InboxSource {
+  REPORT
+  FLAG
+  SYSTEM
+}
+
+enum InboxEventKind {
+  RAISED
+  SEEN
+  NOTE
+  SNOOZED
+  WAITING
+  REOPENED
+  DONE
+  CLEARED
+  RETAGGED
+}
+
+enum InboxBuiltIn {
+  FOOD_SAFETY
+  CHECKLISTS
+  PREP
+  STOCK
+  MONEY
+  TEAM
+}
+
+model InboxTag {
+  id          String           @id @default(uuid())
+  builtIn     InboxBuiltIn?    @unique
+  name        String
+  color       String
+  cookCanPick Boolean          @default(false)
+  managerOnly Boolean          @default(false)
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  items       InboxItem[]
+  routes      InboxFlagRoute[]
+}
+
+model InboxFlagRoute {
+  reason    ChecklistFlagReason @id
+  tagId     String
+  tag       InboxTag            @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  updatedAt DateTime            @updatedAt
+}
+
+model InboxItem {
+  id              String         @id @default(uuid())
+  revenueCenterId String?
+  revenueCenter   RevenueCenter? @relation(fields: [revenueCenterId], references: [id], onDelete: SetNull)
+  tagId           String
+  tag             InboxTag       @relation(fields: [tagId], references: [id], onDelete: Restrict)
+  severity        InboxSeverity
+  title           String
+  body            String?
+  place           String?
+  href            String?
+  source          InboxSource
+  sourceKey       String?        @unique
+  managerOnly     Boolean        @default(false)
+  status          InboxStatus    @default(OPEN)
+  snoozeUntil     DateTime?
+  raisedById      String?
+  raisedByName    String?
+  doneById        String?
+  doneByName      String?
+  doneAt          DateTime?
+  clearedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  events          InboxEvent[]
+
+  @@index([status, revenueCenterId])
+  @@index([tagId])
+  @@index([raisedById])
+}
+
+model InboxEvent {
+  id     String         @id @default(uuid())
+  itemId String
+  item   InboxItem      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  kind   InboxEventKind
+  byId   String?
+  byName String?
+  note   String?
+  at     DateTime       @default(now())
+
+  @@index([itemId, at])
+  @@index([byId, kind])
+}
+
+// Last time the system sweep ran for a revenue center.
+model InboxSync {
+  revenueCenterId String   @id
+  at              DateTime
 }

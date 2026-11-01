@@ -1,139 +1,182 @@
 'use client'
 import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
-import { formatCurrency } from '@/lib/utils'
 import { clockText } from '@/lib/start-page'
-import { useStartData } from './useStartData'
-import { Headline, greetingFor, crumbDate, scoreRows, personName } from './parts'
+import { PHONE_TOP, countNow, itemMeta, moreCount, stationsDone, topItems } from '@/lib/pass'
+import type { InboxItem } from '@/components/inbox/format'
+import { useStartData, type StartData } from './useStartData'
+import { greetingFor, crumbDate } from './parts'
+import { ChecklistCard } from './ChecklistCard'
+import {
+  Lede, LastNight, PassItemDialog, StationTileSmall, ItemCta, TagLine, VALUE_TONE,
+  ReportButton, numberRows, usePassItem,
+} from './PassParts'
 
-// The phone start page for MANAGER+ (/today). Same data and order as the
-// desktop Pass, stacked: clock + prep, what needs you, last night's note,
-// yesterday + food cost, running low. Every row is one tap to where it's fixed.
+// The phone Pass (/today) for LEAD+, and LEAD's /today on desktop too (in a
+// narrow column). Follows the PassMobile mockup: greeting + lede, what needs
+// you right now (the top of the Inbox), the stations, service + prep, last
+// night's notes, and the numbers (MANAGER only — a LEAD sees no money).
 export function StartMobile() {
   const { user } = useUser()
   const d = useStartData()
   const firstName = (user?.name || user?.email?.split('@')[0] || 'there').split(' ')[0]
   const now = new Date()
-  const clock = clockText(d.status, d.nowMin)
-  const { posted, done } = d.progress
-  const rows = scoreRows(d, formatCurrency)
-  const note = d.lastClose?.handoverNote?.trim()
+  const items = d.inbox?.items ?? []
+  const top = topItems(items, PHONE_TOP)
+  const nowN = countNow(items)
+  const item = usePassItem(d.inbox?.tags ?? [], d.rcId, d.loadInbox)
+  const greet = greetingFor(now)
 
   return (
     <div className="flex flex-col gap-4 pt-2">
-      <header>
-        <div className="font-mono text-[10.5px] tracking-[0.06em] text-ink-3">{crumbDate(now)}</div>
-        <h1 className="mt-1.5 text-[28px] font-semibold tracking-[-0.03em] leading-[1.1]">
-          {greetingFor(now) === 'morning' ? 'Morning' : greetingFor(now) === 'afternoon' ? 'Afternoon' : 'Evening'},{' '}
+      <header className="flex flex-col gap-1.5">
+        <div className="font-mono text-[10.5px] tracking-[0.06em] text-ink-3">
+          {crumbDate(now)}{d.rcName && <> · {d.rcName.toUpperCase()}</>}
+        </div>
+        <h1 className="text-[28px] font-semibold tracking-[-0.03em] leading-[1.1]">
+          {greet === 'morning' ? 'Morning' : greet === 'afternoon' ? 'Afternoon' : 'Evening'},{' '}
           <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.
         </h1>
-        <p className="mt-1.5 text-[15px] leading-[1.45] text-ink-2 [&_b]:font-semibold">
-          {d.loaded ? <Headline status={d.status} needs={d.needs} /> : 'Loading…'}
+        <p className="text-[15px] leading-[1.45] text-ink-2">
+          <Lede d={d} nowCount={nowN} />
         </p>
+        <ReportButton d={d} className="self-start mt-1.5" />
       </header>
 
-      <Link href="/prep" className="block bg-ink text-paper rounded-2xl p-[18px]">
-        <div className="flex justify-between items-end gap-3">
-          {clock ? (
-            <div>
-              <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-4">{clock.label}</div>
-              <div className="text-[40px] font-semibold tracking-[-0.04em] leading-none mt-1 tabular-nums">{clock.big}</div>
-            </div>
-          ) : <div />}
-          <div className="text-right">
-            <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-4">Prep done</div>
-            {!d.loaded
-              ? <div className="text-[15px] font-semibold mt-1.5 text-ink-4">—</div>
-              : posted > 0
-              ? <div className="text-[24px] font-semibold tracking-[-0.03em] mt-1">{done}<span className="text-[14px] font-medium text-ink-4"> / {posted}</span></div>
-              : <div className="text-[15px] font-semibold mt-1.5">Not posted</div>}
-          </div>
-        </div>
-        {posted > 0 && (
-          <div className="h-1.5 rounded-full bg-ink-2 overflow-hidden mt-3.5">
-            <div className="h-full bg-green" style={{ width: `${Math.round((done / posted) * 100)}%` }} />
-          </div>
-        )}
-        {clock && <div className="text-[12.5px] text-ink-4 mt-3">{clock.sub}</div>}
-      </Link>
+      {!d.isManager && <ChecklistCard rcId={d.rcId} phase={d.phase} pickedOnly label="Your station" />}
 
-      <section aria-label="Needs you">
-        <div className="flex items-baseline justify-between px-0.5 mb-2">
-          <h2 className="text-[15px] font-semibold">Needs you</h2>
-          {d.needs.length > 0 && <span className="font-mono text-[10.5px] text-ink-3">{d.needs.length}</span>}
-        </div>
-        {!d.loaded ? (
-          <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">Loading…</div>
-        ) : d.needs.length === 0 ? (
-          <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">Nothing needs you right now — go cook.</div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {d.needs.map(n => (
-              <Link
-                key={n.id}
-                href={n.href}
-                className={`flex items-center gap-3 bg-paper rounded-[14px] p-3.5 min-h-[64px] border ${n.when === 'now' ? 'border-red-soft' : 'border-line'}`}
-              >
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${n.when === 'now' ? 'bg-red' : 'bg-gold'}`} />
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[15px] font-semibold text-ink">{n.title}</span>
-                  <span className="block text-[12.5px] text-ink-3 mt-0.5">{n.detail}</span>
-                </span>
-                <ChevronRight size={17} className="text-ink-4 shrink-0" />
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+      <RightNow d={d} top={top} nowN={nowN} more={moreCount(items, top.length)} onOpen={item.open} />
 
-      {d.lastClose && (
-        <section aria-label="From last night" className="bg-paper border border-line rounded-[14px] p-4">
-          <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
-            From last night{d.lastClose.signedOffByName ? ` · ${personName(d.lastClose.signedOffByName)}` : ''}
-          </div>
-          <p className={`mt-2 text-[14.5px] leading-[1.5] whitespace-pre-wrap ${note ? 'font-medium text-ink' : 'text-ink-3'}`}>
-            {note ? `“${note}”` : 'No note left.'}
-          </p>
-        </section>
-      )}
+      <Stations d={d} now={now} />
 
-      {rows.length > 0 && (
-        <section aria-label="How we're doing" className="bg-paper border border-line rounded-[14px] px-4 py-1.5">
-          <table className="w-full text-[14px]">
-            <tbody>
-              {rows.filter(r => r.label !== 'Target').map((r, i) => (
-                <tr key={r.label} className={i > 0 ? 'border-t border-bg-2' : ''}>
-                  <td className="py-[11px] text-ink-2">{r.label}</td>
-                  <td className={`py-[11px] text-right font-semibold tabular-nums ${r.tone === 'bad' ? 'text-red-text' : r.tone === 'ok' ? 'text-green-text' : 'text-ink'}`}>
-                    {r.value}
-                    {r.label === 'Food cost this week' && d.foodCost && (
-                      <span className="font-normal text-ink-3"> / {d.foodCost.target.toFixed(1)}%</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+      <ServiceCard d={d} />
 
-      {d.hasOrders && d.low.top.length > 0 && (
-        <section aria-label="Running low">
-          <div className="flex items-baseline justify-between px-0.5 mb-2">
-            <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">Running low</div>
-            <Link href="/inventory" className="text-[12.5px] text-gold-2">Order list</Link>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {d.low.top.map(l => (
-              <span key={l.id} className={`text-[13px] font-medium px-3 py-[7px] rounded-full ${l.out ? 'bg-red-soft text-red-text' : 'bg-gold-soft text-gold-2'}`}>
-                {l.name} · {l.label}
-              </span>
-            ))}
-            {d.low.more > 0 && <span className="text-[13px] text-ink-3 px-1 py-[7px]">+{d.low.more} more</span>}
-          </div>
-        </section>
-      )}
+      <LastNight d={d} now={now} />
+
+      {d.isManager && <Numbers d={d} />}
+
+      <PassItemDialog props={item.props} onClose={item.close} />
     </div>
+  )
+}
+
+const Panel = ({ children }: { children: React.ReactNode }) => (
+  <div className="px-4 py-4 text-[14px] text-ink-3">{children}</div>
+)
+
+function RightNow({ d, top, nowN, more, onOpen }: {
+  d: StartData
+  top: InboxItem[]
+  nowN: number
+  more: number
+  onOpen: (item: InboxItem) => void
+}) {
+  if (!d.isRc) return null
+  const right = nowN > 0
+    ? `${nowN} ${d.status.kind === 'upcoming' ? 'BEFORE DOORS' : 'NOW'}`
+    : top.length > 0 ? `${top.length} TODAY` : null
+  return (
+    <section aria-label="Right now" className="bg-paper border border-line rounded-[14px] overflow-hidden">
+      <div className="flex justify-between items-baseline px-4 py-3 border-b border-line">
+        <h2 className="text-[13.5px] font-semibold">Right now</h2>
+        {right && <span className={`font-mono text-[10.5px] ${nowN > 0 ? 'text-red-text' : 'text-gold-2'}`}>{right}</span>}
+      </div>
+      {!d.loaded || (!d.inbox && !d.inboxError) ? (
+        <Panel>Loading…</Panel>
+      ) : d.inboxError && !d.inbox ? (
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
+          <span className="text-[14px] text-ink-3">Could not load the Inbox.</span>
+          <button type="button" onClick={() => d.loadInbox()} className="min-h-[44px] px-3.5 rounded-full border border-line-2 font-mono text-[11px]">Try again</button>
+        </div>
+      ) : top.length === 0 ? (
+        <Panel>Nothing needs you right now — go cook.</Panel>
+      ) : (
+        top.map((n, i) => (
+          <div key={n.id} className={`flex gap-3 px-4 py-[13px] items-start ${i > 0 ? 'border-t border-bg-2' : ''}`}>
+            <span className={`flex-none w-2.5 h-2.5 rounded-full mt-[5px] ${n.severity === 'NOW' ? 'bg-red' : 'bg-gold'}`} aria-hidden />
+            <span className="flex-1 min-w-0 flex flex-col gap-1">
+              <TagLine item={n} />
+              <span className="text-[15px] font-semibold tracking-[-0.015em] leading-[1.3] text-ink">{n.title}</span>
+              <span className="font-mono text-[10.5px] text-ink-3">{itemMeta(n)}</span>
+            </span>
+            <ItemCta item={n} gold={i === 0} onOpen={onOpen} className="self-center" />
+          </div>
+        ))
+      )}
+      <Link href="/inbox" className="flex justify-between items-center px-4 min-h-[48px] border-t border-line text-[13.5px] font-medium text-ink-2">
+        <span>{more > 0 ? `${more} more in the Inbox` : 'Everything else is in the Inbox'}</span>
+        <span className="font-mono text-[11px] text-gold-2">Open Inbox →</span>
+      </Link>
+    </section>
+  )
+}
+
+function Stations({ d, now }: { d: StartData; now: Date }) {
+  if (d.stations.length === 0) return null
+  const { done, of } = stationsDone(d.stations)
+  return (
+    <section aria-label="Stations" className="bg-paper border border-line rounded-[14px] px-4 py-3.5 flex flex-col gap-3">
+      <div className="flex justify-between items-baseline">
+        <h2 className="text-[13.5px] font-semibold">{d.phase === 'OPEN' ? 'Opening' : 'Closing'} · stations</h2>
+        <span className="font-mono text-[10.5px] text-ink-3">{done} OF {of} DONE</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {d.stations.map(s => <StationTileSmall key={s.id} s={s} now={now} />)}
+      </div>
+      <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 min-h-[44px] flex items-center self-start">Station board →</Link>
+    </section>
+  )
+}
+
+/** Service clock + prep done — unchanged from the old start page. */
+function ServiceCard({ d }: { d: StartData }) {
+  const clock = clockText(d.status, d.nowMin)
+  const { posted, done } = d.progress
+  return (
+    <Link href="/prep" className="block bg-ink text-paper rounded-2xl p-[18px]">
+      <div className="flex justify-between items-end gap-3">
+        {clock ? (
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-4">{clock.label}</div>
+            <div className="text-[40px] font-semibold tracking-[-0.04em] leading-none mt-1 tabular-nums">{clock.big}</div>
+          </div>
+        ) : <div />}
+        <div className="text-right">
+          <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-4">Prep done</div>
+          {!d.loaded
+            ? <div className="text-[15px] font-semibold mt-1.5 text-ink-4">—</div>
+            : posted > 0
+            ? <div className="text-[24px] font-semibold tracking-[-0.03em] mt-1">{done}<span className="text-[14px] font-medium text-ink-4"> / {posted}</span></div>
+            : <div className="text-[15px] font-semibold mt-1.5">Not posted</div>}
+        </div>
+      </div>
+      {posted > 0 && (
+        <div className="h-1.5 rounded-full bg-ink-2 overflow-hidden mt-3.5">
+          <div className="h-full bg-green" style={{ width: `${Math.round((done / posted) * 100)}%` }} />
+        </div>
+      )}
+      {clock && <div className="text-[12.5px] text-ink-4 mt-3">{clock.sub}</div>}
+    </Link>
+  )
+}
+
+function Numbers({ d }: { d: StartData }) {
+  const rows = numberRows(d, { foodCost: true })
+  if (rows.length === 0) return null
+  return (
+    <section aria-label="How we're doing" className="bg-paper border border-line rounded-[14px] px-4 py-1">
+      {rows.map((r, i) => {
+        const inner = (
+          <>
+            <span className="text-ink-2">{r.label}</span>
+            <span className={`font-mono font-semibold tabular-nums ${VALUE_TONE(r.tone)}`}>{r.value}</span>
+          </>
+        )
+        const cls = `flex justify-between items-center min-h-[44px] py-2 text-[14px] ${i > 0 ? 'border-t border-bg-2' : ''}`
+        return r.href
+          ? <Link key={r.label} href={r.href} className={cls}>{inner}</Link>
+          : <div key={r.label} className={cls}>{inner}</div>
+      })}
+    </section>
   )
 }

@@ -7,6 +7,7 @@ import { requiredClearance, canAccess } from '../route-access'
 // the menu, this table disagrees and the test fails.
 const EXPECTED: Record<string, string | null> = {
   '/pass': 'MANAGER',
+  '/inbox': 'LEAD',
   '/preshift': null,
   '/prep': null,
   '/count': null,
@@ -48,6 +49,12 @@ describe('nav tables', () => {
     expect(i).toBeGreaterThanOrEqual(0)
     expect(today[i].label).toBe('Open & close')
     expect(today[i + 1]?.href).toBe('/end-of-day')
+  })
+
+  it('offers the Inbox in TODAY right after Pass, with its own badge', () => {
+    const today = navGroups.find(g => g.label === 'TODAY')!.items
+    const i = today.findIndex(x => x.href === '/pass')
+    expect(today[i + 1]).toMatchObject({ href: '/inbox', label: 'Inbox', badgeKey: 'inbox' })
   })
 
   it('has no duplicate hrefs', () => {

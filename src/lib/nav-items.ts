@@ -5,7 +5,7 @@
 import {
   Sun, Package, FileText, Trash2, BarChart3, BookOpen, UtensilsCrossed,
   ShoppingBag, Settings, ChefHat, Truck, ClipboardList, Activity, Building2,
-  Zap, Flame, Thermometer, Clock, Banknote, ListChecks,
+  Zap, Flame, Thermometer, Clock, Banknote, ListChecks, Inbox,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -13,7 +13,7 @@ export type NavItem = {
   label: string
   icon: React.ComponentType<{ size?: number | string; color?: string }>
   exact?: boolean
-  badgeKey?: 'invoicesReview' | 'priceAlerts'
+  badgeKey?: 'invoicesReview' | 'priceAlerts' | 'inbox'
   /**
    * Where this item points for a user who cannot open `href`. A DESTINATION,
    * not a clearance — what anyone may open is still derived solely from an href
@@ -33,6 +33,8 @@ export const navGroups: NavGroup[] = [
     label: 'TODAY',
     items: [
       { href: '/pass',       label: 'Pass',       icon: Sun },
+      // LEAD+ (route-access gates it; the menu dims it for STAFF). Badge = open NOW + TODAY.
+      { href: '/inbox',      label: 'Inbox',      icon: Inbox, badgeKey: 'inbox' },
       { href: '/preshift',   label: 'Pre-shift',  icon: Flame },
       { href: '/prep',       label: 'Prep',       icon: ChefHat },
       { href: '/count',      label: 'Count',      icon: ClipboardList },

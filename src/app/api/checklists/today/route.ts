@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope } from '@/lib/rc-scope'
-import { appliesOn, defaultPhase, runProgress, shiftBusinessDate, type Phase } from '@/lib/checklists/rules'
+import { defaultPhase, runProgress, shiftBusinessDate, type Phase } from '@/lib/checklists/rules'
 import { sortStations, stationStatus } from '@/lib/checklists/station-status'
+import { applicableJobCounts } from '@/lib/checklists/applicable'
 import { minusDays, type TodayFlag, type TodayStation, type TodayView } from '@/lib/checklists/today-types'
 
 export const dynamic = 'force-dynamic'
@@ -63,18 +64,7 @@ export async function GET(req: NextRequest) {
     // Stations with no run: count the jobs that would apply today (one query for
     // all, the same rule as the cook screen's job count).
     const noRun = stations.filter(s => !runByStation.has(s.id)).map(s => s.id)
-    const applicable = new Map<string, number>()
-    if (noRun.length > 0) {
-      const items = await prisma.checklistItem.findMany({
-        where: { isActive: true, category: { isActive: true, phase, stationId: { in: noRun } } },
-        select: { days: true, category: { select: { stationId: true } } },
-      })
-      for (const i of items) {
-        if (!appliesOn(i.days, businessDate)) continue
-        const sid = i.category.stationId
-        applicable.set(sid, (applicable.get(sid) ?? 0) + 1)
-      }
-    }
+    const applicable = await applicableJobCounts(noRun, phase, businessDate)
 
     const cards: TodayStation[] = stations.map(s => {
       const run = runByStation.get(s.id) ?? null

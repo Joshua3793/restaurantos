@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
@@ -7,13 +7,13 @@ import { setScopeParams } from '@/lib/scope-params'
 import { serviceStatus, type RcService, type ServiceStatus } from '@/lib/service-hours'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 import { ymd } from '@/components/temps/temp-utils'
-import {
-  buildNeeds, prepProgress, daysSinceCount, runningLow,
-  type StartPrepItem, type StartTempUnit, type StartPriceAlert, type StartRecipeAlert,
-  type StartCountSession, type StartOrderLine, type NeedItem, type StartChecklistFlag,
-} from '@/lib/start-page'
+import { defaultPhase, type Phase } from '@/lib/checklists/rules'
+import type { TodayView } from '@/lib/checklists/today-types'
+import type { HandoverNote } from '@/lib/pass'
+import type { InboxList } from '@/components/inbox/format'
+import { prepProgress, runningLow, type StartPrepItem, type StartOrderLine } from '@/lib/start-page'
 
-// The last close for the active RC (GET /api/eod/handover).
+// The last close for the active RC (GET /api/eod/handover). MANAGER only.
 export interface LastClose {
   handoverNote: string | null
   signedOffByName: string | null
@@ -32,94 +32,109 @@ interface OrdersResponse {
 
 interface Raw {
   prep: StartPrepItem[]
-  temps: StartTempUnit[]
-  priceAlerts: StartPriceAlert[]
-  recipeAlerts: StartRecipeAlert[]
-  invoicesAwaiting: number
-  counts: StartCountSession[]
   foodCost: { pct: number | null; target: number } | null
   yesterday: { netSales: number; covers: number } | null
   lastClose: LastClose | null
   orders: OrdersResponse | null
-  checklistFlags: StartChecklistFlag[]
+  stations: TodayView['stations']
+  handovers: HandoverNote[]
 }
 
 const EMPTY: Raw = {
-  prep: [], temps: [], priceAlerts: [], recipeAlerts: [], invoicesAwaiting: 0,
-  counts: [], foodCost: null, yesterday: null, lastClose: null, orders: null, checklistFlags: [],
+  prep: [], foodCost: null, yesterday: null, lastClose: null, orders: null, stations: [], handovers: [],
 }
 
 const getJson = (url: string) =>
   fetch(url, { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
 
 /**
- * Everything the start page shows, for the active scope, refreshed every 60 s.
- * Desktop (/pass) and mobile (/today) render the same data two ways.
+ * Everything the Pass shows, for the active scope, refreshed every 60 s.
+ * Desktop (/pass) and the phone (/today, LEAD+) render the same data two ways.
  *
- * Last night's close and the running-low list are per revenue center (par and
- * the close live on the RC), so they only load when one RC is selected.
+ * The list is the Inbox (open items, NOW then TODAY); the stations strip and
+ * last night's station notes come from the checklists. All three are per
+ * revenue center, so they only load when one RC is selected. Money — sales,
+ * food cost, the order list, the whole-kitchen close — loads for MANAGER+ only.
  */
 export function useStartData() {
   const { activeRcId, activeRc, activeKind, activeLocationId, ready } = useRc()
   const { role, loading: userLoading } = useUser()
-  // The station board (and its flags) is LEAD+; below that the fetch would 403.
-  const seesFlags = role != null && atLeast(role, 'LEAD')
+  const isManager = role != null && atLeast(role, 'MANAGER')
+  const isLead = role != null && atLeast(role, 'LEAD')
   const { nowMs, nowMin } = useNowMinute()
+  // Opening 5:00–13:59 Pacific, closing otherwise — the same default as the board.
+  const phase: Phase = defaultPhase(new Date(nowMs))
+  const rcOnly = activeKind === 'rc' && activeRcId ? activeRcId : null
   const [raw, setRaw] = useState<Raw>(EMPTY)
   const [loaded, setLoaded] = useState(false)
+  const [inbox, setInbox] = useState<InboxList | null>(null)
+  const [inboxError, setInboxError] = useState(false)
   const [tick, setTick] = useState(0)
+  const inboxSeq = useRef(0)
   const reload = useCallback(() => setTick(t => t + 1), [])
 
+  /** The open Inbox for this kitchen. Only the latest reply lands. */
+  const loadInbox = useCallback(async () => {
+    const seq = ++inboxSeq.current
+    if (!rcOnly || !isLead) { setInbox(null); setInboxError(false); return }
+    const v = await getJson(`/api/inbox?${new URLSearchParams({ rcId: rcOnly, status: 'open' })}`)
+    if (seq !== inboxSeq.current) return
+    if (v && Array.isArray(v.items)) { setInbox(v as InboxList); setInboxError(false) }
+    else setInboxError(true)
+  }, [rcOnly, isLead])
+
+  // A new kitchen: nothing from the old one (list, prep, figures) may show while the new one loads.
   useEffect(() => {
-    // Wait for the role too: it decides the flags fetch, and loading before it
-    // lands would run every request twice.
+    inboxSeq.current++
+    setInbox(null); setInboxError(false); setLoaded(false)
+    setRaw(EMPTY)
+  }, [rcOnly])
+
+  useEffect(() => {
+    // Wait for the role too: it decides which money blocks load, and loading
+    // before it lands would run every request twice.
     if (!ready || userLoading) return
     let cancelled = false
     const scope = new URLSearchParams()
     setScopeParams(scope, { activeKind, activeRcId, activeRc, activeLocationId })
     const qs = scope.toString() ? `?${scope}` : ''
-    const tempQs = new URLSearchParams(scope)
-    tempQs.set('date', ymd(new Date()))
-    const rcOnly = activeKind === 'rc' && activeRcId ? activeRcId : null
     const dayAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymd(d) }
     const salesQs = new URLSearchParams(scope)
     salesQs.set('startDate', dayAgo(1)); salesQs.set('endDate', dayAgo(1))
 
-    // Each block fills in as its data lands — the slow ones (prep items, the
-    // order list) must not hold back the clock or the food-cost row. `loaded`
-    // flips once every source of the Needs-you list is in, so the list never
-    // flashes "nothing needs you" while half its inputs are still missing.
+    // Each block fills in as its data lands. `loaded` flips once the Inbox (the
+    // list) is in, so it never flashes "nothing needs you" half-loaded.
     const load = () => {
       const put = <K extends keyof Raw>(key: K, value: Raw[K]) => {
         if (!cancelled) setRaw(r => ({ ...r, [key]: value }))
       }
       const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? v : [])
-      const needsSources = Promise.all([
-        getJson(`/api/prep/items${qs}`).then(v => put('prep', arr<StartPrepItem>(v))),
-        getJson(`/api/temps/units?${tempQs}`).then(v => put('temps', arr<StartTempUnit>(v))),
-        getJson('/api/invoices/alerts').then(v => {
-          put('priceAlerts', v?.priceAlerts ?? [])
-          put('recipeAlerts', v?.recipeAlerts ?? [])
-        }),
-        getJson(`/api/invoices/kpis${qs}`).then(v => put('invoicesAwaiting', Number(v?.awaitingApprovalCount ?? 0))),
-        getJson(`/api/count/sessions${qs}`).then(v => put('counts', arr<StartCountSession>(v))),
-        // Open flagged station jobs — per revenue center, LEAD+ only.
-        rcOnly && seesFlags
-          ? getJson(`/api/checklists/today?rcId=${rcOnly}&phase=OPEN`).then(v => put('checklistFlags', arr<StartChecklistFlag>(v?.flags)))
-          : Promise.resolve(put('checklistFlags', [])),
-      ])
-      needsSources.then(() => { if (!cancelled) setLoaded(true) })
+      loadInbox().then(() => { if (!cancelled) setLoaded(true) })
+      getJson(`/api/prep/items${qs}`).then(v => put('prep', arr<StartPrepItem>(v)))
 
-      getJson(`/api/insights/cost-chrome${qs}`).then(v => put('foodCost', v
-        ? { pct: v.foodCostPct == null ? null : Number(v.foodCostPct), target: Number(v.targetPct ?? 27) }
-        : null))
-      getJson(`/api/sales?${salesQs}`).then(v => put('yesterday', Array.isArray(v) && v.length > 0
-        ? {
-            netSales: v.reduce((t: number, e: { totalRevenue: unknown }) => t + Number(e.totalRevenue), 0),
-            covers: v.reduce((t: number, e: { covers: number | null }) => t + (e.covers ?? 0), 0),
-          }
-        : null))
-      if (rcOnly) {
+      if (rcOnly && isLead) {
+        getJson(`/api/checklists/today?rcId=${rcOnly}&phase=${phase}`).then(v => put('stations', arr(v?.stations)))
+        getJson(`/api/checklists/handovers?rcId=${rcOnly}`).then(v => put('handovers', arr<HandoverNote>(v?.notes)))
+      } else {
+        put('stations', [])
+        put('handovers', [])
+      }
+
+      if (isManager) {
+        getJson(`/api/insights/cost-chrome${qs}`).then(v => put('foodCost', v
+          ? { pct: v.foodCostPct == null ? null : Number(v.foodCostPct), target: Number(v.targetPct ?? 27) }
+          : null))
+        getJson(`/api/sales?${salesQs}`).then(v => put('yesterday', Array.isArray(v) && v.length > 0
+          ? {
+              netSales: v.reduce((t: number, e: { totalRevenue: unknown }) => t + Number(e.totalRevenue), 0),
+              covers: v.reduce((t: number, e: { covers: number | null }) => t + (e.covers ?? 0), 0),
+            }
+          : null))
+      } else {
+        put('foodCost', null)
+        put('yesterday', null)
+      }
+      if (isManager && rcOnly) {
         // Only a recent close is "last night" — a months-old note must not read as news.
         getJson(`/api/eod/handover?rcId=${rcOnly}`).then(v => put('lastClose',
           v?.businessDate && v.businessDate >= dayAgo(CLOSE_FRESH_DAYS) ? v : null))
@@ -130,9 +145,12 @@ export function useStartData() {
       }
     }
     load()
-    const id = setInterval(load, 60_000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [ready, userLoading, activeKind, activeRcId, activeRc, activeLocationId, tick, seesFlags])
+    // A hidden tab does not poll; it catches up the moment it is visible again.
+    const tick = () => { if (document.visibilityState === 'visible') load() }
+    const id = setInterval(tick, 60_000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', tick) }
+  }, [ready, userLoading, activeKind, activeRcId, activeRc, activeLocationId, tick, isManager, isLead, rcOnly, phase, loadInbox])
 
   const services = useMemo<RcService[]>(
     () => (activeKind === 'rc' ? ((activeRc?.services ?? []) as RcService[]) : []),
@@ -143,18 +161,6 @@ export function useStartData() {
     () => serviceStatus(services, nowMin, activeRc?.prepLeadMinutes ?? null),
     [services, nowMin, activeRc],
   )
-  const serviceName = status.kind === 'upcoming' || status.kind === 'underway' ? status.service.name : null
-
-  const needs = useMemo<NeedItem[]>(() => buildNeeds({
-    prep: raw.prep,
-    temps: raw.temps,
-    priceAlerts: raw.priceAlerts,
-    recipeAlerts: raw.recipeAlerts,
-    invoicesAwaiting: raw.invoicesAwaiting,
-    countDays: daysSinceCount(raw.counts, nowMs),
-    serviceName,
-    checklistFlags: raw.checklistFlags,
-  }), [raw, nowMs, serviceName])
 
   const progress = useMemo(() => prepProgress(raw.prep), [raw.prep])
   const low = useMemo(
@@ -165,17 +171,25 @@ export function useStartData() {
   return {
     loaded,
     reload,
+    loadInbox,
+    nowMs,
     nowMin,
+    phase,
     services,
     status,
-    needs,
     progress,
     low,
+    isManager,
+    inbox,
+    inboxError,
+    stations: raw.stations,
+    handovers: raw.handovers,
     hasOrders: raw.orders != null,
     lastClose: raw.lastClose,
     yesterday: raw.yesterday,
     foodCost: raw.foodCost,
-    isRc: activeKind === 'rc' && !!activeRcId,
+    rcId: rcOnly,
+    isRc: rcOnly != null,
     rcName: activeKind === 'rc' ? activeRc?.name ?? null : null,
   }
 }

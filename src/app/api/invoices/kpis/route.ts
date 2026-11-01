@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { invoiceSpendByRc, type RcSpendResult } from '@/lib/invoice-spend'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveLocationRcIds } from '@/lib/rc-scope'
+import { invoiceRcWhere, countInvoicesAwaiting } from '@/lib/invoice-awaiting'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,13 +24,7 @@ export async function GET(req: NextRequest) {
 
   // Session-scoped RC filter for the secondary counts (alerts / review / exceptions).
   // Default RC also sees legacy null-RC sessions; non-default RC sees only its own.
-  const rcWhere = locRcIds
-    ? { OR: [{ revenueCenterId: { in: locRcIds } }, { revenueCenterId: null }] }
-    : rcId
-      ? (isDefault
-          ? { OR: [{ revenueCenterId: rcId }, { revenueCenterId: null }] }
-          : { revenueCenterId: rcId })
-      : {}
+  const rcWhere = invoiceRcWhere({ rcId, isDefault, locRcIds })
 
   const now = new Date()
 
@@ -63,9 +58,7 @@ export async function GET(req: NextRequest) {
         ...(rcId || locRcIds ? { session: rcWhere } : {}),
       },
     }),
-    prisma.invoiceSession.count({
-      where: { AND: [{ status: 'REVIEW' }, rcWhere] },
-    }),
+    countInvoicesAwaiting(rcWhere),
     // Batches nobody has sorted into invoices yet. Reported separately — they
     // are not "awaiting approval"; there is nothing to approve until sorted.
     prisma.invoiceSession.count({

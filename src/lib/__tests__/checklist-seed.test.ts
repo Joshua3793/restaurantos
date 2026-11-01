@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const stationCount = vi.fn(async () => 0)
 const rcFind = vi.fn(async () => ({ type: 'FOOD' as string | null }))
-const openFind = vi.fn(async () => [] as unknown[])
-const eodFind = vi.fn(async () => [] as unknown[])
 const stationCreate = vi.fn(async (a: unknown) => a)
 const categoryCreate = vi.fn(async (a: unknown) => a)
 const itemCreate = vi.fn(async (a: unknown) => a)
@@ -15,8 +13,6 @@ vi.mock('@/lib/prisma', () => ({
     checklistCategory: { createMany: (a: unknown) => categoryCreate(a) },
     checklistItem: { createMany: (a: unknown) => itemCreate(a) },
     revenueCenter: { findUnique: () => rcFind() },
-    openCheckItem: { findMany: () => openFind() },
-    eodCheckItem: { findMany: () => eodFind() },
     $transaction: (ops: unknown[]) => transaction(ops),
   },
 }))
