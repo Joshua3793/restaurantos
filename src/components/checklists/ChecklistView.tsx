@@ -3,51 +3,16 @@ import type { RunView } from '@/lib/checklists/runs'
 import type { Handover, StationCard } from '@/lib/checklists/cook-view'
 import { runProgress, type Phase } from '@/lib/checklists/rules'
 import { LineRow, firstName, type RowLine } from './LineRow'
+import { cardRows, keepRow, sectionsFor, type ListFilter, type ListRow } from '@/lib/checklists/list-layout'
 
 // The cook's list: a progress card, then one card per picked station. The
 // whole-kitchen run's lines are merged into the first card with a KITCHEN pill.
 // A lead with no station picked gets the whole-kitchen run as its own card.
 // Each card: blockers first ("BEFORE DOORS" / "BEFORE YOU LEAVE"), then each
-// category in line order.
+// category in line order (list-layout.ts). On a desktop the rows select into the
+// side panel and the filter chips can hide what is done or what is left.
 
-type Row = { line: RowLine; shared: boolean; locked: boolean }
-type Section = { key: string; label: string; urgent: boolean; count: string; rows: Row[] }
-
-const handled = (rows: Row[]) => rows.filter(r => r.line.status !== 'TODO').length
-
-function sectionsFor(rows: Row[], phase: Phase): Section[] {
-  const out: Section[] = []
-  const blockers = rows.filter(r => r.line.isBlocker)
-  if (blockers.length > 0) {
-    const left = blockers.filter(r => r.line.status === 'TODO').length
-    const base = phase === 'OPEN' ? 'BEFORE DOORS' : 'BEFORE YOU LEAVE'
-    out.push({
-      key: '__blockers',
-      label: left > 0 ? `${base} · ${left} LEFT` : base,
-      urgent: left > 0,
-      count: `${handled(blockers)}/${blockers.length}`,
-      rows: blockers,
-    })
-  }
-  const byCat = new Map<string, Row[]>()
-  for (const r of rows) {
-    if (r.line.isBlocker) continue
-    const name = r.line.categoryName.trim()
-    const list = byCat.get(name)
-    if (list) list.push(r)
-    else byCat.set(name, [r])
-  }
-  for (const [name, list] of Array.from(byCat)) {
-    out.push({
-      key: `cat:${name}`,
-      label: (name || 'Other jobs').toUpperCase(),
-      urgent: false,
-      count: `${handled(list)}/${list.length}`,
-      rows: list,
-    })
-  }
-  return out
-}
+type Row = ListRow<RowLine>
 
 export function ChecklistView({
   phase,
@@ -58,6 +23,10 @@ export function ChecklistView({
   busyIds,
   onTap,
   onMore,
+  filter = 'all',
+  selectedId,
+  onSelect,
+  onFilter,
 }: {
   phase: Phase
   mine: RunView[]
@@ -68,6 +37,14 @@ export function ChecklistView({
   busyIds: ReadonlySet<string>
   onTap: (line: RowLine) => void
   onMore: (line: RowLine) => void
+  /** Desktop: hide rows the filter chips leave out (section counts stay whole). */
+  filter?: ListFilter
+  /** Desktop: the job open in the side panel. */
+  selectedId?: string | null
+  /** Desktop: a row click selects it instead of ticking (the box still ticks). */
+  onSelect?: (line: RowLine) => void
+  /** Desktop: shows the All / Left / Done chips on the progress card. */
+  onFilter?: (f: ListFilter) => void
 }) {
   const stationById = new Map(stations.map(s => [s.id, s]))
   const allLines = [...mine.flatMap(r => r.lines), ...(shared?.lines ?? [])]
@@ -79,6 +56,36 @@ export function ChecklistView({
     .map(r => `${r.lines.length} ${(stationById.get(r.stationId)?.name ?? '').toUpperCase()}`)
     .join(' · ')
 
+  const renderSections = (rows: Row[]) => {
+    const secs = sectionsFor(rows, phase)
+      .map(sec => ({ ...sec, shown: sec.rows.filter(r => keepRow(filter, r.line)) }))
+      .filter(sec => sec.shown.length > 0)
+    if (secs.length === 0) {
+      return <p className="m-0 px-4 py-4 text-[14px] text-ink-3">{filter === 'left' ? 'Nothing left here.' : 'Nothing done here yet.'}</p>
+    }
+    return secs.map(sec => (
+      <div key={sec.key}>
+        <div className="px-4 pt-3.5 pb-1.5 font-mono text-[10px] font-medium tracking-[0.08em] flex justify-between gap-3">
+          <span className={sec.urgent ? 'text-red-text' : 'text-ink-3'}>{sec.label}</span>
+          <span className="text-ink-3">{sec.count}</span>
+        </div>
+        {sec.shown.map(r => (
+          <LineRow
+            key={r.line.id}
+            line={r.line}
+            shared={r.shared}
+            locked={r.locked}
+            busy={busyIds.has(r.line.id)}
+            onTap={onTap}
+            onMore={onMore}
+            selected={selectedId === r.line.id}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+    ))
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <section aria-label="Progress" className="bg-paper border border-line rounded-[14px] px-4 py-3.5 flex flex-col gap-2.5">
@@ -88,6 +95,21 @@ export function ChecklistView({
             ? <span className="font-mono text-[10.5px] text-red-text">{p.flagged} FLAGGED</span>
             : <span className="font-mono text-[10.5px] text-ink-3 text-right">{breakdown}</span>}
         </div>
+        {onFilter && (
+          <div className="flex gap-1.5" role="group" aria-label="Show">
+            {([['all', `All ${p.total}`], ['left', `Left ${p.total - p.handled}`], ['done', `Done ${p.handled}`]] as [ListFilter, string][]).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={filter === k}
+                onClick={() => onFilter(k)}
+                className={`min-h-[32px] px-3 rounded-full border text-[12.5px] ${filter === k ? 'bg-ink border-ink text-paper font-medium' : 'bg-paper border-line text-ink-2'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="h-1.5 bg-bg-2 rounded-full overflow-hidden flex">
           <div className="bg-green" style={{ width: `${donePct}%` }} />
           <div className="bg-red" style={{ width: `${flagPct}%` }} />
@@ -97,11 +119,7 @@ export function ChecklistView({
       {mine.map((run, i) => {
         const station = stationById.get(run.stationId)
         const locked = run.status === 'SIGNED'
-        const rows: Row[] = run.lines.map(line => ({ line, shared: false, locked }))
-        if (i === 0 && shared) {
-          const sharedLocked = shared.status === 'SIGNED'
-          for (const line of shared.lines) rows.push({ line, shared: true, locked: sharedLocked })
-        }
+        const rows: Row[] = cardRows(run, i, shared)
         const note = phase === 'OPEN' ? handover[run.stationId] : undefined
         return (
           <div key={run.id} className="bg-paper border border-line rounded-[14px] overflow-hidden">
@@ -121,17 +139,7 @@ export function ChecklistView({
             {rows.length === 0 ? (
               <p className="m-0 px-4 py-4 text-[14px] text-ink-3">Nothing on the {station?.name ?? 'station'} list today.</p>
             ) : (
-              sectionsFor(rows, phase).map(sec => (
-                <div key={sec.key}>
-                  <div className="px-4 pt-3.5 pb-1.5 font-mono text-[10px] font-medium tracking-[0.08em] flex justify-between gap-3">
-                    <span className={sec.urgent ? 'text-red-text' : 'text-ink-3'}>{sec.label}</span>
-                    <span className="text-ink-3">{sec.count}</span>
-                  </div>
-                  {sec.rows.map(r => (
-                    <LineRow key={r.line.id} line={r.line} shared={r.shared} locked={r.locked} busy={busyIds.has(r.line.id)} onTap={onTap} onMore={onMore} />
-                  ))}
-                </div>
-              ))
+              renderSections(rows)
             )}
           </div>
         )
@@ -140,7 +148,7 @@ export function ChecklistView({
       {mine.length === 0 && shared && (() => {
         const station = stationById.get(shared.stationId)
         const locked = shared.status === 'SIGNED'
-        const rows: Row[] = shared.lines.map(line => ({ line, shared: false, locked }))
+        const rows: Row[] = cardRows(shared, 0, null)
         return (
           <div className="bg-paper border border-line rounded-[14px] overflow-hidden">
             <div className="flex items-center gap-2 px-4 pt-3.5 pb-1">
@@ -151,17 +159,7 @@ export function ChecklistView({
             {rows.length === 0 ? (
               <p className="m-0 px-4 py-4 text-[14px] text-ink-3">Nothing on the {station?.name ?? 'whole-kitchen'} list today.</p>
             ) : (
-              sectionsFor(rows, phase).map(sec => (
-                <div key={sec.key}>
-                  <div className="px-4 pt-3.5 pb-1.5 font-mono text-[10px] font-medium tracking-[0.08em] flex justify-between gap-3">
-                    <span className={sec.urgent ? 'text-red-text' : 'text-ink-3'}>{sec.label}</span>
-                    <span className="text-ink-3">{sec.count}</span>
-                  </div>
-                  {sec.rows.map(r => (
-                    <LineRow key={r.line.id} line={r.line} shared={r.shared} locked={r.locked} busy={busyIds.has(r.line.id)} onTap={onTap} onMore={onMore} />
-                  ))}
-                </div>
-              ))
+              renderSections(rows)
             )}
           </div>
         )

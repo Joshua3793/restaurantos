@@ -7,6 +7,7 @@ import { pacificHHMM } from '@/lib/checklists/rules'
 // One job on the cook's list. TICK rows tick on tap (optimistic, in the page);
 // NUMBER/TEMP rows open the log sheet; "⋯" or a long-press opens the sheet on
 // a TICK row so it can be flagged. Rows in a signed-off run are not tappable.
+// On a desktop (onSelect given) the row selects into the side panel instead.
 
 /** A line as the screen draws it. */
 export type RowLine = LineView
@@ -77,6 +78,8 @@ export function LineRow({
   busy,
   onTap,
   onMore,
+  selected = false,
+  onSelect,
 }: {
   line: RowLine
   /** A whole-kitchen line merged into this card: shows the KITCHEN pill. */
@@ -87,6 +90,13 @@ export function LineRow({
   busy: boolean
   onTap: (line: RowLine) => void
   onMore: (line: RowLine) => void
+  /** Desktop: this job is open in the side panel. */
+  selected?: boolean
+  /**
+   * Desktop: the row selects into the side panel and only the box ticks (a TICK
+   * job). No long-press and no "⋯" — the panel holds the flag and the reading.
+   */
+  onSelect?: (line: RowLine) => void
 }) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longFired = useRef(false)
@@ -128,6 +138,50 @@ export function LineRow({
       ? 'text-red-text font-semibold'
       : 'text-ink font-medium'
   const subTone = done ? 'text-green-text' : flagged ? 'text-red-text' : 'text-ink-3'
+
+  if (onSelect) {
+    const boxTicks = isTick && !flagged
+    return (
+      <div
+        data-line-id={line.id}
+        className={`flex items-center border-t border-bg-2 border-l-[3px] transition-opacity ${selected ? 'border-l-gold bg-[#fffbeb]' : 'border-l-transparent'} ${busy ? 'opacity-50' : ''}`}
+        aria-busy={busy || undefined}
+      >
+        <button
+          type="button"
+          tabIndex={-1}
+          disabled={locked}
+          onClick={() => { if (busy) return; if (boxTicks) onTap(line); else onSelect(line) }}
+          aria-label={boxTicks ? `${done ? 'Untick' : 'Tick'} ${line.title}` : `Open ${line.title}`}
+          className="flex-none pl-[13px] pr-1.5 py-2.5 grid place-items-center disabled:cursor-default"
+        >
+          <span className={`w-[22px] h-[22px] rounded-[6px] grid place-items-center box-border font-mono text-[13px] font-semibold ${box}`}>
+            {done && <Check size={14} strokeWidth={3} aria-hidden />}
+            {flagged && '!'}
+          </span>
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => onSelect(line)}
+          aria-current={selected || undefined}
+          className="flex-1 min-w-0 grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto] items-center gap-3 pl-2 pr-4 py-2 min-h-[46px] text-left"
+        >
+          <span className={`text-[14px] leading-[1.3] tracking-[-0.01em] truncate ${title}`}>{line.title}</span>
+          <span className={`font-mono text-[10.5px] leading-[1.4] truncate ${subTone}`}>{sub}</span>
+          <span className="flex items-center justify-end gap-1.5">
+            {shared && <Pill>KITCHEN</Pill>}
+            {flagged && <Pill tone="red">FLAGGED</Pill>}
+            {!isTick && line.status === 'TODO' && !locked && (
+              <span className="font-mono text-[11px] px-2.5 py-1 rounded-[7px] border border-dashed border-line-2 text-ink-3 whitespace-nowrap">
+                — {unitOf(line) || 'log'}
+              </span>
+            )}
+          </span>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className={`flex items-center border-t border-bg-2 transition-opacity ${busy ? 'opacity-50' : ''}`} aria-busy={busy || undefined}>

@@ -16,3 +16,14 @@ export type HistoryPeople = { people: { userId: string; name: string }[] }
 
 /** What the cook's log sheet shows under LAST TIME. */
 export type LastReading = { value: number; unit: string | null; byName: string | null; at: string }
+
+/** One earlier day of the same job, for the desktop job panel ("Last 7 days"). */
+export type RecentEntry = {
+  date: string
+  status: 'TODO' | 'DONE' | 'FLAGGED'
+  value: number | null
+  unit: string | null
+  byName: string | null
+  at: string | null
+  flagReason: 'BROKEN' | 'RAN_OUT' | 'OUT_OF_RANGE' | 'OTHER' | null
+}

@@ -9,7 +9,8 @@ import { firstName } from './LineRow'
 // The bottom of the cook's list: on CLOSE a "Note for tomorrow's opener" card
 // per station, then a sticky footer (above the phone tab bar) with one sign-off
 // button per picked station. A signed run shows who signed and when, plus
-// Reopen for a shift lead and up.
+// Reopen for a shift lead and up. On a desktop (rail) the same pieces stack as
+// cards in the right-hand column under the job panel.
 
 const HANDOVER_MAX = 1000
 
@@ -21,6 +22,7 @@ export function SignOffFooter({
   sharedBlockersOpen,
   onSignOff,
   onReopen,
+  rail = false,
 }: {
   phase: Phase
   runs: RunView[]
@@ -34,6 +36,8 @@ export function SignOffFooter({
   /** Resolves true when it saved. */
   onSignOff: (run: RunView, handoverNote: string | undefined) => Promise<boolean>
   onReopen: (run: RunView) => Promise<boolean>
+  /** Desktop: drawn as cards in the right-hand column, not a sticky footer. */
+  rail?: boolean
 }) {
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -64,7 +68,7 @@ export function SignOffFooter({
         const name = nameOf(run)
         const id = `handover-${run.id}`
         return (
-          <section key={run.id} aria-label="Hand over" className="mt-4 bg-paper border border-line rounded-[14px] px-4 py-3.5 flex flex-col gap-2.5">
+          <section key={run.id} aria-label="Hand over" className={`${rail ? '' : 'mt-4 '}bg-paper border border-line rounded-[14px] px-4 py-3.5 flex flex-col gap-2.5`}>
             <label htmlFor={id} className="text-[15px] font-semibold tracking-[-0.015em]">
               Note for tomorrow’s opener{many && <span className="text-ink-3 font-medium"> · {name}</span>}
             </label>
@@ -83,7 +87,11 @@ export function SignOffFooter({
       })}
 
       {/* z-[56]: above the AI chat bubble (z-[55], same bottom offset), below the sheets (z-[60]). */}
-      <footer className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-[56] mt-4 -mx-4 md:mx-0 px-4 py-3 bg-paper border-t border-line flex flex-col gap-2">
+      <footer
+        className={rail
+          ? 'bg-paper border border-line rounded-[14px] px-4 py-3.5 flex flex-col gap-2'
+          : 'sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-[56] mt-4 -mx-4 md:mx-0 px-4 py-3 bg-paper border-t border-line flex flex-col gap-2'}
+      >
         {runs.map(run => {
           const name = nameOf(run)
           if (run.status === 'SIGNED') {
