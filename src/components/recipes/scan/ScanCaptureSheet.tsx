@@ -1,11 +1,11 @@
 'use client'
 // Recipe Scan — capture. Phone app: the native page scanner (several pages =
-// one scan). Phone browser: the camera, page by page. Desktop: drop a photo,
+// one scan). Phone browser: the browser page scanner (auto-crop, several pages). Desktop: drop a photo,
 // PDF, Word or Excel file, or choose one. One upload = one scan; reading
 // starts in the background and the scan waits in the Reading list.
 import { useState } from 'react'
 import { ScanLine, Camera, Upload, X, Loader2, FileText, FileSpreadsheet, Image as ImageIcon } from 'lucide-react'
-import { CameraCapture } from '@/components/CameraCapture'
+import { WebScanner } from '@/components/scan/WebScanner'
 import { compressImageFile } from '@/lib/image-compress'
 import { isNative, scanDocument } from '@/lib/capacitor'
 import { uploadScanPages, uploadToCloud, type UploadedScanFile } from '@/hooks/useNativeScan'
@@ -146,12 +146,11 @@ export function ScanCaptureSheet({ activeRcId, onClose, onCreated }: Props) {
 
   if (camera) {
     return (
-      <CameraCapture
+      <WebScanner
         title="Scan recipe"
         fileStem="recipe"
-        pageNumber={files.length + 1}
-        maxPages={MAX_FILES}
-        onCapture={f => addFiles([f])}
+        maxPages={Math.max(1, MAX_FILES - files.length)}
+        onDone={fs => { addFiles(fs); setCamera(false) }}
         onClose={() => setCamera(false)}
       />
     )

@@ -35,6 +35,12 @@ const InvoiceUploadModal = dynamic(
   { ssr: false, loading: () => null }
 )
 
+// Browser page scanner (camera + auto-crop). Loaded only when opened.
+const WebScanner = dynamic(
+  () => import('@/components/scan/WebScanner').then(m => ({ default: m.WebScanner })),
+  { ssr: false, loading: () => null }
+)
+
 const InvoiceGroupingModal = dynamic(
   () => import('@/components/invoices/InvoiceGroupingModal').then(m => ({ default: m.InvoiceGroupingModal })),
   { ssr: false }
@@ -50,6 +56,21 @@ export default function InvoicesPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [groupingSessionId, setGroupingSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [showWebScanner, setShowWebScanner] = useState(false)
+  // Scan button: the native scanner in the phone app; in a phone/tablet
+  // browser, our own camera scanner. Desktop browsers keep Upload only.
+  const [scanMode, setScanMode] = useState<'native' | 'web' | null>(null)
+  useEffect(() => {
+    if (isNative()) { setScanMode('native'); return }
+    if (window.matchMedia?.('(pointer: coarse)').matches) {
+      setScanMode('web')
+      // Warm the page finder in the background so the first scan opens fast.
+      const t = setTimeout(() => {
+        import('@/lib/doc-scan/client').then(m => m.preloadScanner()).catch(() => {})
+      }, 1500)
+      return () => clearTimeout(t)
+    }
+  }, [])
   const [kpiRefreshKey, setKpiRefreshKey] = useState(0)
   const [view, setView] = useState<'inbox' | 'history'>('inbox')
 
@@ -125,11 +146,17 @@ export default function InvoicesPage() {
     fetchSessions()
   }, [fetchSessions])
 
-  const { triggerScan, isScanning, scanError, clearError } = useNativeScan({
+  const { triggerScan, submitPages, isScanning, scanError, clearError } = useNativeScan({
     activeRcId,
     onComplete: handleScanComplete,
     onGrouping: setGroupingSessionId,
   })
+
+  const handleScanClick = scanMode === 'native'
+    ? triggerScan
+    : scanMode === 'web'
+      ? () => { if (!isReadOnly) setShowWebScanner(true) }
+      : undefined
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
 
@@ -319,7 +346,7 @@ export default function InvoicesPage() {
           signals={signals}
           onSelectSession={handleOpenSession}
           onUploadClick={handleUploadClick}
-          onScanClick={isNative() ? triggerScan : undefined}
+          onScanClick={handleScanClick}
           onSignalAct={handleSignalAct}
           onDiscardBatch={requestDiscard}
         />
@@ -370,7 +397,7 @@ export default function InvoicesPage() {
           sessions={sessions}
           onSelectSession={handleOpenSession}
           onUploadClick={handleUploadClick}
-          onScanClick={isNative() ? triggerScan : undefined}
+          onScanClick={handleScanClick}
           onDiscardBatch={requestDiscard}
         />
       ) : (
@@ -378,7 +405,7 @@ export default function InvoicesPage() {
           sessions={sessions}
           onSelect={handleOpenSession}
           onUploadClick={handleUploadClick}
-          onScanClick={isNative() ? triggerScan : undefined}
+          onScanClick={handleScanClick}
           onDelete={handleDelete}
           onBulkDelete={handleBulkDelete}
           onRetry={handleRetry}
@@ -388,13 +415,13 @@ export default function InvoicesPage() {
       {scanError && (
         <button
           onClick={clearError}
-          className="fixed bottom-20 left-4 right-4 z-50 bg-red text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:hidden text-left w-auto"
+          className="fixed bottom-20 left-4 right-4 z-50 bg-red text-white text-sm font-medium rounded-xl px-4 py-3 shadow-lg sm:left-auto sm:max-w-md text-left w-auto"
         >
           {scanError} — tap to dismiss
         </button>
       )}
       {isScanning && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 sm:hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl px-8 py-6 flex flex-col items-center gap-3 shadow-xl">
             <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />
             <p className="text-sm font-semibold text-ink-2">Processing scan…</p>
@@ -421,6 +448,13 @@ export default function InvoicesPage() {
             setGroupingSessionId(id)
             fetchSessions()
           }}
+        />
+      )}
+      {showWebScanner && (
+        <WebScanner
+          title="Scan invoice"
+          onClose={() => setShowWebScanner(false)}
+          onDone={files => { setShowWebScanner(false); submitPages(files) }}
         />
       )}
       {groupingSessionId && (
