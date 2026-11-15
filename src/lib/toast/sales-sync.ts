@@ -38,6 +38,8 @@ import {
   resyncWindowStart,
   staleToastRcIds,
   NO_RC_ROUTE_GUID,
+  missedBusinessDays,
+  CATCH_UP_DAYS,
 } from '@/lib/toast/sync-routing'
 import { checkRefunds } from '@/lib/toast/refunds'
 
@@ -667,13 +669,34 @@ export async function runToastResync(windowStart: Date, windowEnd: Date, skipDay
 }
 
 /**
- * The nightly job: pull yesterday, then replay any older day that has changed since
- * the last successful run. The re-sync window is read BEFORE the day sync, because
- * `runToastSync` advances `ToastConnection.lastSyncedAt` and would otherwise shrink
- * the window to nothing.
+ * Business days in the catch-up range that have at least one successful per-day
+ * sync log. Per-day logs are the ones `runToastSync` writes, with
+ * windowStart == windowEnd == that day's midnight (re-sync logs span a window).
+ */
+async function okSyncedDays(yesterday: number): Promise<number[]> {
+  const from = new Date(dateFromInt(yesterday).getTime() - CATCH_UP_DAYS * 24 * 60 * 60 * 1000)
+  const logs = await prisma.toastSyncLog.findMany({
+    where: { status: 'ok', windowStart: { gte: from, lt: dateFromInt(yesterday) } },
+    select: { windowStart: true, windowEnd: true },
+  })
+  return logs
+    .filter((l) => l.windowStart.getTime() === l.windowEnd.getTime())
+    .map((l) => {
+      const d = l.windowStart
+      return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate()
+    })
+}
+
+/**
+ * The nightly job: pull yesterday, pull again any of the previous week's days that
+ * never synced successfully (a failed night), then replay any older day that has
+ * changed since the last run. The re-sync window is read BEFORE the day sync,
+ * because `runToastSync` advances `ToastConnection.lastSyncedAt` and would
+ * otherwise shrink the window to nothing.
  */
 export async function runNightlyToastSync(now: Date = new Date()): Promise<{
   day: DaySyncResult
+  catchUp: DaySyncResult[]
   resync: ResyncResult
 }> {
   const conn = await prisma.toastConnection.findUnique({
@@ -682,9 +705,15 @@ export async function runNightlyToastSync(now: Date = new Date()): Promise<{
   })
   const windowStart = resyncWindowStart(conn?.lastSyncedAt ?? null, now)
 
-  const day = await runToastSync()
+  const day = await runToastSync(priorBusinessDateInt(now))
+
+  const missed = missedBusinessDays(day.businessDate, await okSyncedDays(day.businessDate))
+  if (missed.length) console.warn(`[toast-sync] catching up ${missed.length} missed day(s): ${missed.join(', ')}`)
+  const catchUp: DaySyncResult[] = []
+  for (const d of missed) catchUp.push(await runToastSync(d))
+
   const resync = await runToastResync(windowStart, now, day.businessDate)
-  return { day, resync }
+  return { day, catchUp, resync }
 }
 
 /** Backfill an inclusive range of business days (oldest → newest). */

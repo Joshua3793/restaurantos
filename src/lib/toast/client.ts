@@ -2,8 +2,9 @@
  * Toast POS API client — foundation for the sales sync.
  *
  * Auth model: OAuth2 client-credentials ("machine client"). We POST clientId +
- * clientSecret to the authentication API and get a short-lived Bearer token,
- * cached in-process and refreshed on expiry or any 401. Every data request also
+ * clientSecret to the authentication API and get a Bearer token. Toast shares one
+ * token per client for exactly 24 h (see ./token.ts) — we wait out a token that is
+ * about to lapse, and retry a refused request with back-off. Every data request also
  * carries a `Toast-Restaurant-External-ID` header naming the restaurant GUID.
  *
  * Access is Standard API (read-only). We only ever GET.
@@ -18,6 +19,11 @@
 
 import fs from 'fs'
 import path from 'path'
+import {
+  tokenExpiryMs,
+  waitForFreshTokenMs,
+  UNAUTHORIZED_RETRY_DELAYS_MS,
+} from './token'
 
 // ── Config / env ─────────────────────────────────────────────────────────────
 
@@ -87,17 +93,16 @@ interface CachedToken {
 }
 let tokenCache: CachedToken | null = null
 
-// Toast's auth response reports expiresIn as 86400 but the token is honoured for
-// ~1h in practice. Cap our cached lifetime conservatively and lean on 401-refresh
-// as the real safety net.
-const MAX_TOKEN_TTL_MS = 50 * 60 * 1000 // 50 min
-const TOKEN_SKEW_MS = 60 * 1000 // refresh 1 min early
+// Refresh the in-process cache a minute before the token's real expiry.
+const TOKEN_SKEW_MS = 60 * 1000
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 interface ToastAuthResponse {
   token?: { accessToken?: string; expiresIn?: number; tokenType?: string }
 }
 
-async function fetchToken(creds: ToastCredentials): Promise<CachedToken> {
+async function requestToken(creds: ToastCredentials): Promise<{ accessToken: string; expiresAt: number }> {
   const res = await fetch(`${creds.host}/authentication/v1/authentication/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -116,8 +121,22 @@ async function fetchToken(creds: ToastCredentials): Promise<CachedToken> {
   if (!accessToken) {
     throw new ToastError('Toast auth response had no accessToken', res.status)
   }
-  const ttlMs = Math.min((json.token?.expiresIn ?? 3600) * 1000, MAX_TOKEN_TTL_MS)
-  return { accessToken, expiresAt: Date.now() + ttlMs - TOKEN_SKEW_MS }
+  const expiresAt =
+    tokenExpiryMs(accessToken) ?? Date.now() + (json.token?.expiresIn ?? 3600) * 1000
+  return { accessToken, expiresAt }
+}
+
+async function fetchToken(creds: ToastCredentials): Promise<CachedToken> {
+  let token = await requestToken(creds)
+  // Toast returns the same token until it expires. If it is about to lapse, wait
+  // it out and log in again so we get a fresh 24 h one instead of a dying one.
+  const wait = waitForFreshTokenMs(token.expiresAt, Date.now())
+  if (wait > 0) {
+    console.warn(`[toast] access token expires in ${Math.round((token.expiresAt - Date.now()) / 1000)}s — waiting ${Math.round(wait / 1000)}s for a fresh one`)
+    await sleep(wait)
+    token = await requestToken(creds)
+  }
+  return { accessToken: token.accessToken, expiresAt: token.expiresAt - TOKEN_SKEW_MS }
 }
 
 async function getToken(creds: ToastCredentials, force = false): Promise<string> {
@@ -143,7 +162,7 @@ async function throttle() {
 
 /**
  * Authenticated GET against the Toast API. Adds the Bearer token and the
- * restaurant header, throttles, refreshes the token once on 401, and backs off
+ * restaurant header, throttles, retries a 401 with back-off and a fresh login, and backs off
  * once on 429. Returns the parsed JSON body.
  */
 export async function toastGet<T = unknown>(
@@ -170,8 +189,11 @@ export async function toastGet<T = unknown>(
   let token = await getToken(creds)
   let res = await doFetch(token)
 
-  // Token expired mid-stream → refresh once and retry.
-  if (res.status === 401) {
+  // Refused → back off, log in again (which waits out a dying token), retry.
+  for (const delay of UNAUTHORIZED_RETRY_DELAYS_MS) {
+    if (res.status !== 401) break
+    console.warn(`[toast] GET ${apiPath} refused (401) — retrying in ${delay / 1000}s with a new login`)
+    await sleep(delay)
     token = await getToken(creds, true)
     res = await doFetch(token)
   }
