@@ -35,8 +35,11 @@ lit, at full detail — with no glitches.
   contrast × **share of the printed marks kept inside** (a crop must never cut
   off the totals; a little table in the crop is harmless to the reader). Live
   preview prefers the page found a moment ago so the outline doesn't flicker.
-- **Capture:** up to 4K video; on Chrome/Android `ImageCapture.takePhoto()`
-  (full sensor) when it is actually bigger. Capped at 3264 px.
+- **Capture:** up to 4K video; the shot is the video frame at the instant of
+  the snap, and the preview freezes on it ("Photo taken — you can move the
+  phone"). Capped at 3264 px. `ImageCapture.takePhoto()` was tried and removed
+  (2026-11-15): its shutter lag on Android (up to ~2 s) blurred any shot where
+  the cook moved after the snap.
 - **Clean-up:** perspective flatten from the full-res frame to ≤ 2500 px long
   side (the server reads at 2500); lighting evened per colour channel (closing +
   median background, floored at 55 % so dark header bars survive); gentle black
@@ -52,4 +55,4 @@ lit, at full detail — with no glitches.
 - Page finding is a best guess on busy or same-colour tables; the cook can
   always fix the corners, and the cut-off warning catches crops that touch the
   frame edge.
-- iPhone Safari has no full-sensor still from a web page; it uses the 4K video frame.
+- The shot is a video frame (no full-sensor still), so detail depends on the video size the phone gives (up to 4K).

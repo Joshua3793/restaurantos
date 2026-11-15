@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Zap, ZapOff, Camera, ImageIcon, Check, RotateCcw, Crop, Trash2, Plus, Loader2, AlertTriangle, Flashlight } from 'lucide-react'
 import { initScanner, detectFrame, processFrame, type ProcessedPage } from '@/lib/doc-scan/client'
 import {
-  openCamera, closeCamera, setTorch, grabVideoFrame, grabStill, fileToImageData, pixelsToJpeg,
+  openCamera, closeCamera, setTorch, grabVideoFrame, fileToImageData, pixelsToJpeg,
   CAPTURE_LONG, type CameraHandle,
 } from '@/lib/doc-scan/camera'
 import { DETECT_LONG, issuesFor, type Issue } from '@/lib/doc-scan/pipeline'
@@ -186,34 +186,26 @@ export function WebScanner({ title = 'Scan invoice', maxPages = 10, fileStem = '
     setPhase('review')
   }, [])
 
+  // The photo is the frame on screen at the instant of the snap — grabbed
+  // before anything else, then the preview freezes on it so the cook can see
+  // it is taken and move the phone straight away. (No separate full-sensor
+  // still: on Android that takes up to a couple of seconds AFTER the snap, so
+  // any movement in that time blurred the page.)
   const capture = useCallback(async () => {
-    const v = videoRef.current, h = camRef.current
-    if (busy.current || !v || !h || phaseRef.current !== 'camera') return
+    const v = videoRef.current
+    if (busy.current || !v || !camRef.current || phaseRef.current !== 'camera') return
     if (pagesRef.current.length >= maxPages && replaceRef.current === null) return
+    const img = grabVideoFrame(v, CAPTURE_LONG)
+    if (!img) { setError('Could not take that photo — try again.'); return }
     busy.current = true
+    v.pause()
     setFlash(true); setTimeout(() => setFlash(false), 180)
     if (navigator.vibrate) try { navigator.vibrate(20) } catch { /* not allowed */ }
     setPhase('working')
     setError(null)
     try {
       const liveQuad = live.current.good ? live.current.quad : null
-      let still = await grabStill(h, v)
-      if (!still) throw new Error('no frame')
-      let quad: Quad | null = null
-      let done: ProcessedPage | undefined
-      if (still.fromVideo && liveQuad) quad = scaleQuad(liveQuad, still.img.width / v.videoWidth)
-      if (!still.fromVideo && engineRef.current === 'ready' && liveQuad) {
-        // The full-sensor photo is framed differently from the preview: find
-        // the page again on it, and fall back to the video frame (where the
-        // outline the cook saw applies exactly) if that fails.
-        const probe = await processFrame(still.img, null)
-        if (probe.quality.pageFound) done = probe
-        else {
-          const vf = grabVideoFrame(v, CAPTURE_LONG)
-          if (vf) { still = { img: vf, fromVideo: true }; quad = scaleQuad(liveQuad, vf.width / v.videoWidth) }
-        }
-      }
-      await finishShot(still.img, quad, { done })
+      await finishShot(img, liveQuad ? scaleQuad(liveQuad, img.width / v.videoWidth) : null)
     } catch {
       setError('Could not take that photo — try again.')
       setPhase('camera')
@@ -222,6 +214,15 @@ export function WebScanner({ title = 'Scan invoice', maxPages = 10, fileStem = '
       busy.current = false
     }
   }, [finishShot, maxPages])
+
+  // Back on the camera: un-freeze the preview (restart the camera if it won't).
+  useEffect(() => {
+    if (phase !== 'camera') return
+    const v = videoRef.current
+    if (v && v.paused && v.srcObject) {
+      v.play().catch(() => { stopCamera(); startCamera() })
+    }
+  }, [phase, startCamera, stopCamera])
 
   // ── Live page finder (≈10 looks a second, one at a time) ───────────────────
   useEffect(() => {
@@ -483,10 +484,12 @@ export function WebScanner({ title = 'Scan invoice', maxPages = 10, fileStem = '
       )}
 
       {phase === 'working' && (
-        <div className="absolute inset-0 grid place-items-center bg-black/60">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 size={32} className="animate-spin text-gold" />
-            <span className="text-[14px] font-medium">Cleaning up the page…</span>
+        <div className="absolute inset-0 grid place-items-center bg-black/45">
+          <div className="flex flex-col items-center gap-2 rounded-2xl bg-black/70 px-6 py-4">
+            <span className="text-[15px] font-semibold text-[#34d399]">✓ Photo taken — you can move the phone</span>
+            <span className="flex items-center gap-2 text-[13px] text-white/80">
+              <Loader2 size={16} className="animate-spin text-gold" /> Cleaning up the page…
+            </span>
           </div>
         </div>
       )}
