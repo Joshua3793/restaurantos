@@ -15,7 +15,8 @@ export const maxDuration = 300
  * Query params (manual/backfill):
  *   ?date=YYYYMMDD            sync one specific business day, on its own
  *   ?from=YYYYMMDD&to=YYYYMMDD  backfill an inclusive range
- *   (none)                    the nightly job: yesterday (LA-local) PLUS a trailing
+ *   (none)                    the nightly job: yesterday (LA-local), PLUS any of the
+ *                             previous 7 days that never synced successfully, PLUS a trailing
  *                             re-sync of any older day whose orders have changed
  *                             since the last run — catering tickets entered days
  *                             after the event carry a backdated business date and
@@ -47,8 +48,8 @@ export async function GET(req: NextRequest) {
       const result = await runToastSync(Number(date))
       return NextResponse.json({ mode: 'day', result })
     }
-    const { day, resync } = await runNightlyToastSync()
-    return NextResponse.json({ mode: 'nightly', day, resync })
+    const { day, catchUp, resync } = await runNightlyToastSync()
+    return NextResponse.json({ mode: 'nightly', day, catchUp, resync })
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },

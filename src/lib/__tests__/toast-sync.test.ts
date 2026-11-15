@@ -5,6 +5,7 @@ import {
   resyncWindowStart,
   staleToastRcIds,
   NO_RC_ROUTE_GUID,
+  missedBusinessDays,
 } from '@/lib/toast/sync-routing'
 
 // Routing inputs mirror the maps `syncBusinessDay` builds from the DB.
@@ -126,5 +127,29 @@ describe('staleToastRcIds', () => {
   // failed/empty API response. Never delete on that evidence.
   it('refuses to clear anything when the pull returned no orders', () => {
     expect(staleToastRcIds({ storedRcIds: ['rc-bar'], activeRcIds: [], ordersPulled: 0 })).toEqual([])
+  })
+})
+
+describe('missedBusinessDays', () => {
+  // Nov 2026: the nightly pull failed Nov 7–13; Nov 14 (yesterday) just synced.
+  it('returns the previous week\'s days that never synced, oldest first', () => {
+    const ok = [20261106]
+    expect(missedBusinessDays(20261114, ok)).toEqual([
+      20261107, 20261108, 20261109, 20261110, 20261111, 20261112, 20261113,
+    ])
+  })
+
+  it('returns nothing when every day synced', () => {
+    const ok = [20261107, 20261108, 20261109, 20261110, 20261111, 20261112, 20261113]
+    expect(missedBusinessDays(20261114, ok)).toEqual([])
+  })
+
+  it('never includes yesterday itself — the nightly job just pulled it', () => {
+    expect(missedBusinessDays(20261114, [])).not.toContain(20261114)
+  })
+
+  it('crosses a month boundary', () => {
+    const ok = [20261029, 20261030, 20261101, 20261102]
+    expect(missedBusinessDays(20261103, ok, 6)).toEqual([20261028, 20261031])
   })
 })

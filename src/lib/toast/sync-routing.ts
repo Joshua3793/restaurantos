@@ -97,3 +97,35 @@ export function staleToastRcIds({
   const active = new Set(activeRcIds)
   return storedRcIds.filter((id) => !active.has(id))
 }
+
+/** How many business days before yesterday the nightly job checks for gaps. */
+export const CATCH_UP_DAYS = 7
+
+/**
+ * The business days (yyyymmdd) before `yesterday` that the nightly job should
+ * pull again because no pull of that day ever succeeded — the night failed, or the
+ * job never ran. Oldest first.
+ *
+ * `okDays` are the days with at least one successful per-day sync log. A day whose
+ * pull succeeded but found zero orders (the café was closed) counts as done, so a
+ * closed day is not retried forever. Without this, a failed night stayed empty for
+ * good: the trailing re-sync only replays days whose orders changed recently.
+ */
+export function missedBusinessDays(
+  yesterday: number,
+  okDays: Iterable<number>,
+  lookback: number = CATCH_UP_DAYS,
+): number[] {
+  const ok = new Set(okDays)
+  const y = Math.floor(yesterday / 10000)
+  const m = Math.floor((yesterday % 10000) / 100)
+  const d = yesterday % 100
+  const base = Date.UTC(y, m - 1, d)
+  const out: number[] = []
+  for (let i = lookback; i >= 1; i--) {
+    const t = new Date(base - i * 24 * 60 * 60 * 1000)
+    const day = t.getUTCFullYear() * 10000 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate()
+    if (!ok.has(day)) out.push(day)
+  }
+  return out
+}
