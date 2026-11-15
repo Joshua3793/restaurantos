@@ -2,11 +2,10 @@
 // Camera plumbing for the browser page scanner: open the back camera at the
 // highest resolution the phone will give, keep it focusing, grab frames.
 //
-// Resolution matters more than anything else for reading small print, so:
-//   • ask for up to 4K video (iPhone Safari and most Androids honour it);
-//   • on Chrome/Android, take the shot with ImageCapture.takePhoto() — the full
-//     photo sensor (often 12 MP), not the video stream — falling back to the
-//     video frame if it is slow or unsupported.
+// Resolution matters for small print, so ask for up to 4K video (iPhone Safari
+// and most Androids honour it). The shot is the video frame at the instant of
+// the snap — never ImageCapture.takePhoto(): its shutter lag (up to ~2 s on
+// Android) meant the photo was taken while the cook was already moving.
 
 /** Captures are capped here: the flattened page is ≤ 2500 px, so more is just memory. */
 export const CAPTURE_LONG = 3264
@@ -85,30 +84,6 @@ export function grabVideoFrame(video: HTMLVideoElement, maxLong: number): ImageD
   const w = video.videoWidth, h = video.videoHeight
   if (!w || !h) return null
   return drawToImageData(video, w, h, maxLong)
-}
-
-/** A full-resolution still: the photo sensor where the browser allows it, else the video frame. */
-export async function grabStill(handle: CameraHandle, video: HTMLVideoElement): Promise<{ img: ImageData; fromVideo: boolean } | null> {
-  const IC = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { takePhoto(): Promise<Blob> } }).ImageCapture
-  if (IC) {
-    try {
-      const blob = await Promise.race([
-        new IC(handle.track).takePhoto(),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('slow')), 2500)),
-      ])
-      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' } as ImageBitmapOptions)
-      try {
-        // Only worth it if the still really is bigger than the video frame.
-        if (Math.max(bmp.width, bmp.height) > Math.max(video.videoWidth, video.videoHeight) * 1.15) {
-          return { img: drawToImageData(bmp, bmp.width, bmp.height, CAPTURE_LONG), fromVideo: false }
-        }
-      } finally {
-        bmp.close()
-      }
-    } catch { /* fall back to the video frame */ }
-  }
-  const img = grabVideoFrame(video, CAPTURE_LONG)
-  return img ? { img, fromVideo: true } : null
 }
 
 /** A photo file (from the phone's own camera or library) as pixels, upright. */
