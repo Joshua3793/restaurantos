@@ -22,6 +22,7 @@
     "@prisma/client": "^5.22.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.1",
+    "@techstark/opencv-js": "4.12.0-release.1",
     "@uploadthing/react": "^7.3.3",
     "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "^3.5.0",

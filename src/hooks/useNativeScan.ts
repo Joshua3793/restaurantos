@@ -96,19 +96,18 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
   const [isScanning, setIsScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
 
-  const triggerScan = useCallback(async () => {
+  /**
+   * Send scanned pages (already JPEG files) into a new invoice session — the
+   * shared second half of both scanners: the native one below and the
+   * browser scanner (WebScanner), which hands its cleaned pages in directly.
+   */
+  const submitPages = useCallback(async (pageFiles: File[]) => {
+    if (!pageFiles.length) return
     setIsScanning(true)
     setScanError(null)
 
     try {
-      // 1. Open native scanner
-      const pages = await scanDocument()
-      if (!pages.length) { setIsScanning(false); return }
-
-      // 2. Convert pages to compressed JPEG files.
-      const pageFiles = await scanPagesToFiles(pages)
-
-      // 3. Create session
+      // 1. Create session
       const sessRes = await fetch('/api/invoices/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,7 +119,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
       }
       const sess = await sessRes.json()
 
-      // 4a. Try UploadThing CDN (8 s timeout, same as InvoiceUploadModal)
+      // 2a. Try UploadThing CDN (8 s timeout, same as InvoiceUploadModal)
       let uploadOk = false
       const uploaded = await uploadToCloud(pageFiles, 'invoiceUploader')
       if (uploaded) {
@@ -136,7 +135,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
         }
       }
 
-      // 4b. Local fallback — one page per request to stay under the ~4.5 MB
+      // 2b. Local fallback — one page per request to stay under the ~4.5 MB
       // serverless body limit (the route tolerates repeated calls; status
       // reset to PROCESSING is idempotent).
       if (!uploadOk) {
@@ -164,7 +163,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
         uploadOk = true
       }
 
-      // 5. One page → OCR immediately. Multi-page capture → grouping screen
+      // 3. One page → OCR immediately. Multi-page capture → grouping screen
       //    (the batch may be several invoices photographed in one go).
       if (pageFiles.length > 1 && onGrouping) {
         onGrouping(sess.id)
@@ -172,7 +171,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
         fetch(`/api/invoices/sessions/${sess.id}/process`, { method: 'POST' }).catch(() => {})
       }
 
-      // 6. Notify parent
+      // 4. Notify parent
       onComplete()
     } catch (err) {
       setScanError(`Scan error: ${err instanceof Error ? err.message : String(err)}`)
@@ -181,7 +180,22 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
     }
   }, [activeRcId, onComplete, onGrouping])
 
+  /** Native app: open the phone's own document scanner, then submit its pages. */
+  const triggerScan = useCallback(async () => {
+    setScanError(null)
+    try {
+      const pages = await scanDocument()
+      if (!pages.length) return
+      setIsScanning(true)
+      const pageFiles = await scanPagesToFiles(pages)
+      await submitPages(pageFiles)
+    } catch (err) {
+      setScanError(`Scan error: ${err instanceof Error ? err.message : String(err)}`)
+      setIsScanning(false)
+    }
+  }, [submitPages])
+
   const clearError = () => setScanError(null)
 
-  return { triggerScan, isScanning, scanError, clearError }
+  return { triggerScan, submitPages, isScanning, scanError, clearError }
 }

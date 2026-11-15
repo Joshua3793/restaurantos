@@ -66,3 +66,6 @@ ppb-snapshot-pre-backfill.json
 
 # Inventory audit pipeline intermediates (regenerate with scripts/audit-*.ts)
 docs/audits/*.json
+
+# OpenCV.js for the browser page scanner — copied from node_modules on install
+/public/vendor/opencv.js

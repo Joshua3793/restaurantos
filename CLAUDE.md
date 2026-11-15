@@ -161,6 +161,7 @@ Auth is **Supabase Auth**. `src/middleware.ts` protects every non-`/api` route: 
 - **Scoping** — 2-level `Location` → `RevenueCenter` (leaf; the write boundary for stock). Access is global `Role` × `UserScope`. Item↔RC visibility via the `ItemRevenueCenter` join.
 - **AI chat** — `/api/chat`, `ChatConversation`/`ChatMessage`.
 - **Allergens** — Health Canada priority list (incl. Mustard, Sulphites; coconut is NOT a tree nut here); per-ingredient pills; PREP items inherit via `syncPrepToInventory`.
+- **Browser page scanner** — `src/components/scan/WebScanner.tsx` + `src/lib/doc-scan/*` (OpenCV.js in a web worker; engine copied to `public/vendor/opencv.js` on install, gitignored). The Scan button on phone/tablet browsers (`pointer: coarse`); the phone app keeps the native scanner. Live page outline, 1 s auto-snap, crop/flatten/even-light at ≤ 2500 px, retake warnings; pages go through `useNativeScan().submitPages`. Tune on real photos with `scripts/doc-scan-tune.ts`. Design: `docs/superpowers/specs/2026-11-15-web-invoice-scanner-design.md`.
 - **Mobile shell** — `src/components/mobile/` (`kit.tsx`, `MobileTabBar`, `today/`); `/today` is the mobile home.
 
 ### Where deeper docs live
