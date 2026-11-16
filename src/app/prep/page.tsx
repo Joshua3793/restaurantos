@@ -29,7 +29,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computePriority } from '@/lib/prep-utils'
 import { applyStepToItem } from '@/lib/prep-steps'
-import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
+import { applyStatusToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
 import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
@@ -763,75 +763,8 @@ export default function PrepPage() {
     return runOp
   }
 
-  // Staged prep — move an item's live log to a stage (Next / Back). Same shape
-  // as handleStatusChange: optimistic first (applyStageToItem — status becomes
-  // IN_PROGRESS, the stage clock restarts, the move is appended to the history),
-  // the offline queue when there is no network, else the per-item op chain so a
-  // rapid Next → Done commits in tap order. Stock is never touched here.
-  async function handleStageChange(item: PrepItemRich, stageIndex: number) {
-    if (!item.revenueCenterId && !activeRcId) {
-      setActionError('Select a revenue center (not "All") to record prep.')
-      return
-    }
-    mutationSeq.current++
-    const now = new Date().toISOString()
-    setItems(prev => prev.map(i => {
-      if (i.id !== item.id) return i
-      const seeded = i.todayLog ? i : {
-        ...i,
-        todayLog: {
-          id: `_opt_${i.id}`, prepItemId: i.id, logDate: todayDateStr, status: 'NOT_STARTED' as PrepLogData['status'],
-          requiredQty: null, actualPrepQty: null, assignedTo: null, dueTime: null, note: null, blockedReason: null,
-          inventoryAdjusted: false, createdAt: now, updatedAt: now, startedAt: null, completedAt: null, listOrder: null, postedAt: null,
-        },
-      }
-      return withPipeline({ ...applyStageToItem(seeded, stageIndex, now), isOnList: true })
-    }))
-    markSaving(item.id, true)
-
-    if (!navigator.onLine) {
-      enqueueMutation({ type: 'stage', itemId: item.id, logId: item.todayLog?.id ?? null, stageIndex, revenueCenterId: item.revenueCenterId ?? activeRcId })
-      setPendingCount(n => n + 1)
-      markSaving(item.id, false)
-      return
-    }
-
-    const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
-    const runOp = prevOp.catch(() => {}).then(async () => {
-      try {
-        let logId = item.todayLog?.id
-        if (!logId || logId.startsWith('_opt_')) {
-          const log = await fetch('/api/prep/logs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId }),
-          }).then(r => r.json())
-          logId = log.id
-          setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
-        }
-        const res = await fetch(`/api/prep/logs/${logId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stageIndex }),
-        })
-        if (!res.ok) throw new Error('stage')
-      } catch {
-        setActionError('Stage move failed — try again.')
-        load()
-      }
-    })
-    opChains.current.set(item.id, runOp)
-    runOp.finally(() => {
-      if (opChains.current.get(item.id) === runOp) {
-        opChains.current.delete(item.id)
-        markSaving(item.id, false)
-      }
-    })
-    return runOp
-  }
-
   // Cook-along cursor — move an item's live log ONE method step (Next / Back on
-  // a job card or in the drawer). Same shape as handleStageChange: optimistic
+  // a job card or in the drawer). Same shape as handleStatusChange: optimistic
   // first (applyStepToItem also keeps the chain stage in sync), the offline
   // queue without a network, else the per-item op chain so taps land in order.
   async function handleStepChange(item: PrepItemRich, stepKey: string) {
@@ -2253,7 +2186,7 @@ export default function PrepPage() {
           onProgressChange={(patch) => { if (drawerItem) onProgressPatch(drawerItem, patch) }}
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
-          onStage={handleStageChange}
+          onStep={handleStepChange}
           onLogYield={onDrawerLogYield}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           /* The drawer opens from BOTH the To Do run sheet and the Smart Prep planner
@@ -2287,7 +2220,7 @@ export default function PrepPage() {
           onClose={closeDrawer}
           onToggleOnList={canPlan ? handleToggleOnList : undefined}
           onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
-          onStage={handleStageChange}
+          onStep={handleStepChange}
           onPriorityChange={handlePriorityChange}
           onEdit={(item) => { if (item.linkedRecipeId) { closeDrawer(); router.push(`/recipes?item=${item.linkedRecipeId}`) } }}
           onSetPrepEnabled={canSwitch && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}
