@@ -117,7 +117,8 @@ describe('long-lead promotion — "Start today for …"', () => {
   it('planGroups lifts them above the steps, captioned with the deadline', () => {
     const gs = planGroups([cure, aioli], 'urgency', { startToday: { ctx, nowMin: 600 } })
     expect(gs.map(g => [g.key, g.rows.map(r => r.id)])).toEqual([[START_TODAY_KEY, ['cure']], ['MID', ['aioli']]])
-    expect(gs[0].sub).toBe('lead time runs past the runway · by TMRW 09:00')
+    expect(gs[0].label).toBe('Start today — needed tomorrow 09:00')
+    expect(gs[0].sub).toBeUndefined()
     // without the option, the old grouping exactly
     expect(planGroups([cure, aioli], 'urgency').map(g => g.key)).toEqual(['MID', 'TMRW'])
   })

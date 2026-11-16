@@ -10,7 +10,7 @@ import type { PrepUrgency } from '@/lib/prep-utils'
 import {
   PLAN_URG_META, PLAN_URG_ORDER, effectiveUrgency, autoUrgencyOf, whyLabel,
   batchYield, batchCount, batchesToQty, fmtBatch, draftQty, prepStep,
-  urgencyDeadline, fmtDeadline,
+  urgencyDeadline, fmtDeadline, deadlineLabel,
   type PlanDayContext, type PlanGroup,
 } from '@/lib/prep-plan'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
@@ -98,7 +98,7 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
         <span className={`w-1.5 h-1.5 rounded-full ${m.dotClass} shrink-0`} />
         <span className="flex-1 text-left">
           {STEP_NAME[u]}
-          {dl != null && <span className="font-mono text-[10.5px] font-medium opacity-80"> · {fmtClock(dl)}</span>}
+          {dl != null && ctx && <span className="font-mono text-[11px] font-medium opacity-80"> · {deadlineLabel(dl, ctx.shiftStart, fmtClock)}</span>}
         </span>
         {item.manualPriorityOverride ? <Pencil size={10} className="shrink-0" /> : !locked && <ChevronDown size={10} className="shrink-0" />}
       </button>

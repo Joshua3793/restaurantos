@@ -104,3 +104,20 @@ describe('stepOnGrid — + and − land on the step grid', () => {
     expect(onGrid(450, 25)).toBe(true)
   })
 })
+
+import { fmtDeadlineWords, deadlineLabel } from '../prep-plan'
+
+describe('deadline words', () => {
+  const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  it('today / tomorrow / in N days', () => {
+    expect(fmtDeadlineWords(900, clock)).toBe('today 15:00')
+    expect(fmtDeadlineWords(1440 + 900, clock)).toBe('tomorrow 15:00')
+    expect(fmtDeadlineWords(3 * 1440 + 900, clock)).toBe('in 3 days 15:00')
+  })
+  it('a deadline already passed reads Now', () => {
+    expect(deadlineLabel(540, 700, clock)).toBe('Now')
+    expect(deadlineLabel(700, 700, clock)).toBe('Now')
+    expect(deadlineLabel(900, 700, clock)).toBe('15:00')
+    expect(deadlineLabel(1440 + 900, 700, clock)).toBe('TMRW 15:00')
+  })
+})

@@ -549,6 +549,20 @@ export function fmtDeadline(m: number, fmtClock: (min: number) => string): strin
   return `+${d}d ${fmtClock(m % 1440)}`
 }
 
+/** "today 15:00" / "tomorrow 15:00" / "in 3 days 15:00" — for sentences. */
+export function fmtDeadlineWords(m: number, fmtClock: (min: number) => string): string {
+  const d = Math.floor(m / 1440)
+  const at = fmtClock(((m % 1440) + 1440) % 1440)
+  if (d <= 0) return `today ${at}`
+  if (d === 1) return `tomorrow ${at}`
+  return `in ${d} days ${at}`
+}
+
+/** A deadline already passed reads "Now" — not "09:00" at 11:40. */
+export function deadlineLabel(m: number, nowMin: number, fmtClock: (min: number) => string): string {
+  return m <= nowMin ? 'Now' : fmtDeadline(m, fmtClock)
+}
+
 /**
  * Did the step's deadline really move since the chef posted? `dueTime` is the
  * label stamped at post, relative to THAT planning day ("09:00"); once the day
@@ -774,8 +788,9 @@ export function planGroups<T extends PlanFields & StationFields & { category: st
       const same = must.every(m => m.dl === first)
       groups.push({
         key: START_TODAY_KEY,
-        label: 'Start today for …',
-        sub: Number.isFinite(first) ? `lead time runs past the runway · by ${fmtDeadline(first, fmtClock)}${same ? '' : ' and later'}` : undefined,
+        label: Number.isFinite(first)
+          ? `Start today — needed ${fmtDeadlineWords(first, fmtClock)}${same ? '' : ' and later'}`
+          : 'Start today',
         rows: must.map(m => m.t),
       })
       const lifted = new Set(must.map(m => m.t))
