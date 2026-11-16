@@ -9,6 +9,7 @@ import { prepDayRange, prepDaysAgo } from '@/lib/prep-day'
 import { NEWEST_LOG } from '@/lib/prep-plan-server'
 import { isLiveLog, pipelineOf, effectiveUrgency, cappedSuggestedQty, stationLabel } from '@/lib/prep-plan'
 import { resolveStages } from '@/lib/prep-stages'
+import { parseMethod } from '@/lib/recipe-method'
 import { cadenceStats, CADENCE_WINDOW_DAYS } from '@/lib/prep-cadence'
 
 // The prep list with every computed field (on hand, priority, suggestion,
@@ -270,6 +271,9 @@ export async function loadPrepItems(opts: {
             // The resolved chain (null = unstaged) — the run sheet reads it for
             // the stage chip, rest rows and the Next button.
             stages: resolveStages(item.linkedRecipe),
+            // The method itself — the To Do steps through it one step at a
+            // time (src/lib/prep-steps.ts). Null when the recipe has none.
+            method: parseMethod(item.linkedRecipe.method),
           }
         : null,
       linkedInventoryItemId: item.linkedInventoryItemId,

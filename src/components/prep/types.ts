@@ -43,6 +43,10 @@ export interface PrepLogData {
   stageHistory?: StageEvent[] | null
   /** Cook-along progress kept while the item is on the To Do (see src/lib/prep-progress.ts). */
   progress?: PrepProgress | null
+  /** The cook-along cursor — a CookItem key (src/lib/prep-steps.ts); kept on Stop, cleared on finish. */
+  stepKey?: string | null
+  /** When the current step or wait began (ISO instant). */
+  stepEnteredAt?: string | null
 }
 
 /** Header row for a posted prep list (PrepPost) — the To Do provenance band. */
@@ -86,6 +90,8 @@ export interface PrepItemRich {
     baseYieldQty: number
     /** The resolved stage chain, or null when the recipe is unstaged. */
     stages?: RecipeStage[] | null
+    /** The recipe's method — what the To Do steps through. Null when it has none. */
+    method?: MethodStep[] | null
   } | null
   linkedInventoryItemId: string | null
   onHand: number
