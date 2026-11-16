@@ -320,6 +320,14 @@ describe('POST /api/prep/plan/remove-item — removal', () => {
     expect(logUpdateMany.mock.calls[0][0].where).toMatchObject({ revenueCenterId: CAFE, prepItemId: 'i-brisket' })
   })
 
+  it('resets the cook-along place, so a re-added job starts at step 1', async () => {
+    db.logs = [log({})]
+    await POST(req({ revenueCenterId: CAFE, prepItemId: 'i-brisket' }))
+    expect(logUpdateMany.mock.calls[0][0]).toMatchObject({
+      data: { stepKey: null, stepEnteredAt: null, stageIndex: null, stageEnteredAt: null },
+    })
+  })
+
   it('writes the log and the item with updateMany, never update', async () => {
     // A row deleted mid-flight must not P2025 into a 500 on a removal that
     // otherwise succeeded — the same defence recall/route.ts uses.

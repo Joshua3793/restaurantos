@@ -19,8 +19,9 @@ import { ChefHat, ChevronDown, RotateCcw } from 'lucide-react'
 import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
-import { RestRowMobile } from './RestRowMobile'
-import { WorkingRowMobile } from './WorkingRowMobile'
+import { JobCardMobile } from './JobCard'
+import { onTheGo } from '@/lib/prep-on-the-go'
+import { rememberedCook, loadSavedCook, saveCook } from '@/lib/prep-device'
 import { NextUpHero } from './NextUpHero'
 import { GroupHead } from './GroupHead'
 import { Segmented } from './atoms'
@@ -40,11 +41,10 @@ const MOBILE_GUTTER = 'pr-[22px]'
 // PARTIAL is a reachable resolved state (mirrors RunSheet's isDone) — do NOT
 // treat it as todo.
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-// Hands-on jobs only — a resting staged job (`rest`) sits in the WAITING section
-// above Working On instead, blue, soonest ready first.
-const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.rest
-const isWaiting = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !!i.rest
-const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i) && !isWaiting(i)
+// ON THE GO = every started job, hands-on or resting, one card each until done
+// (same rule as the desktop RunSheet).
+const isGoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
+const isTodo = (i: PrepItemRich) => !isDone(i) && !isGoing(i)
 
 // Empty state for My-station mode. Module scope (not inline) so it doesn't
 // remount on every render — see CLAUDE.md's client-component note.
@@ -74,8 +74,12 @@ export function RunSheetMobile({
   onStop,
   onClaim,
   onOpenRecipe,
-  onStage,
+  onStep,
   onRemove,
+  alarmsMuted,
+  onToggleAlarms,
+  onEnableNotifications,
+  banner,
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
@@ -94,13 +98,19 @@ export function RunSheetMobile({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
-  /** Staged prep — move an item's live log to a stage (Next on a working / rest row). */
-  onStage: (item: PrepItemRich, stageIndex: number) => void
+  /** Move a job on the go ONE method step (src/lib/prep-steps.ts). */
+  onStep: (item: PrepItemRich, stepKey: string) => void
+  alarmsMuted?: boolean
+  onToggleAlarms?: () => void
+  /** Ask the browser for notification permission (menu entry; omitted once asked). */
+  onEnableNotifications?: () => void
+  /** The wait-over alarm banner(s), painted above the lane. */
+  banner?: React.ReactNode
   /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
   onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('station')
-  const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
+  const [cook, setCook] = useState<string | null>(null)
   const [showDone, setShowDone] = useState(false)
   // A mode the cook picked by hand is never overridden by the fallback below.
   const modeTouched = useRef(false)
@@ -112,7 +122,8 @@ export function RunSheetMobile({
   // `cooks` can arrive after mount (async fetch) — same null-guard the desktop
   // RunSheet uses so My-station isn't stuck with cook === null forever.
   useEffect(() => {
-    if (cook == null && cooks.length > 0) setCook(cooks[0].id)
+    // This device remembers who used it last (falls back to the first cook).
+    if (cook == null && cooks.length > 0) setCook(rememberedCook(cooks, loadSavedCook()))
   }, [cooks, cook])
 
   const member = cook ? cooks.find(c => c.id === cook) ?? null : null
@@ -123,13 +134,13 @@ export function RunSheetMobile({
     i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && onStation(i, member.homeStation))
 
   const todoAll = useMemo(() => items.filter(isTodo).sort(ladderOrder), [items])
-  const doingAll = useMemo(() => items.filter(isDoing), [items])
-  const waitingAll = useMemo(() => items.filter(isWaiting).sort((a, b) => a.rest!.readyAtMin - b.rest!.readyAtMin), [items])
+  // Real time on a redraw (the clock prop ticks every 30 s) — see RunSheet.
+  const liveNow = Math.max(nowMs, Date.now())
+  const goingAll = useMemo(() => onTheGo(items, liveNow), [items, nowMs]) // eslint-disable-line react-hooks/exhaustive-deps
   const done = useMemo(() => items.filter(isDone), [items])
 
   const myTodo = useMemo(() => todoAll.filter(isMine), [todoAll, cook, member])
-  const doing = mode === 'station' ? doingAll.filter(isMine) : doingAll
-  const waiting = mode === 'station' ? waitingAll.filter(isMine) : waitingAll
+  const going = mode === 'station' ? goingAll.filter(r => isMine(r.item)) : goingAll
   const hero = myTodo[0]
   const queue = myTodo.slice(1)
 
@@ -142,7 +153,8 @@ export function RunSheetMobile({
     if (!member?.homeStation && myTodo.length === 0 && todoAll.length > 0) setMode('kitchen')
   }, [cooks.length, member, myTodo.length, todoAll.length])
 
-  const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
+  const readyN = goingAll.filter(r => r.state === 'ready').length
+  const restingN = goingAll.filter(r => r.state === 'waiting').length
 
   // The service caption on the NOW line. Same derivation as the desktop RunSheet's
   // header caption and /prep's page header: `serviceStatus` over the RC's CONFIGURED
@@ -232,14 +244,21 @@ export function RunSheetMobile({
           posted band (spec: 2026-09-14-todo-header-compact-design.md §3). */}
       <div className="flex h-[3px] rounded-full overflow-hidden bg-bg-2 gap-0.5 mb-2.5">
         {done.length > 0 && <div className="bg-green" style={{ width: `${(done.length / totalN) * 100}%` }} />}
-        {doingAll.length > 0 && <div className="bg-gold" style={{ width: `${(doingAll.length / totalN) * 100}%` }} />}
+        {goingAll.length - restingN > 0 && <div className="bg-gold" style={{ width: `${((goingAll.length - restingN) / totalN) * 100}%` }} />}
+        {restingN > 0 && <div className="bg-blue" style={{ width: `${(restingN / totalN) * 100}%` }} />}
       </div>
-      <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 pt-0.5 pb-2.5">
-        <b className="text-ink font-semibold">{done.length}</b><span className="text-ink-4">/{items.length}</span> done
-        {' · '}NOW {fmtClock(nowMin)}
-        {svcCaption ? ` · ${svcCaption}` : ''}
-        {post && ` · Posted ${postedWhenLabel(post.postedAt, post.listDate)}`}
-        {readyN > 0 && <span className="text-green-text"> · {readyN} ready to move</span>}
+      {/* Two short lines: the count, then the clock and where the list came from. */}
+      <div className="pt-0.5 pb-2.5">
+        <div className="font-mono text-[11px] font-medium text-ink-3">
+          <b className="text-ink font-semibold">{done.length}</b><span className="text-ink-4">/{items.length}</span> done
+          {goingAll.length > 0 && <> · {goingAll.length} on the go</>}
+          {readyN > 0 && <span className="text-green-text"> · {readyN} ready</span>}
+        </div>
+        <div className="font-mono text-[10px] tracking-[0.04em] uppercase text-ink-4 mt-0.5">
+          Now {fmtClock(nowMin)}
+          {svcCaption ? ` · ${svcCaption}` : ''}
+          {post && ` · Posted ${postedWhenLabel(post.postedAt, post.listDate)}`}
+        </div>
       </div>
       {post?.dirty && (
         <div className="mb-2.5">
@@ -267,7 +286,7 @@ export function RunSheetMobile({
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setCook(c.id)}
+                onClick={() => { setCook(c.id); saveCook(c.id) }}
                 className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-full shrink-0 border font-mono text-[10.5px] font-semibold cursor-pointer ${
                   on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
                 }`}
@@ -280,43 +299,27 @@ export function RunSheetMobile({
         </div>
       )}
 
-      {/* Waiting — jobs resting in an unattended stage, above everything, blue. */}
-      {waiting.length > 0 && (
+      {banner}
+
+      {/* On the go — every started job, one card each, until it is done. */}
+      {going.length > 0 && (
         <>
-          <GroupHead dot="bg-blue" title="Waiting" count={waiting.length} sub={readyN ? `${readyN} ready to move` : 'resting'} />
-          <div className={`flex flex-col gap-2 ${MOBILE_GUTTER}`}>
-            {waiting.map(i => (
-              <RestRowMobile
-                key={i.id}
-                item={i}
-                nowMin={nowMin}
-                nowMs={nowMs}
-                kitchen={mode === 'kitchen'}
+          <GroupHead dot="bg-ink" title="On the go" count={going.length} sub="stays here until done" />
+          <div className="flex flex-col gap-2">
+            {going.map(r => (
+              <JobCardMobile
+                key={r.item.id}
+                row={r}
+                nowMs={liveNow}
                 showStation={multiStation}
                 onClaim={claimTap}
-                onOpenRecipe={onOpenRecipe}
-                onStage={onStage}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Working On — full-width rows, above every ladder group. */}
-      {doing.length > 0 && (
-        <>
-          <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="tap done to log yield" />
-          <div className={`flex flex-col gap-2 ${MOBILE_GUTTER}`}>
-            {doing.map(i => (
-              <WorkingRowMobile
-                key={i.id}
-                item={i}
-                nowMs={nowMs}
-                onClaim={claimTap}
+                onStep={onStep}
                 onLog={onLog}
                 onStop={onStop}
                 onOpenRecipe={onOpenRecipe}
-                onStage={onStage}
+                alarmsMuted={alarmsMuted}
+                onToggleAlarms={onToggleAlarms}
+                onEnableNotifications={onEnableNotifications}
               />
             ))}
           </div>
@@ -326,7 +329,7 @@ export function RunSheetMobile({
       {mode === 'station' ? (
         <>
           {hero ? (
-            <NextUpHero item={hero} nowMin={nowMin} nowMs={nowMs} onStart={onStart} onStage={onStage} onOpenRecipe={onOpenRecipe} />
+            <NextUpHero item={hero} nowMin={nowMin} nowMs={nowMs} onStart={onStart} onOpenRecipe={onOpenRecipe} />
           ) : (
             <StationClear />
           )}

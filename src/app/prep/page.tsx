@@ -18,6 +18,8 @@ import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import { RunSheet } from '@/components/prep/runsheet/RunSheet'
 import { RunSheetMobile } from '@/components/prep/runsheet/RunSheetMobile'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import { useWaitAlarms } from '@/components/prep/runsheet/useWaitAlarms'
+import { AlarmBanner } from '@/components/prep/runsheet/AlarmBanner'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import LogYieldSheet, { type YieldTarget } from '@/components/prep/LogYieldSheet'
 import type { YieldStatus } from '@/lib/prep-yield'
@@ -26,7 +28,8 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computePriority } from '@/lib/prep-utils'
-import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
+import { applyStepToItem, cookSequence, cursorOf } from '@/lib/prep-steps'
+import { applyStatusToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
 import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
@@ -544,6 +547,8 @@ export default function PrepPage() {
   // The planner's day anchors — what "Start today for …" and the long-lead seed
   // count back from (same derivation the planners use).
   const dayCtx = useMemo(() => planDayContext(rcServices, nowMin, nowMs), [rcServices, nowMin, nowMs])
+  // The wait-over alarm — ONE per page (both run sheets are mounted at once).
+  const alarms = useWaitAlarms(todayItems)
   const svcStatus = useMemo(
     () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
     [activeRc, rcServices, nowMin],
@@ -758,16 +763,19 @@ export default function PrepPage() {
     return runOp
   }
 
-  // Staged prep — move an item's live log to a stage (Next / Back). Same shape
-  // as handleStatusChange: optimistic first (applyStageToItem — status becomes
-  // IN_PROGRESS, the stage clock restarts, the move is appended to the history),
-  // the offline queue when there is no network, else the per-item op chain so a
-  // rapid Next → Done commits in tap order. Stock is never touched here.
-  async function handleStageChange(item: PrepItemRich, stageIndex: number) {
+  // Cook-along cursor — move an item's live log ONE method step (Next / Back on
+  // a job card or in the drawer). Same shape as handleStatusChange: optimistic
+  // first (applyStepToItem also keeps the chain stage in sync), the offline
+  // queue without a network, else the per-item op chain so taps land in order.
+  async function handleStepChange(item: PrepItemRich, stepKey: string) {
     if (!item.revenueCenterId && !activeRcId) {
       setActionError('Select a revenue center (not "All") to record prep.')
       return
     }
+    // Where this screen showed the job when the button was tapped — the server
+    // refuses the move if another screen has already moved it on.
+    const seqNow = cookSequence(item.linkedRecipe?.method)
+    const fromStepKey = seqNow ? seqNow[cursorOf(seqNow, item.todayLog)]?.key : undefined
     mutationSeq.current++
     const now = new Date().toISOString()
     setItems(prev => prev.map(i => {
@@ -780,12 +788,12 @@ export default function PrepPage() {
           inventoryAdjusted: false, createdAt: now, updatedAt: now, startedAt: null, completedAt: null, listOrder: null, postedAt: null,
         },
       }
-      return withPipeline({ ...applyStageToItem(seeded, stageIndex, now), isOnList: true })
+      return withPipeline({ ...applyStepToItem(seeded, stepKey, now), isOnList: true })
     }))
     markSaving(item.id, true)
 
     if (!navigator.onLine) {
-      enqueueMutation({ type: 'stage', itemId: item.id, logId: item.todayLog?.id ?? null, stageIndex, revenueCenterId: item.revenueCenterId ?? activeRcId })
+      enqueueMutation({ type: 'step', itemId: item.id, logId: item.todayLog?.id ?? null, stepKey, fromStepKey, revenueCenterId: item.revenueCenterId ?? activeRcId })
       setPendingCount(n => n + 1)
       markSaving(item.id, false)
       return
@@ -807,11 +815,16 @@ export default function PrepPage() {
         const res = await fetch(`/api/prep/logs/${logId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stageIndex }),
+          body: JSON.stringify({ stepKey, fromStepKey }),
         })
-        if (!res.ok) throw new Error('stage')
+        if (res.status === 409) {
+          setActionError('This job was moved on another screen — showing the latest.')
+          load()
+          return
+        }
+        if (!res.ok) throw new Error('step')
       } catch {
-        setActionError('Stage move failed — try again.')
+        setActionError('Step move failed — try again.')
         load()
       }
     })
@@ -1919,7 +1932,11 @@ export default function PrepPage() {
               onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
               onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
-              onStage={handleStageChange}
+              onStep={handleStepChange}
+              alarmsMuted={alarms.muted}
+              onToggleAlarms={alarms.toggleMuted}
+              onEnableNotifications={alarms.canAskNotify ? alarms.askNotify : undefined}
+              banner={<AlarmBanner rows={alarms.due} onStep={handleStepChange} onLog={(item) => setYieldTarget({ item, cookAlongQty: null })} onOpenRecipe={openDrawer} />}
               onClaim={handleClaim}
               onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
@@ -1986,7 +2003,7 @@ export default function PrepPage() {
             </div>
           ) : (
             /* Mobile run sheet — the Today surface (hero, queue, in-place
-               WorkingRowMobile). Same wired callbacks as the desktop RunSheet. */
+               JobCardMobile). Same wired callbacks as the desktop RunSheet. */
             <div className="pb-24 sm:pb-0">
               <RunSheetMobile
                 items={todayItems}
@@ -2001,7 +2018,11 @@ export default function PrepPage() {
                 onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
                 onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
                 onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
-                onStage={handleStageChange}
+                onStep={handleStepChange}
+                alarmsMuted={alarms.muted}
+                onToggleAlarms={alarms.toggleMuted}
+                onEnableNotifications={alarms.canAskNotify ? alarms.askNotify : undefined}
+                banner={<AlarmBanner rows={alarms.due} onStep={handleStepChange} onLog={(item) => setYieldTarget({ item, cookAlongQty: null })} onOpenRecipe={openDrawer} />}
                 onClaim={handleClaim}
                 onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
               />
@@ -2174,7 +2195,7 @@ export default function PrepPage() {
           onProgressChange={(patch) => { if (drawerItem) onProgressPatch(drawerItem, patch) }}
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
-          onStage={handleStageChange}
+          onStep={viewMode === 'today' ? handleStepChange : undefined}
           onLogYield={onDrawerLogYield}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           /* The drawer opens from BOTH the To Do run sheet and the Smart Prep planner
@@ -2208,7 +2229,7 @@ export default function PrepPage() {
           onClose={closeDrawer}
           onToggleOnList={canPlan ? handleToggleOnList : undefined}
           onStatusChange={(item, status, qty) => onRowStatusChange(item, status, qty)}
-          onStage={handleStageChange}
+          onStep={handleStepChange}
           onPriorityChange={handlePriorityChange}
           onEdit={(item) => { if (item.linkedRecipeId) { closeDrawer(); router.push(`/recipes?item=${item.linkedRecipeId}`) } }}
           onSetPrepEnabled={canSwitch && viewMode !== 'today' ? (item, enabled) => { handleSetPrepEnabled(item, enabled); closeDrawer() } : undefined}

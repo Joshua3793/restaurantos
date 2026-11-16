@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   IcX,
   IcCheck,
@@ -16,6 +16,9 @@ import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 import { ChefNote } from '@/components/prep/runsheet/atoms'
 import type { PrepProgress } from '@/lib/prep-progress'
+import { CookModeBlock, CookFooter, cookState } from '@/components/prep/CookMode'
+import { JobMenu } from '@/components/prep/runsheet/step-ui'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 
 interface PrepDrawerProps {
   item: PrepItemRich | null
@@ -40,8 +43,8 @@ interface PrepDrawerProps {
    * may not change the list (below LEAD, read-only, or no RC picked) and the action hides.
    */
   onRemove?: (item: PrepItemRich) => void
-  /** Staged prep — move the live log to a stage (Back / Next in the stage list). */
-  onStage?: (item: PrepItemRich, stageIndex: number) => void
+  /** Move a job on the go ONE method step (cook mode's Back / Next). */
+  onStep?: (item: PrepItemRich, stepKey: string) => void
   /** Saved cook-along state for the item's live log (kept while it is on the To Do). */
   progress?: PrepProgress | null
   onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
@@ -162,7 +165,7 @@ export default function PrepDrawer({
   onLogYield,
   onOpenSubRecipe,
   onRemove,
-  onStage,
+  onStep,
   progress,
   onProgressChange,
   onSetPrepEnabled,
@@ -178,6 +181,14 @@ export default function PrepDrawer({
     document.addEventListener('keydown', handle)
     return () => document.removeEventListener('keydown', handle)
   }, [open, onClose])
+
+  // Cook mode: a job on the go with a method opens on its current step, with
+  // Back / Next in the footer; everything else folds away under "show".
+  const { nowMs } = useNowMinute()
+  const liveNow = Math.max(nowMs, Date.now())
+  const cook = onStep ? cookState(item, liveNow) : null
+  const [showMore, setShowMore] = useState(false)
+  useEffect(() => { setShowMore(false) }, [item?.id])
 
   const status: PrepStatus = item?.todayLog?.status ?? 'NOT_STARTED'
   const stateKey = PREP_STATE_META[status].key as StateKey
@@ -255,6 +266,16 @@ export default function PrepDrawer({
                 </div>
                 <ChefNote note={item.todayLog?.note} className="mt-3" />
               </div>
+              {cook && (
+                <JobMenu
+                  size={44}
+                  entries={[
+                    { label: 'Log yield now', sub: 'finish early — record what you made', onClick: () => onLogYield(item) },
+                    { label: 'Stop for now', sub: 'keeps the step — Start carries on from here', onClick: () => onStatusChange(item, 'NOT_STARTED') },
+                    ...(onRemove ? [{ label: 'Remove from the list', danger: true, onClick: () => onRemove(item) }] : []),
+                  ]}
+                />
+              )}
             </div>
 
             {/* IMPACT STRIP */}
@@ -286,7 +307,22 @@ export default function PrepDrawer({
 
             {/* BODY */}
             <div className="flex-1 overflow-auto px-[22px] py-5">
+              {cook && (
+                <div className="mb-[22px]">
+                  <CookModeBlock state={cook} nowMs={liveNow} />
+                  <button
+                    type="button"
+                    onClick={() => setShowMore(m => !m)}
+                    className="mt-4 w-full flex justify-between items-center bg-paper border border-line rounded-[12px] px-4 py-3 cursor-pointer"
+                  >
+                    <span className="text-[13.5px] font-semibold">Ingredients, batch &amp; stock</span>
+                    <span className="font-mono text-[10.5px] text-ink-3">{showMore ? 'HIDE' : 'SHOW'}</span>
+                  </button>
+                </div>
+              )}
+              {(!cook || showMore) && (<>
               {/* Status */}
+              {!cook && (
               <div className="mb-[22px]">
                 <SecLabel>Status</SecLabel>
                 <div className="bg-paper border border-line rounded-xl px-4 py-[15px] flex items-center justify-between gap-3">
@@ -300,6 +336,7 @@ export default function PrepDrawer({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Recipe & method — embedded cook-along (upscale · ingredients · method) */}
               {item.linkedRecipeId && (
@@ -314,7 +351,6 @@ export default function PrepDrawer({
                     onMakeQtyChange={onMakeQtyChange}
                     onOpenSubRecipe={onOpenSubRecipe}
                     log={item.todayLog ?? null}
-                    onStage={onStage && stateKey === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
                     progress={progress}
                     onProgressChange={onProgressChange}
                   />
@@ -393,6 +429,7 @@ export default function PrepDrawer({
                   <Tile label="Make" value={fmt(item.suggestedQty)} unit={item.unit} dark />
                 </div>
               </div>
+              </>)}
             </div>
 
             {/* FOOTER */}
@@ -427,7 +464,11 @@ export default function PrepDrawer({
                 </>
               )}
 
-              {stateKey === 'in-progress' && (
+              {cook && onStep && (
+                <CookFooter item={item} state={cook} onStep={onStep} onLogYield={onLogYield} />
+              )}
+
+              {stateKey === 'in-progress' && !cook && (
                 <>
                   <button
                     type="button"

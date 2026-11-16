@@ -1,11 +1,14 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { PrepItemRich, PrepItemDetail, RecipeStepsData } from '@/components/prep/types'
 import { toBoardRow, dotClass, fmtMin, fmtQty } from './prep-board-utils'
 import { effectiveUrgency, autoUrgencyOf, whyLabel } from '@/lib/prep-plan'
 import { resolveStages, currentStage, stageLabel } from '@/lib/prep-stages'
 import PrepRecipeSection from '@/components/prep/PrepRecipeSection'
 import type { PrepProgress } from '@/lib/prep-progress'
+import { CookModeBlock, CookFooter, cookState } from '@/components/prep/CookMode'
+import { JobMenu } from '@/components/prep/runsheet/step-ui'
+import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
 
 const X = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>)
 
@@ -29,8 +32,8 @@ export interface DrawerProps {
   onStatusChange: (item: PrepItemRich, status: string, qty?: number) => void
   onPriorityChange: (id: string, priority: string) => void
   onEdit: (item: PrepItemRich) => void
-  /** Staged prep — move the live log to a stage (Back / Next in the stage list). */
-  onStage?: (item: PrepItemRich, stageIndex: number) => void
+  /** Move a job on the go ONE method step (cook mode's Back / Next, To Do view only). */
+  onStep?: (item: PrepItemRich, stepKey: string) => void
   /** Saved cook-along state for the item's live log (kept while it is on the To Do). */
   progress?: PrepProgress | null
   onProgressChange?: (patch: { ingredients?: string[]; steps?: string[] }) => void
@@ -38,12 +41,20 @@ export interface DrawerProps {
   onSetPrepEnabled?: (item: PrepItemRich, enabled: boolean) => void
 }
 
-export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onLogYield, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStage, progress, onProgressChange, onSetPrepEnabled }: DrawerProps) {
+export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, makeQty, onMakeQtyChange, onLogYield, onOpenSubRecipe, onClose, onToggleOnList, onStatusChange, onPriorityChange, onEdit, onStep, progress, onProgressChange, onSetPrepEnabled }: DrawerProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Cook mode (To Do view): a job on the go with a method opens on its current
+  // step with Back / Next in the footer; the planning sections fold away.
+  const { nowMs } = useNowMinute()
+  const liveNow = Math.max(nowMs, Date.now())
+  const cook = view === 'todo' && onStep ? cookState(item, liveNow) : null
+  const [showMore, setShowMore] = useState(false)
+  useEffect(() => { setShowMore(false) }, [item?.id])
 
   const open = !!item
   const r = item ? toBoardRow(item) : null
@@ -75,7 +86,18 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                   <div className="dr-cat"><span className={`r-dot ${dotClass(u)}`} style={{ display: 'inline-block' }} /> {r.cat.toUpperCase()} · {r.station} · {uLabel}</div>
                   <div className="dr-title">{r.name}</div>
                 </div>
-                <button className="dr-close" onClick={onClose}><X /></button>
+                <div className="flex items-center gap-2">
+                  {cook && (
+                    <JobMenu
+                      entries={[
+                        { label: 'Log yield now', sub: 'finish early — record what you made', onClick: () => onLogYield(item) },
+                        { label: 'Stop for now', sub: 'keeps the step — Start carries on from here', onClick: () => { onStatusChange(item, 'NOT_STARTED'); onClose() } },
+                        ...(item.linkedRecipeId ? [{ label: 'Edit recipe', sub: 'par, shelf life and stations live on the recipe', onClick: () => onEdit(item) }] : []),
+                      ]}
+                    />
+                  )}
+                  <button className="dr-close" onClick={onClose}><X /></button>
+                </div>
               </div>
               <div className="dr-chips">
                 {stageAt && stages && <span className="tag station">{stageLabel(stageAt.index, stages.length, stageAt.stage).toUpperCase()}</span>}
@@ -86,6 +108,20 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
               </div>
             </div>
             <div className="dr-body">
+              {cook && (
+                <div className="dr-sec">
+                  <CookModeBlock state={cook} nowMs={liveNow} />
+                  <button
+                    type="button"
+                    onClick={() => setShowMore(m => !m)}
+                    className="mt-4 w-full flex justify-between items-center bg-paper border border-line rounded-[12px] px-4 py-3 cursor-pointer"
+                  >
+                    <span className="text-[13.5px] font-semibold">Ingredients, method, batch &amp; stock</span>
+                    <span className="font-mono text-[10.5px] text-ink-3">{showMore ? 'HIDE' : 'SHOW'}</span>
+                  </button>
+                </div>
+              )}
+              {(!cook || showMore) && (<>
               <div className="dr-sec">
                 <div className="dr-suggest">
                   {r.make > 0
@@ -151,7 +187,6 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                     onMakeQtyChange={onMakeQtyChange}
                     onOpenSubRecipe={onOpenSubRecipe}
                     log={item.todayLog ?? null}
-                    onStage={onStage && view !== 'smart' && r.status === 'in-progress' ? (idx) => onStage(item, idx) : undefined}
                     progress={progress}
                     onProgressChange={onProgressChange}
                   />
@@ -198,7 +233,13 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                   </div>
                 )
               })()}
+              </>)}
             </div>
+            {cook && onStep ? (
+              <div className="px-5 py-3.5 border-t border-line bg-paper">
+                <CookFooter item={item} state={cook} onStep={onStep} onLogYield={onLogYield} wide />
+              </div>
+            ) : (
             <div className="dr-foot">
               {view === 'smart'
                 ? (!prepEnabled
@@ -223,6 +264,7 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
                 </button>
               )}
             </div>
+            )}
           </>
         )}
       </aside>

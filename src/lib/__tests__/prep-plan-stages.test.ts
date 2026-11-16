@@ -32,9 +32,22 @@ describe('stageFieldsForStatus — what Start / Stop write on a staged item', ()
       stageHistory: [{ index: 0, key: 'rub', enteredAt: iso(0) }],
     })
   })
-  it('Stop clears the stage and keeps the history', () => {
+  it('Stop keeps the place — the stage stays so Start carries on from it', () => {
     const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'IN_PROGRESS', stageIndex: 1 } }, 'NOT_STARTED', iso(0))
-    expect(f).toEqual({ stageIndex: null, stageEnteredAt: null })
+    expect(f).toEqual({})
+  })
+  it('Start after Stop resumes the same stage with a fresh clock', () => {
+    const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'NOT_STARTED', stageIndex: 1, stageEnteredAt: iso(-90) } }, 'IN_PROGRESS', iso(0))
+    expect(f.stageIndex).toBe(1)
+    expect(f.stageEnteredAt).toBe(iso(0))
+  })
+  it('Start after Stop restarts a hands-on step\'s clock', () => {
+    const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'NOT_STARTED', stageIndex: 0, stepKey: 'rub', stepEnteredAt: iso(-90) } }, 'IN_PROGRESS', iso(0))
+    expect(f.stepEnteredAt).toBe(iso(0))
+  })
+  it('Start after Stop keeps a WAIT\'s clock — the dough kept resting while stopped', () => {
+    const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'NOT_STARTED', stageIndex: 1, stepKey: 'cure:wait', stepEnteredAt: iso(-90) } }, 'IN_PROGRESS', iso(0))
+    expect(f).not.toHaveProperty('stepEnteredAt')
   })
   it('reopening a done staged job resumes the stage it was on with a fresh clock', () => {
     const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'DONE', stageIndex: 2 } }, 'IN_PROGRESS', iso(0))
@@ -43,6 +56,17 @@ describe('stageFieldsForStatus — what Start / Stop write on a staged item', ()
   })
   it('an IN_PROGRESS re-send does not restart the stage clock', () => {
     expect(stageFieldsForStatus({ ...staged, todayLog: { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(-30) } }, 'IN_PROGRESS', iso(0))).toEqual({})
+  })
+  it('an untimed method still restarts the saved step\'s clock on Start', () => {
+    expect(stageFieldsForStatus({ linkedRecipe: { stages: null }, todayLog: { status: 'NOT_STARTED', stepKey: 'p2' } }, 'IN_PROGRESS', iso(0))).toEqual({ stepEnteredAt: iso(0) })
+  })
+  it('finishing or skipping clears the step cursor (client matches the server)', () => {
+    for (const st of ['DONE', 'PARTIAL', 'SKIPPED']) {
+      expect(stageFieldsForStatus({ ...staged, todayLog: { status: 'IN_PROGRESS', stageIndex: 1, stepKey: 'cure:wait' } }, st, iso(0)))
+        .toMatchObject({ stepKey: null, stepEnteredAt: null })
+      expect(stageFieldsForStatus({ linkedRecipe: null, todayLog: { status: 'IN_PROGRESS', stepKey: 'p2' } }, st, iso(0)))
+        .toEqual({ stepKey: null, stepEnteredAt: null })
+    }
   })
   it('an UNSTAGED item writes nothing extra', () => {
     expect(stageFieldsForStatus({ linkedRecipe: { stages: null }, todayLog: { status: 'NOT_STARTED' } }, 'IN_PROGRESS', iso(0))).toEqual({})

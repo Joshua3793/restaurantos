@@ -8,6 +8,8 @@ import { isOpenPrepStatus } from '@/lib/prep-plan'
 import { resolveStages, appendStageEvent, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { Prisma } from '@prisma/client'
 import { parseProgress } from '@/lib/prep-progress'
+import { parseMethod } from '@/lib/recipe-method'
+import { cookSequence, stepMoveFields, checkStepMove, moveTime } from '@/lib/prep-steps'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -26,7 +28,7 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex, progress } = body
+  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex, stepKey, fromStepKey, at, progress } = body
   let { status } = body
 
   // Planner draft fields (planned qty, chef note, bucket order) are the chef's:
@@ -47,12 +49,19 @@ export async function PUT(
   // Stage progress rides this ONE live log. A cook's `stageIndex` (Next / Back)
   // is validated against the recipe's resolved chain, stamps `stageEnteredAt`,
   // appends to the history (a correction is recorded, never erased) and forces
-  // the log IN_PROGRESS when it is still open. Start enters stage 0; Stop
-  // clears the stage and keeps the history; Done appends a terminal event.
+  // the log IN_PROGRESS when it is still open. Start resumes the stage the job
+  // was on (else the first); Stop KEEPS the place (stage + step cursor) so Start
+  // carries on from it; Done appends a terminal event.
+  //
+  // A `stepKey` move (Next / Back one method step — src/lib/prep-steps.ts) sets
+  // the cursor and, through stepMoveFields, keeps the chain stage in sync.
   // Unstaged items: none of this writes anything. No LEAD gate — cooks advance
   // their own jobs, like Start / Done.
-  const stageStamp: { stageIndex?: number | null; stageEnteredAt?: Date | null; stageHistory?: Prisma.InputJsonValue } = {}
-  if (stageIndex !== undefined || status !== undefined) {
+  const stageStamp: {
+    stageIndex?: number | null; stageEnteredAt?: Date | null; stageHistory?: Prisma.InputJsonValue
+    stepKey?: string | null; stepEnteredAt?: Date | null
+  } = {}
+  if (stageIndex !== undefined || stepKey !== undefined || status !== undefined) {
     const owner = await prisma.prepItem.findUnique({
       where: { id: existing.prepItemId },
       select: { linkedRecipe: { select: { stages: true, method: true } } },
@@ -66,26 +75,68 @@ export async function PUT(
         index, key: stages![index].key, enteredAt: nowIso, ...(existing.assignedTo ? { byCookId: existing.assignedTo } : {}),
       }) as unknown as Prisma.InputJsonValue
     }
-    if (stageIndex !== undefined) {
+    if (stepKey !== undefined) {
+      const seq = cookSequence(parseMethod(owner?.linkedRecipe?.method))
+      if (!seq) return NextResponse.json({ error: 'This item has no method' }, { status: 400 })
+      if (typeof stepKey !== 'string') return NextResponse.json({ error: 'Unknown step' }, { status: 400 })
+      const cursorLog = {
+        status: existing.status, stepKey: existing.stepKey,
+        stageIndex: existing.stageIndex, stageEnteredAt: existing.stageEnteredAt?.toISOString() ?? null,
+        stageHistory: existing.stageHistory,
+      }
+      // A screen that has not caught up (another device already moved the job,
+      // or finished it) must not drag it back out of a wait. A repeat of the
+      // same move is a harmless no-op.
+      const verdict = checkStepMove(seq, cursorLog, typeof fromStepKey === 'string' ? fromStepKey : null, stepKey)
+      if (verdict === 'stale') return NextResponse.json({ error: 'This job was moved on another screen — showing the latest.' }, { status: 409 })
+      if (verdict === 'noop') return NextResponse.json(existing)
+      // An offline tap replays later: keep the time it was tapped.
+      const when = moveTime(nowIso, typeof at === 'string' ? at : null, existing.stepEnteredAt?.toISOString() ?? null)
+      const move = stepMoveFields(seq, cursorLog, stepKey, when, existing.assignedTo)
+      if (!move) return NextResponse.json({ error: 'Unknown step' }, { status: 400 })
+      stageStamp.stepKey = move.stepKey
+      stageStamp.stepEnteredAt = new Date(move.stepEnteredAt)
+      if (move.stageIndex !== undefined) {
+        stageStamp.stageIndex = move.stageIndex
+        stageStamp.stageEnteredAt = new Date(move.stageEnteredAt ?? when)
+        stageStamp.stageHistory = move.stageHistory as unknown as Prisma.InputJsonValue
+      }
+      if (status === undefined && isOpenPrepStatus(existing.status)) status = 'IN_PROGRESS'
+    } else if (stageIndex !== undefined) {
       if (!stages) return NextResponse.json({ error: 'This item has no stages' }, { status: 400 })
       const idx = Number(stageIndex)
       if (!Number.isInteger(idx) || idx < 0 || idx >= stages.length) {
         return NextResponse.json({ error: `stageIndex must be between 0 and ${stages.length - 1}` }, { status: 400 })
       }
       enter(idx)
+      // A block-level move (an old screen, or a stage move queued before the
+      // step cursor shipped): drop the saved step so the job reads from the
+      // start of its new block instead of a step it has left.
+      stageStamp.stepKey = null
+      stageStamp.stepEnteredAt = null
       if (status === undefined && isOpenPrepStatus(existing.status)) status = 'IN_PROGRESS'
     } else if (stages && status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS') {
       // Start (or reopen): resume the stage the job was on, else the first — with a fresh clock.
       const resume = existing.stageIndex != null && stages[existing.stageIndex] ? existing.stageIndex : 0
       enter(resume)
     } else if (status === 'NOT_STARTED') {
-      stageStamp.stageIndex = null
-      stageStamp.stageEnteredAt = null
+      // Stop keeps the place — nothing to write; the next Start resumes it.
     } else if (stages && status !== undefined && COMPLETION_STATUSES.has(status) && existing.stageIndex != null) {
       stageStamp.stageHistory = appendStageEvent(existing.stageHistory, {
         index: stages.length, key: STAGE_DONE_KEY, enteredAt: nowIso, ...(existing.assignedTo ? { byCookId: existing.assignedTo } : {}),
       }) as unknown as Prisma.InputJsonValue
     }
+  }
+
+  // Step cursor: Start (or reopen) gives a saved HANDS-ON step a fresh clock (a
+  // saved wait keeps its own — the dough kept resting while stopped); finishing,
+  // skipping or leaving the list clears it (a re-added job starts at step 1).
+  if (stepKey === undefined && status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS' && existing.stepKey && !existing.stepKey.endsWith(':wait')) {
+    stageStamp.stepEnteredAt = new Date()
+  }
+  if (status !== undefined && (COMPLETION_STATUSES.has(status) || status === 'SKIPPED')) {
+    stageStamp.stepKey = null
+    stageStamp.stepEnteredAt = null
   }
 
   // ── Cook-along progress ─────────────────────────────────────────────────

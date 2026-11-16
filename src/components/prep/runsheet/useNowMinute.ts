@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react'
 const RESTAURANT_TZ = 'America/Los_Angeles'
 
 // Minutes since Pacific-local midnight for the given instant.
-function pacificMinuteOfDay(ms: number): number {
+export function pacificMinuteOfDay(ms: number): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: RESTAURANT_TZ,
     hour: '2-digit',

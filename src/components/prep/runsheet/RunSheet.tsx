@@ -24,8 +24,9 @@ import { RotateCcw, Check } from 'lucide-react'
 import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
-import { RestRow } from './RestRow'
-import { WorkingRow } from './WorkingRow'
+import { JobCard } from './JobCard'
+import { onTheGo } from '@/lib/prep-on-the-go'
+import { rememberedCook, loadSavedCook, saveCook } from '@/lib/prep-device'
 import { GroupHead } from './GroupHead'
 import { Segmented } from './atoms'
 import { fmtClock, fmtMins, fmtQty, postedWhenLabel } from '@/lib/prep-runsheet'
@@ -51,13 +52,12 @@ function minuteOfDay(iso: string): number {
 const RUN_GUTTER = 'pr-[30px]'
 
 const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?.status === 'PARTIAL'
-// Working On holds HANDS-ON jobs only. A staged job resting in an unattended
-// stage (`rest`, attached by withLadderTimes) is in flight but not "doing" —
-// it sits in the WAITING section above Working On, blue, ordered by the time
-// its next hands-on step is due. The ladder holds only what has not started.
-const isDoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !i.rest
-const isWaiting = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS' && !!i.rest
-const isTodo = (i: PrepItemRich) => !isDone(i) && !isDoing(i) && !isWaiting(i)
+// ON THE GO holds every started job — hands-on or resting in a wait — in ONE
+// lane until it is done (onTheGo orders it: wait over → hands-on → waiting).
+// The card never moves section; only its step track does. The ladder holds
+// only what has not started.
+const isGoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
+const isTodo = (i: PrepItemRich) => !isDone(i) && !isGoing(i)
 
 // The one-line caption on the left of the control row: done count, the posted
 // provenance (time, poster, item count) when there is a live post, the clock,
@@ -115,8 +115,12 @@ export function RunSheet({
   onStop,
   onClaim,
   onOpenRecipe,
-  onStage,
+  onStep,
   onRemove,
+  alarmsMuted,
+  onToggleAlarms,
+  onEnableNotifications,
+  banner,
 }: {
   items: PrepItemRich[]
   cooks: Cook[]
@@ -137,13 +141,20 @@ export function RunSheet({
   onStop: (item: PrepItemRich) => void
   onClaim: (item: PrepItemRich, cookId: string | null) => void
   onOpenRecipe: (item: PrepItemRich) => void
-  /** Staged prep — move an item's live log to a stage (Next on a working / rest row). */
-  onStage: (item: PrepItemRich, stageIndex: number) => void
+  /** Move a job on the go ONE method step (src/lib/prep-steps.ts). */
+  onStep: (item: PrepItemRich, stepKey: string) => void
+  /** Per-device alarm switch, shown in each card's ⋯ menu. */
+  alarmsMuted?: boolean
+  onToggleAlarms?: () => void
+  /** Ask the browser for notification permission (menu entry; omitted once asked). */
+  onEnableNotifications?: () => void
+  /** The wait-over alarm banner(s), painted above the lane. */
+  banner?: React.ReactNode
   /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
   onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('kitchen')
-  const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
+  const [cook, setCook] = useState<string | null>(null)
   const [group, setGroup] = useState<Group>('ladder')
   const [stFilter, setStFilter] = useState<string>('all')
   const [showDone, setShowDone] = useState(false)
@@ -152,7 +163,8 @@ export function RunSheet({
   // once with an empty roster. Without this, My-station mode is stuck with cook
   // === null forever, showing an empty ladder.
   useEffect(() => {
-    if (cook == null && cooks.length > 0) setCook(cooks[0].id)
+    // This device remembers who used it last (falls back to the first cook).
+    if (cook == null && cooks.length > 0) setCook(rememberedCook(cooks, loadSavedCook()))
   }, [cooks, cook])
 
   // The day's anchors from the RC's services, and every row re-timed against
@@ -176,14 +188,12 @@ export function RunSheet({
   const inScope = (i: PrepItemRich) =>
     mode === 'station' ? isMine(i) : stFilter === 'all' || onStation(i, stFilter)
 
-  const doing = useMemo(() => items.filter(i => isDoing(i) && inScope(i)), [items, mode, cook, stFilter, member])
   // Hairline = the whole list, never the station filter — same basis as the mobile sheet.
-  const doingAll = useMemo(() => items.filter(isDoing), [items])
-  // Waiting — jobs resting in an unattended stage, soonest ready first.
-  const waiting = useMemo(
-    () => items.filter(i => isWaiting(i) && inScope(i)).sort((a, b) => a.rest!.readyAtMin - b.rest!.readyAtMin),
-    [items, mode, cook, stFilter, member],
-  )
+  // The clock prop ticks every 30 s; a redraw right after a tap reads the real
+  // time so a wait just started says "30 min left", not 31.
+  const liveNow = Math.max(nowMs, Date.now())
+  const goingAll = useMemo(() => onTheGo(items, liveNow), [items, nowMs]) // eslint-disable-line react-hooks/exhaustive-deps
+  const going = useMemo(() => goingAll.filter(r => inScope(r.item)), [goingAll, mode, cook, stFilter, member])
   const done = useMemo(() => items.filter(isDone), [items])
   const todo = useMemo(
     () => items.filter(i => isTodo(i) && inScope(i)).sort(ladderOrder),
@@ -192,8 +202,6 @@ export function RunSheet({
 
   // Kitchen-mode badge = everything not yet done.
   const notDone = useMemo(() => items.filter(i => !isDone(i)), [items])
-  // Rest rows whose timer has run out — the cook can move them on.
-  const readyN = useMemo(() => items.filter(i => i.rest && i.rest.state !== 'resting').length, [items])
 
   // The service caption in the header. Source of truth is the RC's configured
   // services via `serviceStatus` — the SAME answer /prep's page header, /pass and
@@ -281,8 +289,9 @@ export function RunSheet({
     )
   }
 
-  const donePct = items.length ? (done.length / items.length) * 100 : 0
-  const doingPct = items.length ? (doingAll.length / items.length) * 100 : 0
+  const pct = (n: number) => (items.length ? (n / items.length) * 100 : 0)
+  const restingN = goingAll.filter(r => r.state === 'waiting').length
+  const handsN = goingAll.length - restingN
 
   return (
     <div className="max-w-[1010px] mx-auto tracking-[-0.005em]">
@@ -292,8 +301,9 @@ export function RunSheet({
           first job); every number they carried now lives in the section header
           that owns it — see docs/superpowers/specs/2026-09-14-todo-header-compact-design.md. */}
       <div className="flex h-[3px] rounded-full overflow-hidden bg-bg-2 gap-0.5 mb-3">
-        {done.length > 0 && <div className="bg-green" style={{ width: `${donePct}%` }} />}
-        {doingAll.length > 0 && <div className="bg-gold" style={{ width: `${doingPct}%` }} />}
+        {done.length > 0 && <div className="bg-green" style={{ width: `${pct(done.length)}%` }} />}
+        {handsN > 0 && <div className="bg-gold" style={{ width: `${pct(handsN)}%` }} />}
+        {restingN > 0 && <div className="bg-blue" style={{ width: `${pct(restingN)}%` }} />}
       </div>
 
       <div className="flex items-center justify-between gap-4 flex-wrap mb-3.5">
@@ -321,7 +331,7 @@ export function RunSheet({
                       on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-3'
                     }`}
                   >
-                    {s === 'all' ? `All · ${todo.length + doing.length}` : s}
+                    {s === 'all' ? `All · ${todo.length + going.length}` : s}
                   </button>
                 )
               })}
@@ -334,7 +344,7 @@ export function RunSheet({
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => setCook(c.id)}
+                    onClick={() => { setCook(c.id); saveCook(c.id) }}
                     className={`inline-flex items-center gap-1.5 px-[13px] py-[7px] rounded-full border font-mono text-[11px] font-semibold cursor-pointer ${
                       on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
                     }`}
@@ -357,42 +367,29 @@ export function RunSheet({
         </div>
       </div>
 
-      {/* Waiting — jobs resting in an unattended stage (a cure, a proof, a smoke),
-          above everything: they are in flight, they hold no cook, and the only
-          thing to do is move them on when the timer is up. Blue is their colour. */}
-      {waiting.length > 0 && (
-        <>
-          <GroupHead
-            dot="bg-blue"
-            title="Waiting"
-            count={waiting.length}
-            sub={readyN ? `${readyN} ready to move` : 'resting — nothing to do until the timer is up'}
-          />
-          <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
-            {waiting.map(i => (
-              <RestRow key={i.id} item={i} nowMin={nowMin} nowMs={nowMs} cooks={cooks} onStage={onStage} onOpenRecipe={onOpenRecipe} onClaim={onClaim} showStation={showStation} />
-            ))}
-          </div>
-        </>
-      )}
+      {banner}
 
-      {/* Working On — full-width rows on the ladder's own grid, above every
-          ladder group in all three groupings. */}
-      {doing.length > 0 && (
+      {/* On the go — every started job, one card each, until it is done. Ready
+          (a wait is over) first, then hands-on, then resting by soonest ready. */}
+      {going.length > 0 && (
         <>
-          <GroupHead dot="bg-gold" title="Working On" count={doing.length} sub="parallel timers — mark done to log yield" />
+          <GroupHead dot="bg-ink" title="On the go" count={going.length} sub="stays here until done" />
           <div className={`flex flex-col gap-2 ${RUN_GUTTER}`}>
-            {doing.map(i => (
-              <WorkingRow
-                key={i.id}
-                item={i}
-                nowMs={nowMs}
+            {going.map(r => (
+              <JobCard
+                key={r.item.id}
+                row={r}
+                nowMs={liveNow}
                 cooks={cooks}
                 onClaim={onClaim}
+                onStep={onStep}
                 onLog={onLog}
                 onStop={onStop}
                 onOpenRecipe={onOpenRecipe}
-                onStage={onStage}
+                alarmsMuted={alarmsMuted}
+                onToggleAlarms={onToggleAlarms}
+                onEnableNotifications={onEnableNotifications}
+                showStation={showStation}
               />
             ))}
           </div>

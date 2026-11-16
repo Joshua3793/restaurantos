@@ -323,28 +323,41 @@ export interface StageLogShape {
   stageIndex?: number | null
   stageEnteredAt?: string | null
   stageHistory?: StageEvent[] | null
+  /** The cook-along cursor (src/lib/prep-steps.ts) — kept on Stop, cleared on finish. */
+  stepKey?: string | null
+  stepEnteredAt?: string | null
 }
 
 /** Just the stage columns — never `status`, so a spread cannot widen a typed log. */
-export type StageFields = Partial<Pick<StageLogShape, 'stageIndex' | 'stageEnteredAt' | 'stageHistory'>>
+export type StageFields = Partial<Pick<StageLogShape, 'stageIndex' | 'stageEnteredAt' | 'stageHistory' | 'stepKey' | 'stepEnteredAt'>>
 
-/** The log fields a status change writes on a STAGED item (empty for an unstaged one). */
+/** The log fields a status change writes on a STAGED item, plus the step cursor's fresh clock on Start. */
 export function stageFieldsForStatus(
   item: { linkedRecipe?: { stages?: RecipeStage[] | null } | null; todayLog?: StageLogShape | null },
   newStatus: string,
   nowIso: string,
 ): StageFields {
   const stages = resolveStages(item.linkedRecipe)
-  if (!stages) return {}
   const log = item.todayLog
-  if (newStatus === 'NOT_STARTED') return { stageIndex: null, stageEnteredAt: null }
-  if (newStatus === 'IN_PROGRESS' && log?.status !== 'IN_PROGRESS') {
+  const starting = newStatus === 'IN_PROGRESS' && log?.status !== 'IN_PROGRESS'
+  // Start restarts a saved HANDS-ON step's clock; a saved WAIT keeps its own —
+  // the dough kept resting while the job was stopped.
+  const restampStep = !!log?.stepKey && !log.stepKey.endsWith(':wait')
+  // Finishing or skipping clears the step cursor — the server does the same.
+  if (newStatus === 'DONE' || newStatus === 'PARTIAL' || newStatus === 'SKIPPED') return { stepKey: null, stepEnteredAt: null }
+  if (!stages) return starting && restampStep ? { stepEnteredAt: nowIso } : {}
+  // Stop keeps the place: the stage (and the step cursor) stay, so Start
+  // carries on from the same step. Readers gate on IN_PROGRESS, so a stopped
+  // log with a stage is never read as in flight.
+  if (newStatus === 'NOT_STARTED') return {}
+  if (starting) {
     const index = log?.stageIndex ?? 0
     const stage = stages[index] ?? stages[0]
     return {
       stageIndex: stages[index] ? index : 0,
       stageEnteredAt: nowIso,
       stageHistory: appendStageEvent(log?.stageHistory, { index: stages[index] ? index : 0, key: stage.key, enteredAt: nowIso }),
+      ...(restampStep ? { stepEnteredAt: nowIso } : {}),
     }
   }
   return {}
