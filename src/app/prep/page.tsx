@@ -26,6 +26,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computePriority } from '@/lib/prep-utils'
+import { applyStepToItem } from '@/lib/prep-steps'
 import { applyStatusToItem, applyStageToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
 import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
@@ -812,6 +813,72 @@ export default function PrepPage() {
         if (!res.ok) throw new Error('stage')
       } catch {
         setActionError('Stage move failed — try again.')
+        load()
+      }
+    })
+    opChains.current.set(item.id, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(item.id) === runOp) {
+        opChains.current.delete(item.id)
+        markSaving(item.id, false)
+      }
+    })
+    return runOp
+  }
+
+  // Cook-along cursor — move an item's live log ONE method step (Next / Back on
+  // a job card or in the drawer). Same shape as handleStageChange: optimistic
+  // first (applyStepToItem also keeps the chain stage in sync), the offline
+  // queue without a network, else the per-item op chain so taps land in order.
+  async function handleStepChange(item: PrepItemRich, stepKey: string) {
+    if (!item.revenueCenterId && !activeRcId) {
+      setActionError('Select a revenue center (not "All") to record prep.')
+      return
+    }
+    mutationSeq.current++
+    const now = new Date().toISOString()
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i
+      const seeded = i.todayLog ? i : {
+        ...i,
+        todayLog: {
+          id: `_opt_${i.id}`, prepItemId: i.id, logDate: todayDateStr, status: 'NOT_STARTED' as PrepLogData['status'],
+          requiredQty: null, actualPrepQty: null, assignedTo: null, dueTime: null, note: null, blockedReason: null,
+          inventoryAdjusted: false, createdAt: now, updatedAt: now, startedAt: null, completedAt: null, listOrder: null, postedAt: null,
+        },
+      }
+      return withPipeline({ ...applyStepToItem(seeded, stepKey, now), isOnList: true })
+    }))
+    markSaving(item.id, true)
+
+    if (!navigator.onLine) {
+      enqueueMutation({ type: 'step', itemId: item.id, logId: item.todayLog?.id ?? null, stepKey, revenueCenterId: item.revenueCenterId ?? activeRcId })
+      setPendingCount(n => n + 1)
+      markSaving(item.id, false)
+      return
+    }
+
+    const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
+      try {
+        let logId = item.todayLog?.id
+        if (!logId || logId.startsWith('_opt_')) {
+          const log = await fetch('/api/prep/logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId }),
+          }).then(r => r.json())
+          logId = log.id
+          setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
+        }
+        const res = await fetch(`/api/prep/logs/${logId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stepKey }),
+        })
+        if (!res.ok) throw new Error('step')
+      } catch {
+        setActionError('Step move failed — try again.')
         load()
       }
     })

@@ -17,7 +17,7 @@ export interface DraftPatch {
 export interface OfflineMutation {
   id:         string
   ts:         number
-  type:       'isOnList_toggle' | 'status' | 'priority' | 'draft_edit' | 'post' | 'remove_item' | 'stage'
+  type:       'isOnList_toggle' | 'status' | 'priority' | 'draft_edit' | 'post' | 'remove_item' | 'stage' | 'step'
   /** '' for `post`, which is RC-scoped rather than item-scoped. */
   itemId:     string
   /**
@@ -34,6 +34,8 @@ export interface OfflineMutation {
   priority?:  string
   /** For `stage` — the stage index the cook moved the live log to (Next / Back). */
   stageIndex?: number
+  /** For `step` — the cook-along cursor the cook moved to (a CookItem key, src/lib/prep-steps.ts). */
+  stepKey?: string
   revenueCenterId?: string | null   // active RC captured at enqueue time
   patch?:     DraftPatch      // for draft_edit
   restore?:   boolean         // for remove_item — true puts the item back (with `isOnList`)
@@ -378,6 +380,15 @@ async function runMutation(m: OfflineMutation): Promise<Outcome> {
     const { id: logId, outcome } = await ensureLogId(m)
     if (!logId) return outcome
     const put = await send(`/api/prep/logs/${logId}`, json('PUT', { stageIndex: m.stageIndex }))
+    return put.outcome
+  }
+
+  if (m.type === 'step') {
+    // Same as a stage move: create the log if it never reached the server, then
+    // PUT the cursor — the route forces IN_PROGRESS on an open log.
+    const { id: logId, outcome } = await ensureLogId(m)
+    if (!logId) return outcome
+    const put = await send(`/api/prep/logs/${logId}`, json('PUT', { stepKey: m.stepKey }))
     return put.outcome
   }
 

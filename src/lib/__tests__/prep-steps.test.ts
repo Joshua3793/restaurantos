@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cookSequence, cursorOf, waitClock, nextAction, stepMoveFields, type CookItem } from '../prep-steps'
+import { cookSequence, cursorOf, waitClock, nextAction, stepMoveFields, applyStepToItem, type CookItem } from '../prep-steps'
 import type { MethodStep } from '../recipe-method'
 
 // First six steps of the real Sourdough Bread method.
@@ -141,5 +141,23 @@ describe('stepMoveFields — the one cursor move both server and client apply', 
   })
   it('untimed method: cursor only', () => {
     expect(stepMoveFields(cookSequence(PLAIN)!, {}, 'p2', iso(0))).toEqual({ stepKey: 'p2', stepEnteredAt: iso(0) })
+  })
+})
+
+describe('applyStepToItem — the optimistic move the screen shows before the server answers', () => {
+  const item = (log: Record<string, unknown> | null) => ({ id: 'i1', linkedRecipe: { method: SOURDOUGH }, todayLog: log as never })
+  it('a not-started job goes on the go at that step', () => {
+    const out = applyStepToItem(item({ id: 'l1', status: 'NOT_STARTED', startedAt: null }), 's3', iso(0))
+    expect(out.todayLog).toMatchObject({ status: 'IN_PROGRESS', startedAt: iso(0), stepKey: 's3', stepEnteredAt: iso(0), stageIndex: 2 })
+  })
+  it('keeps the first start time', () => {
+    const out = applyStepToItem(item({ id: 'l1', status: 'IN_PROGRESS', startedAt: iso(-60), stepKey: 's2', stageIndex: 2 }), 's3', iso(0))
+    expect(out.todayLog).toMatchObject({ startedAt: iso(-60), stepKey: 's3', stageIndex: 2 })
+  })
+  it('an unknown step or no log leaves the item untouched', () => {
+    const it1 = item({ id: 'l1', status: 'IN_PROGRESS' })
+    expect(applyStepToItem(it1, 'nope', iso(0))).toBe(it1)
+    const it2 = item(null)
+    expect(applyStepToItem(it2, 's2', iso(0))).toBe(it2)
   })
 })

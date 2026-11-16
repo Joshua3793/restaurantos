@@ -139,3 +139,22 @@ export function stepMoveFields(seq: CookItem[], log: CursorLog, stepKey: string,
   }
   return move
 }
+
+/**
+ * The optimistic cursor move (Next / Back): the job is on the go at `stepKey`,
+ * its first start time kept, the chain stage kept in sync. Returns the item
+ * unchanged when the step is unknown or there is no log yet. Stock is never
+ * touched — only DONE credits it.
+ */
+export function applyStepToItem<T extends {
+  linkedRecipe?: { method?: MethodStep[] | null } | null
+  todayLog?: (CursorLog & { id: string; startedAt?: string | null }) | null
+}>(item: T, stepKey: string, nowIso: string): T {
+  const log = item.todayLog
+  const seq = cookSequence(item.linkedRecipe?.method)
+  if (!log || !seq) return item
+  const move = stepMoveFields(seq, log, stepKey, nowIso)
+  if (!move) return item
+  const todayLog = { ...log, status: 'IN_PROGRESS', startedAt: log.startedAt ?? nowIso, ...move } as NonNullable<T['todayLog']>
+  return { ...item, todayLog }
+}
