@@ -18,12 +18,32 @@ const MUTE_KEY = 'prep.alarms.muted'
 const TICK_MS = 15_000
 
 let audioCtx: AudioContext | null = null
-function chime() {
+function getAudio(): AudioContext | null {
   try {
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!Ctx) return
+    if (!Ctx) return null
     audioCtx = audioCtx ?? new Ctx()
-    const ctx = audioCtx
+    return audioCtx
+  } catch { return null }
+}
+/** iPhones (and Chrome before any tap) only let a page make sound after a tap:
+ *  create + resume the audio on the first touch and play one silent sample, so
+ *  the alarm's later chime is allowed. */
+function unlockAudio() {
+  try {
+    const ctx = getAudio()
+    if (!ctx) return
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
+    const src = ctx.createBufferSource()
+    src.buffer = ctx.createBuffer(1, 1, 22050)
+    src.connect(ctx.destination)
+    src.start(0)
+  } catch { /* sound unavailable */ }
+}
+function chime() {
+  try {
+    const ctx = getAudio()
+    if (!ctx) return
     if (ctx.state === 'suspended') void ctx.resume().catch(() => {})
     const tone = (freq: number, at: number) => {
       const osc = ctx.createOscillator()
@@ -75,6 +95,20 @@ export function useWaitAlarms(items: PrepItemRich[]): WaitAlarms {
   const [muted, setMuted] = useState(false)
   const [canAskNotify, setCanAskNotify] = useState(false)
   const lastRang = useRef(new Map<string, number>())
+
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio()
+      document.removeEventListener('pointerdown', unlock)
+      document.removeEventListener('touchend', unlock)
+    }
+    document.addEventListener('pointerdown', unlock)
+    document.addEventListener('touchend', unlock)
+    return () => {
+      document.removeEventListener('pointerdown', unlock)
+      document.removeEventListener('touchend', unlock)
+    }
+  }, [])
 
   useEffect(() => {
     setMuted(readMuted())

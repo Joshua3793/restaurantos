@@ -267,6 +267,7 @@ export default function PrepDrawer({
               </div>
               {cook && (
                 <JobMenu
+                  size={44}
                   entries={[
                     { label: 'Log yield now', sub: 'finish early — record what you made', onClick: () => onLogYield(item) },
                     { label: 'Stop for now', sub: 'keeps the step — Start carries on from here', onClick: () => onStatusChange(item, 'NOT_STARTED') },

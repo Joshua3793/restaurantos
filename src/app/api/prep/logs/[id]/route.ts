@@ -9,7 +9,7 @@ import { resolveStages, appendStageEvent, STAGE_DONE_KEY } from '@/lib/prep-stag
 import { Prisma } from '@prisma/client'
 import { parseProgress } from '@/lib/prep-progress'
 import { parseMethod } from '@/lib/recipe-method'
-import { cookSequence, stepMoveFields } from '@/lib/prep-steps'
+import { cookSequence, stepMoveFields, checkStepMove, moveTime } from '@/lib/prep-steps'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -28,7 +28,7 @@ export async function PUT(
   }
 
   const body = await req.json()
-  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex, stepKey, progress } = body
+  const { actualPrepQty, assignedTo, dueTime, note, blockedReason, requiredQty, listOrder, stageIndex, stepKey, fromStepKey, at, progress } = body
   let { status } = body
 
   // Planner draft fields (planned qty, chef note, bucket order) are the chef's:
@@ -78,15 +78,27 @@ export async function PUT(
     if (stepKey !== undefined) {
       const seq = cookSequence(parseMethod(owner?.linkedRecipe?.method))
       if (!seq) return NextResponse.json({ error: 'This item has no method' }, { status: 400 })
-      const move = typeof stepKey === 'string'
-        ? stepMoveFields(seq, { stageIndex: existing.stageIndex, stageHistory: existing.stageHistory }, stepKey, nowIso, existing.assignedTo)
-        : null
+      if (typeof stepKey !== 'string') return NextResponse.json({ error: 'Unknown step' }, { status: 400 })
+      const cursorLog = {
+        status: existing.status, stepKey: existing.stepKey,
+        stageIndex: existing.stageIndex, stageEnteredAt: existing.stageEnteredAt?.toISOString() ?? null,
+        stageHistory: existing.stageHistory,
+      }
+      // A screen that has not caught up (another device already moved the job,
+      // or finished it) must not drag it back out of a wait. A repeat of the
+      // same move is a harmless no-op.
+      const verdict = checkStepMove(seq, cursorLog, typeof fromStepKey === 'string' ? fromStepKey : null, stepKey)
+      if (verdict === 'stale') return NextResponse.json({ error: 'This job was moved on another screen — showing the latest.' }, { status: 409 })
+      if (verdict === 'noop') return NextResponse.json(existing)
+      // An offline tap replays later: keep the time it was tapped.
+      const when = moveTime(nowIso, typeof at === 'string' ? at : null, existing.stepEnteredAt?.toISOString() ?? null)
+      const move = stepMoveFields(seq, cursorLog, stepKey, when, existing.assignedTo)
       if (!move) return NextResponse.json({ error: 'Unknown step' }, { status: 400 })
       stageStamp.stepKey = move.stepKey
       stageStamp.stepEnteredAt = new Date(move.stepEnteredAt)
       if (move.stageIndex !== undefined) {
         stageStamp.stageIndex = move.stageIndex
-        stageStamp.stageEnteredAt = new Date(nowIso)
+        stageStamp.stageEnteredAt = new Date(move.stageEnteredAt ?? when)
         stageStamp.stageHistory = move.stageHistory as unknown as Prisma.InputJsonValue
       }
       if (status === undefined && isOpenPrepStatus(existing.status)) status = 'IN_PROGRESS'
@@ -97,6 +109,11 @@ export async function PUT(
         return NextResponse.json({ error: `stageIndex must be between 0 and ${stages.length - 1}` }, { status: 400 })
       }
       enter(idx)
+      // A block-level move (an old screen, or a stage move queued before the
+      // step cursor shipped): drop the saved step so the job reads from the
+      // start of its new block instead of a step it has left.
+      stageStamp.stepKey = null
+      stageStamp.stepEnteredAt = null
       if (status === undefined && isOpenPrepStatus(existing.status)) status = 'IN_PROGRESS'
     } else if (stages && status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS') {
       // Start (or reopen): resume the stage the job was on, else the first — with a fresh clock.

@@ -28,7 +28,7 @@ import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { usePrepToast } from '@/components/prep/PrepToast'
 import { computeShiftSummary, computePriority } from '@/lib/prep-utils'
-import { applyStepToItem } from '@/lib/prep-steps'
+import { applyStepToItem, cookSequence, cursorOf } from '@/lib/prep-steps'
 import { applyStatusToItem, stageFieldsForStatus, withPipeline, defaultDraftQty, longLeadQty, mustStartToday, planDayContext, effectivePriority, undoDraftFlag, isResolvedPrepStatus } from '@/lib/prep-plan'
 import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-progress'
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
@@ -772,6 +772,10 @@ export default function PrepPage() {
       setActionError('Select a revenue center (not "All") to record prep.')
       return
     }
+    // Where this screen showed the job when the button was tapped — the server
+    // refuses the move if another screen has already moved it on.
+    const seqNow = cookSequence(item.linkedRecipe?.method)
+    const fromStepKey = seqNow ? seqNow[cursorOf(seqNow, item.todayLog)]?.key : undefined
     mutationSeq.current++
     const now = new Date().toISOString()
     setItems(prev => prev.map(i => {
@@ -789,7 +793,7 @@ export default function PrepPage() {
     markSaving(item.id, true)
 
     if (!navigator.onLine) {
-      enqueueMutation({ type: 'step', itemId: item.id, logId: item.todayLog?.id ?? null, stepKey, revenueCenterId: item.revenueCenterId ?? activeRcId })
+      enqueueMutation({ type: 'step', itemId: item.id, logId: item.todayLog?.id ?? null, stepKey, fromStepKey, revenueCenterId: item.revenueCenterId ?? activeRcId })
       setPendingCount(n => n + 1)
       markSaving(item.id, false)
       return
@@ -811,8 +815,13 @@ export default function PrepPage() {
         const res = await fetch(`/api/prep/logs/${logId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stepKey }),
+          body: JSON.stringify({ stepKey, fromStepKey }),
         })
+        if (res.status === 409) {
+          setActionError('This job was moved on another screen — showing the latest.')
+          load()
+          return
+        }
         if (!res.ok) throw new Error('step')
       } catch {
         setActionError('Step move failed — try again.')
@@ -2186,7 +2195,7 @@ export default function PrepPage() {
           onProgressChange={(patch) => { if (drawerItem) onProgressPatch(drawerItem, patch) }}
           onClose={closeDrawer}
           onStatusChange={onRowStatusChange}
-          onStep={handleStepChange}
+          onStep={viewMode === 'today' ? handleStepChange : undefined}
           onLogYield={onDrawerLogYield}
           onOpenSubRecipe={(recipeId, name) => { setSubRecipeChecked(new Set()); setSubRecipeView({ recipeId, name }) }}
           /* The drawer opens from BOTH the To Do run sheet and the Smart Prep planner

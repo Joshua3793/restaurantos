@@ -41,7 +41,8 @@ export function onTheGo<T extends {
     const pos = seq ? cursorOf(seq, log) : 0
     const cur = seq ? seq[pos] ?? null : null
     const clock = cur && cur.kind === 'WAIT' ? waitClock(cur, log, nowMs) : null
-    const state: GoState = cur?.kind === 'WAIT' ? (clock && clock.state === 'resting' ? 'waiting' : 'ready') : 'working'
+    // Ready only on a wait clock that has run out — a wait with no clock rests.
+    const state: GoState = cur?.kind === 'WAIT' ? (clock && clock.state !== 'resting' ? 'ready' : 'waiting') : 'working'
     rows.push({ item, seq, pos, cur, clock, state })
   }
   const rank: Record<GoState, number> = { ready: 0, working: 1, waiting: 2 }

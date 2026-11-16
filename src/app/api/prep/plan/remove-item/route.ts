@@ -179,8 +179,8 @@ export async function POST(req: NextRequest) {
     // what Recall is for.
     const cleared = await tx.prepLog.updateMany({
       where: { ...logScope, ...postedOpenWhere },
-      // Leaving the list resets the cook-along (scale / ticks) — a re-add starts clean.
-      data: { postedAt: null, progress: Prisma.DbNull, stepKey: null, stepEnteredAt: null },
+      // Leaving the list resets the cook-along (scale / ticks / step / stage) — a re-add starts at step 1.
+      data: { postedAt: null, progress: Prisma.DbNull, stepKey: null, stepEnteredAt: null, stageIndex: null, stageEnteredAt: null },
     })
     // updateMany, not update — see the restore path.
     await tx.prepItem.updateMany({ where: { id: prepItemId }, data: { isOnList: false } })

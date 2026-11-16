@@ -50,3 +50,19 @@ describe('alarmShouldRing — once at ready, then every 5 minutes', () => {
     expect(alarmShouldRing(ready, ready, ready + 5 * 60_000)).toBe(true)
   })
 })
+
+describe('jobs mid-wait when the cursor ships (no stepKey yet)', () => {
+  it('rest on their block clock and are not ready early', () => {
+    const [r] = onTheGo([job('bread', { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(0) })], T0 + 10 * 60_000)
+    expect(r).toMatchObject({ state: 'waiting', pos: 1 })
+    expect(r.clock?.leftMin).toBe(20)
+  })
+  it('turn ready when the block clock runs out', () => {
+    const [r] = onTheGo([job('bread', { status: 'IN_PROGRESS', stageIndex: 1, stageEnteredAt: iso(0) })], T0 + 40 * 60_000)
+    expect(r.state).toBe('ready')
+  })
+  it('a wait with no time at all stays waiting, never ready', () => {
+    const [r] = onTheGo([job('bread', { status: 'IN_PROGRESS', stepKey: 'a:wait' })], T0)
+    expect(r.state).toBe('waiting')
+  })
+})

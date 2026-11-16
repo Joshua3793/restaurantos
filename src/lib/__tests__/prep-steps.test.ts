@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cookSequence, cursorOf, waitClock, nextAction, stepMoveFields, applyStepToItem, type CookItem } from '../prep-steps'
+import { cookSequence, cursorOf, waitClock, nextAction, stepMoveFields, applyStepToItem, checkStepMove, moveTime, type CookItem } from '../prep-steps'
 import type { MethodStep } from '../recipe-method'
 
 // First six steps of the real Sourdough Bread method.
@@ -159,5 +159,54 @@ describe('applyStepToItem — the optimistic move the screen shows before the se
     expect(applyStepToItem(it1, 'nope', iso(0))).toBe(it1)
     const it2 = item(null)
     expect(applyStepToItem(it2, 's2', iso(0))).toBe(it2)
+  })
+})
+
+describe('review fixes — jobs mid-wait when the cursor ships', () => {
+  const s = seq()
+  it('waitClock falls back to the block start for a job started before the cursor existed', () => {
+    const c = waitClock(waitItem(s, 's1:wait'), { stageIndex: 1, stageEnteredAt: iso(0) }, at(12))
+    expect(c).toMatchObject({ leftMin: 18, state: 'resting' })
+  })
+  it('a saved step without its own start time does not borrow the block clock', () => {
+    expect(waitClock(waitItem(s, 's1:wait'), { stepKey: 's1:wait', stageEnteredAt: iso(0) }, at(12))).toBeNull()
+  })
+  it('a wait with no clock at all is held, never Log yield', () => {
+    expect(nextAction(s, 6, null)).toEqual({ kind: 'held', to: 7, label: 'Resting', sub: 'Ready early? Open to move on' })
+  })
+})
+
+describe('checkStepMove — a stale screen cannot move a job backwards', () => {
+  const s = seq()
+  it('ok when the move starts from where the job is', () => {
+    expect(checkStepMove(s, { status: 'IN_PROGRESS', stepKey: 's5' }, 's5', 's5:wait')).toBe('ok')
+  })
+  it('noop when the job is already there (double tap, two devices)', () => {
+    expect(checkStepMove(s, { status: 'IN_PROGRESS', stepKey: 's5:wait' }, 's5', 's5:wait')).toBe('noop')
+  })
+  it('stale when another screen already moved it', () => {
+    expect(checkStepMove(s, { status: 'IN_PROGRESS', stepKey: 's5:wait' }, 's2', 's3')).toBe('stale')
+  })
+  it('stale when the job is already finished', () => {
+    expect(checkStepMove(s, { status: 'DONE', stepKey: null }, 's5', 's6')).toBe('stale')
+  })
+  it('the job\'s place comes from the block for jobs started before the cursor', () => {
+    expect(checkStepMove(s, { status: 'IN_PROGRESS', stageIndex: 3 }, 's5:wait', 's6')).toBe('ok')
+  })
+  it('no from key (an old screen) is allowed', () => {
+    expect(checkStepMove(s, { status: 'IN_PROGRESS', stepKey: 's2' }, null, 's3')).toBe('ok')
+  })
+})
+
+describe('moveTime — an offline tap keeps the time it was tapped', () => {
+  it('uses the tap time', () => {
+    expect(moveTime(iso(25), iso(0), null)).toBe(iso(0))
+  })
+  it('never later than now, never before the previous step started', () => {
+    expect(moveTime(iso(0), iso(30), null)).toBe(iso(0))
+    expect(moveTime(iso(25), iso(0), iso(10))).toBe(iso(10))
+  })
+  it('now when there is no tap time', () => {
+    expect(moveTime(iso(5), undefined, null)).toBe(iso(5))
   })
 })

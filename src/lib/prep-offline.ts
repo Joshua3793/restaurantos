@@ -36,6 +36,8 @@ export interface OfflineMutation {
   stageIndex?: number
   /** For `step` — the cook-along cursor the cook moved to (a CookItem key, src/lib/prep-steps.ts). */
   stepKey?: string
+  /** For `step` — the step the cook's screen showed when tapped (the server refuses a stale move). */
+  fromStepKey?: string
   revenueCenterId?: string | null   // active RC captured at enqueue time
   patch?:     DraftPatch      // for draft_edit
   restore?:   boolean         // for remove_item — true puts the item back (with `isOnList`)
@@ -213,8 +215,12 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
   // entries can share a key, and whichever attempted-and-failed the most is
   // the count that must survive.
   const maxAttempts = new Map<string, number>()
+  // A `step` survivor goes where the LAST tap went, from where the FIRST began —
+  // the server checks `fromStepKey` against the job's place before the burst.
+  const firstFrom = new Map<string, string | undefined>()
   for (const m of queue) {
     const k = keyOf(m)
+    if (m.type === 'step' && !firstFrom.has(k)) firstFrom.set(k, m.fromStepKey)
     maxAttempts.set(k, Math.max(maxAttempts.get(k) ?? 0, m.attempts ?? 0))
     if (m.type === 'draft_edit') {
       // The merged entry takes the position of the segment's FIRST edit for this
@@ -252,7 +258,9 @@ export function deduplicateQueue(queue: OfflineMutation[]): OfflineMutation[] {
     }
     if (winner.get(k) !== m) continue
     emitted.add(k)
-    result.push({ ...m, attempts: maxAttempts.get(k) })
+    result.push(m.type === 'step'
+      ? { ...m, fromStepKey: firstFrom.get(k), attempts: maxAttempts.get(k) }
+      : { ...m, attempts: maxAttempts.get(k) })
   }
 
   return result
@@ -388,7 +396,8 @@ async function runMutation(m: OfflineMutation): Promise<Outcome> {
     // PUT the cursor — the route forces IN_PROGRESS on an open log.
     const { id: logId, outcome } = await ensureLogId(m)
     if (!logId) return outcome
-    const put = await send(`/api/prep/logs/${logId}`, json('PUT', { stepKey: m.stepKey }))
+    // `at` = when it was tapped, so a wait started in a dead zone keeps its time.
+    const put = await send(`/api/prep/logs/${logId}`, json('PUT', { stepKey: m.stepKey, fromStepKey: m.fromStepKey, at: new Date(m.ts).toISOString() }))
     return put.outcome
   }
 

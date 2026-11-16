@@ -92,8 +92,14 @@ export function cursorOf(seq: CookItem[], log: CursorLog | null | undefined): nu
 
 export interface WaitClock { readyAtMs: number; leftMin: number; state: RestState }
 
+/**
+ * The current wait's timer. Its start is the step's own clock; a job whose place
+ * came from the chain (started before the cursor existed — no `stepKey`) is on
+ * the first item of its block, so the block's start is that wait's start.
+ */
 export function waitClock(item: CookItem & { kind: 'WAIT' }, log: CursorLog, nowMs: number): WaitClock | null {
-  const entered = log.stepEnteredAt ? new Date(log.stepEnteredAt).getTime() : NaN
+  const start = log.stepEnteredAt ?? (log.stepKey ? null : log.stageEnteredAt)
+  const entered = start ? new Date(start).getTime() : NaN
   if (!Number.isFinite(entered)) return null
   const readyAtMs = entered + item.minutes * 60_000
   return { readyAtMs, leftMin: Math.ceil(Math.max(0, readyAtMs - nowMs) / 60_000), state: restState(readyAtMs, nowMs) }
@@ -108,8 +114,9 @@ export function nextAction(seq: CookItem[], pos: number, clock: WaitClock | null
   const cur = seq[pos]
   const nxt = seq[pos + 1]
   if (!cur || !nxt) return { kind: 'log', to: null, label: 'Log yield', sub: '' }
-  if (cur.kind === 'WAIT' && clock && clock.state === 'resting') {
-    return { kind: 'held', to: pos + 1, label: `Resting · ${fmtMins(clock.leftMin)} left`, sub: 'Ready early? Open to move on' }
+  // A wait is only "ready" on a clock that has run out — no clock reads as resting.
+  if (cur.kind === 'WAIT' && (!clock || clock.state === 'resting')) {
+    return { kind: 'held', to: pos + 1, label: clock ? `Resting · ${fmtMins(clock.leftMin)} left` : 'Resting', sub: 'Ready early? Open to move on' }
   }
   if (nxt.kind === 'WAIT') {
     return { kind: 'wait', to: pos + 1, label: `Start wait: ${nxt.phase ?? 'Wait'}`, sub: fmtMins(nxt.minutes) }
@@ -157,4 +164,35 @@ export function applyStepToItem<T extends {
   if (!move) return item
   const todayLog = { ...log, status: 'IN_PROGRESS', startedAt: log.startedAt ?? nowIso, ...move } as NonNullable<T['todayLog']>
   return { ...item, todayLog }
+}
+
+const OPEN_STATUSES = new Set(['NOT_STARTED', 'IN_PROGRESS'])
+
+/**
+ * Guard for a cursor move. `from` is the step the cook's screen showed when the
+ * button was tapped. `stale` when the job has already moved on another screen
+ * (or is finished) — the caller refuses and refreshes; `noop` when the job is
+ * already at `to` (a double tap, or two devices tapping the same Next).
+ * A request with no `from` (an older screen) is allowed.
+ */
+export function checkStepMove(seq: CookItem[], log: CursorLog, from: string | null | undefined, to: string): 'ok' | 'noop' | 'stale' {
+  if (log.status && !OPEN_STATUSES.has(log.status)) return 'stale'
+  const current = seq[cursorOf(seq, log)]?.key
+  if (to === current) return 'noop'
+  if (from != null && from !== current) return 'stale'
+  return 'ok'
+}
+
+/**
+ * When a move happened: the time it was tapped (an offline tap replays later),
+ * never later than now and never before the step it leaves began.
+ */
+export function moveTime(nowIso: string, atIso: string | null | undefined, floorIso: string | null | undefined): string {
+  const now = new Date(nowIso).getTime()
+  const at = atIso ? new Date(atIso).getTime() : NaN
+  if (!Number.isFinite(at)) return nowIso
+  let t = Math.min(at, now)
+  const floor = floorIso ? new Date(floorIso).getTime() : NaN
+  if (Number.isFinite(floor) && t < floor) t = floor
+  return new Date(t).toISOString()
 }

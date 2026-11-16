@@ -22,14 +22,14 @@ export function AlarmBanner({
   onLog: (item: PrepItemRich) => void
   onOpenRecipe: (item: PrepItemRich) => void
 }) {
-  if (rows.length === 0) return null
+  const live = rows.filter(r => r.seq && r.clock)
+  if (live.length === 0) return null
   return (
-    <div className="flex flex-col gap-2 mb-3" role="alert">
-      {rows.map(r => {
-        if (!r.seq || !r.clock) return null
-        const action = nextAction(r.seq, r.pos, r.clock)
+    <div className="flex flex-col gap-2 mb-3">
+      {live.map(r => {
+        const action = nextAction(r.seq!, r.pos, r.clock)
         return (
-          <div key={r.item.id} className="flex flex-wrap items-center gap-3 bg-green-soft border border-green rounded-[12px] pl-4 pr-3 py-3">
+          <div key={r.item.id} role="status" className="flex flex-wrap items-center gap-3 bg-green-soft border border-green rounded-[12px] pl-4 pr-3 py-3">
             <span className="w-[34px] h-[34px] rounded-full bg-green grid place-items-center shrink-0">
               <Bell size={16} className="text-paper" />
             </span>
@@ -38,7 +38,7 @@ export function AlarmBanner({
                 {r.item.name} — {r.cur?.phase ?? 'wait'} is done
               </div>
               <div className="font-mono text-[10.5px] uppercase text-green-text mt-0.5">
-                Ready since {fmtClock(pacificMinuteOfDay(r.clock.readyAtMs))} · next: {action.label}
+                Ready since {fmtClock(pacificMinuteOfDay(r.clock!.readyAtMs))} · {action.label}
               </div>
             </div>
             <NextButton action={action} onClick={() => runAction({ onStep, onLog, onOpenRecipe }, r, action)} />

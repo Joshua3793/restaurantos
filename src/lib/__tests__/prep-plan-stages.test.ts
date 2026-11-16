@@ -56,6 +56,14 @@ describe('stageFieldsForStatus — what Start / Stop write on a staged item', ()
   it('an untimed method still restarts the saved step\'s clock on Start', () => {
     expect(stageFieldsForStatus({ linkedRecipe: { stages: null }, todayLog: { status: 'NOT_STARTED', stepKey: 'p2' } }, 'IN_PROGRESS', iso(0))).toEqual({ stepEnteredAt: iso(0) })
   })
+  it('finishing or skipping clears the step cursor (client matches the server)', () => {
+    for (const st of ['DONE', 'PARTIAL', 'SKIPPED']) {
+      expect(stageFieldsForStatus({ ...staged, todayLog: { status: 'IN_PROGRESS', stageIndex: 1, stepKey: 'cure:wait' } }, st, iso(0)))
+        .toMatchObject({ stepKey: null, stepEnteredAt: null })
+      expect(stageFieldsForStatus({ linkedRecipe: null, todayLog: { status: 'IN_PROGRESS', stepKey: 'p2' } }, st, iso(0)))
+        .toEqual({ stepKey: null, stepEnteredAt: null })
+    }
+  })
   it('an UNSTAGED item writes nothing extra', () => {
     expect(stageFieldsForStatus({ linkedRecipe: { stages: null }, todayLog: { status: 'NOT_STARTED' } }, 'IN_PROGRESS', iso(0))).toEqual({})
     expect(stageFieldsForStatus({ linkedRecipe: null, todayLog: null }, 'NOT_STARTED', iso(0))).toEqual({})

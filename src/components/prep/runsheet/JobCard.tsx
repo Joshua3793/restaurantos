@@ -85,6 +85,16 @@ export function cardView(row: GoRow<PrepItemRich>, nowMs: number): CardView {
     }
   }
 
+  // A wait with no clock (no start time recorded): resting, never "Log yield".
+  if (cur && cur.kind === 'WAIT' && seq) {
+    return {
+      clock: 'Resting', clockSub: cur.minutes > 0 ? `${fmtMins(cur.minutes)} wait` : 'wait',
+      clockCls: 'text-blue-text', subCls: 'text-blue-text',
+      stepLabel: `Wait · ${cur.phase ?? 'resting'}`, stepText: cur.note,
+      action: nextAction(seq, pos, null), qtyLine,
+    }
+  }
+
   // Hands-on (or no method): the step's own clock.
   const from = [log?.stepEnteredAt, log?.stageEnteredAt, log?.startedAt].map(ms).find(Number.isFinite)
   const elapsed = from != null ? minutesBetween(from, nowMs) : 0

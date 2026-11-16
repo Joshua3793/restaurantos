@@ -329,7 +329,7 @@ export interface StageLogShape {
 }
 
 /** Just the stage columns — never `status`, so a spread cannot widen a typed log. */
-export type StageFields = Partial<Pick<StageLogShape, 'stageIndex' | 'stageEnteredAt' | 'stageHistory' | 'stepEnteredAt'>>
+export type StageFields = Partial<Pick<StageLogShape, 'stageIndex' | 'stageEnteredAt' | 'stageHistory' | 'stepKey' | 'stepEnteredAt'>>
 
 /** The log fields a status change writes on a STAGED item, plus the step cursor's fresh clock on Start. */
 export function stageFieldsForStatus(
@@ -340,6 +340,8 @@ export function stageFieldsForStatus(
   const stages = resolveStages(item.linkedRecipe)
   const log = item.todayLog
   const starting = newStatus === 'IN_PROGRESS' && log?.status !== 'IN_PROGRESS'
+  // Finishing or skipping clears the step cursor — the server does the same.
+  if (newStatus === 'DONE' || newStatus === 'PARTIAL' || newStatus === 'SKIPPED') return { stepKey: null, stepEnteredAt: null }
   if (!stages) return starting && log?.stepKey ? { stepEnteredAt: nowIso } : {}
   // Stop keeps the place: the stage (and the step cursor) stay, so Start
   // carries on from the same step. Readers gate on IN_PROGRESS, so a stopped

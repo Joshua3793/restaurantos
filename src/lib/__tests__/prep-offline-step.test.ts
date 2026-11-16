@@ -24,8 +24,8 @@ function mockFetch(logId = 'srv-log-1') {
   return calls
 }
 
-const step = (itemId: string, stepKey: string, logId: string | null = 'log-1'): Omit<OfflineMutation, 'id' | 'ts'> =>
-  ({ type: 'step', itemId, logId, stepKey, revenueCenterId: 'rc-1' })
+const step = (itemId: string, stepKey: string, logId: string | null = 'log-1', fromStepKey?: string): Omit<OfflineMutation, 'id' | 'ts'> =>
+  ({ type: 'step', itemId, logId, stepKey, fromStepKey, revenueCenterId: 'rc-1' })
 
 describe('prep offline queue — step moves (Next / Back one step)', () => {
   beforeEach(() => { installLocalStorage(); clearQueue() })
@@ -50,7 +50,22 @@ describe('prep offline queue — step moves (Next / Back one step)', () => {
     enqueueMutation(step('i1', 's2:wait', '_opt_i1'))
     await flushQueue()
     expect(calls.map(c => [c.method, c.url])).toEqual([['POST', '/api/prep/logs'], ['PUT', '/api/prep/logs/srv-9']])
-    expect(calls[1].body).toEqual({ stepKey: 's2:wait' })
+    expect(calls[1].body).toMatchObject({ stepKey: 's2:wait' })
     expect(loadQueue()).toEqual([])
+  })
+
+  it('merged moves keep where the FIRST tap started from and where the LAST one went', () => {
+    enqueueMutation(step('i1', 's2', 'log-1', 's1'))
+    enqueueMutation(step('i1', 's3', 'log-1', 's2'))
+    const [m] = deduplicateQueue(loadQueue())
+    expect(m).toMatchObject({ stepKey: 's3', fromStepKey: 's1' })
+  })
+
+  it('replays with the from key and the time it was tapped', async () => {
+    const calls = mockFetch()
+    enqueueMutation(step('i1', 's2:wait', 'log-1', 's2'))
+    const queued = loadQueue()[0]
+    await flushQueue()
+    expect(calls[0].body).toEqual({ stepKey: 's2:wait', fromStepKey: 's2', at: new Date(queued.ts).toISOString() })
   })
 })

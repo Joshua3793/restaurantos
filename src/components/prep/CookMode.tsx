@@ -93,6 +93,14 @@ export function CookModeBlock({ state, nowMs }: { state: CookState; nowMs: numbe
         </div>
       )}
 
+      {cur.kind === 'WAIT' && !clock && (
+        <div className="bg-blue-soft border-[1.5px] border-dashed border-blue rounded-[14px] px-4 py-5 flex flex-col items-center gap-1.5 text-center">
+          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-blue-text">Wait · {cur.phase ?? 'resting'}</span>
+          <span className="font-mono text-[13px] text-blue-text">{fmtMins(cur.minutes)} wait{cur.note ? ` · ${cur.note}` : ''}</span>
+          <span className="text-[12.5px] text-ink-2 mt-1">No start time was recorded for this wait. Move on when it is ready.</span>
+        </div>
+      )}
+
       {cur.kind === 'WAIT' && ready && clock && (
         <div className="bg-green-soft border-[1.5px] border-green rounded-[14px] px-4 py-5 flex flex-col items-center gap-2 text-center">
           <span className="w-11 h-11 rounded-full bg-green grid place-items-center"><Bell size={20} className="text-paper" /></span>
