@@ -2,6 +2,7 @@
 // Smart Prep v2 — left-pane suggestion row (design PPSuggRow). The urgency step
 // is computed live from stock; the evidence is a stock bar and the on-hand/par
 // numbers, written out ("1.9 of 25 kg"), with the plain reason as the tooltip.
+import { fmtAmount, fmtAmountOf } from '@/lib/prep-amount'
 import { AlertTriangle, Check, CheckCircle2, Plus, Flame, Clock } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import {
@@ -9,7 +10,7 @@ import {
   suggestedBatches, batchesToQty, batchCount, fmtBatch, whyLabel, cadenceReason, longLeadQty,
 } from '@/lib/prep-plan'
 
-const fmtQ = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
+const fmtQ = fmtAmount
 
 /** What the row suggests making — in the "Start today for …" group, the most that will keep. */
 export const suggestionQty = (item: PrepItemRich, longLead = false): number =>
@@ -80,7 +81,7 @@ export function SuggestionRow({ item, locked, longLead = false, onOpen, onAdd, o
             </span>
           )}
           <span className="font-mono text-[10.5px] text-ink-3 whitespace-nowrap">
-            {fmtQ(onHand, item.unit).split(' ')[0]} of {fmtQ(par, item.unit)}
+            {fmtAmountOf(onHand, par, item.unit)}
           </span>
         </span>
       </button>

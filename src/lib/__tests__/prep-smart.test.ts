@@ -76,3 +76,31 @@ describe('prepListSections — the whole list by category', () => {
     expect(secs[1]).toMatchObject({ toMake: 2, flagged: 1, listed: 1, cooking: 1 })
   })
 })
+
+import { fmtAmount, fmtAmountOf, stepOnGrid, onGrid } from '../prep-smart'
+
+describe('fmtAmount — amounts a cook can read', () => {
+  it.each([
+    [17055, 'g', '17.1 kg'], [2000, 'g', '2 kg'], [900, 'g', '900 g'], [0.5, 'l', '0.5 L'], [13, 'l', '13 L'],
+    [1250, 'ml', '1.3 L'], [49, 'each', '49 each'], [12.9, 'kg', '12.9 kg'], [0.002, 'kg', '2 g'], [1.5, 'batch', '1.5 batch'],
+    [4, 'g', '4 g'], [24000, 'g', '24 kg'], [1234567, 'ml', '1,234.6 L'],
+  ])('%s %s → %s', (q, u, out) => expect(fmtAmount(q as number, u as string)).toBe(out))
+  it('"have of need" uses the larger value\'s unit', () => {
+    expect(fmtAmountOf(17055, 2000, 'g')).toBe('17.1 of 2 kg')
+    expect(fmtAmountOf(0, 4, 'l')).toBe('0 of 4 L')
+    expect(fmtAmountOf(49, 100, 'each')).toBe('49 of 100 each')
+  })
+})
+
+describe('stepOnGrid — + and − land on the step grid', () => {
+  it.each([
+    [1.3, 0.5, 1, 1.5], [1.5, 0.5, 1, 2], [1.3, 0.5, -1, 1], [1, 0.5, -1, 0.5], [0.5, 0.5, -1, 0.5],
+    [430, 25, 1, 450], [7, 1, -1, 6], [1, 1, 1, 2], [2.6, 0.5, 1, 3],
+  ])('%s by %s dir %s → %s', (v, s, d, out) => expect(stepOnGrid(v as number, s as number, d as 1 | -1)).toBe(out))
+  it('a batch-unit item steps by whole batches', () => expect(stepOnGrid(2, 1, 1)).toBe(3))
+  it('onGrid', () => {
+    expect(onGrid(1.5, 0.5)).toBe(true)
+    expect(onGrid(1.3, 0.5)).toBe(false)
+    expect(onGrid(450, 25)).toBe(true)
+  })
+})

@@ -3,6 +3,7 @@
 // read-only stock evidence (Reason), a batch-aware qty stepper, and the
 // generic group heading. Ported from the design's planner.jsx with flat
 // Tailwind tokens and Lucide icons.
+import { fmtAmount, stepOnGrid, onGrid } from '@/lib/prep-amount'
 import { useEffect, useRef, useState } from 'react'
 import { Pencil, ChevronDown, Undo2, Minus, Plus, UserPlus, MessageSquareText } from 'lucide-react'
 import type { PrepUrgency } from '@/lib/prep-utils'
@@ -133,7 +134,7 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
 }
 
 // ─── quantity: UOM or batches of the recipe's own yield ────────────────────
-const fmtUom = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
+const fmtUom = fmtAmount
 
 export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, suggested, sm }: {
   item: PrepItemRich
@@ -151,10 +152,12 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
   const qty = draftQty(item)
   const step = batch ? 0.5 : prepStep(item.unit)
   const val = batch ? (batchCount(item, qty) ?? qty) : qty
-  const overridden = suggested > 0 && Math.abs(qty - suggested) > 0.01
-  const set = (v: number) => {
-    const nv = Math.max(step, Math.round(v * 100) / 100)
-    onQty(item, batch ? batchesToQty(item, nv) : +nv.toFixed(2))
+  // An amount off the step grid (1.3 batches) shows gold until the first tap
+  // snaps it: + goes to the next half batch, − to the one below.
+  const overridden = (suggested > 0 && Math.abs(qty - suggested) > 0.01) || !onGrid(val, step)
+  const nudge = (dir: 1 | -1) => {
+    const nv = stepOnGrid(val, step, dir)
+    onQty(item, batch ? batchesToQty(item, nv) : nv)
   }
   // sm (mobile) is deliberately narrower — on a 375px screen the batch stepper +
   // urgency dial + assign pill must share one row (wrapping is the fallback).
@@ -163,7 +166,7 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
   const midW = batch ? (sm ? 'min-w-[68px]' : 'min-w-[84px]') : (sm ? 'min-w-[44px]' : 'min-w-[52px]')
   return (
     <div className="inline-flex items-stretch bg-bg-2 border border-line rounded-lg shrink-0 overflow-hidden">
-      <button type="button" disabled={locked} onClick={() => set(val - step)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
+      <button type="button" disabled={locked} onClick={() => nudge(-1)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
         <Minus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
       </button>
       <span className={`${midW} flex flex-col items-center justify-center leading-[1.05] px-0.5`}>
@@ -172,7 +175,7 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
         </span>
         {batch && <span className="font-mono text-[8.5px] text-ink-4 whitespace-nowrap">{fmtUom(qty, item.unit)}</span>}
       </span>
-      <button type="button" disabled={locked} onClick={() => set(val + step)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
+      <button type="button" disabled={locked} onClick={() => nudge(1)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
         <Plus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
       </button>
       {yieldPerBatch != null && (

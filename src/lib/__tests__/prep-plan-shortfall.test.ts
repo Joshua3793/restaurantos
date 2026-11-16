@@ -14,7 +14,7 @@ describe('shortfallReason — the deficit a bare "stock out" used to hide', () =
 
   it('names the amount, the count it is measured from, and what to do', () => {
     expect(shortfallReason({ ...base, shortfall: 70.11, lastCountDate: '2026-08-01T00:00:00.000Z' }))
-      .toBe('70.11 l more used than logged made since the Aug 1 count — count it to reset')
+      .toBe('70.1 L more used than logged made since the Aug 1 count — count it to reset')
   })
 
   it('reads the count day as a UTC marker, not through a Pacific clock', () => {
@@ -24,16 +24,16 @@ describe('shortfallReason — the deficit a bare "stock out" used to hide', () =
 
   it('falls back to "on record" for a never-counted item', () => {
     expect(shortfallReason({ ...base, shortfall: 2, lastCountDate: null }))
-      .toBe('2 l more used than logged made on record — count it to reset')
+      .toBe('2 L more used than logged made on record — count it to reset')
   })
 })
 
 describe('whyLabel carries the shortfall as evidence', () => {
   it('appends it after the stock reason', () => {
     expect(whyLabel({ ...base, shortfall: 66, lastCountDate: '2026-08-01T00:00:00.000Z' }))
-      .toBe('at par · 66 l more used than logged made since the Aug 1 count — count it to reset')
+      .toBe('at par · 66 L more used than logged made since the Aug 1 count — count it to reset')
     expect(whyLabel({ ...base, onHand: 0, shortfall: 66, lastCountDate: null }))
-      .toBe('stock out · 66 l more used than logged made on record — count it to reset')
+      .toBe('stock out · 66 L more used than logged made on record — count it to reset')
   })
 
   it('leaves the label alone when there is no shortfall', () => {

@@ -2,6 +2,7 @@
 // Smart Prep v2 — right-pane prep-list row (design PPDraftRow): batch-aware qty
 // stepper, THE urgency dial (which carries the deadline), assign button, one
 // plain reason line, and the chef's note in the To Do's own style.
+import { fmtAmount } from '@/lib/prep-amount'
 import { GripVertical, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
@@ -13,7 +14,7 @@ import {
 import { fmtClock } from '@/lib/prep-runsheet'
 import { UrgPicker, AssignPill, QtyStepper, NoteField } from './atoms'
 
-const fmtQ = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
+const fmtQ = fmtAmount
 
 export function DraftRow({
   item, cooks, locked, ctx, slot, batchMode, dragging, over, showStation = false,

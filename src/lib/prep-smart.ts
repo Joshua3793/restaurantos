@@ -13,6 +13,8 @@ import {
 import { URGENCY_ORDER } from './prep-utils'
 import { UNIT_FACTORS, canonicalUom } from './uom'
 
+export { fmtAmount, fmtAmountOf, stepOnGrid, onGrid } from './prep-amount'
+
 /** More batches than this for one par is a typo, not a plan (Kimchi: 377). */
 export const PAR_MAX_BATCHES = 20
 /** A weight/volume par under this many g / ml is a typo (Hollandaise: 4 g). */

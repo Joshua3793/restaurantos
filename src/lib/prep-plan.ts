@@ -4,6 +4,7 @@
 // stale-pill bug was the client keeping a server-computed `priority` after a
 // completion changed onHand. The app-wide 3-level priority is a collapse of
 // this scale (urgencyToPriority in prep-utils).
+import { fmtAmount, fmtAmountOf } from './prep-amount'
 import {
   computePriority, computeSuggestedQty,
   autoUrgency, normalizeUrgency, urgencyToPriority,
@@ -202,7 +203,7 @@ export function suggestedDraftQty(t: PlanFields): number {
   return Math.max(prepStep(t.unit), roundPrepQty(raw, t.unit))
 }
 
-const fmtQ = (q: number, u: string) => `${q % 1 === 0 ? q : +q.toFixed(2)} ${u}`
+const fmtQ = fmtAmount
 
 /** "Aug 1" for a count day — stored as a UTC-midnight marker, so read it in UTC. */
 const fmtCountDay = (iso: string) =>
@@ -238,7 +239,7 @@ export function plainReason(t: PlanFields & { blockedReason?: string | null }): 
     stock =
       par > 0 && oh <= 0 ? 'Out of stock'
       : t.targetToday != null && oh < t.targetToday ? `Under today's target of ${fmtQ(t.targetToday, t.unit)}`
-      : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} — won't last service`
+      : par > 0 && oh < par * 0.5 ? `${fmtAmountOf(+oh.toFixed(2), par, t.unit)} — won't last service`
       : oh < par ? `Below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
       : 'At par'
   }
@@ -257,7 +258,7 @@ export function whyLabel(t: PlanFields, now: number = Date.now()): string {
   const stock =
     par > 0 && oh <= 0 ? 'stock out'
     : t.targetToday != null && oh < t.targetToday ? `under today's target ${fmtQ(t.targetToday, t.unit)}`
-    : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
+    : par > 0 && oh < par * 0.5 ? `${fmtAmountOf(+oh.toFixed(2), par, t.unit)} par — won't last service`
     : oh < par ? `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
     : t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
   // Evidence appends: the rhythm that raised the step, a shelf-life cap, and the

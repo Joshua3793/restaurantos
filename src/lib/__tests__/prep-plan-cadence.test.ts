@@ -63,7 +63,7 @@ describe('the shelf-life cap', () => {
   it('caps the suggestion at usage × shelf life and says so', () => {
     expect(cappedSuggestedQty(t)).toBe(4)
     expect(suggestedDraftQty(t)).toBe(4)
-    expect(whyLabel(t)).toBe('2 kg of 20 kg par — won\'t last service · capped to 2d shelf life')
+    expect(whyLabel(t)).toBe('2 of 20 kg par — won\'t last service · capped to 2d shelf life')
   })
   it('never below one step', () => {
     expect(suggestedDraftQty({ ...t, cadence: { ...every3(1), usagePerDayEst: 0.1 } })).toBe(0.5)
@@ -71,7 +71,7 @@ describe('the shelf-life cap', () => {
   it('no cap without a usage estimate or a shelf life', () => {
     expect(suggestedDraftQty({ ...t, cadence: null })).toBe(18)
     expect(suggestedDraftQty({ ...t, shelfLifeDays: null })).toBe(18)
-    expect(whyLabel({ ...t, shelfLifeDays: null })).toBe('2 kg of 20 kg par — won\'t last service')
+    expect(whyLabel({ ...t, shelfLifeDays: null })).toBe('2 of 20 kg par — won\'t last service')
   })
   it('batches round up from the capped figure', () => {
     expect(suggestedBatches({ ...t, linkedRecipe: { baseYieldQty: 5, yieldUnit: 'kg' } })).toBe(1)   // 4 kg → 0.8 → ×1
