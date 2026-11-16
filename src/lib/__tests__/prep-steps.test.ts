@@ -219,3 +219,19 @@ describe('fmtDur — button wording a cook can read at a glance', () => {
     expect(fmtDur(960)).toBe('16 h')
   })
 })
+
+describe('Back into a wait keeps it over — never a fresh timer', () => {
+  const s = seq()
+  it('Back from the step after a wait puts the wait back as finished when the cook left it', () => {
+    // s5:wait (30 min) was left at 10:40 → s6 began then. Back at 10:45.
+    const f = stepMoveFields(s, { stepKey: 's6', stepEnteredAt: iso(40), stageIndex: 4 }, 's5:wait', iso(45))!
+    expect(f.stepKey).toBe('s5:wait')
+    expect(f.stepEnteredAt).toBe(iso(10)) // 10:40 − 30 min → reads ready since 10:40
+    const clock = waitClock(waitItem(s, 's5:wait'), { stepKey: 's5:wait', stepEnteredAt: f.stepEnteredAt }, at(45))
+    expect(clock!.state).toBe('ready')
+  })
+  it('going forward into a wait still starts its timer now', () => {
+    const f = stepMoveFields(s, { stepKey: 's5', stepEnteredAt: iso(0), stageIndex: 2 }, 's5:wait', iso(45))!
+    expect(f.stepEnteredAt).toBe(iso(45))
+  })
+})

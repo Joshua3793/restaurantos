@@ -141,9 +141,18 @@ export interface StepMove {
 }
 
 export function stepMoveFields(seq: CookItem[], log: CursorLog, stepKey: string, nowIso: string, byCookId?: string | null): StepMove | null {
-  const target = seq.find(it => it.key === stepKey)
-  if (!target) return null
-  const move: StepMove = { stepKey, stepEnteredAt: nowIso }
+  const targetIdx = seq.findIndex(it => it.key === stepKey)
+  if (targetIdx < 0) return null
+  const target = seq[targetIdx]
+  // Back one step INTO a wait: the cook already left that wait when they started
+  // the step they are on, so it goes back as finished at that moment — never a
+  // fresh timer (a tapped Back must not turn a done 24 h ferment into "24 h left").
+  let enteredAt = nowIso
+  const leftAt = log.stepEnteredAt ? new Date(log.stepEnteredAt).getTime() : NaN
+  if (target.kind === 'WAIT' && targetIdx === cursorOf(seq, log) - 1 && Number.isFinite(leftAt)) {
+    enteredAt = new Date(leftAt - target.minutes * 60_000).toISOString()
+  }
+  const move: StepMove = { stepKey, stepEnteredAt: enteredAt }
   if (target.chainIndex != null && target.chainKey && target.chainIndex !== log.stageIndex) {
     move.stageIndex = target.chainIndex
     move.stageEnteredAt = nowIso
