@@ -32,11 +32,23 @@ export interface PlannerHandlers {
   onAssignStation: (station: string, cookId: string) => void
   onPriorityChange: (id: string, step: string) => void
   onReorder: (orders: Array<{ prepItemId: string; listOrder: number }>) => void
-  onAcceptSuggested: () => void
-  onAddAllCritical: () => void
-  onClearDraft: () => void
+  onResetQuantities: () => void
+  onAddAllToMake: () => void
+  onEmptyList: () => void
+  /** Save a corrected par on the linked recipe; resolves true when saved. */
+  onFixPar: (item: PrepItemRich, parLevel: number) => Promise<boolean>
+  /** Who's on today — the full new crew list. */
+  onCrewChange: (cookIds: string[]) => void
   onPost: (dues: PostDue[]) => void
   onRecall: () => void
+}
+
+/** Smart Prep state the page owns: today's crew, the one to-make count, and
+ *  whether this person may fix a par (lead and above). */
+export interface SmartState {
+  crewIds: string[]
+  toMake: number
+  canFixPar: boolean
 }
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
@@ -76,7 +88,7 @@ export function LoadStrip({ draft, cooks, ctx }: { draft: PrepItemRich[]; cooks:
 
 export function PlannerDesktop({
   items, allItems, hidden, stations, cooks, services, nowMin, nowMs, canPlan, post,
-  search, onSearch, handlers,
+  search, onSearch, handlers, smart,
 }: {
   items: PrepItemRich[]              // filtered (search/category) — shapes the LEFT pane
   allItems: PrepItemRich[]           // unfiltered — the draft pane must not hide rows on search
@@ -92,6 +104,7 @@ export function PlannerDesktop({
   search: string
   onSearch: (v: string) => void
   handlers: PlannerHandlers
+  smart: SmartState
 }) {
   const locked = !canPlan
   const [groupBy, setGroupBy] = useState<PlanGroupBy>('urgency')
@@ -190,10 +203,10 @@ export function PlannerDesktop({
             </div>
           </div>
           <div className="shrink-0 flex flex-wrap gap-1.5 px-3 py-2.5 bg-bg border-b border-line">
-            <button type="button" onClick={handlers.onAddAllCritical} disabled={locked || !urgent} className={btnCls(locked || !urgent)}>
+            <button type="button" onClick={handlers.onAddAllToMake} disabled={locked || !urgent} className={btnCls(locked || !urgent)}>
               <AlertTriangle size={13} className={locked || !urgent ? 'text-ink-4' : 'text-ink-3'} /> Add all critical{urgent ? ` · ${urgent}` : ''}
             </button>
-            <button type="button" onClick={handlers.onAcceptSuggested} disabled={locked} className={btnCls(locked)}>
+            <button type="button" onClick={handlers.onResetQuantities} disabled={locked} className={btnCls(locked)}>
               <Sparkles size={13} className={locked ? 'text-ink-4' : 'text-ink-3'} /> Accept suggested qty
             </button>
           </div>
@@ -257,7 +270,7 @@ export function PlannerDesktop({
                 </Popover>
               )}
             </div>
-            <button type="button" onClick={handlers.onClearDraft} disabled={locked || !draft.length} className={btnCls(locked || !draft.length)}>Clear</button>
+            <button type="button" onClick={handlers.onEmptyList} disabled={locked || !draft.length} className={btnCls(locked || !draft.length)}>Clear</button>
           </div>
 
           <LoadStrip draft={draft} cooks={cooks} ctx={ctx} />

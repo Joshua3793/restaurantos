@@ -8,7 +8,8 @@ interface ToastState { msg: string; action?: ToastAction }
 // A plain toast reads and vanishes; one carrying an action has to be readable
 // AND reachable, so it holds more than twice as long.
 const PLAIN_MS = 2600
-const ACTION_MS = 6000
+// Undo stays up long enough to read the list and change your mind.
+const ACTION_MS = 10000
 
 export function usePrepToast() {
   const [state, setState] = useState<ToastState | null>(null)

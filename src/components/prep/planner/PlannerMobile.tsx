@@ -19,7 +19,7 @@ import { DraftReason, WontFit } from './DraftRow'
 import { PostDialog } from './PostDialog'
 import { Segmented } from '@/components/prep/runsheet/atoms'
 import { isBatchMode } from './PlannerDesktop'
-import type { PlannerHandlers } from './PlannerDesktop'
+import type { PlannerHandlers, SmartState } from './PlannerDesktop'
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
 
@@ -68,7 +68,7 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
   )
 }
 
-export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers }: {
+export function PlannerMobile({ items, allItems, hidden, cooks, stations, services, nowMin, nowMs, canPlan, post, handlers, smart }: {
   items: PrepItemRich[]
   allItems: PrepItemRich[]
   /** Items switched off the prep list — the collapsed group under the suggestions. */
@@ -81,6 +81,7 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
   canPlan: boolean
   post: PrepPostInfo | null
   handlers: PlannerHandlers
+  smart: SmartState
 }) {
   const locked = !canPlan
   const [tab, setTab] = useState<'draft' | 'sugg'>('draft')
@@ -161,10 +162,10 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
         {tab === 'sugg' ? (
           <>
             <div className="flex gap-[7px] mt-3">
-              <button type="button" onClick={handlers.onAddAllCritical} disabled={locked} className={bulkBtn(locked)}>
+              <button type="button" onClick={handlers.onAddAllToMake} disabled={locked} className={bulkBtn(locked)}>
                 <AlertTriangle size={13} /> Add all critical
               </button>
-              <button type="button" onClick={handlers.onAcceptSuggested} disabled={locked} className={bulkBtn(locked)}>
+              <button type="button" onClick={handlers.onResetQuantities} disabled={locked} className={bulkBtn(locked)}>
                 <Sparkles size={13} /> Accept suggested
               </button>
             </div>
