@@ -185,7 +185,8 @@ export default function PrepDrawer({
   // Cook mode: a job on the go with a method opens on its current step, with
   // Back / Next in the footer; everything else folds away under "show".
   const { nowMs } = useNowMinute()
-  const cook = onStep ? cookState(item, nowMs) : null
+  const liveNow = Math.max(nowMs, Date.now())
+  const cook = onStep ? cookState(item, liveNow) : null
   const [showMore, setShowMore] = useState(false)
   useEffect(() => { setShowMore(false) }, [item?.id])
 
@@ -308,7 +309,7 @@ export default function PrepDrawer({
             <div className="flex-1 overflow-auto px-[22px] py-5">
               {cook && (
                 <div className="mb-[22px]">
-                  <CookModeBlock state={cook} nowMs={nowMs} />
+                  <CookModeBlock state={cook} nowMs={liveNow} />
                   <button
                     type="button"
                     onClick={() => setShowMore(m => !m)}

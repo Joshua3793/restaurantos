@@ -41,9 +41,13 @@ describe('stageFieldsForStatus — what Start / Stop write on a staged item', ()
     expect(f.stageIndex).toBe(1)
     expect(f.stageEnteredAt).toBe(iso(0))
   })
-  it('Start after Stop restarts the saved step\'s clock too', () => {
-    const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'NOT_STARTED', stageIndex: 1, stepKey: 'cure:wait', stepEnteredAt: iso(-90) } }, 'IN_PROGRESS', iso(0))
+  it('Start after Stop restarts a hands-on step\'s clock', () => {
+    const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'NOT_STARTED', stageIndex: 0, stepKey: 'rub', stepEnteredAt: iso(-90) } }, 'IN_PROGRESS', iso(0))
     expect(f.stepEnteredAt).toBe(iso(0))
+  })
+  it('Start after Stop keeps a WAIT\'s clock — the dough kept resting while stopped', () => {
+    const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'NOT_STARTED', stageIndex: 1, stepKey: 'cure:wait', stepEnteredAt: iso(-90) } }, 'IN_PROGRESS', iso(0))
+    expect(f).not.toHaveProperty('stepEnteredAt')
   })
   it('reopening a done staged job resumes the stage it was on with a fresh clock', () => {
     const f = stageFieldsForStatus({ ...staged, todayLog: { status: 'DONE', stageIndex: 2 } }, 'IN_PROGRESS', iso(0))

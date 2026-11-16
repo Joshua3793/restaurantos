@@ -340,9 +340,12 @@ export function stageFieldsForStatus(
   const stages = resolveStages(item.linkedRecipe)
   const log = item.todayLog
   const starting = newStatus === 'IN_PROGRESS' && log?.status !== 'IN_PROGRESS'
+  // Start restarts a saved HANDS-ON step's clock; a saved WAIT keeps its own —
+  // the dough kept resting while the job was stopped.
+  const restampStep = !!log?.stepKey && !log.stepKey.endsWith(':wait')
   // Finishing or skipping clears the step cursor — the server does the same.
   if (newStatus === 'DONE' || newStatus === 'PARTIAL' || newStatus === 'SKIPPED') return { stepKey: null, stepEnteredAt: null }
-  if (!stages) return starting && log?.stepKey ? { stepEnteredAt: nowIso } : {}
+  if (!stages) return starting && restampStep ? { stepEnteredAt: nowIso } : {}
   // Stop keeps the place: the stage (and the step cursor) stay, so Start
   // carries on from the same step. Readers gate on IN_PROGRESS, so a stopped
   // log with a stage is never read as in flight.
@@ -354,7 +357,7 @@ export function stageFieldsForStatus(
       stageIndex: stages[index] ? index : 0,
       stageEnteredAt: nowIso,
       stageHistory: appendStageEvent(log?.stageHistory, { index: stages[index] ? index : 0, key: stage.key, enteredAt: nowIso }),
-      ...(log?.stepKey ? { stepEnteredAt: nowIso } : {}),
+      ...(restampStep ? { stepEnteredAt: nowIso } : {}),
     }
   }
   return {}

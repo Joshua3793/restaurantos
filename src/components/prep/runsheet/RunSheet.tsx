@@ -189,7 +189,10 @@ export function RunSheet({
     mode === 'station' ? isMine(i) : stFilter === 'all' || onStation(i, stFilter)
 
   // Hairline = the whole list, never the station filter — same basis as the mobile sheet.
-  const goingAll = useMemo(() => onTheGo(items, nowMs), [items, nowMs])
+  // The clock prop ticks every 30 s; a redraw right after a tap reads the real
+  // time so a wait just started says "30 min left", not 31.
+  const liveNow = Math.max(nowMs, Date.now())
+  const goingAll = useMemo(() => onTheGo(items, liveNow), [items, nowMs]) // eslint-disable-line react-hooks/exhaustive-deps
   const going = useMemo(() => goingAll.filter(r => inScope(r.item)), [goingAll, mode, cook, stFilter, member])
   const done = useMemo(() => items.filter(isDone), [items])
   const todo = useMemo(
@@ -376,7 +379,7 @@ export function RunSheet({
               <JobCard
                 key={r.item.id}
                 row={r}
-                nowMs={nowMs}
+                nowMs={liveNow}
                 cooks={cooks}
                 onClaim={onClaim}
                 onStep={onStep}

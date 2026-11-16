@@ -51,7 +51,8 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
   // Cook mode (To Do view): a job on the go with a method opens on its current
   // step with Back / Next in the footer; the planning sections fold away.
   const { nowMs } = useNowMinute()
-  const cook = view === 'todo' && onStep ? cookState(item, nowMs) : null
+  const liveNow = Math.max(nowMs, Date.now())
+  const cook = view === 'todo' && onStep ? cookState(item, liveNow) : null
   const [showMore, setShowMore] = useState(false)
   useEffect(() => { setShowMore(false) }, [item?.id])
 
@@ -109,7 +110,7 @@ export function PrepBoardDrawer({ item, detail, view, recipe, recipeLoading, mak
             <div className="dr-body">
               {cook && (
                 <div className="dr-sec">
-                  <CookModeBlock state={cook} nowMs={nowMs} />
+                  <CookModeBlock state={cook} nowMs={liveNow} />
                   <button
                     type="button"
                     onClick={() => setShowMore(m => !m)}

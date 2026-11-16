@@ -128,9 +128,10 @@ export async function PUT(
     }
   }
 
-  // Step cursor: Start (or reopen) gives the saved step a fresh clock; finishing,
+  // Step cursor: Start (or reopen) gives a saved HANDS-ON step a fresh clock (a
+  // saved wait keeps its own — the dough kept resting while stopped); finishing,
   // skipping or leaving the list clears it (a re-added job starts at step 1).
-  if (stepKey === undefined && status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS' && existing.stepKey) {
+  if (stepKey === undefined && status === 'IN_PROGRESS' && existing.status !== 'IN_PROGRESS' && existing.stepKey && !existing.stepKey.endsWith(':wait')) {
     stageStamp.stepEnteredAt = new Date()
   }
   if (status !== undefined && (COMPLETION_STATUSES.has(status) || status === 'SKIPPED')) {

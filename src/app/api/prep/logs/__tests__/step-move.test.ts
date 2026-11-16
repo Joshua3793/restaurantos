@@ -92,3 +92,20 @@ describe('PUT stage move (old screens / queued moves) — the step cursor follow
     expect(written()).toMatchObject({ stageIndex: 1, stepKey: null, stepEnteredAt: null })
   })
 })
+
+describe('PUT Start after Stop', () => {
+  it('keeps a wait\'s own clock', async () => {
+    existing.status = 'NOT_STARTED'
+    existing.stepKey = 's1:wait'
+    existing.stageIndex = 1
+    await put({ status: 'IN_PROGRESS' })
+    expect(written()).not.toHaveProperty('stepEnteredAt')
+  })
+  it('restarts a hands-on step\'s clock', async () => {
+    existing.status = 'NOT_STARTED'
+    existing.stepKey = 's2'
+    existing.stageIndex = 2
+    await put({ status: 'IN_PROGRESS' })
+    expect(written()!.stepEnteredAt).toBeInstanceOf(Date)
+  })
+})

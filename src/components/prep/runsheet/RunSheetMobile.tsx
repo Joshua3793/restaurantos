@@ -134,7 +134,9 @@ export function RunSheetMobile({
     i.assignedCook?.id === cook || (!i.assignedCook && !!member?.homeStation && onStation(i, member.homeStation))
 
   const todoAll = useMemo(() => items.filter(isTodo).sort(ladderOrder), [items])
-  const goingAll = useMemo(() => onTheGo(items, nowMs), [items, nowMs])
+  // Real time on a redraw (the clock prop ticks every 30 s) — see RunSheet.
+  const liveNow = Math.max(nowMs, Date.now())
+  const goingAll = useMemo(() => onTheGo(items, liveNow), [items, nowMs]) // eslint-disable-line react-hooks/exhaustive-deps
   const done = useMemo(() => items.filter(isDone), [items])
 
   const myTodo = useMemo(() => todoAll.filter(isMine), [todoAll, cook, member])
@@ -308,7 +310,7 @@ export function RunSheetMobile({
               <JobCardMobile
                 key={r.item.id}
                 row={r}
-                nowMs={nowMs}
+                nowMs={liveNow}
                 showStation={multiStation}
                 onClaim={claimTap}
                 onStep={onStep}
