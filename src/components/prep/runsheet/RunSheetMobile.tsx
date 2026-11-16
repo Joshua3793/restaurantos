@@ -21,6 +21,7 @@ import type { Cook } from './assignee'
 import { RunRowMobile } from './RunRowMobile'
 import { JobCardMobile } from './JobCard'
 import { onTheGo } from '@/lib/prep-on-the-go'
+import { rememberedCook, loadSavedCook, saveCook } from '@/lib/prep-device'
 import { NextUpHero } from './NextUpHero'
 import { GroupHead } from './GroupHead'
 import { Segmented } from './atoms'
@@ -109,7 +110,7 @@ export function RunSheetMobile({
   onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('station')
-  const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
+  const [cook, setCook] = useState<string | null>(null)
   const [showDone, setShowDone] = useState(false)
   // A mode the cook picked by hand is never overridden by the fallback below.
   const modeTouched = useRef(false)
@@ -121,7 +122,8 @@ export function RunSheetMobile({
   // `cooks` can arrive after mount (async fetch) — same null-guard the desktop
   // RunSheet uses so My-station isn't stuck with cook === null forever.
   useEffect(() => {
-    if (cook == null && cooks.length > 0) setCook(cooks[0].id)
+    // This device remembers who used it last (falls back to the first cook).
+    if (cook == null && cooks.length > 0) setCook(rememberedCook(cooks, loadSavedCook()))
   }, [cooks, cook])
 
   const member = cook ? cooks.find(c => c.id === cook) ?? null : null
@@ -243,12 +245,18 @@ export function RunSheetMobile({
         {goingAll.length - restingN > 0 && <div className="bg-gold" style={{ width: `${((goingAll.length - restingN) / totalN) * 100}%` }} />}
         {restingN > 0 && <div className="bg-blue" style={{ width: `${(restingN / totalN) * 100}%` }} />}
       </div>
-      <div className="font-mono text-[10px] font-medium tracking-[0.06em] uppercase text-ink-3 pt-0.5 pb-2.5">
-        <b className="text-ink font-semibold">{done.length}</b><span className="text-ink-4">/{items.length}</span> done
-        {' · '}NOW {fmtClock(nowMin)}
-        {svcCaption ? ` · ${svcCaption}` : ''}
-        {post && ` · Posted ${postedWhenLabel(post.postedAt, post.listDate)}`}
-        {readyN > 0 && <span className="text-green-text"> · {readyN} ready to move</span>}
+      {/* Two short lines: the count, then the clock and where the list came from. */}
+      <div className="pt-0.5 pb-2.5">
+        <div className="font-mono text-[11px] font-medium text-ink-3">
+          <b className="text-ink font-semibold">{done.length}</b><span className="text-ink-4">/{items.length}</span> done
+          {goingAll.length > 0 && <> · {goingAll.length} on the go</>}
+          {readyN > 0 && <span className="text-green-text"> · {readyN} ready</span>}
+        </div>
+        <div className="font-mono text-[10px] tracking-[0.04em] uppercase text-ink-4 mt-0.5">
+          Now {fmtClock(nowMin)}
+          {svcCaption ? ` · ${svcCaption}` : ''}
+          {post && ` · Posted ${postedWhenLabel(post.postedAt, post.listDate)}`}
+        </div>
       </div>
       {post?.dirty && (
         <div className="mb-2.5">
@@ -276,7 +284,7 @@ export function RunSheetMobile({
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setCook(c.id)}
+                onClick={() => { setCook(c.id); saveCook(c.id) }}
                 className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-full shrink-0 border font-mono text-[10.5px] font-semibold cursor-pointer ${
                   on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
                 }`}

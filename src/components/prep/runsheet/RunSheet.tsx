@@ -26,6 +26,7 @@ import type { Cook } from './assignee'
 import { RunRow } from './RunRow'
 import { JobCard } from './JobCard'
 import { onTheGo } from '@/lib/prep-on-the-go'
+import { rememberedCook, loadSavedCook, saveCook } from '@/lib/prep-device'
 import { GroupHead } from './GroupHead'
 import { Segmented } from './atoms'
 import { fmtClock, fmtMins, fmtQty, postedWhenLabel } from '@/lib/prep-runsheet'
@@ -153,7 +154,7 @@ export function RunSheet({
   onRemove?: (item: PrepItemRich) => void
 }) {
   const [mode, setMode] = useState<Mode>('kitchen')
-  const [cook, setCook] = useState<string | null>(cooks[0]?.id ?? null)
+  const [cook, setCook] = useState<string | null>(null)
   const [group, setGroup] = useState<Group>('ladder')
   const [stFilter, setStFilter] = useState<string>('all')
   const [showDone, setShowDone] = useState(false)
@@ -162,7 +163,8 @@ export function RunSheet({
   // once with an empty roster. Without this, My-station mode is stuck with cook
   // === null forever, showing an empty ladder.
   useEffect(() => {
-    if (cook == null && cooks.length > 0) setCook(cooks[0].id)
+    // This device remembers who used it last (falls back to the first cook).
+    if (cook == null && cooks.length > 0) setCook(rememberedCook(cooks, loadSavedCook()))
   }, [cooks, cook])
 
   // The day's anchors from the RC's services, and every row re-timed against
@@ -339,7 +341,7 @@ export function RunSheet({
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => setCook(c.id)}
+                    onClick={() => { setCook(c.id); saveCook(c.id) }}
                     className={`inline-flex items-center gap-1.5 px-[13px] py-[7px] rounded-full border font-mono text-[11px] font-semibold cursor-pointer ${
                       on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
                     }`}
