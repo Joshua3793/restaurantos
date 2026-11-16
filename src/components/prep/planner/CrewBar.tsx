@@ -12,10 +12,10 @@ import type { CrewCapacity } from '@/lib/prep-smart'
 
 const VISIBLE = 6
 
-function Chip({ cook, on, locked, onToggle }: { cook: Cook; on: boolean; locked: boolean; onToggle: () => void }) {
+function Chip({ cook, on, locked, onToggle, compact }: { cook: Cook; on: boolean; locked: boolean; onToggle: () => void; compact?: boolean }) {
   return (
     <button type="button" disabled={locked} onClick={onToggle} aria-pressed={on}
-      className={`inline-flex items-center gap-2 shrink-0 whitespace-nowrap min-h-[40px] pl-1.5 pr-3 rounded-full border text-[13px] font-medium ${on ? 'bg-ink border-ink text-paper' : 'bg-paper border-line text-ink-2'} ${locked ? 'cursor-default' : 'cursor-pointer'}`}>
+      className={`inline-flex items-center gap-2 shrink-0 whitespace-nowrap ${compact ? 'min-h-[44px]' : 'min-h-[40px]'} pl-1.5 pr-3 rounded-full border text-[13px] font-medium ${on ? 'bg-ink border-ink text-paper' : 'bg-paper border-line text-ink-2'} ${locked ? 'cursor-default' : 'cursor-pointer'}`}>
       <span className={`w-7 h-7 rounded-full grid place-items-center font-mono text-[11px] font-semibold ${on ? 'bg-gold text-ink' : 'bg-bg-2 text-ink-2'}`}>{cook.initials}</span>
       {cook.name.split(' ')[0]}
     </button>
@@ -52,11 +52,11 @@ export function CrewBar({ cooks, crewIds, onCrewChange, capacity, ctx, locked, c
     <div className="bg-paper border border-line rounded-[14px] px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
       <span className="text-[13.5px] font-semibold text-ink shrink-0">{compact ? 'Today' : 'Who’s on today'}</span>
       <div className="flex flex-wrap items-center gap-2 min-w-0">
-        {shown.map(c => <Chip key={c.id} cook={c} on={crew.has(c.id)} locked={locked} onToggle={() => toggle(c.id)} />)}
+        {shown.map(c => <Chip key={c.id} cook={c} on={crew.has(c.id)} locked={locked} compact={compact} onToggle={() => toggle(c.id)} />)}
         {cooks.length > 0 && (rest > 0 || compact) && (
           <span className="relative">
             <button type="button" onClick={() => setAll(v => !v)} disabled={locked}
-              className="inline-flex items-center min-h-[40px] px-3 rounded-full border border-dashed border-line-2 text-[13px] font-medium text-ink-2 whitespace-nowrap">
+              className="inline-flex items-center min-h-[44px] px-3 rounded-full border border-dashed border-line-2 text-[13px] font-medium text-ink-2 whitespace-nowrap">
               {compact ? (crewIds.length ? 'Change' : '+ Who’s on') : `+ ${rest} more`}
             </button>
             {all && (

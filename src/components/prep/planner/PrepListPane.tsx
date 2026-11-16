@@ -32,7 +32,7 @@ export function FilterChips({ filter, onFilter, counts, compact }: {
         const warn = k === 'FIX' && counts.FIX > 0 && !on
         return (
           <button key={k} type="button" onClick={() => onFilter(k)} aria-pressed={on}
-            className={`inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[36px] px-3 rounded-full border text-[13px] font-medium ${on ? 'bg-ink border-ink text-paper' : warn ? 'bg-gold-soft border-[#fcd34d] text-gold-2' : 'bg-paper border-line text-ink-2'}`}>
+            className={`inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap ${compact ? 'min-h-[44px]' : 'min-h-[36px]'} px-3 rounded-full border text-[13px] font-medium ${on ? 'bg-ink border-ink text-paper' : warn ? 'bg-gold-soft border-[#fcd34d] text-gold-2' : 'bg-paper border-line text-ink-2'}`}>
             {compact ? SHORT[k] : label}
             <span className={`font-mono text-[11.5px] font-semibold ${on ? 'text-line-2' : warn ? 'text-gold-2' : 'text-ink-3'}`}>{counts[k]}</span>
           </button>

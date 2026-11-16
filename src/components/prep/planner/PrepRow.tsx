@@ -45,6 +45,16 @@ function flagReason(item: PrepItemRich): string {
   return `Par is ${fmtAmount(par, item.unit)} — less than one spoon`
 }
 
+/** The whole name + reason area opens the item — a 44 px target, not just the words. */
+function RowLeft({ item, onOpen, children }: { item: PrepItemRich; onOpen: (item: PrepItemRich) => void; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={() => onOpen(item)} title={whyLabel(item)}
+      className="min-w-0 min-h-[44px] flex flex-col justify-center text-left">
+      {children}
+    </button>
+  )
+}
+
 function Flag({ tone, children }: { tone: 'bad' | 'neutral' | 'info' | 'warn'; children: React.ReactNode }) {
   const cls = {
     bad: 'bg-red-soft text-red-text',
@@ -75,19 +85,14 @@ export function PrepRow({
   const enabled = item.prepEnabled !== false
   const pad = compact ? 'px-3.5' : 'px-4'
   const addSize = compact ? 'w-11 h-11' : 'w-11 h-11'
-  const name = (
-    <button type="button" onClick={() => onOpen(item)} title={whyLabel(item)}
-      className="min-w-0 text-left text-[14px] font-semibold tracking-[-0.012em] text-ink break-words">
-      {item.name}
-    </button>
-  )
+  const name = <span className="min-w-0 text-[14px] font-semibold tracking-[-0.012em] text-ink break-words">{item.name}</span>
 
   // ── at par: one quiet line, + still adds it ──
   if (kind === 'ATPAR') {
     return (
       <div className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 ${pad} py-1.5 border-t border-line ${enabled ? '' : 'opacity-60'}`}>
         <button type="button" onClick={() => onOpen(item)} title={whyLabel(item)}
-          className="min-w-0 text-left text-[13.5px] font-medium text-ink-2 break-words">{item.name}</button>
+          className="min-w-0 min-h-[44px] text-left text-[13.5px] font-medium text-ink-2 break-words">{item.name}</button>
         <span className="flex flex-col items-end font-mono text-[12.5px] font-medium text-ink-2 whitespace-nowrap leading-tight">
           {(item.parLevel ?? 0) > 0 ? fmtAmountOf(item.onHand ?? 0, item.parLevel ?? 0, item.unit) : fmtAmount(item.onHand ?? 0, item.unit)}
           <span className="text-[11px] font-semibold text-green-text">at par</span>
@@ -107,10 +112,10 @@ export function PrepRow({
   if (kind === 'COOKING') {
     return (
       <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 ${pad} py-2.5 border-t border-line bg-gold-soft`}>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">{name}</div>
-          <div className="text-[12.5px] text-ink-2 mt-0.5 leading-snug">{plainReason(item).replace(/^In progress/, 'Cooking now')}</div>
-        </div>
+        <RowLeft item={item} onOpen={onOpen}>
+          <span className="flex flex-wrap items-center gap-1.5">{name}</span>
+          <span className="text-[12.5px] text-ink-2 mt-0.5 leading-snug">{plainReason(item).replace(/^In progress/, 'Cooking now')}</span>
+        </RowLeft>
         <span className="inline-flex items-center h-9 px-3 rounded-full bg-paper text-gold-2 text-[12.5px] font-semibold whitespace-nowrap">Cooking</span>
       </div>
     )
@@ -121,13 +126,13 @@ export function PrepRow({
     const f = parFlag(item)
     return (
       <div className={`relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 ${pad} py-2.5 border-t border-line ${f === 'WRONG' ? 'bg-[#fffafa]' : ''}`}>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <RowLeft item={item} onOpen={onOpen}>
+          <span className="flex flex-wrap items-center gap-1.5">
             {name}
             <Flag tone={f === 'WRONG' ? 'bad' : 'neutral'}>{f === 'WRONG' ? 'Par looks wrong' : 'No par set'}</Flag>
-          </div>
-          <div className="text-[12.5px] text-ink-2 mt-0.5 leading-snug">{flagReason(item)}</div>
-        </div>
+          </span>
+          <span className="text-[12.5px] text-ink-2 mt-0.5 leading-snug">{flagReason(item)}</span>
+        </RowLeft>
         {canFixPar && enabled && item.linkedRecipeId ? (
           <span className="relative">
             <button type="button" disabled={locked} onClick={() => setFixing(v => !v)}
@@ -153,13 +158,13 @@ export function PrepRow({
   const out = !item.pipeline && (item.parLevel ?? 0) > 0 && (item.onHand ?? 0) <= 0
   return (
     <div className={`grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 ${pad} py-2.5 border-t border-line`}>
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <RowLeft item={item} onOpen={onOpen}>
+        <span className="flex flex-wrap items-center gap-1.5">
           {name}
           {longLead && <Flag tone="info">Start today</Flag>}
-        </div>
-        <div className={`text-[12.5px] mt-0.5 leading-snug ${out ? 'text-red-text font-medium' : 'text-ink-2'}`}>{reason}</div>
-      </div>
+        </span>
+        <span className={`text-[12.5px] mt-0.5 leading-snug ${out ? 'text-red-text font-medium' : 'text-ink-2'}`}>{reason}</span>
+      </RowLeft>
       <span className="flex flex-col items-end font-mono text-[13px] font-semibold text-ink whitespace-nowrap leading-tight">
         {amt.big}
         {amt.small && <span className="text-[11px] font-normal text-ink-3 mt-0.5">{amt.small}{longLead ? ' · most that keeps' : ''}</span>}

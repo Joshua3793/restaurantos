@@ -21,13 +21,13 @@ export function HiddenGroup({ hidden, locked, onOpen }: {
   return (
     <div className="mt-4">
       <button type="button" onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 mx-0.5 mb-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.05em] text-ink-4 hover:text-ink-2">
-        <EyeOff size={11} /> Not prepped · {hidden.length}
-        {open ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+        className="flex items-center gap-2 min-h-[44px] mx-0.5 text-[13px] font-semibold text-ink-3 hover:text-ink-2">
+        <EyeOff size={14} /> Not prepped · {hidden.length}
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>
       {open && (
         <>
-          <p className="mx-0.5 mb-2 text-[11px] leading-snug text-ink-4">
+          <p className="mx-0.5 mb-2 text-[12.5px] leading-snug text-ink-3">
             Recipes kept off the prep list. The recipe itself is untouched — open one and switch it back on to see it in the suggestions.
           </p>
           <div className="flex flex-col border-b border-line">
