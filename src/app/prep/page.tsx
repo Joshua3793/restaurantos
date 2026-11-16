@@ -1986,7 +1986,7 @@ export default function PrepPage() {
               onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
               onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
-              onStage={handleStageChange}
+              onStep={handleStepChange}
               onClaim={handleClaim}
               onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
@@ -2053,7 +2053,7 @@ export default function PrepPage() {
             </div>
           ) : (
             /* Mobile run sheet — the Today surface (hero, queue, in-place
-               WorkingRowMobile). Same wired callbacks as the desktop RunSheet. */
+               JobCardMobile). Same wired callbacks as the desktop RunSheet. */
             <div className="pb-24 sm:pb-0">
               <RunSheetMobile
                 items={todayItems}
@@ -2068,7 +2068,7 @@ export default function PrepPage() {
                 onReopen={(item) => onRowStatusChange(item, 'IN_PROGRESS')}
                 onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
                 onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
-                onStage={handleStageChange}
+                onStep={handleStepChange}
                 onClaim={handleClaim}
                 onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
               />
