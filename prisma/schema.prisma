@@ -842,6 +842,22 @@ model PrepPost {
   @@unique([revenueCenterId, listDate])
 }
 
+/// Who's on today — the cooks the chef ticked on Smart Prep, per kitchen per
+/// prep day (listDate = prepDayStart(), like PrepPost). Drives the crew
+/// capacity line and "won't be ready" warnings; no crew → no warnings.
+/// cookIds is Json (a string array), not text[], to stay clear of the
+/// pgBouncer array-write trap.
+model PrepCrewDay {
+  id              String        @id @default(uuid())
+  revenueCenterId String
+  listDate        DateTime
+  cookIds         Json          @default("[]")
+  updatedAt       DateTime      @updatedAt
+  revenueCenter   RevenueCenter @relation("PrepCrewDayRC", fields: [revenueCenterId], references: [id], onDelete: Cascade)
+
+  @@unique([revenueCenterId, listDate])
+}
+
 model PrepSettings {
   id         String   @id @default("singleton")
   categories String[]
@@ -902,6 +918,7 @@ model RevenueCenter {
   prepItems         PrepItem[]        @relation("PrepItemRC")
   prepLogs          PrepLog[]         @relation("PrepLogRC")
   prepPosts         PrepPost[]        @relation("PrepPostRC")
+  prepCrewDays      PrepCrewDay[]     @relation("PrepCrewDayRC")
   itemMemberships   ItemRevenueCenter[]
   userScopes        UserScope[]
   defaultForLocations Location[]      @relation("LocationDefaultRC")

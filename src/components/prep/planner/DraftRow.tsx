@@ -2,29 +2,33 @@
 // Smart Prep v2 — right-pane prep-list row (design PPDraftRow): batch-aware qty
 // stepper, THE urgency dial (which carries the deadline), assign button, one
 // plain reason line, and the chef's note in the To Do's own style.
+import { fmtAmount } from '@/lib/prep-amount'
 import { GripVertical, X } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import {
   PLAN_URG_META, effectiveUrgency, suggestedDraftQty, draftQty,
-  suggestedBatches, batchesToQty, fmtBatch, fmtDeadline, plainReason, whyLabel,
-  type PlanDayContext, type PlanSlot,
+  suggestedBatches, batchesToQty, fmtBatch, plainReason, whyLabel,
+  type PlanDayContext,
 } from '@/lib/prep-plan'
-import { fmtClock } from '@/lib/prep-runsheet'
 import { UrgPicker, AssignPill, QtyStepper, NoteField } from './atoms'
+import { parFlag } from '@/lib/prep-smart'
 
-const fmtQ = (q: number, u: string) => `${(u === 'kg' || u === 'L') && q % 1 !== 0 ? q.toFixed(1) : Math.round(q)} ${u}`
+const fmtQ = fmtAmount
 
 export function DraftRow({
-  item, cooks, locked, ctx, slot, batchMode, dragging, over, showStation = false,
+  item, cooks, crewIds, locked, ctx, wont, batchMode, dragging, over, showStation = false,
   onQty, onToggleBatch, onNote, onAssign, onUrgChange, onRemove, onOpen,
   onDragStart, onDragOver, onDrop, onDragEnd,
 }: {
   item: PrepItemRich
   cooks: Cook[]
+  /** today's crew — listed first when assigning */
+  crewIds: string[]
   locked: boolean
   ctx: PlanDayContext | null
-  slot: PlanSlot | null
+  /** "won't be ready by 15:00 — 1 h 20 min over with 2 cooks", or null */
+  wont: string | null
   batchMode: boolean
   dragging: boolean
   over: boolean
@@ -47,7 +51,9 @@ export function DraftRow({
   const qty = draftQty(item)
   const nb = suggestedBatches(item)
   const suggQ = batchMode && nb != null ? batchesToQty(item, nb) : sugg
-  const overridden = suggQ > 0 && Math.abs(qty - suggQ) > 0.01
+  // A wrong par has no usable suggestion: no ↺ link, a flag instead.
+  const flagged = parFlag(item) === 'WRONG'
+  const overridden = !flagged && suggQ > 0 && Math.abs(qty - suggQ) > 0.01
   return (
     <div
       draggable={!locked}
@@ -72,33 +78,39 @@ export function DraftRow({
         {/* the name wraps; it never truncates */}
         <button type="button" onClick={() => onOpen(item)} className="flex-1 min-w-[140px] flex items-center gap-1.5 text-left">
           <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink break-words min-w-0">{item.name}</span>
-          {showStation && item.station && <span className="font-mono text-[9px] font-medium uppercase tracking-[0.04em] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
+          {showStation && item.station && <span className="font-mono text-[11px] font-medium bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
         </button>
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={onQty} onToggleBatch={onToggleBatch} suggested={sugg} />
         <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => onUrgChange(item.id, step)} />
-        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} locked={locked} onAssign={id => onAssign(item, id)} />
+        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} crewIds={crewIds} locked={locked} onAssign={id => onAssign(item, id)} />
         <button type="button" disabled={locked} onClick={() => onRemove(item)} title="Take off the list"
           className="w-6 h-6 rounded-[7px] grid place-items-center shrink-0">
-          <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
+          <X size={14} className={locked ? 'text-line-2' : 'text-ink-3'} />
         </button>
       </div>
       {/* ONE plain line: why it is on the list (full evidence in the tooltip and
           the drawer), the suggested amount only when the chef changed it, and
           the schedule only when it won't fit. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 pl-[21px] min-w-0">
+        {flagged && <ParFlagChip />}
         <DraftReason item={item} />
         {overridden && (
-          <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="font-mono text-[10px] font-semibold text-gold-2 shrink-0 hover:underline">
+          <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="text-[12px] font-semibold text-gold-2 shrink-0 hover:underline">
             · suggested {batchMode && nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)} ↺
           </button>
         )}
-        <WontFit slot={slot} />
+        <WontFit text={wont} />
       </div>
       <div className="pl-[21px]">
         <NoteField item={item} locked={locked} onNote={onNote} />
       </div>
     </div>
   )
+}
+
+/** A wrong par on a row already on the list: say so, so its amount gets a look. */
+export function ParFlagChip() {
+  return <span className="inline-flex items-center shrink-0 whitespace-nowrap rounded-full px-2 py-[1px] text-[11.5px] font-semibold bg-red-soft text-red-text">Par looks wrong — check the amount</span>
 }
 
 /** The plain reason, red when out of stock; the full evidence is the tooltip. */
@@ -112,11 +124,7 @@ export function DraftReason({ item }: { item: PrepItemRich }) {
 }
 
 /** The schedule, said only when it matters: the job won't fit before its deadline. */
-export function WontFit({ slot }: { slot: PlanSlot | null }) {
-  if (!slot || slot.fits) return null
-  return (
-    <span className="font-mono text-[10px] font-semibold text-red-text whitespace-nowrap">
-      · won&apos;t fit — {slot.over}m past {fmtDeadline(slot.deadline, fmtClock)}
-    </span>
-  )
+export function WontFit({ text }: { text: string | null }) {
+  if (!text) return null
+  return <span className="text-[12px] font-semibold text-red-text">· {text}</span>
 }

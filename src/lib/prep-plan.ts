@@ -4,6 +4,7 @@
 // stale-pill bug was the client keeping a server-computed `priority` after a
 // completion changed onHand. The app-wide 3-level priority is a collapse of
 // this scale (urgencyToPriority in prep-utils).
+import { fmtAmount, fmtAmountOf } from './prep-amount'
 import {
   computePriority, computeSuggestedQty,
   autoUrgency, normalizeUrgency, urgencyToPriority,
@@ -202,7 +203,7 @@ export function suggestedDraftQty(t: PlanFields): number {
   return Math.max(prepStep(t.unit), roundPrepQty(raw, t.unit))
 }
 
-const fmtQ = (q: number, u: string) => `${q % 1 === 0 ? q : +q.toFixed(2)} ${u}`
+const fmtQ = fmtAmount
 
 /** "Aug 1" for a count day — stored as a UTC-midnight marker, so read it in UTC. */
 const fmtCountDay = (iso: string) =>
@@ -238,7 +239,7 @@ export function plainReason(t: PlanFields & { blockedReason?: string | null }): 
     stock =
       par > 0 && oh <= 0 ? 'Out of stock'
       : t.targetToday != null && oh < t.targetToday ? `Under today's target of ${fmtQ(t.targetToday, t.unit)}`
-      : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} — won't last service`
+      : par > 0 && oh < par * 0.5 ? `${fmtAmountOf(+oh.toFixed(2), par, t.unit)} — won't last service`
       : oh < par ? `Below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
       : 'At par'
   }
@@ -257,7 +258,7 @@ export function whyLabel(t: PlanFields, now: number = Date.now()): string {
   const stock =
     par > 0 && oh <= 0 ? 'stock out'
     : t.targetToday != null && oh < t.targetToday ? `under today's target ${fmtQ(t.targetToday, t.unit)}`
-    : par > 0 && oh < par * 0.5 ? `${fmtQ(+oh.toFixed(2), t.unit)} of ${fmtQ(par, t.unit)} par — won't last service`
+    : par > 0 && oh < par * 0.5 ? `${fmtAmountOf(+oh.toFixed(2), par, t.unit)} par — won't last service`
     : oh < par ? `below par by ${fmtQ(+(par - oh).toFixed(2), t.unit)}`
     : t.shelfLifeDays ? `at par · ${t.shelfLifeDays}d shelf life` : 'at par'
   // Evidence appends: the rhythm that raised the step, a shelf-life cap, and the
@@ -548,6 +549,20 @@ export function fmtDeadline(m: number, fmtClock: (min: number) => string): strin
   return `+${d}d ${fmtClock(m % 1440)}`
 }
 
+/** "today 15:00" / "tomorrow 15:00" / "in 3 days 15:00" — for sentences. */
+export function fmtDeadlineWords(m: number, fmtClock: (min: number) => string): string {
+  const d = Math.floor(m / 1440)
+  const at = fmtClock(((m % 1440) + 1440) % 1440)
+  if (d <= 0) return `today ${at}`
+  if (d === 1) return `tomorrow ${at}`
+  return `in ${d} days ${at}`
+}
+
+/** A deadline already passed reads "Now" — not "09:00" at 11:40. */
+export function deadlineLabel(m: number, nowMin: number, fmtClock: (min: number) => string): string {
+  return m <= nowMin ? 'Now' : fmtDeadline(m, fmtClock)
+}
+
 /**
  * Did the step's deadline really move since the chef posted? `dueTime` is the
  * label stamped at post, relative to THAT planning day ("09:00"); once the day
@@ -611,10 +626,18 @@ const activeMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingActiveMin
 const passiveMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingPassiveMinutes : (t.passiveMinutes ?? 0)
 
 /** The earliest minute a job in flight can take a cook again (shift start otherwise). */
-function earliestStart(t: SchedulableItem, ctx: PlanDayContext): number {
+function earliestStart(t: TimedFields, ctx: PlanDayContext): number {
   const at = t.pipeline?.nextActiveAt
   if (!at || ctx.nowMs == null) return ctx.shiftStart
   return Math.max(ctx.shiftStart, msToLadderMin(new Date(at).getTime(), { nowMs: ctx.nowMs, nowMin: ctx.shiftStart }))
+}
+
+/** What the schedule needs to place one row: hands-on and passive minutes (a
+ *  job in flight is charged only what is LEFT), the earliest minute it can take
+ *  a cook, and its step deadline. Shared by `planSchedule` and Smart Prep's crew
+ *  schedule so both time a row the same way. */
+export function slotInputs(t: TimedFields, ctx: PlanDayContext): { active: number; passive: number; earliest: number; deadline: number } {
+  return { active: activeMin(t), passive: passiveMin(t), earliest: earliestStart(t, ctx), deadline: urgencyDeadline(effectiveUrgency(t), ctx) }
 }
 
 /**
@@ -636,20 +659,21 @@ export function planSchedule<T extends SchedulableItem>(
     const crew = Math.max(1, crewFor(cooks, rows[0].stations).length)
     const cursors = Array<number>(crew).fill(ctx.shiftStart)
     rows
-      .map(t => ({ t, dl: urgencyDeadline(effectiveUrgency(t), ctx) }))
+      .map(t => ({ t, si: slotInputs(t, ctx) }))
       .sort((a, b) =>
-        a.dl - b.dl ||
+        a.si.deadline - b.si.deadline ||
         PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(a.t)) - PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(b.t)) ||
         // within a deadline, what can start now goes before a job still resting
         // (every ordinary row ties here at shift start, so their order is unchanged)
-        earliestStart(a.t, ctx) - earliestStart(b.t, ctx) ||
+        a.si.earliest - b.si.earliest ||
         ord(a.t) - ord(b.t))
-      .forEach(({ t, dl }) => {
+      .forEach(({ t, si }) => {
         let i = 0
         cursors.forEach((c, j) => { if (c < cursors[i]) i = j })
-        const start = Math.max(cursors[i], earliestStart(t, ctx))
-        cursors[i] = start + activeMin(t)
-        const end = start + activeMin(t) + passiveMin(t)
+        const start = Math.max(cursors[i], si.earliest)
+        cursors[i] = start + si.active
+        const end = start + si.active + si.passive
+        const dl = si.deadline
         map.set(t.id, { start, end, deadline: dl, fits: end <= dl, over: Math.max(0, end - dl) })
       })
   }
@@ -773,8 +797,9 @@ export function planGroups<T extends PlanFields & StationFields & { category: st
       const same = must.every(m => m.dl === first)
       groups.push({
         key: START_TODAY_KEY,
-        label: 'Start today for …',
-        sub: Number.isFinite(first) ? `lead time runs past the runway · by ${fmtDeadline(first, fmtClock)}${same ? '' : ' and later'}` : undefined,
+        label: Number.isFinite(first)
+          ? `Start today — needed ${fmtDeadlineWords(first, fmtClock)}${same ? '' : ' and later'}`
+          : 'Start today',
         rows: must.map(m => m.t),
       })
       const lifted = new Set(must.map(m => m.t))

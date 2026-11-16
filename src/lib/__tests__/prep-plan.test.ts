@@ -79,7 +79,7 @@ describe('whyLabel — read-only evidence', () => {
   it('names the stock condition', () => {
     expect(whyLabel({ ...base })).toBe('stock out')
     expect(whyLabel({ ...base, onHand: 9, targetToday: 12 })).toBe("under today's target 12 kg")
-    expect(whyLabel({ ...base, onHand: 3 })).toBe("3 kg of 8 kg par — won't last service")
+    expect(whyLabel({ ...base, onHand: 3 })).toBe("3 of 8 kg par — won't last service")
     expect(whyLabel({ ...base, onHand: 6 })).toBe('below par by 2 kg')
     expect(whyLabel({ ...base, onHand: 8 })).toBe('at par')
     expect(whyLabel({ ...base, onHand: 8, shelfLifeDays: 5 })).toBe('at par · 5d shelf life')

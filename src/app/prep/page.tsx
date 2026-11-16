@@ -37,6 +37,8 @@ import { prepDayKey } from '@/lib/prep-day'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
+import { toMakeCount } from '@/lib/prep-smart'
+import { addAllToMakeIds, snapshotDraft, restorePlan, resetTargets, emptyListIds } from '@/lib/prep-bulk'
 import { PlannerMobile } from '@/components/prep/planner/PlannerMobile'
 import type { PlannerHandlers } from '@/components/prep/planner/PlannerDesktop'
 import type { PostDue } from '@/components/prep/planner/PostDialog'
@@ -301,6 +303,16 @@ export default function PrepPage() {
 
   useEffect(() => { loadPlan() }, [loadPlan])
 
+  // Who's on today (Smart Prep): the cooks the chef ticked for this kitchen and
+  // prep day. Drives the crew capacity line and "won't be ready" warnings; an
+  // empty crew means no warnings at all.
+  const [crewIds, setCrewIds] = useState<string[]>([])
+  // Saves go one at a time with only the latest list (crewWant); a GET never
+  // overwrites a tick that is still being saved.
+  const crewWant = useRef<string[] | null>(null)
+  const crewSaving = useRef(false)
+  const crewConfirmed = useRef<string[]>([])
+
   // Building and posting the list is every signed-in cook's — the only gates
   // are a writable revenue center and a resolved session. Switching an item out
   // of prep (the drawer's "Prepped on the line") stays a chef's call: canSwitch.
@@ -526,8 +538,6 @@ export default function PrepPage() {
   }, [items, search, filterCategory])
 
   // Tab badges — computed priorities so a completion updates them instantly.
-  const spCritical = useMemo(() => items.filter(i => effectivePriority(i) === '911'), [items])
-  const spNeeded   = useMemo(() => items.filter(i => effectivePriority(i) === 'NEEDED_TODAY'), [items])
 
   // Redesigned To-do tab — derived
   const shiftSummary = useMemo(() => computeShiftSummary(todayItems), [todayItems])
@@ -547,6 +557,33 @@ export default function PrepPage() {
   // The planner's day anchors — what "Start today for …" and the long-lead seed
   // count back from (same derivation the planners use).
   const dayCtx = useMemo(() => planDayContext(rcServices, nowMin, nowMs), [rcServices, nowMin, nowMs])
+  // The ONE "to make" number: tab badges, the planner header, its chip and "Add all".
+  const toMake = useMemo(() => toMakeCount(items, dayCtx, nowMin), [items, dayCtx, nowMin])
+
+  // The crew belongs to the PLANNING day: tomorrow once the last service has
+  // ended (dayCtx.roll), so an evening crew is still there in the morning.
+  const crewDay = useMemo(
+    () => prepDayKey(new Date(nowMs + (dayCtx?.roll ? 86_400_000 : 0))),
+    [nowMs, dayCtx?.roll],
+  )
+  useEffect(() => {
+    if (!activeRcId) { setCrewIds([]); crewConfirmed.current = []; return }
+    let alive = true
+    const fetchCrew = () => {
+      if (crewSaving.current) return
+      fetch(`/api/prep/plan/crew?rc=${encodeURIComponent(activeRcId)}&day=${crewDay}`, { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          if (!alive || crewSaving.current || !d || !Array.isArray(d.cookIds)) return
+          crewConfirmed.current = d.cookIds
+          setCrewIds(d.cookIds)
+        })
+        .catch(() => { /* keep the last known crew */ })
+    }
+    fetchCrew()
+    const t = setInterval(fetchCrew, 60_000)   // other devices' ticks, and the iPad left open overnight
+    return () => { alive = false; clearInterval(t) }
+  }, [activeRcId, crewDay])
   // The wait-over alarm — ONE per page (both run sheets are mounted at once).
   const alarms = useWaitAlarms(todayItems)
   const svcStatus = useMemo(
@@ -989,7 +1026,10 @@ export default function PrepPage() {
     // Guard once more so an ungated caller (or the offline queue) can never
     // fake a change without a writable revenue center.
     if (!canPlan) { setActionError('Pick a revenue center you can edit to change the list.'); return }
-    const before = items.find(i => i.id === itemId)?.isOnList
+    // Read the CURRENT row, not this render's: an Undo replays through here
+    // from an older closure, and a failed write must revert to what was on
+    // screen just before it, not to what was there when the closure was made.
+    const before = itemsRef.current.find(i => i.id === itemId)?.isOnList
     // Added back after it was already made today (a second Sourdough dough): the
     // new job is a fresh log, not the finished one — the server opens it (see
     // ensureLiveLogs' afterDone). Seed it here so draft edits and the planner
@@ -1011,6 +1051,10 @@ export default function PrepPage() {
       return
     }
 
+    // Chained per item with the draft edits (opChains): an Undo's "on" can never
+    // overtake the "off" it undoes, and a re-add can't race its own qty seed.
+    const prevOp = opChains.current.get(itemId) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
     try {
       // Removing simply takes the item off today's list (isOnList=false) — it drops
       // back to Smart Prep, still re-addable. No SKIPPED log: "removed" is not "skipped".
@@ -1039,9 +1083,16 @@ export default function PrepPage() {
     } catch {
       setActionError('Could not update list — try again.')
       load()
-    } finally {
-      markSaving(itemId, false)
     }
+    })
+    opChains.current.set(itemId, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(itemId) === runOp) {
+        opChains.current.delete(itemId)
+        markSaving(itemId, false)
+      }
+    })
+    return runOp
   }
 
   // Take one item straight off the kitchen's To Do — no Smart Prep round trip,
@@ -1301,37 +1352,105 @@ export default function PrepPage() {
     if (!hasQty && sugg > 0) handleDraftEdit(item, { requiredQty: sugg })
   }
 
-  function handleAddAllCritical() {
-    // A job in the pipeline is being made — it is not a critical stock-out to
-    // add. A long-lead item that must start today for a later deadline is.
-    items
-      .filter(i => !i.isOnList && !i.pipeline && (effectivePriority(i) === '911' || mustStartToday(i, dayCtx, nowMin)))
-      .forEach(handleAddToDraft)
-  }
-
-  function handleAcceptSuggested() {
-    for (const i of items) {
-      if (!i.isOnList) continue
-      const sugg = defaultDraftQty(i)
-      if (sugg > 0 && Math.abs(Number(i.todayLog?.requiredQty ?? 0) - sugg) > 0.01) {
-        handleDraftEdit(i, { requiredQty: sugg })
-      }
+  // ── Bulk buttons: each says what it does and offers Undo for 10 s ──────────
+  // Every write goes through the normal per-item handlers (offline queue, error
+  // reverts); Undo replays the snapshot taken just before.
+  function undoTo(snap: ReturnType<typeof snapshotDraft>) {
+    return () => {
+      const { toggles, edits } = restorePlan(itemsRef.current, snap)
+      toggles.forEach(t => { void handleToggleOnList(t.id, t.isOnList) })
+      edits.forEach(e => {
+        const it = itemsRef.current.find(i => i.id === e.id)
+        if (it) handleDraftEdit(it, e.patch)
+      })
     }
   }
 
-  async function handleClearDraft() {
-    const targets = items.filter(i => i.isOnList)
-    if (targets.length === 0) return
+  function handleAddAllToMake() {
+    const ids = addAllToMakeIds(items, dayCtx, nowMin)
+    if (!ids.length) return
+    // Undo touches only what this button touched — not a + tapped since.
+    const snap = snapshotDraft(items.filter(i => ids.includes(i.id)))
+    items.filter(i => ids.includes(i.id)).forEach(handleAddToDraft)
+    toast(`Added ${ids.length} to your list`, { label: 'Undo', onClick: undoTo(snap) })
+  }
+
+  function handleResetQuantities() {
+    const targets = resetTargets(items, dayCtx, nowMin)
+    if (!targets.length) return
+    const snap = snapshotDraft(items.filter(i => targets.some(t => t.id === i.id)))
+    for (const t of targets) {
+      const it = items.find(i => i.id === t.id)
+      if (it) handleDraftEdit(it, { requiredQty: t.to })
+    }
+    toast(`${targets.length} ${targets.length === 1 ? 'quantity' : 'quantities'} reset to suggested`, { label: 'Undo', onClick: undoTo(snap) })
+  }
+
+  function handleEmptyList() {
+    const ids = emptyListIds(items)
+    if (!ids.length) return
+    const snap = snapshotDraft(items.filter(i => ids.includes(i.id)))
+    ids.forEach(id => { void handleToggleOnList(id, false) })
+    toast(`List emptied — ${ids.length} taken off`, { label: 'Undo', onClick: undoTo(snap) })
+  }
+
+  // Fix par (lead and above): saved on the linked recipe's prep settings, the
+  // one place par lives. Optimistic, reverted with a note if it fails.
+  async function handleFixPar(item: PrepItemRich, parLevel: number): Promise<boolean> {
+    if (!item.linkedRecipeId || !(parLevel >= 0)) return false
+    const before = item.parLevel
     mutationSeq.current++
-    setItems(prev => prev.map(i => (i.isOnList ? { ...i, isOnList: false } : i)))
-    markPlanDirtyLocal()
-    await Promise.all(targets.map(i =>
-      fetch(`/api/prep/items/${i.id}`, {
-        method: 'PUT',
+    setItems(prev => prev.map(i => (i.id === item.id ? { ...i, parLevel } : i)))
+    try {
+      const res = await fetch(`/api/recipes/${item.linkedRecipeId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isOnList: false }),
+        body: JSON.stringify({ prep: { parLevel } }),
       })
-    ))
+      if (!res.ok) throw new Error(String(res.status))
+      load(true)
+      return true
+    } catch {
+      mutationSeq.current++
+      setItems(prev => prev.map(i => (i.id === item.id ? { ...i, parLevel: before } : i)))
+      toast('Par not saved — try again')
+      return false
+    }
+  }
+
+  // Who's on today — optimistic. Saves run one at a time and always send the
+  // newest list, so two quick ticks can't land out of order; a failure puts
+  // back the last list the server confirmed.
+  async function handleCrewChange(next: string[]) {
+    if (!activeRcId || !canPlan) return
+    setCrewIds(next)
+    crewWant.current = next
+    if (crewSaving.current) return
+    crewSaving.current = true
+    const rc = activeRcId, day = crewDay
+    try {
+      while (crewWant.current) {
+        const send = crewWant.current
+        crewWant.current = null
+        const res = await fetch('/api/prep/plan/crew', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revenueCenterId: rc, cookIds: send, day }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        const d = await res.json().catch(() => null)
+        if (d && Array.isArray(d.cookIds)) {
+          crewConfirmed.current = d.cookIds
+          if (!crewWant.current) setCrewIds(d.cookIds)
+        }
+      }
+    } catch {
+      crewWant.current = null
+      setCrewIds(crewConfirmed.current)
+      toast('Crew not saved — try again')
+    } finally {
+      crewSaving.current = false
+    }
   }
 
   function handleAssignStation(station: string, cookId: string) {
@@ -1492,9 +1611,11 @@ export default function PrepPage() {
     onAssignStation: handleAssignStation,
     onPriorityChange: handlePriorityChange,
     onReorder: handleReorder,
-    onAcceptSuggested: handleAcceptSuggested,
-    onAddAllCritical: handleAddAllCritical,
-    onClearDraft: handleClearDraft,
+    onResetQuantities: handleResetQuantities,
+    onAddAllToMake: handleAddAllToMake,
+    onEmptyList: handleEmptyList,
+    onFixPar: handleFixPar,
+    onCrewChange: (ids) => { void handleCrewChange(ids) },
     onPost: handlePost,
     onRecall: handleRecall,
   }
@@ -1743,7 +1864,7 @@ export default function PrepPage() {
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
               className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
-              {m === 'today' ? <>To Do {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className="font-mono bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{shiftSummary.total - shiftSummary.resolved}</span>}</> : m === 'smartprep' ? <>Smart Prep {(spCritical.length + spNeeded.length) > 0 && <span className="font-mono bg-red text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{spCritical.length + spNeeded.length}</span>}</> : <><History size={12} /> History</>}
+              {m === 'today' ? <>To Do {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className="font-mono bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{shiftSummary.total - shiftSummary.resolved}</span>}</> : m === 'smartprep' ? <>Smart Prep {toMake > 0 && <span className="font-mono bg-red text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full">{toMake}</span>}</> : <><History size={12} /> History</>}
             </button>
           ))}
         </div>
@@ -1820,7 +1941,7 @@ export default function PrepPage() {
               className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'smartprep' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
               Smart prep
-              {(shiftSummary.critical + spNeeded.length) > 0 && <span className={`font-mono text-[10px] text-white px-1.5 rounded-full font-semibold ${viewMode === 'smartprep' ? 'bg-red' : 'bg-ink-4'}`}>{shiftSummary.critical + spNeeded.length}</span>}
+              {toMake > 0 && <span className={`font-mono text-[11px] text-white px-1.5 rounded-full font-semibold ${viewMode === 'smartprep' ? 'bg-red' : 'bg-ink-3'}`}>{toMake}</span>}
             </button>
             <button onClick={() => setViewMode('history')} id="dtab-history"
               className={`px-3.5 py-2 text-[13px] font-medium rounded-lg transition-colors inline-flex items-center gap-1.5 tracking-[-0.005em] ${viewMode === 'history' ? 'bg-paper text-ink shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3 hover:text-ink-2'}`}>
@@ -1966,6 +2087,7 @@ export default function PrepPage() {
               onSearch={setSearch}
               hidden={hiddenItems}
               handlers={plannerHandlers}
+              smart={{ crewIds, toMake, canFixPar: canSwitch }}
             />
           )}
         </div>
@@ -2054,6 +2176,7 @@ export default function PrepPage() {
                 post={plan.post}
                 hidden={hiddenItems}
                 handlers={plannerHandlers}
+                smart={{ crewIds, toMake, canFixPar: canSwitch }}
               />
             </>
           )}

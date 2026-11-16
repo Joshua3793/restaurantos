@@ -4,23 +4,25 @@
 // meaning. Suggestions on the left, the chef's prep list on the right with a
 // station-load strip and schedule slots; nothing reaches a cook until posted.
 import { useMemo, useState } from 'react'
-import { Sparkles, ChefHat, Zap, Undo2, Lock, Users, AlertTriangle, Package, Check } from 'lucide-react'
+import { Zap, Undo2, Lock, Package, Check, Plus } from 'lucide-react'
 import type { PrepItemRich, PrepPostInfo } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { RcService } from '@/lib/service-hours'
 import {
-  effectiveUrgency, planDayContext, planSchedule, stationLoad, planGroups, batchYield,
-  mustStartToday,
+  effectiveUrgency, planDayContext, planGroups, batchYield,
   draftListOrder as draftOrd,
-  type PlanDayContext, type PlanSlot,
 } from '@/lib/prep-plan'
+import {
+  crewSchedule, crewCapacity, wontFitText, cookGroups, planChanges, filterCounts, type PrepFilter,
+} from '@/lib/prep-smart'
+import { resetTargets, emptyListIds } from '@/lib/prep-bulk'
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
-import { GroupHead, Popover, popItemCls, popHeadCls } from './atoms'
-import { SuggestionList } from './SuggestionList'
+import { GroupHead } from './atoms'
+import { PrepListPane, FilterChips, ViewSwitch, type PrepView } from './PrepListPane'
+import { CrewBar } from './CrewBar'
+import { GoStrip } from './GoStrip'
 import { DraftRow } from './DraftRow'
 import { PostDialog, type PostDue } from './PostDialog'
-
-export type PlanGroupBy = 'urgency' | 'station'
 
 export interface PlannerHandlers {
   onOpen: (item: PrepItemRich) => void
@@ -32,11 +34,23 @@ export interface PlannerHandlers {
   onAssignStation: (station: string, cookId: string) => void
   onPriorityChange: (id: string, step: string) => void
   onReorder: (orders: Array<{ prepItemId: string; listOrder: number }>) => void
-  onAcceptSuggested: () => void
-  onAddAllCritical: () => void
-  onClearDraft: () => void
+  onResetQuantities: () => void
+  onAddAllToMake: () => void
+  onEmptyList: () => void
+  /** Save a corrected par on the linked recipe; resolves true when saved. */
+  onFixPar: (item: PrepItemRich, parLevel: number) => Promise<boolean>
+  /** Who's on today — the full new crew list. */
+  onCrewChange: (cookIds: string[]) => void
   onPost: (dues: PostDue[]) => void
   onRecall: () => void
+}
+
+/** Smart Prep state the page owns: today's crew, the one to-make count, and
+ *  whether this person may fix a par (lead and above). */
+export interface SmartState {
+  crewIds: string[]
+  toMake: number
+  canFixPar: boolean
 }
 
 const activeOf = (i: PrepItemRich) => i.activeMinutes ?? i.estimatedPrepTime ?? 0
@@ -49,34 +63,9 @@ export function isBatchMode(item: PrepItemRich, toggles: Map<string, boolean>): 
   return batchYield(item) != null
 }
 
-// ─── station load strip ────────────────────────────────────────────────────
-export function LoadStrip({ draft, cooks, ctx }: { draft: PrepItemRich[]; cooks: Cook[]; ctx: PlanDayContext | null }) {
-  if (!ctx) return null
-  const rows = stationLoad(draft, cooks, ctx)
-  if (!rows.length) return null
-  return (
-    <div className="shrink-0 flex gap-2 px-3.5 py-2 bg-bg border-b border-line">
-      {rows.map(r => {
-        const over = r.pct > 100
-        return (
-          <div key={r.station} className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-[11px] font-semibold text-ink-2 truncate">{r.station}</span>
-              <span className={`ml-auto font-mono text-[9px] ${over ? 'text-red-text font-bold' : 'text-ink-4'}`}>{fmtMins(r.forService)}/{fmtMins(r.cap)}</span>
-            </div>
-            <div className="flex h-1 rounded-full overflow-hidden bg-bg-2 mt-1">
-              <span className={over ? 'bg-red' : r.pct > 80 ? 'bg-gold' : 'bg-green'} style={{ width: `${Math.min(100, r.pct)}%` }} />
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export function PlannerDesktop({
   items, allItems, hidden, stations, cooks, services, nowMin, nowMs, canPlan, post,
-  search, onSearch, handlers,
+  search, onSearch, handlers, smart,
 }: {
   items: PrepItemRich[]              // filtered (search/category) — shapes the LEFT pane
   allItems: PrepItemRich[]           // unfiltered — the draft pane must not hide rows on search
@@ -92,36 +81,37 @@ export function PlannerDesktop({
   search: string
   onSearch: (v: string) => void
   handlers: PlannerHandlers
+  smart: SmartState
 }) {
   const locked = !canPlan
-  const [groupBy, setGroupBy] = useState<PlanGroupBy>('urgency')
-  // The suggestions pane groups independently of the prep list — the chef can
-  // read the pool by urgency step, by station, or by category (matches mobile).
-  const [suggBy, setSuggBy] = useState<'urgency' | 'station' | 'category'>('urgency')
+  // The prep list opens on the whole list by category — the view cooks use most.
+  const [view, setView] = useState<PrepView>('CATEGORY')
+  const [filter, setFilter] = useState<PrepFilter>('ALL')
+  const [groupBy, setGroupBy] = useState<'urgency' | 'cook'>('urgency')
   const [dlg, setDlg] = useState(false)
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
   const [drag, setDrag] = useState<string | null>(null)
   const [over, setOver] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
-  const [assignPop, setAssignPop] = useState(false)
   const [batchToggles, setBatchToggles] = useState<Map<string, boolean>>(new Map())
   const onToggleBatch = (item: PrepItemRich, next: boolean) =>
     setBatchToggles(prev => new Map(prev).set(item.id, next))
 
   const ctx = useMemo(() => planDayContext(services, nowMin, nowMs), [services, nowMin, nowMs])
-  // No station filter chips — the View-by toggle (step/station/category) is
-  // how the pool is sliced now.
-  const pool = items
-  const draft = useMemo(() => allItems.filter(i => i.isOnList), [allItems])
-  const sched = useMemo<Map<string, PlanSlot>>(
-    () => (ctx ? planSchedule(draft, cooks, ctx, draftOrd) : new Map()),
-    [draft, cooks, ctx],
-  )
-  const wont = draft.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits).length
+  const onList = useMemo(() => allItems.filter(i => i.isOnList), [allItems])
+  // Jobs already cooking ride the On the go strip — never a draft row.
+  const cooking = useMemo(() => onList.filter(i => i.pipeline), [onList])
+  const draft = useMemo(() => onList.filter(i => !i.pipeline), [onList])
+  const crewSize = smart.crewIds.length
+  const sched = useMemo(() => crewSchedule(onList, crewSize, ctx, nowMin, draftOrd), [onList, crewSize, ctx, nowMin])
+  const capacity = useMemo(() => crewCapacity(onList, crewSize, ctx), [onList, crewSize, ctx])
+  const wontOf = (t: PrepItemRich) => { const sl = sched.get(t.id); return sl && !sl.fits ? wontFitText(sl, crewSize, fmtClock) : null }
+  const changes = useMemo(() => planChanges(allItems), [allItems])
+  const changeCount = changes.added.length + changes.removed.length
+  const resets = useMemo(() => resetTargets(allItems, ctx, nowMin).length, [allItems, ctx, nowMin])
+  const counts = useMemo(() => filterCounts(items, ctx, nowMin), [items, ctx, nowMin])
   const mins = draft.reduce((a, t) => a + activeOf(t), 0)
   const openCount = draft.filter(t => !t.todayLog?.assignedTo).length
-  // A job in the pipeline is being made — not a critical stock-out to add. A
-  // long-lead item that must start today counts (and "Add all critical" adds it).
-  const urgent = allItems.filter(t => !t.isOnList && !t.pipeline && (effectiveUrgency(t) === 'PASS' || mustStartToday(t, ctx, nowMin))).length
   const clean = post != null && !post.dirty
 
   const flagWarn = (k: string) => { setWarn(k); setTimeout(() => setWarn(null), 1800) }
@@ -150,134 +140,108 @@ export function PlannerDesktop({
 
   const paneCls = 'bg-paper border border-line rounded-[14px] flex flex-col min-h-0 overflow-hidden'
   const btnCls = (disabled: boolean) =>
-    `inline-flex items-center gap-1.5 whitespace-nowrap rounded-[9px] px-[11px] py-[7px] text-[12px] font-semibold border ${disabled ? 'bg-bg-2 text-ink-4 border-line cursor-not-allowed' : 'bg-paper text-ink-2 border-line-2 hover:border-ink-3'}`
-
-  const groupOpts = { stations, crew: cooks, ord: draftOrd }
-  // The station tag earns its place only when the list's items span more than
-  // one station (a station configured in settings but used by nothing doesn't count).
-  const multiStation = useMemo(() => new Set(allItems.flatMap(i => i.stations)).size > 1, [allItems])
+    `inline-flex items-center gap-1.5 whitespace-nowrap rounded-[9px] px-3 min-h-[34px] text-[12.5px] font-semibold border ${disabled ? 'bg-bg-2 text-ink-3 border-line cursor-not-allowed' : 'bg-paper text-ink-2 border-line-2 hover:border-ink-3'}`
+  const groups = groupBy === 'cook'
+    ? cookGroups(draft, cooks, smart.crewIds).map(g => ({ ...g, sub: undefined, urg: undefined }))
+    : planGroups(draft, 'urgency', { ord: draftOrd })
+  const changeNames = [
+    ...changes.added.map(t => `+ ${t.name}`),
+    ...changes.removed.map(t => `− ${t.name}`),
+  ]
 
   return (
-    <div className="space-y-3.5">
-      {/* 440px suggestions column only when there's desktop room — on iPad
-          (md..xl) it would starve the prep-list pane, whose header controls
-          get clipped by the pane's overflow-hidden. */}
-      <div className="grid grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[440px_1fr] gap-3.5 items-stretch" style={{ height: 'calc(100vh - 230px)', minHeight: 560 }}>
-        {/* ── suggestions ── */}
+    <div className="flex flex-col gap-3">
+      <p className="text-[14px] text-ink-3 m-0">
+        <b className="font-semibold text-ink">{smart.toMake} more to make.</b>{' '}
+        Your list: {draft.length} to start, {cooking.length} on the go
+        {!clean && changeCount > 0 && <> — <b className="font-semibold text-gold-2">{changeCount} {changeCount === 1 ? 'change' : 'changes'} not posted yet.</b></>}
+      </p>
+
+      <CrewBar cooks={cooks} crewIds={smart.crewIds} onCrewChange={handlers.onCrewChange} capacity={capacity} ctx={ctx} locked={locked} />
+
+      {/* 440px prep-list column only when there's desktop room — on iPad
+          (md..xl) it would starve Your list, whose header controls get clipped
+          by the pane's overflow-hidden. */}
+      <div className="grid grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-3.5 items-stretch" style={{ height: 'calc(100vh - 290px)', minHeight: 560 }}>
+        {/* ── the prep list ── */}
         <div className={paneCls}>
-          <div className="shrink-0 flex items-center gap-2 px-3.5 pt-3 pb-2.5 border-b border-line">
-            <span className="w-6 h-6 rounded-[7px] bg-gold-soft grid place-items-center shrink-0"><Sparkles size={13} className="text-gold-2" /></span>
-            <div className="flex-1 min-w-0">
-              <div className="text-[13.5px] font-semibold tracking-[-0.015em] text-ink">Suggestions</div>
-              <div className="font-mono text-[9px] text-ink-4">{items.length} ACTIVE PREP ITEMS · FROM PAR + LAST COUNT</div>
-            </div>
+          <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-3 pb-2.5 border-b border-line">
+            <span className="text-[15px] font-semibold tracking-[-0.015em] text-ink">Prep list</span>
+            <ViewSwitch view={view} onView={setView} />
             <input
               value={search}
               onChange={e => onSearch(e.target.value)}
-              placeholder="Search"
-              className="w-24 text-[11.5px] text-ink bg-bg border border-line rounded-lg px-2 py-1.5 outline-none placeholder:text-ink-4"
+              placeholder="Search items"
+              aria-label="Search items"
+              className="ml-auto w-36 min-h-[34px] text-[13px] text-ink bg-bg border border-line rounded-[9px] px-3 outline-none placeholder:text-ink-3"
             />
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b border-line">
-            <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-4">View by</span>
-            <div className="flex items-center gap-0.5 bg-bg border border-line rounded-full p-0.5 shrink-0">
-              {([['urgency', 'STEP'], ['station', 'STATION'], ['category', 'CATEGORY']] as const).map(([k, l]) => (
-                <button key={k} type="button" onClick={() => setSuggBy(k)}
-                  className={`font-mono text-[9px] font-bold uppercase tracking-[0.05em] rounded-full px-2.5 py-1 ${suggBy === k ? 'bg-ink text-paper' : 'text-ink-3'}`}>
-                  {l}
-                </button>
-              ))}
+          <div className="shrink-0 flex flex-wrap items-center gap-1.5 px-3 py-2 bg-bg border-b border-line">
+            <FilterChips filter={filter} onFilter={setFilter} counts={counts} />
+          </div>
+          {smart.toMake > 0 && (
+            <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-line">
+              <button type="button" onClick={handlers.onAddAllToMake} disabled={locked} className={btnCls(locked)}>
+                <Plus size={14} className={locked ? 'text-ink-3' : 'text-gold-2'} /> Add all {smart.toMake} to make
+              </button>
+              <span className="text-[12px] text-ink-3">never adds a flagged par</span>
             </div>
-          </div>
-          <div className="shrink-0 flex flex-wrap gap-1.5 px-3 py-2.5 bg-bg border-b border-line">
-            <button type="button" onClick={handlers.onAddAllCritical} disabled={locked || !urgent} className={btnCls(locked || !urgent)}>
-              <AlertTriangle size={13} className={locked || !urgent ? 'text-ink-4' : 'text-ink-3'} /> Add all critical{urgent ? ` · ${urgent}` : ''}
-            </button>
-            <button type="button" onClick={handlers.onAcceptSuggested} disabled={locked} className={btnCls(locked)}>
-              <Sparkles size={13} className={locked ? 'text-ink-4' : 'text-ink-3'} /> Accept suggested qty
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto px-3 pb-3.5 pt-0.5 min-h-0">
-            {pool.length === 0 && (
-              <div className="py-14 text-center font-mono text-[10.5px] text-ink-4">NO ITEMS MATCH</div>
-            )}
-            <SuggestionList items={pool} hidden={hidden} groupBy={suggBy} stations={stations} cooks={cooks} ord={draftOrd}
-              ctx={ctx} nowMin={nowMin} locked={locked}
-              onOpen={handlers.onOpen} onAdd={handlers.onAdd} onRemove={handlers.onRemove} />
+          )}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <PrepListPane items={items} hidden={hidden} view={view} filter={filter} onFilter={setFilter}
+              ctx={ctx} nowMin={nowMin} ord={draftOrd} locked={locked} canFixPar={smart.canFixPar}
+              showJump idPrefix="d-" handlers={handlers} />
           </div>
         </div>
 
-        {/* ── prep list ── */}
+        {/* ── your list ── */}
         <div className={`${paneCls} ${clean ? '' : '!border-ink'}`}>
-          <div className={`shrink-0 flex flex-wrap items-center gap-2 px-3.5 pt-3 pb-2.5 border-b border-line ${clean ? 'bg-paper' : 'bg-bg'}`}>
-            <span className="w-6 h-6 rounded-[7px] bg-ink grid place-items-center shrink-0"><ChefHat size={13} className="text-gold" /></span>
-            {/* min width so the wrapping header sends the controls to the next
-                row instead of stacking this meta line one word per line */}
+          <div className={`shrink-0 flex flex-wrap items-center gap-2 px-4 pt-3 pb-2.5 border-b border-line ${clean ? 'bg-paper' : 'bg-bg'}`}>
             <div className="flex-1 min-w-[180px]">
               <div className="flex items-center gap-2">
-                <span className="text-[13.5px] font-semibold tracking-[-0.015em] text-ink">Prep list</span>
-                <span className={`font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] px-[7px] py-0.5 rounded-full ${clean ? 'bg-green-soft text-green-text' : 'bg-ink text-paper'}`}>
-                  {post ? (post.dirty ? 'UNPOSTED CHANGES' : 'POSTED') : 'DRAFT'}
+                <span className="text-[15px] font-semibold tracking-[-0.015em] text-ink">Your list</span>
+                <span className={`text-[11.5px] font-semibold px-2 py-0.5 rounded-full ${clean ? 'bg-green-soft text-green-text' : post ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-2'}`}>
+                  {post ? (post.dirty ? 'Not posted' : 'Posted') : 'Draft'}
                 </span>
               </div>
-              <div className="font-mono text-[9px] text-ink-4">
-                {draft.length} ITEMS · {fmtMins(mins).toUpperCase()} HANDS-ON · {openCount} UNASSIGNED{wont ? <span className="text-red-text font-bold">{` · ${wont} WON'T FIT`}</span> : ''}
+              <div className="text-[12px] text-ink-3 mt-0.5">
+                {draft.length} to start · {fmtMins(mins)} hands-on · {openCount ? `${openCount} open` : 'all assigned'}
               </div>
             </div>
-            <div className="flex items-center gap-1 bg-bg border border-line rounded-full p-0.5 shrink-0">
-              {([['urgency', 'STEP'], ['station', 'STATION']] as const).map(([k, l]) => (
-                <button key={k} type="button" onClick={() => setGroupBy(k)}
-                  className={`font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] rounded-full px-2.5 py-1 ${groupBy === k ? 'bg-ink text-paper' : 'text-ink-3'}`}>
-                  {l}
-                </button>
+            <span className="inline-flex shrink-0 border border-line rounded-full bg-paper p-[2px]">
+              {([['urgency', 'By step'], ['cook', 'By cook']] as const).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setGroupBy(k)} aria-pressed={groupBy === k}
+                  className={`min-h-[30px] px-3 rounded-full text-[12.5px] font-semibold ${groupBy === k ? 'bg-ink text-paper' : 'text-ink-3'}`}>{l}</button>
               ))}
-            </div>
-            <div className="relative shrink-0">
-              <button type="button" onClick={() => setAssignPop(v => !v)} disabled={locked} className={btnCls(locked)}>
-                <Users size={13} className={locked ? 'text-ink-4' : 'text-ink-3'} /> Assign a station
+            </span>
+            {resets > 0 && (
+              <button type="button" onClick={handlers.onResetQuantities} disabled={locked} className={btnCls(locked)}>
+                Reset {resets} {resets === 1 ? 'quantity' : 'quantities'} to suggested
               </button>
-              {assignPop && (
-                <Popover onClose={() => setAssignPop(false)} w="w-56">
-                  <div className={popHeadCls}>Give a whole station to</div>
-                  {stations.map(s => {
-                    const c = cooks.find(x => x.homeStation === s)
-                    // Explicit membership only — an any-station item must not follow
-                    // every station's cook in turn.
-                    const n = draft.filter(t => t.stations.includes(s)).length
-                    const dis = !c || !n
-                    return (
-                      <button key={s} type="button" disabled={dis}
-                        onClick={() => { if (c) { handlers.onAssignStation(s, c.id); setAssignPop(false) } }}
-                        className={`${popItemCls(false)} ${dis ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                        {s}
-                        <span className="ml-auto font-mono text-[9.5px] text-ink-4 font-semibold">{n} → {c ? c.initials : '—'}</span>
-                      </button>
-                    )
-                  })}
-                </Popover>
-              )}
-            </div>
-            <button type="button" onClick={handlers.onClearDraft} disabled={locked || !draft.length} className={btnCls(locked || !draft.length)}>Clear</button>
+            )}
+            <button type="button" onClick={() => setConfirmEmpty(true)} disabled={locked || !draft.length} className={btnCls(locked || !draft.length)}>
+              Empty the list…
+            </button>
           </div>
 
-          <LoadStrip draft={draft} cooks={cooks} ctx={ctx} />
+          <GoStrip items={cooking} nowMs={nowMs ?? Date.now()} onOpen={handlers.onOpen} />
 
           <div className="flex-1 overflow-y-auto px-3.5 pb-3.5 pt-0.5 min-h-0">
             {!draft.length && (
-              <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-4">
+              <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-3">
                 <Package size={26} className="text-line-2" />
-                <span className="text-[13px] text-ink-3">Nothing on today&apos;s list yet</span>
-                <span className="font-mono text-[10px]">ADD FROM SUGGESTIONS ON THE LEFT</span>
+                <span className="text-[13.5px] text-ink-2">Nothing to start on your list yet</span>
+                <span className="text-[12.5px]">Add from the prep list on the left</span>
               </div>
             )}
-            {planGroups(draft, groupBy, groupOpts).map(g => (
+            {groups.map(g => (
               <div key={g.key}>
                 <GroupHead g={g} count={g.rows.length} mins={g.rows.reduce((a, t) => a + activeOf(t), 0)} warn={warn === g.key} />
                 <div className="flex flex-col gap-1.5">
                   {g.rows.map(t => (
-                    <DraftRow key={t.id} item={t} cooks={cooks} locked={locked}
-                      ctx={ctx} slot={sched.get(t.id) ?? null} batchMode={isBatchMode(t, batchToggles)}
-                      dragging={drag === t.id} over={over === t.id} showStation={multiStation}
+                    <DraftRow key={t.id} item={t} cooks={cooks} crewIds={smart.crewIds} locked={locked}
+                      ctx={ctx} wont={wontOf(t)} batchMode={isBatchMode(t, batchToggles)}
+                      dragging={drag === t.id} over={over === t.id}
                       onQty={handlers.onQty} onToggleBatch={onToggleBatch} onNote={handlers.onNote} onAssign={handlers.onAssign}
                       onUrgChange={handlers.onPriorityChange} onRemove={handlers.onRemove} onOpen={handlers.onOpen}
                       onDragStart={() => setDrag(t.id)} onDragOver={onDragOverRow(t)} onDrop={onDropRow(t, g.key)}
@@ -289,37 +253,52 @@ export function PlannerDesktop({
           </div>
 
           {/* footer / sign-off */}
-          <div className="shrink-0 border-t border-line px-3.5 py-3 bg-paper">
+          <div className="shrink-0 border-t border-line px-4 py-3 bg-paper">
             {locked ? (
               <div className="flex items-center gap-2 bg-bg border border-line rounded-[11px] px-3 py-2.5">
                 <Lock size={14} className="text-ink-3" />
-                <span className="text-[12.5px] text-ink-2">Cooks claim, start and finish. Adding, removing and moving steps is the chef&apos;s.</span>
+                <span className="text-[12.5px] text-ink-2">Pick a kitchen you can edit to plan and post the list.</span>
               </div>
             ) : clean ? (
               <div className="flex items-center gap-3">
-                <span className="inline-flex items-center gap-2 bg-green-soft text-green-text rounded-[10px] px-3 py-2.5 text-[12.5px] font-semibold">
+                <span className="inline-flex items-center gap-2 bg-green-soft text-green-text rounded-[10px] px-3 py-2.5 text-[13px] font-semibold">
                   <Check size={14} className="text-green" /> Live on To Do
                 </span>
-                <span className="font-mono text-[10px] text-ink-3">
-                  POSTED {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} BY {post!.postedByName.toUpperCase()} · {post!.itemCount} ITEMS · {fmtMins(post!.activeMinutes).toUpperCase()}
+                <span className="text-[12px] text-ink-3">
+                  Posted {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} by {post!.postedByName} · {post!.itemCount} items
                 </span>
                 <span className="flex-1" />
-                <button type="button" onClick={handlers.onRecall} disabled={locked} title={locked ? 'Pick a revenue center you can edit' : undefined} className={btnCls(locked)}>
+                <button type="button" onClick={handlers.onRecall} className={btnCls(false)}>
                   <Undo2 size={13} className="text-ink-3" /> Recall to draft
+                </button>
+              </div>
+            ) : post && !onList.length ? (
+              // An empty list can't be posted — Recall is how the cooks' To Do clears.
+              <div className="flex items-center gap-3">
+                <div className="min-w-0">
+                  <div className="text-[13.5px] font-semibold text-ink">Your list is empty</div>
+                  <div className="text-[12.5px] text-ink-3 mt-0.5">Cooks still see the last posted list — recall it to clear their To Do.</div>
+                </div>
+                <span className="flex-1" />
+                <button type="button" onClick={handlers.onRecall} className={btnCls(false)}>
+                  <Undo2 size={13} className="text-ink-3" /> Recall the To Do
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <div>
-                  <div className="text-[12.5px] font-medium text-ink-2">{post ? 'The kitchen is still on the last posted version' : 'Cooks see nothing until you post'}</div>
-                  <div className="font-mono text-[9.5px] text-ink-4 mt-0.5">
-                    {draft.length} ITEMS · {fmtMins(mins).toUpperCase()} HANDS-ON{openCount ? ` · ${openCount} UNASSIGNED` : ' · ALL ASSIGNED'}
+                <div className="min-w-0">
+                  <div className="text-[13.5px] font-semibold text-ink">
+                    {changeCount > 0 ? `${changeCount} ${changeCount === 1 ? 'change' : 'changes'} not posted` : post ? 'Changes not posted' : 'Cooks see nothing until you post'}
+                  </div>
+                  <div className="text-[12.5px] text-ink-3 mt-0.5 truncate">
+                    {changeNames.length ? changeNames.join(' · ') : `${draft.length} items · ${fmtMins(mins)} hands-on`}
+                    {post ? ' — cooks still see the last posted list' : ''}
                   </div>
                 </div>
                 <span className="flex-1" />
-                <button type="button" onClick={() => setDlg(true)} disabled={locked || !draft.length} title={locked ? 'Pick a revenue center you can edit' : undefined}
-                  className={`inline-flex items-center gap-2 rounded-[11px] px-[18px] py-3 text-[13.5px] font-semibold ${draft.length && !locked ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-4 cursor-not-allowed'}`}>
-                  <Zap size={15} className={draft.length && !locked ? 'text-gold' : 'text-ink-4'} /> {post ? 'Update To Do' : 'Review & post to To Do'}
+                <button type="button" onClick={() => setDlg(true)} disabled={!onList.length}
+                  className={`inline-flex items-center gap-2 rounded-[11px] px-[18px] min-h-[44px] text-[14px] font-semibold shrink-0 ${onList.length ? 'bg-ink text-paper' : 'bg-bg-2 text-ink-3 cursor-not-allowed'}`}>
+                  <Zap size={15} className={onList.length ? 'text-gold' : 'text-ink-3'} /> Review &amp; post
                 </button>
               </div>
             )}
@@ -327,10 +306,31 @@ export function PlannerDesktop({
         </div>
       </div>
 
+      {confirmEmpty && (
+        <ConfirmEmpty count={emptyListIds(onList).length} onCancel={() => setConfirmEmpty(false)}
+          onConfirm={() => { handlers.onEmptyList(); setConfirmEmpty(false) }} />
+      )}
       {dlg && (
-        <PostDialog draft={draft} cooks={cooks} ctx={ctx} reposting={!!post}
+        <PostDialog all={allItems} onList={onList} cooks={cooks} crewIds={smart.crewIds} ctx={ctx} nowMin={nowMin} reposting={!!post}
           onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
+    </div>
+  )
+}
+
+/** Asks once before emptying the list; jobs already cooking stay. Undo follows. */
+export function ConfirmEmpty({ count, onCancel, onConfirm }: { count: number; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <span className="absolute inset-0 bg-[rgba(9,9,11,0.45)]" onClick={onCancel} />
+      <div role="dialog" aria-label="Empty the list" className="relative w-full max-w-[360px] bg-paper rounded-2xl p-5 flex flex-col gap-3">
+        <div className="text-[17px] font-semibold text-ink">Take {count} off the list?</div>
+        <div className="text-[13.5px] text-ink-2 leading-snug">Jobs on the go stay. You can undo this for 10 seconds.</div>
+        <div className="flex gap-2 mt-1">
+          <button type="button" onClick={onConfirm} className="flex-1 min-h-[44px] rounded-[11px] bg-ink text-paper text-[14px] font-semibold">Take them off</button>
+          <button type="button" onClick={onCancel} className="flex-1 min-h-[44px] rounded-[11px] border border-line text-ink-2 text-[14px] font-semibold">Keep</button>
+        </div>
+      </div>
     </div>
   )
 }

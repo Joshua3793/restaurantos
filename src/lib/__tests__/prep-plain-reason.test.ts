@@ -11,7 +11,7 @@ describe('plainReason — the planner card says it in a cook’s words', () => {
     expect(plainReason({ ...base, blockedReason: 'Low stock: Butter Unsalted' })).toBe('Out of stock · low on Butter Unsalted')
   })
   it("won't last", () => {
-    expect(plainReason({ ...base, onHand: 1.5 })).toBe("1.5 kg of 4 kg — won't last service")
+    expect(plainReason({ ...base, onHand: 1.5 })).toBe("1.5 of 4 kg — won't last service")
   })
   it('below par', () => {
     expect(plainReason({ ...base, onHand: 3 })).toBe('Below par by 1 kg')
