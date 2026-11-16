@@ -165,9 +165,10 @@ export function PrepRow({
         </span>
         <span className={`text-[12.5px] mt-0.5 leading-snug ${out ? 'text-red-text font-medium' : 'text-ink-2'}`}>{reason}</span>
       </RowLeft>
-      <span className="flex flex-col items-end font-mono text-[13px] font-semibold text-ink whitespace-nowrap leading-tight">
-        {amt.big}
-        {amt.small && <span className="text-[11px] font-normal text-ink-3 mt-0.5">{amt.small}{longLead ? ' · most that keeps' : ''}</span>}
+      <span className="flex flex-col items-end max-w-[120px] text-right font-mono text-[13px] font-semibold text-ink leading-tight">
+        <span className="whitespace-nowrap">{amt.big}</span>
+        {amt.small && <span className="text-[11px] font-normal text-ink-3 mt-0.5 whitespace-nowrap">{amt.small}</span>}
+        {longLead && <span className="text-[11px] font-normal text-blue-text mt-0.5">most that keeps</span>}
       </span>
       {kind === 'LISTED' ? (
         <button type="button" disabled={locked} onClick={() => onRemove(item)}

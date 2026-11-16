@@ -75,14 +75,14 @@ export function DraftRow({
         {/* the name wraps; it never truncates */}
         <button type="button" onClick={() => onOpen(item)} className="flex-1 min-w-[140px] flex items-center gap-1.5 text-left">
           <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-ink break-words min-w-0">{item.name}</span>
-          {showStation && item.station && <span className="font-mono text-[9px] font-medium uppercase tracking-[0.04em] bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
+          {showStation && item.station && <span className="font-mono text-[11px] font-medium bg-bg-2 text-ink-2 px-1.5 py-0.5 rounded whitespace-nowrap shrink-0">{item.station}</span>}
         </button>
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={onQty} onToggleBatch={onToggleBatch} suggested={sugg} />
         <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => onUrgChange(item.id, step)} />
         <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} crewIds={crewIds} locked={locked} onAssign={id => onAssign(item, id)} />
         <button type="button" disabled={locked} onClick={() => onRemove(item)} title="Take off the list"
           className="w-6 h-6 rounded-[7px] grid place-items-center shrink-0">
-          <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
+          <X size={14} className={locked ? 'text-line-2' : 'text-ink-3'} />
         </button>
       </div>
       {/* ONE plain line: why it is on the list (full evidence in the tooltip and
@@ -91,7 +91,7 @@ export function DraftRow({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 pl-[21px] min-w-0">
         <DraftReason item={item} />
         {overridden && (
-          <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="font-mono text-[10px] font-semibold text-gold-2 shrink-0 hover:underline">
+          <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="text-[12px] font-semibold text-gold-2 shrink-0 hover:underline">
             · suggested {batchMode && nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)} ↺
           </button>
         )}

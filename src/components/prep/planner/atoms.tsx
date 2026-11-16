@@ -44,13 +44,13 @@ export function GroupHead({ g, count, mins, warn }: {
 }) {
   const m = g.urg ? PLAN_URG_META[g.urg] : null
   return (
-    <div className="flex items-center gap-2 mt-3.5 mb-1.5 mx-0.5">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-3.5 mb-1.5 mx-0.5">
       {m && <span className={`w-[7px] h-[7px] rounded-full ${m.dotClass}`} />}
-      <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.05em] text-ink">{g.label}</span>
-      <span className="font-mono text-[9.5px] text-ink-4">· {count}{mins != null ? ` · ${fmtMins(mins)}` : ''}</span>
+      <span className="text-[13px] font-semibold text-ink">{g.label}</span>
+      <span className="text-[12px] text-ink-3">· {count}{mins != null ? ` · ${fmtMins(mins)}` : ''}</span>
       {warn
-        ? <span className="ml-auto font-mono text-[9px] font-bold uppercase bg-red-soft text-red-text px-2 py-0.5 rounded-full whitespace-nowrap">Change the step to move it</span>
-        : <span className="ml-auto font-mono text-[9px] text-ink-4 truncate">{g.sub ?? ''}</span>}
+        ? <span className="ml-auto text-[11.5px] font-semibold bg-red-soft text-red-text px-2 py-0.5 rounded-full whitespace-nowrap">Change the step to move it</span>
+        : <span className="ml-auto text-[12px] text-ink-3">{g.sub ?? ''}</span>}
     </div>
   )
 }
@@ -60,7 +60,7 @@ export function Reason({ item, sm }: { item: PrepItemRich; sm?: boolean }) {
   const overridden = !!item.manualPriorityOverride
   const m = PLAN_URG_META[effectiveUrgency(item)]
   return (
-    <span className={`inline-flex items-center gap-[5px] min-w-0 font-mono ${sm ? 'text-[9px]' : 'text-[9.5px]'} ${overridden ? 'text-gold-2' : 'text-ink-3'} whitespace-nowrap overflow-hidden text-ellipsis`}>
+    <span className={`inline-flex items-center gap-[5px] min-w-0 font-mono ${sm ? 'text-[11px]' : 'text-[11.5px]'} ${overridden ? 'text-gold-2' : 'text-ink-3'} whitespace-nowrap overflow-hidden text-ellipsis`}>
       <span className={`w-[5px] h-[5px] rounded-full shrink-0 ${overridden ? 'bg-gold' : m.dotClass}`} />
       {whyLabel(item)}
     </span>
@@ -98,7 +98,7 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
         <span className={`w-1.5 h-1.5 rounded-full ${m.dotClass} shrink-0`} />
         <span className="flex-1 text-left">
           {STEP_NAME[u]}
-          {dl != null && ctx && <span className="font-mono text-[11px] font-medium opacity-80"> · {deadlineLabel(dl, ctx.shiftStart, fmtClock)}</span>}
+          {dl != null && ctx && <span className="font-mono text-[11px] font-medium"> · {deadlineLabel(dl, ctx.shiftStart, fmtClock)}</span>}
         </span>
         {item.manualPriorityOverride ? <Pencil size={10} className="shrink-0" /> : !locked && <ChevronDown size={10} className="shrink-0" />}
       </button>
@@ -114,10 +114,10 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
                 <span className="flex-1 min-w-0">
                   <span className="flex items-baseline gap-1.5">
                     {km.label}
-                    {dl != null && <span className="font-mono text-[9.5px] font-bold text-ink-3">{fmtDeadline(dl, fmtClock)}</span>}
-                    {k === auto && <span className="ml-auto font-mono text-[9px] font-semibold text-ink-4 uppercase">Smart</span>}
+                    {dl != null && <span className="font-mono text-[11.5px] font-bold text-ink-3">{fmtDeadline(dl, fmtClock)}</span>}
+                    {k === auto && <span className="ml-auto text-[11px] font-semibold text-ink-3">Smart</span>}
                   </span>
-                  <span className="block text-[10.5px] text-ink-4 font-medium mt-0.5 leading-[1.35]">{km.stock}</span>
+                  <span className="flex text-[11.5px] text-ink-3 font-medium mt-0.5 leading-[1.35]">{km.stock}</span>
                 </span>
               </button>
             )
@@ -161,8 +161,9 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
   }
   // sm (mobile) is deliberately narrower — on a 375px screen the batch stepper +
   // urgency dial + assign pill must share one row (wrapping is the fallback).
-  const h = sm ? 'h-8' : 'h-7'
-  const bw = sm ? 'w-6' : 'w-[26px]'
+  // sm = phone: 44 px targets (the row wraps under the name when it must)
+  const h = sm ? 'h-11' : 'h-7'
+  const bw = sm ? 'w-11' : 'w-[26px]'
   const midW = batch ? (sm ? 'min-w-[68px]' : 'min-w-[84px]') : (sm ? 'min-w-[44px]' : 'min-w-[52px]')
   return (
     <div className="inline-flex items-stretch bg-bg-2 border border-line rounded-lg shrink-0 overflow-hidden">
@@ -170,10 +171,10 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
         <Minus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
       </button>
       <span className={`${midW} flex flex-col items-center justify-center leading-[1.05] px-0.5`}>
-        <span className={`font-mono ${batch ? (sm ? 'text-[10.5px]' : 'text-[11.5px]') : 'text-[12px]'} font-bold whitespace-nowrap ${overridden ? 'text-gold-2' : 'text-ink'}`}>
+        <span className={`font-mono ${batch ? (sm ? 'text-[11.5px]' : 'text-[11.5px]') : 'text-[12px]'} font-bold whitespace-nowrap ${overridden ? 'text-gold-2' : 'text-ink'}`}>
           {batch ? `${fmtBatch(val)} batch` : fmtUom(qty, item.unit)}
         </span>
-        {batch && <span className="font-mono text-[8.5px] text-ink-4 whitespace-nowrap">{fmtUom(qty, item.unit)}</span>}
+        {batch && <span className="font-mono text-[11px] text-ink-2 whitespace-nowrap">{fmtUom(qty, item.unit)}</span>}
       </span>
       <button type="button" disabled={locked} onClick={() => nudge(1)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
         <Plus size={12} className={locked ? 'text-ink-4' : 'text-ink-2'} />
@@ -186,7 +187,7 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
           title={batch ? `1 batch = ${fmtUom(yieldPerBatch, item.unit)} · switch to ${item.unit}` : `Count in batches of ${fmtUom(yieldPerBatch, item.unit)}`}
           // Names what a tap switches TO ("kg" while counting batches, "batch"
           // while counting kg) — the old black "×" read as a delete button.
-          className={`border-l border-line ${sm ? 'px-1.5' : 'px-2'} font-mono text-[9px] font-semibold text-ink-3 bg-paper hover:text-ink ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          className={`border-l border-line ${sm ? 'min-w-[44px] px-2' : 'px-2'} font-mono text-[11px] font-semibold text-ink-3 bg-paper hover:text-ink ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
           {batch ? item.unit : 'batch'}
         </button>
@@ -211,8 +212,8 @@ export function AssignPill({ cookId, cooks, crewIds = [], locked, onAssign, sm }
         // Unassigned is a small round button, the same one the To Do uses —
         // "+ ASSIGN" cost a pill's width on every card.
         className={c
-          ? `inline-flex items-center gap-1.5 rounded-full font-mono text-[9.5px] font-bold whitespace-nowrap ${sm ? 'px-2 py-0.5' : 'px-2.5 py-1.5'} bg-ink text-paper border border-ink ${locked ? 'cursor-default' : 'cursor-pointer'}`
-          : `w-[30px] h-[30px] rounded-full grid place-items-center bg-paper text-ink-3 border border-dashed border-line-2 ${locked ? 'cursor-default' : 'cursor-pointer hover:text-ink hover:border-ink-3'}`}
+          ? `inline-flex items-center gap-1.5 rounded-full font-mono text-[11px] font-bold whitespace-nowrap ${sm ? 'px-3 min-h-[44px]' : 'px-2.5 py-1.5'} bg-ink text-paper border border-ink ${locked ? 'cursor-default' : 'cursor-pointer'}`
+          : `${sm ? 'w-11 h-11' : 'w-[30px] h-[30px]'} rounded-full grid place-items-center bg-paper text-ink-3 border border-dashed border-line-2 ${locked ? 'cursor-default' : 'cursor-pointer hover:text-ink hover:border-ink-3'}`}
       >
         {c ? <><span className="w-[5px] h-[5px] rounded-full bg-gold" />{c.initials}</> : <UserPlus size={13} strokeWidth={2.2} />}
       </button>
@@ -246,10 +247,12 @@ export function AssignPill({ cookId, cooks, crewIds = [], locked, onAssign, sm }
 // the chef writes exactly what the cook will see. No note yet: one quiet
 // "Add a note" link instead of an empty input line on every card. Saved on
 // blur (unchanged text is not re-sent); clearing it folds the box away.
-export function NoteField({ item, locked, onNote }: {
+export function NoteField({ item, locked, onNote, sm }: {
   item: PrepItemRich
   locked: boolean
   onNote: (item: PrepItemRich, note: string) => void
+  /** phone: a 44 px "Add a note" target */
+  sm?: boolean
 }) {
   const saved = item.todayLog?.note ?? ''
   const [expanded, setExpanded] = useState(false)
@@ -261,14 +264,14 @@ export function NoteField({ item, locked, onNote }: {
     if (locked) return null
     return (
       <button type="button" onClick={() => setExpanded(true)}
-        className="inline-flex items-center gap-1 mt-1.5 font-mono text-[10px] text-ink-4 hover:text-gold-2">
+        className={`inline-flex items-center gap-1 ${sm ? 'min-h-[44px]' : 'mt-1.5'} text-[12px] text-ink-3 hover:text-gold-2`}>
         <MessageSquareText size={11} /> Add a note for the cook
       </button>
     )
   }
   return (
-    <label className="block mt-2 border-l-2 border-gold rounded-r-[7px] bg-gold/[0.10] pl-3 pr-3 py-[6px] cursor-text">
-      <span className="flex items-center gap-1 font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-gold-2">
+    <label className="flex flex-col mt-2 border-l-2 border-gold rounded-r-[7px] bg-gold/[0.10] pl-3 pr-3 py-[6px] cursor-text">
+      <span className="flex items-center gap-1 text-[11px] font-semibold text-gold-2">
         <MessageSquareText size={10} strokeWidth={2.4} aria-hidden /> Chef&apos;s note
       </span>
       <textarea
@@ -285,7 +288,7 @@ export function NoteField({ item, locked, onNote }: {
           if (!v.trim()) setExpanded(false)
         }}
         placeholder="What should the cook know?"
-        className="block w-full mt-0.5 bg-transparent border-0 outline-none resize-none overflow-hidden text-[13px] font-medium leading-snug text-ink-2 placeholder:text-ink-4 placeholder:font-normal"
+        className="w-full mt-0.5 bg-transparent border-0 outline-none resize-none overflow-hidden text-[13px] font-medium leading-snug text-ink-2 placeholder:text-ink-4 placeholder:font-normal"
       />
     </label>
   )

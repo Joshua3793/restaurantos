@@ -58,7 +58,7 @@ function MobileDraftCard({ item, cooks, crewIds, locked, ctx, wont, batchMode, f
         </button>
         {/* assign rides the name row — the controls row below is full with the
             stepper and the step button on a 375px phone */}
-        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} crewIds={crewIds} locked={locked} onAssign={id => handlers.onAssign(item, id)} />
+        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} crewIds={crewIds} locked={locked} onAssign={id => handlers.onAssign(item, id)} sm />
         <button type="button" disabled={locked} onClick={() => handlers.onRemove(item)}
           aria-label={`Take ${item.name} off the list`}
           className="w-11 h-11 -mr-1 -mt-1 rounded-[9px] grid place-items-center shrink-0">
@@ -68,9 +68,9 @@ function MobileDraftCard({ item, cooks, crewIds, locked, ctx, wont, batchMode, f
       {/* flex-wrap stays as the fallback for very narrow screens */}
       <div className="flex flex-wrap items-center gap-x-[7px] gap-y-1.5 mt-2 pl-[52px]">
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={handlers.onQty} onToggleBatch={onToggleBatch} suggested={suggestedDraftQty(item)} sm />
-        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="" />
+        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="min-h-[44px]" />
       </div>
-      <div className="pl-[52px]"><NoteField item={item} locked={locked} onNote={handlers.onNote} /></div>
+      <div className="pl-[52px]"><NoteField item={item} locked={locked} onNote={handlers.onNote} sm /></div>
     </div>
   )
 }
@@ -283,7 +283,7 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
               <div className="flex-1 min-w-0">
                 <div className="text-[13.5px] font-semibold text-ink">Live on To Do</div>
                 <div className="text-[12px] text-ink-3 truncate">
-                  Posted {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} · {post!.itemCount} items · {fmtMins(mins)}
+                  Posted {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} · {post!.itemCount} items
                 </div>
               </div>
               <button type="button" onClick={handlers.onRecall} className="inline-flex items-center gap-1.5 rounded-[10px] px-3 min-h-[44px] text-[13px] font-semibold border border-line-2 bg-paper text-ink-2">
