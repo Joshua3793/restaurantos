@@ -33,7 +33,7 @@ export function Popover({ children, onClose, w = 'w-48', align = 'right' }: {
 export const popItemCls = (active: boolean) =>
   `flex items-center gap-2 w-full text-left rounded-lg px-2.5 py-2 text-[12.5px] cursor-pointer ${active ? 'bg-bg-2 font-semibold' : 'font-medium'} text-ink-2 hover:bg-bg-2`
 
-export const popHeadCls = 'font-mono text-[9.5px] font-semibold uppercase tracking-[0.05em] text-ink-4 px-2.5 pt-1.5 pb-2'
+export const popHeadCls = 'text-[11.5px] font-semibold text-ink-3 px-2.5 pt-1.5 pb-1.5'
 
 // ─── group heading (urgency / station / category via planGroups) ───────────
 export function GroupHead({ g, count, mins, warn }: {
@@ -196,8 +196,8 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
 }
 
 // ─── assignment control ────────────────────────────────────────────────────
-export function AssignPill({ cookId, cooks, locked, onAssign, sm }: {
-  cookId: string | null; cooks: Cook[]; locked: boolean; onAssign: (id: string | null) => void; sm?: boolean
+export function AssignPill({ cookId, cooks, crewIds = [], locked, onAssign, sm }: {
+  cookId: string | null; cooks: Cook[]; crewIds?: string[]; locked: boolean; onAssign: (id: string | null) => void; sm?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const c = cookId ? cooks.find(x => x.id === cookId) ?? null : null
@@ -218,13 +218,20 @@ export function AssignPill({ cookId, cooks, locked, onAssign, sm }: {
       </button>
       {open && (
         <Popover onClose={() => setOpen(false)}>
-          <div className={popHeadCls}>Assign to</div>
-          {cooks.map(x => (
-            <button key={x.id} type="button" onClick={() => { onAssign(x.id); setOpen(false) }} className={popItemCls(cookId === x.id)}>
-              <span className="font-mono text-[10px] font-bold bg-bg-2 rounded px-1.5 py-0.5">{x.initials}</span>
-              <span className="truncate">{x.name}</span>
-              <span className="ml-auto font-mono text-[9.5px] text-ink-4 font-medium">{x.homeStation ?? ''}</span>
-            </button>
+          {/* Today's crew first ("Who's on today"), then everyone else. */}
+          {[
+            { head: crewIds.length ? 'On today' : 'Assign to', list: cooks.filter(x => crewIds.includes(x.id)).sort((a, b) => crewIds.indexOf(a.id) - crewIds.indexOf(b.id)) },
+            { head: crewIds.length ? 'Everyone else' : null, list: cooks.filter(x => !crewIds.includes(x.id)) },
+          ].filter(g => g.list.length).map(g => (
+            <div key={g.head ?? 'all'}>
+              {g.head && <div className={popHeadCls}>{g.head}</div>}
+              {g.list.map(x => (
+                <button key={x.id} type="button" onClick={() => { onAssign(x.id); setOpen(false) }} className={popItemCls(cookId === x.id)}>
+                  <span className="font-mono text-[11px] font-bold bg-bg-2 rounded px-1.5 py-0.5">{x.initials}</span>
+                  <span className="truncate">{x.name}</span>
+                </button>
+              ))}
+            </div>
           ))}
           {cooks.length === 0 && <div className="px-2.5 py-2 text-[12px] text-ink-3">No crew yet — add cooks in Setup.</div>}
           {cookId && <button type="button" onClick={() => { onAssign(null); setOpen(false) }} className={`${popItemCls(false)} !text-ink-3`}>Leave open</button>}

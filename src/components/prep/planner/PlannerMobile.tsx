@@ -47,7 +47,7 @@ function MobileDraftCard({ item, cooks, locked, ctx, slot, batchMode, first, las
             lives on the step button, the schedule only speaks when it won't fit */}
         <button type="button" onClick={() => handlers.onOpen(item)} className="flex-1 min-w-0 text-left">
           <span className="block text-[14px] font-semibold tracking-[-0.01em] text-ink break-words">{item.name}</span>
-          <span className="block mt-0.5"><DraftReason item={item} /> <WontFit slot={slot} /></span>
+          <span className="block mt-0.5"><DraftReason item={item} /> <WontFit text={null} /></span>
         </button>
         {/* assign rides the name row — the controls row below is full with the
             stepper and the step button on a 375px phone */}

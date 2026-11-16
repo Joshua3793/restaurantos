@@ -8,24 +8,26 @@ import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import {
   PLAN_URG_META, effectiveUrgency, suggestedDraftQty, draftQty,
-  suggestedBatches, batchesToQty, fmtBatch, fmtDeadline, plainReason, whyLabel,
-  type PlanDayContext, type PlanSlot,
+  suggestedBatches, batchesToQty, fmtBatch, plainReason, whyLabel,
+  type PlanDayContext,
 } from '@/lib/prep-plan'
-import { fmtClock } from '@/lib/prep-runsheet'
 import { UrgPicker, AssignPill, QtyStepper, NoteField } from './atoms'
 
 const fmtQ = fmtAmount
 
 export function DraftRow({
-  item, cooks, locked, ctx, slot, batchMode, dragging, over, showStation = false,
+  item, cooks, crewIds, locked, ctx, wont, batchMode, dragging, over, showStation = false,
   onQty, onToggleBatch, onNote, onAssign, onUrgChange, onRemove, onOpen,
   onDragStart, onDragOver, onDrop, onDragEnd,
 }: {
   item: PrepItemRich
   cooks: Cook[]
+  /** today's crew — listed first when assigning */
+  crewIds: string[]
   locked: boolean
   ctx: PlanDayContext | null
-  slot: PlanSlot | null
+  /** "won't be ready by 15:00 — 1 h 20 min over with 2 cooks", or null */
+  wont: string | null
   batchMode: boolean
   dragging: boolean
   over: boolean
@@ -77,7 +79,7 @@ export function DraftRow({
         </button>
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={onQty} onToggleBatch={onToggleBatch} suggested={sugg} />
         <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => onUrgChange(item.id, step)} />
-        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} locked={locked} onAssign={id => onAssign(item, id)} />
+        <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} crewIds={crewIds} locked={locked} onAssign={id => onAssign(item, id)} />
         <button type="button" disabled={locked} onClick={() => onRemove(item)} title="Take off the list"
           className="w-6 h-6 rounded-[7px] grid place-items-center shrink-0">
           <X size={13} className={locked ? 'text-line-2' : 'text-ink-4'} />
@@ -93,7 +95,7 @@ export function DraftRow({
             · suggested {batchMode && nb ? `${fmtBatch(nb)} batch` : fmtQ(sugg, item.unit)} ↺
           </button>
         )}
-        <WontFit slot={slot} />
+        <WontFit text={wont} />
       </div>
       <div className="pl-[21px]">
         <NoteField item={item} locked={locked} onNote={onNote} />
@@ -113,11 +115,7 @@ export function DraftReason({ item }: { item: PrepItemRich }) {
 }
 
 /** The schedule, said only when it matters: the job won't fit before its deadline. */
-export function WontFit({ slot }: { slot: PlanSlot | null }) {
-  if (!slot || slot.fits) return null
-  return (
-    <span className="font-mono text-[10px] font-semibold text-red-text whitespace-nowrap">
-      · won&apos;t fit — {slot.over}m past {fmtDeadline(slot.deadline, fmtClock)}
-    </span>
-  )
+export function WontFit({ text }: { text: string | null }) {
+  if (!text) return null
+  return <span className="text-[12px] font-semibold text-red-text">· {text}</span>
 }

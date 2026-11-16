@@ -6,9 +6,10 @@
 import { useState } from 'react'
 import { EyeOff, ChevronDown, ChevronUp } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
-import { SuggestionRow } from './SuggestionRow'
+import { PrepRow } from './PrepRow'
 
 const noop = () => {}
+const noFix = async () => false
 
 export function HiddenGroup({ hidden, locked, onOpen }: {
   hidden: PrepItemRich[]
@@ -29,9 +30,10 @@ export function HiddenGroup({ hidden, locked, onOpen }: {
           <p className="mx-0.5 mb-2 text-[11px] leading-snug text-ink-4">
             Recipes kept off the prep list. The recipe itself is untouched — open one and switch it back on to see it in the suggestions.
           </p>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col border-b border-line">
             {[...hidden].sort((a, b) => a.name.localeCompare(b.name)).map(t => (
-              <SuggestionRow key={t.id} item={t} locked={locked} onOpen={onOpen} onAdd={noop} onRemove={noop} />
+              <PrepRow key={t.id} item={t} kind="ATPAR" ctx={null} nowMin={0} locked={locked} canFixPar={false}
+                onOpen={onOpen} onAdd={noop} onRemove={noop} onFixPar={noFix} />
             ))}
           </div>
         </>
