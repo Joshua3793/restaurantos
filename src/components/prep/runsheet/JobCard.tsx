@@ -104,7 +104,7 @@ export function cardView(row: GoRow<PrepItemRich>, nowMs: number): CardView {
     return {
       clock: fmtMins(elapsed),
       clockSub: cur.minutes > 0 ? (over ? `over by ${fmtMins(elapsed - cur.minutes)}` : `of ${fmtMins(cur.minutes)}`) : 'on this step',
-      clockCls: 'text-ink', subCls: over ? 'text-red-text font-semibold' : 'text-ink-3',
+      clockCls: 'text-ink', subCls: over ? 'text-red-text font-semibold' : 'text-gold-2',
       stepLabel: `Step ${cur.number} of ${stepCount(seq)}${cur.phase ? ` · ${cur.phase}` : ''}`,
       stepText: cur.text,
       action: action.kind === 'log' ? logAction : action,
@@ -116,7 +116,7 @@ export function cardView(row: GoRow<PrepItemRich>, nowMs: number): CardView {
   return {
     clock: fmtMins(elapsed),
     clockSub: budget > 0 ? (over ? `over by ${fmtMins(elapsed - budget)}` : `of ${fmtMins(budget)}`) : 'started',
-    clockCls: 'text-ink', subCls: over ? 'text-red-text font-semibold' : 'text-ink-3',
+    clockCls: 'text-ink', subCls: over ? 'text-red-text font-semibold' : 'text-gold-2',
     stepLabel: null, stepText: null, action: logAction, qtyLine,
   }
 }
@@ -143,10 +143,12 @@ export function menuEntries(p: JobCardProps): JobMenuEntry[] {
   return out
 }
 
+// The card's colour says what the job is doing at a glance:
+// gold = someone is working on it · light blue = waiting · green = the wait is over.
 const cardSurface = (row: GoRow<PrepItemRich>) =>
-  row.state === 'ready' ? 'bg-paper border-green ring-1 ring-green'
-  : row.state === 'waiting' ? 'bg-bg border-line'
-  : 'bg-paper border-line'
+  row.state === 'ready' ? 'bg-green-soft border-green ring-1 ring-green'
+  : row.state === 'waiting' ? 'bg-blue-soft border-[#93c5fd]'
+  : 'bg-gold-soft border-[#fcd34d]'
 
 // ── desktop / iPad ───────────────────────────────────────────────────────────
 export function JobCard(props: JobCardProps & { cooks: Cook[]; onClaim: (item: PrepItemRich, cookId: string | null) => void }) {
@@ -171,12 +173,12 @@ export function JobCard(props: JobCardProps & { cooks: Cook[]; onClaim: (item: P
           >
             {item.name}
           </span>
-          <span className="font-mono text-[11px] text-ink-3">{v.qtyLine}</span>
+          <span className="font-mono text-[11px] text-ink-2">{v.qtyLine}</span>
           {showStation && item.station && <StationTag>{item.station}</StationTag>}
         </div>
         {v.stepLabel && (
           <div className="text-[13.5px] text-ink-2 mt-1 leading-snug">
-            <span className="font-mono text-[10.5px] font-medium uppercase text-ink-3 mr-1.5">{v.stepLabel}</span>
+            <span className="font-mono text-[10.5px] font-semibold uppercase text-ink-2 mr-1.5">{v.stepLabel}</span>
             {v.stepText}
           </div>
         )}
@@ -214,7 +216,7 @@ export function JobCardMobile(props: JobCardProps & { onClaim?: (item: PrepItemR
       <div className="flex items-start gap-2.5">
         <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
           <div className="text-[15px] font-semibold tracking-[-0.015em] leading-tight break-words">{item.name}</div>
-          <div className="flex items-center gap-2 flex-wrap font-mono text-[10px] text-ink-3 mt-1">
+          <div className="flex items-center gap-2 flex-wrap font-mono text-[10.5px] text-ink-2 mt-1">
             <span>{v.qtyLine}</span>
             {showStation && item.station && <span>{item.station}</span>}
             <span onClick={e => e.stopPropagation()}>
@@ -230,7 +232,7 @@ export function JobCardMobile(props: JobCardProps & { onClaim?: (item: PrepItemR
       </div>
       {v.stepLabel && (
         <div className="text-[13px] text-ink-2 mt-2 leading-snug">
-          <span className="font-mono text-[10px] font-medium uppercase text-ink-3 mr-1.5">{v.stepLabel}</span>
+          <span className="font-mono text-[10.5px] font-semibold uppercase text-ink-2 mr-1.5">{v.stepLabel}</span>
           {v.stepText}
         </div>
       )}

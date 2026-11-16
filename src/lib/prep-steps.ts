@@ -14,7 +14,6 @@
 // Design: docs/superpowers/specs/2026-11-16-prep-todo-step-flow-design.md
 import { chainBlocks, methodToChain, type MethodStep } from './recipe-method'
 import { appendStageEvent, restState, type RestState, type StageEvent } from './prep-stages'
-import { fmtMins } from './prep-runsheet'
 
 interface ItemBase {
   /** The step's own key (STEP) or `${stepKey}:wait` (WAIT). */
@@ -108,7 +107,15 @@ export function waitClock(item: CookItem & { kind: 'WAIT' }, log: CursorLog, now
 export type NextKind = 'work' | 'wait' | 'held' | 'ready' | 'log'
 export interface NextAction { kind: NextKind; to: number | null; label: string; sub: string }
 
-const handsOnSub = (m: number) => (m > 0 ? `Hands-on · ${fmtMins(m)}` : 'Hands-on')
+/** Button wording, spelled out so it reads at a glance: "5 min", "2 h 45 min". */
+export function fmtDur(min: number): string {
+  const m = Math.max(0, Math.round(min))
+  const h = Math.floor(m / 60), r = m % 60
+  if (!h) return `${m} min`
+  return r ? `${h} h ${r} min` : `${h} h`
+}
+
+const handsOnSub = (m: number) => (m > 0 ? `Hands-on · ${fmtDur(m)}` : 'Hands-on')
 
 export function nextAction(seq: CookItem[], pos: number, clock: WaitClock | null): NextAction {
   const cur = seq[pos]
@@ -116,10 +123,10 @@ export function nextAction(seq: CookItem[], pos: number, clock: WaitClock | null
   if (!cur || !nxt) return { kind: 'log', to: null, label: 'Log yield', sub: '' }
   // A wait is only "ready" on a clock that has run out — no clock reads as resting.
   if (cur.kind === 'WAIT' && (!clock || clock.state === 'resting')) {
-    return { kind: 'held', to: pos + 1, label: clock ? `Resting · ${fmtMins(clock.leftMin)} left` : 'Resting', sub: 'Ready early? Open to move on' }
+    return { kind: 'held', to: pos + 1, label: clock ? `Resting · ${fmtDur(clock.leftMin)} left` : 'Resting', sub: 'Ready early? Open to move on' }
   }
   if (nxt.kind === 'WAIT') {
-    return { kind: 'wait', to: pos + 1, label: `Start wait: ${nxt.phase ?? 'Wait'}`, sub: fmtMins(nxt.minutes) }
+    return { kind: 'wait', to: pos + 1, label: `Start wait: ${nxt.phase ?? 'Wait'}`, sub: `${fmtDur(nxt.minutes)} wait` }
   }
   const label = nxt.phase === cur.phase ? 'Next step' : `Next: ${nxt.phase ?? 'next step'}`
   return { kind: cur.kind === 'WAIT' ? 'ready' : 'work', to: pos + 1, label, sub: handsOnSub(nxt.minutes) }

@@ -9,6 +9,8 @@
 //   work  = solid ink, gold square   · wait  = white, dashed blue, capsule
 //   held  = grey (resting)           · ready = solid green · log = ink, green dot
 // Button text always wraps — a fixed-width phone button must never clip it.
+// Never use the `block` class here: prep-board.css styles `.pb .block` as a white
+// card, and these parts render inside the prep page's `.pb` scope.
 import { useEffect, useRef, useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 import type { CookItem, NextAction } from '@/lib/prep-steps'
@@ -61,19 +63,22 @@ export function StepTrack({
 }
 
 // ─── NextButton ──────────────────────────────────────────────────────────
+// Every label and its sub line must read at a glance on its own ground (≥ 4.5:1):
+// ready uses the DARK green so white text holds up; sub lines are near-white on
+// ink and on green, never a pale tint.
 const KIND_CLS: Record<NextAction['kind'], string> = {
   work: 'bg-ink text-paper border-ink',
   wait: 'bg-paper text-blue-text border-blue border-dashed',
-  held: 'bg-bg-2 text-ink-3 border-bg-2',
-  ready: 'bg-green text-paper border-green',
+  held: 'bg-paper text-ink-2 border-line-2 border-dashed',
+  ready: 'bg-green-text text-paper border-green-text',
   log: 'bg-ink text-paper border-ink',
 }
 const SUB_CLS: Record<NextAction['kind'], string> = {
-  work: 'text-ink-4',
+  work: 'text-line-2',
   wait: 'text-blue-text',
-  held: 'text-ink-3',
-  ready: 'text-green-soft',
-  log: 'text-ink-4',
+  held: 'text-ink-2',
+  ready: 'text-paper',
+  log: 'text-line-2',
 }
 
 function Glyph({ kind }: { kind: NextAction['kind'] }) {
@@ -109,14 +114,14 @@ export function NextButton({
       onClick={onClick}
       disabled={disabled}
       className={`inline-flex items-center gap-2.5 border-[1.5px] font-semibold tracking-[-0.01em] text-left cursor-pointer max-w-full disabled:opacity-50 disabled:cursor-not-allowed ${
-        big ? 'w-full min-h-[54px] rounded-[12px] px-4 py-2.5 text-[15px] justify-center' : 'min-h-[44px] rounded-[9px] pl-3 pr-3.5 py-2 text-[13px]'
+        big ? 'w-full min-h-[56px] rounded-[12px] px-4 py-2.5 text-[15.5px] justify-center' : 'min-h-[48px] rounded-[10px] pl-3 pr-4 py-2 text-[14px]'
       } ${KIND_CLS[action.kind]}`}
     >
       <Glyph kind={action.kind} />
-      <span className="min-w-0 break-words">
+      <span className="min-w-0 break-words leading-tight">
         {label ?? action.label}
         {subText && (
-          <span className={`block font-mono font-medium uppercase tracking-[0.02em] mt-px ${big ? 'text-[10px]' : 'text-[9.5px]'} ${SUB_CLS[action.kind]}`}>
+          <span className={`flex font-medium tracking-normal mt-0.5 ${big ? 'text-[13px]' : 'text-[12px]'} ${SUB_CLS[action.kind]}`}>
             {subText}
           </span>
         )}
@@ -171,10 +176,10 @@ export function JobMenu({ entries, size = 36 }: { entries: JobMenuEntry[]; size?
               key={e.label}
               type="button"
               onClick={() => { setOpen(false); e.onClick() }}
-              className={`block w-full text-left px-3.5 py-[11px] border-b border-line last:border-b-0 hover:bg-bg cursor-pointer ${e.danger ? 'text-red-text' : 'text-ink'}`}
+              className={`flex flex-col w-full text-left px-3.5 py-[11px] border-b border-line last:border-b-0 hover:bg-bg cursor-pointer ${e.danger ? 'text-red-text' : 'text-ink'}`}
             >
-              <span className="block text-[13px] font-semibold">{e.label}</span>
-              {e.sub && <span className="block font-mono text-[10px] text-ink-3 mt-0.5">{e.sub}</span>}
+              <span className="text-[13px] font-semibold">{e.label}</span>
+              {e.sub && <span className="font-mono text-[10px] text-ink-3 mt-0.5">{e.sub}</span>}
             </button>
           ))}
         </div>

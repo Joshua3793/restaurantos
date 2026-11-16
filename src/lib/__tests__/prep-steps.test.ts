@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cookSequence, cursorOf, waitClock, nextAction, stepMoveFields, applyStepToItem, checkStepMove, moveTime, type CookItem } from '../prep-steps'
+import { cookSequence, cursorOf, waitClock, nextAction, stepMoveFields, applyStepToItem, checkStepMove, moveTime, fmtDur, type CookItem } from '../prep-steps'
 import type { MethodStep } from '../recipe-method'
 
 // First six steps of the real Sourdough Bread method.
@@ -101,21 +101,21 @@ describe('waitClock — the wait timer', () => {
 describe('nextAction — what the Next button says', () => {
   const s = seq()
   it('same phase → Next step', () => {
-    expect(nextAction(s, 2, null)).toEqual({ kind: 'work', to: 3, label: 'Next step', sub: 'Hands-on · 5m' })
+    expect(nextAction(s, 2, null)).toEqual({ kind: 'work', to: 3, label: 'Next step', sub: 'Hands-on · 5 min' })
   })
   it('new phase → Next: <phase>', () => {
-    expect(nextAction(s, 4, null)).toMatchObject({ kind: 'work', label: 'Next: Bulk Ferment', sub: 'Hands-on · 2m' })
+    expect(nextAction(s, 4, null)).toMatchObject({ kind: 'work', label: 'Next: Bulk Ferment', sub: 'Hands-on · 2 min' })
   })
   it('next is a wait → Start wait', () => {
-    expect(nextAction(s, 5, null)).toEqual({ kind: 'wait', to: 6, label: 'Start wait: Bulk Ferment', sub: '30m' })
+    expect(nextAction(s, 5, null)).toEqual({ kind: 'wait', to: 6, label: 'Start wait: Bulk Ferment', sub: '30 min wait' })
   })
   it('in a wait, still resting → held', () => {
     const clock = waitClock(waitItem(s, 's5:wait'), { stepEnteredAt: iso(0) }, at(12))
-    expect(nextAction(s, 6, clock)).toEqual({ kind: 'held', to: 7, label: 'Resting · 18m left', sub: 'Ready early? Open to move on' })
+    expect(nextAction(s, 6, clock)).toEqual({ kind: 'held', to: 7, label: 'Resting · 18 min left', sub: 'Ready early? Open to move on' })
   })
   it('in a wait, timer out → ready', () => {
     const clock = waitClock(waitItem(s, 's5:wait'), { stepEnteredAt: iso(0) }, at(40))
-    expect(nextAction(s, 6, clock)).toEqual({ kind: 'ready', to: 7, label: 'Next step', sub: 'Hands-on · 1m' })
+    expect(nextAction(s, 6, clock)).toEqual({ kind: 'ready', to: 7, label: 'Next step', sub: 'Hands-on · 1 min' })
   })
   it('last step → Log yield', () => {
     expect(nextAction(s, 7, null)).toMatchObject({ kind: 'log', to: null, label: 'Log yield' })
@@ -208,5 +208,14 @@ describe('moveTime — an offline tap keeps the time it was tapped', () => {
   })
   it('now when there is no tap time', () => {
     expect(moveTime(iso(5), undefined, null)).toBe(iso(5))
+  })
+})
+
+describe('fmtDur — button wording a cook can read at a glance', () => {
+  it('spells minutes and hours out', () => {
+    expect(fmtDur(5)).toBe('5 min')
+    expect(fmtDur(60)).toBe('1 h')
+    expect(fmtDur(165)).toBe('2 h 45 min')
+    expect(fmtDur(960)).toBe('16 h')
   })
 })

@@ -68,7 +68,7 @@ export function CookModeBlock({ state, nowMs }: { state: CookState; nowMs: numbe
       </div>
 
       {cur.kind === 'STEP' && (
-        <div className="bg-paper border-[1.5px] border-ink rounded-[14px] px-4 py-4 flex flex-col gap-3">
+        <div className="bg-gold-soft border-[1.5px] border-gold rounded-[14px] px-4 py-4 flex flex-col gap-3">
           <div className="flex justify-between items-center gap-3">
             <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase font-medium bg-ink text-paper px-2.5 py-[3px] rounded-full">
               <span className="w-2 h-2 rounded-[2px] bg-gold" /> Now · hands-on
