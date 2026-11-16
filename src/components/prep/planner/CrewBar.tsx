@@ -8,7 +8,7 @@ import type { Cook } from '@/components/prep/runsheet/assignee'
 import type { PlanDayContext } from '@/lib/prep-plan'
 import { fmtClock } from '@/lib/prep-runsheet'
 import { fmtDur } from '@/lib/prep-steps'
-import type { CrewCapacity } from '@/lib/prep-smart'
+import { deadlineInWords, type CrewCapacity } from '@/lib/prep-smart'
 
 const VISIBLE = 6
 
@@ -25,7 +25,7 @@ function Chip({ cook, on, locked, onToggle, compact }: { cook: Cook; on: boolean
 export function capacityText(cap: CrewCapacity | null, ctx: PlanDayContext | null): { text: string; tone: 'ok' | 'bad' | 'none' } {
   if (!ctx) return { text: 'No service today — timing not checked', tone: 'none' }
   if (!cap) return { text: 'Tick who’s on to check timing', tone: 'none' }
-  const head = `${fmtDur(cap.hands)} of hands until ${fmtClock(ctx.close % 1440)} · list needs ${fmtDur(cap.needs)}`
+  const head = `${fmtDur(cap.hands)} of hands until ${deadlineInWords(ctx.close, fmtClock)} · list needs ${fmtDur(cap.needs)}`
   return cap.fits
     ? { text: `${head} — fits`, tone: 'ok' }
     : { text: `${head} — ${fmtDur(cap.needs - cap.hands)} short`, tone: 'bad' }

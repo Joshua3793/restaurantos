@@ -6,13 +6,13 @@ import { Check } from 'lucide-react'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import {
-  effectiveUrgency, urgencyDeadline, fmtDeadline, deadlineLabel, draftQty, batchYield, batchCount,
+  effectiveUrgency, urgencyDeadline, fmtDeadline, draftQty, batchYield, batchCount,
   draftListOrder as draftOrd,
   type PlanDayContext,
 } from '@/lib/prep-plan'
 import { fmtClock } from '@/lib/prep-runsheet'
 import { fmtAmount } from '@/lib/prep-amount'
-import { planChanges, crewCapacity, crewSchedule, parFlag } from '@/lib/prep-smart'
+import { planChanges, crewCapacity, crewSchedule, parFlag, deadlineInWords } from '@/lib/prep-smart'
 import { capacityText } from './CrewBar'
 import { batchWords } from './PrepRow'
 
@@ -62,7 +62,9 @@ export function PostDialog({ all, onList, cooks, crewIds, ctx, nowMin, reposting
   const cookName = (id: string | null | undefined) => (id ? cooks.find(c => c.id === id)?.name.split(' ')[0] ?? 'a cook' : 'open')
   const when = (t: PrepItemRich) => {
     const step = STEP_WORD[effectiveUrgency(t)]
-    return ctx ? `${step}, ${deadlineLabel(urgencyDeadline(effectiveUrgency(t), ctx), nowMin, fmtClock).toLowerCase()}` : step
+    if (!ctx) return step
+    const dl = urgencyDeadline(effectiveUrgency(t), ctx)
+    return dl <= nowMin ? `${step}, now` : `${step}, ${deadlineInWords(dl, fmtClock)}`
   }
   const unchangedNames = onList.filter(t => !t.pipeline && t.todayLog?.postedAt).map(t => t.name)
 
@@ -116,9 +118,10 @@ export function PostDialog({ all, onList, cooks, crewIds, ctx, nowMin, reposting
 
           <section className="flex flex-col gap-2">
             <div className="text-[12px] font-semibold text-ink-3">Before you post</div>
-            <div className={`rounded-[10px] px-3 py-2.5 text-[13px] leading-snug ${capText.tone === 'ok' ? 'bg-green-soft text-green-text' : capText.tone === 'bad' ? 'bg-red-soft text-red-text' : 'bg-bg-2 text-ink-2'}`}>
+            {/* Enough hands overall but some jobs late is NOT green: say both. */}
+            <div className={`rounded-[10px] px-3 py-2.5 text-[13px] leading-snug ${capText.tone === 'bad' ? 'bg-red-soft text-red-text' : capText.tone === 'ok' && wont.length ? 'bg-gold-soft text-gold-2' : capText.tone === 'ok' ? 'bg-green-soft text-green-text' : 'bg-bg-2 text-ink-2'}`}>
               {cap
-                ? <><b>{cap.fits ? 'Fits' : 'Short of hands'}</b> with {crewIds.length} {crewIds.length === 1 ? 'cook' : 'cooks'} — {capText.text}</>
+                ? <><b>{!cap.fits ? 'Short of hands' : wont.length ? 'Enough hands overall' : 'Fits'}</b> with {crewIds.length} {crewIds.length === 1 ? 'cook' : 'cooks'} — {capText.text}</>
                 : capText.text}
               {wont.length > 0 && <div className="mt-1"><b>{wont.length}</b> {wont.length === 1 ? 'job won’t' : 'jobs won’t'} be ready in time: {wont.map(t => t.name).join(', ')}</div>}
             </div>

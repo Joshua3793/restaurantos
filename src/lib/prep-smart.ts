@@ -7,7 +7,7 @@
 // Components render what this returns; nothing here touches React or the network.
 
 import {
-  batchYield, suggestedDraftQty, mustStartToday, effectiveUrgency, slotInputs, deadlineLabel,
+  batchYield, suggestedDraftQty, mustStartToday, effectiveUrgency, slotInputs, fmtDeadlineWords,
   type BatchFields, type TimedFields, type PlanDayContext, type PlanSlot,
 } from './prep-plan'
 import { fmtDur } from './prep-steps'
@@ -185,8 +185,13 @@ export function crewSchedule<T extends SmartItem>(
 }
 
 /** "won't be ready by 15:00 — 1 h 20 min over with 2 cooks" */
+/** "15:00" today, "tomorrow 11:00" after that — words in a sentence, never "TMRW". */
+export function deadlineInWords(m: number, fmtClock: (min: number) => string): string {
+  return m < 1440 ? fmtClock(m) : fmtDeadlineWords(m, fmtClock)
+}
+
 export function wontFitText(slot: PlanSlot, crewSize: number, fmtClock: (min: number) => string): string {
-  return `won't be ready by ${deadlineLabel(slot.deadline, -Infinity, fmtClock)} — ${fmtDur(slot.over)} over with ${crewSize} ${crewSize === 1 ? 'cook' : 'cooks'}`
+  return `won't be ready by ${deadlineInWords(slot.deadline, fmtClock)} — ${fmtDur(slot.over)} over with ${crewSize} ${crewSize === 1 ? 'cook' : 'cooks'}`
 }
 
 // ─── your list: by cook, and what changes on posting ────────────────────────

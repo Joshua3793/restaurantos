@@ -209,3 +209,11 @@ describe('review fixes', () => {
     expect(fmtAmountOf(0.04, 0.4, 'kg')).toBe('0.04 of 0.4 kg')
   })
 })
+
+describe('live-test wording', () => {
+  const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  it('a deadline tomorrow is said in words, not "TMRW"', () => {
+    expect(wontFitText({ start: 0, end: 0, deadline: 1440 + 660, fits: false, over: 30 }, 2, clock))
+      .toBe("won't be ready by tomorrow 11:00 — 30 min over with 2 cooks")
+  })
+})
