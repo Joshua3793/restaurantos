@@ -4,7 +4,7 @@
 // per-item handlers, so offline queueing and error reverts keep working.
 
 import { defaultDraftQty, longLeadQty, mustStartToday, type PlanDayContext } from './prep-plan'
-import { isToMake, type SmartItem } from './prep-smart'
+import { isToMake, parFlag, type SmartItem } from './prep-smart'
 
 type DraftLog = { requiredQty?: number | string | null; note?: string | null; assignedTo?: string | null; listOrder?: number | null } | null | undefined
 export type BulkItem = SmartItem & { todayLog?: DraftLog }
@@ -70,7 +70,8 @@ export function restorePlan(current: BulkItem[], snap: DraftSnapshot[]): {
 export function resetTargets(draft: BulkItem[], ctx: PlanDayContext | null, nowMin: number): Array<{ id: string; from: number; to: number }> {
   const out: Array<{ id: string; from: number; to: number }> = []
   for (const t of draft) {
-    if (!t.isOnList || t.pipeline) continue
+    // A wrong par's "suggestion" (Kimchi: 376 batches) is never written.
+    if (!t.isOnList || t.pipeline || parFlag(t) !== null) continue
     const to = mustStartToday(t, ctx, nowMin) ? longLeadQty(t) : defaultDraftQty(t)
     if (!(to > 0)) continue
     const set = qtyOf(t.todayLog)

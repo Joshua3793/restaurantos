@@ -272,6 +272,18 @@ export function PlannerDesktop({
                   <Undo2 size={13} className="text-ink-3" /> Recall to draft
                 </button>
               </div>
+            ) : post && !onList.length ? (
+              // An empty list can't be posted — Recall is how the cooks' To Do clears.
+              <div className="flex items-center gap-3">
+                <div className="min-w-0">
+                  <div className="text-[13.5px] font-semibold text-ink">Your list is empty</div>
+                  <div className="text-[12.5px] text-ink-3 mt-0.5">Cooks still see the last posted list — recall it to clear their To Do.</div>
+                </div>
+                <span className="flex-1" />
+                <button type="button" onClick={handlers.onRecall} className={btnCls(false)}>
+                  <Undo2 size={13} className="text-ink-3" /> Recall the To Do
+                </button>
+              </div>
             ) : (
               <div className="flex items-center gap-3">
                 <div className="min-w-0">

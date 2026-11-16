@@ -71,7 +71,8 @@ export function PostDialog({ all, onList, cooks, crewIds, ctx, nowMin, reposting
   const sched = crewSchedule(onList, crewIds.length, ctx, nowMin, draftOrd)
   const wont = onList.filter(t => sched.get(t.id) && !sched.get(t.id)!.fits)
   const open = onList.filter(t => !t.pipeline && !t.todayLog?.assignedTo).length
-  const wrong = all.filter(t => t.prepEnabled !== false && !t.pipeline && parFlag(t) === 'WRONG')
+  const wrong = all.filter(t => t.prepEnabled !== false && !t.pipeline && !t.isOnList && parFlag(t) === 'WRONG')
+  const wrongListed = onList.filter(t => !t.pipeline && parFlag(t) === 'WRONG')
 
   const label = !reposting
     ? `Post ${onList.length} ${onList.length === 1 ? 'item' : 'items'}`
@@ -129,6 +130,11 @@ export function PostDialog({ all, onList, cooks, crewIds, ctx, nowMin, reposting
             {wrong.length > 0 && (
               <div className="rounded-[10px] px-3 py-2.5 text-[13px] leading-snug bg-red-soft text-red-text">
                 <b>{wrong.length} {wrong.length === 1 ? 'par looks' : 'pars look'} wrong</b> ({wrong.map(t => t.name).join(', ')}) — {wrong.length === 1 ? 'it stays' : 'they stay'} off the list until fixed.
+              </div>
+            )}
+            {wrongListed.length > 0 && (
+              <div className="rounded-[10px] px-3 py-2.5 text-[13px] leading-snug bg-red-soft text-red-text">
+                <b>{wrongListed.map(t => t.name).join(', ')}</b> {wrongListed.length === 1 ? 'is' : 'are'} on your list with a par that looks wrong — check the amount before posting.
               </div>
             )}
             <div className="text-[12.5px] text-ink-3">Quantity and note changes already show on the To Do.</div>

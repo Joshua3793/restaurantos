@@ -82,7 +82,7 @@ import { fmtAmount, fmtAmountOf, stepOnGrid, onGrid } from '../prep-smart'
 describe('fmtAmount — amounts a cook can read', () => {
   it.each([
     [17055, 'g', '17.1 kg'], [2000, 'g', '2 kg'], [900, 'g', '900 g'], [0.5, 'l', '0.5 L'], [13, 'l', '13 L'],
-    [1250, 'ml', '1.3 L'], [49, 'each', '49 each'], [12.9, 'kg', '12.9 kg'], [0.002, 'kg', '2 g'], [1.5, 'batch', '1.5 batch'],
+    [1250, 'ml', '1.25 L'], [49, 'each', '49 each'], [12.9, 'kg', '12.9 kg'], [0.002, 'kg', '2 g'], [1.5, 'batch', '1.5 batch'],
     [4, 'g', '4 g'], [24000, 'g', '24 kg'], [1234567, 'ml', '1,234.6 L'],
   ])('%s %s → %s', (q, u, out) => expect(fmtAmount(q as number, u as string)).toBe(out))
   it('"have of need" uses the larger value\'s unit', () => {
@@ -184,5 +184,28 @@ describe('cook groups and plan changes', () => {
     expect(ch.removed.map(t => t.name)).toEqual(['Hash'])
     expect(ch.cooking.map(t => t.name)).toEqual(['Focaccia'])
     expect(ch.unchanged).toBe(1)
+  })
+})
+
+describe('review fixes', () => {
+  it('evening planning counts tomorrow\'s hands, not the night', () => {
+    // Brunch 09:00–15:00; the chef plans for tomorrow at 22:30.
+    const ctx = planDayContext([{ timeMinutes: 540, endMinutes: 900 }], 1350)!
+    expect(ctx.roll).toBe(1440)
+    const job = item({ name: 'Corn Salsa', isOnList: true, manualPriorityOverride: 'CLOSE', activeMinutes: 30, passiveMinutes: 0 })
+    // tomorrow's prep starts 2 h before doors (07:00) → 07:00..15:00 = 480 min per cook
+    expect(crewCapacity([job], 2, ctx)).toEqual({ hands: 960, needs: 30, fits: true })
+    expect(crewSchedule([job], 1, ctx, 1350).get('Corn Salsa')!.start).toBe(1440 + 420)
+  })
+  it('the stepper shows every 25 g step exactly', () => {
+    expect(fmtAmount(1025, 'g', { exact: true })).toBe('1,025 g')
+    expect(fmtAmount(1250, 'ml', { exact: true })).toBe('1,250 ml')
+    expect(fmtAmount(1.5, 'kg', { exact: true })).toBe('1.5 kg')
+  })
+  it('kg and L under 10 keep two decimals', () => {
+    expect(fmtAmount(0.75, 'kg')).toBe('0.75 kg')
+    expect(fmtAmount(1250, 'ml')).toBe('1.25 L')
+    expect(fmtAmountOf(40, 400, 'g')).toBe('40 of 400 g')
+    expect(fmtAmountOf(0.04, 0.4, 'kg')).toBe('0.04 of 0.4 kg')
   })
 })

@@ -12,6 +12,7 @@ import {
   type PlanDayContext,
 } from '@/lib/prep-plan'
 import { UrgPicker, AssignPill, QtyStepper, NoteField } from './atoms'
+import { parFlag } from '@/lib/prep-smart'
 
 const fmtQ = fmtAmount
 
@@ -50,7 +51,9 @@ export function DraftRow({
   const qty = draftQty(item)
   const nb = suggestedBatches(item)
   const suggQ = batchMode && nb != null ? batchesToQty(item, nb) : sugg
-  const overridden = suggQ > 0 && Math.abs(qty - suggQ) > 0.01
+  // A wrong par has no usable suggestion: no ↺ link, a flag instead.
+  const flagged = parFlag(item) === 'WRONG'
+  const overridden = !flagged && suggQ > 0 && Math.abs(qty - suggQ) > 0.01
   return (
     <div
       draggable={!locked}
@@ -89,6 +92,7 @@ export function DraftRow({
           the drawer), the suggested amount only when the chef changed it, and
           the schedule only when it won't fit. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 pl-[21px] min-w-0">
+        {flagged && <ParFlagChip />}
         <DraftReason item={item} />
         {overridden && (
           <button type="button" disabled={locked} onClick={() => onQty(item, suggQ)} className="text-[12px] font-semibold text-gold-2 shrink-0 hover:underline">
@@ -102,6 +106,11 @@ export function DraftRow({
       </div>
     </div>
   )
+}
+
+/** A wrong par on a row already on the list: say so, so its amount gets a look. */
+export function ParFlagChip() {
+  return <span className="inline-flex items-center shrink-0 whitespace-nowrap rounded-full px-2 py-[1px] text-[11.5px] font-semibold bg-red-soft text-red-text">Par looks wrong — check the amount</span>
 }
 
 /** The plain reason, red when out of stock; the full evidence is the tooltip. */

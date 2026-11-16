@@ -139,7 +139,7 @@ export function PrepRow({
               className={`inline-flex items-center ${compact ? 'h-11' : 'h-9'} px-3 rounded-[9px] border border-line-2 bg-paper text-[13px] font-semibold text-ink-2 whitespace-nowrap ${locked ? 'cursor-not-allowed opacity-50' : 'hover:border-ink-3'}`}>
               {f === 'WRONG' ? 'Fix par' : 'Set par'}
             </button>
-            {fixing && <ParEditor item={item} onSave={p => onFixPar(item, p)} onClose={() => setFixing(false)} />}
+            {fixing && <ParEditor item={item} sheet={compact} onSave={p => onFixPar(item, p)} onClose={() => setFixing(false)} />}
           </span>
         ) : <span />}
       </div>

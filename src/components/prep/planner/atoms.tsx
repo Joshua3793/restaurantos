@@ -134,7 +134,8 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
 }
 
 // ─── quantity: UOM or batches of the recipe's own yield ────────────────────
-const fmtUom = fmtAmount
+// exact: every 25 g step reads differently (1,025 g — never "1 kg" twice)
+const fmtUom = (q: number, u: string) => fmtAmount(q, u, { exact: true })
 
 export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, suggested, sm }: {
   item: PrepItemRich

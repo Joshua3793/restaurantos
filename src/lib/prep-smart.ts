@@ -135,9 +135,19 @@ export interface CrewCapacity { hands: number; needs: number; fits: boolean }
 
 /** Hands until close (cooks ticked × minutes left) against the hands-on minutes
  *  the list still needs. Null — say nothing — without a crew or a service day. */
+/** Planning tomorrow after close: assume tomorrow's prep starts this long
+ *  before doors (there is no stored shift start). */
+export const NEXT_DAY_PREP_LEAD = 120
+
+/** When the crew's hands start: now — or, once the day has rolled after close,
+ *  tomorrow's prep start, so the night is never counted as hands. */
+export function crewStart(ctx: PlanDayContext): number {
+  return ctx.roll ? Math.max(ctx.shiftStart, ctx.doorsOpen - NEXT_DAY_PREP_LEAD) : ctx.shiftStart
+}
+
 export function crewCapacity(draft: SmartItem[], crewSize: number, ctx: PlanDayContext | null): CrewCapacity | null {
   if (!ctx || crewSize < 1) return null
-  const hands = crewSize * Math.max(0, ctx.close - ctx.shiftStart)
+  const hands = crewSize * Math.max(0, ctx.close - crewStart(ctx))
   const needs = draft.reduce((n, t) => n + slotInputs(t, ctx).active, 0)
   return { hands, needs, fits: needs <= hands }
 }
@@ -152,7 +162,8 @@ export function crewSchedule<T extends SmartItem>(
 ): Map<string, PlanSlot> {
   const map = new Map<string, PlanSlot>()
   if (!ctx || crewSize < 1) return map
-  const cursors = Array<number>(crewSize).fill(ctx.shiftStart)
+  const start0 = crewStart(ctx)
+  const cursors = Array<number>(crewSize).fill(start0)
   draft
     .map(t => ({ t, si: slotInputs(t, ctx) }))
     .sort((a, b) =>
@@ -163,7 +174,7 @@ export function crewSchedule<T extends SmartItem>(
     .forEach(({ t, si }) => {
       let i = 0
       cursors.forEach((c, j) => { if (c < cursors[i]) i = j })
-      const start = Math.max(cursors[i], si.earliest)
+      const start = Math.max(cursors[i], si.earliest, start0)
       cursors[i] = start + si.active
       const end = start + si.active + si.passive
       const exempt = !!t.pipeline || si.deadline <= nowMin

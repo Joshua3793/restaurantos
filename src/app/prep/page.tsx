@@ -307,15 +307,11 @@ export default function PrepPage() {
   // prep day. Drives the crew capacity line and "won't be ready" warnings; an
   // empty crew means no warnings at all.
   const [crewIds, setCrewIds] = useState<string[]>([])
-  useEffect(() => {
-    if (!activeRcId) { setCrewIds([]); return }
-    let alive = true
-    fetch(`/api/prep/plan/crew?rc=${encodeURIComponent(activeRcId)}`, { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d && Array.isArray(d.cookIds)) setCrewIds(d.cookIds) })
-      .catch(() => { /* keep the last known crew */ })
-    return () => { alive = false }
-  }, [activeRcId])
+  // Saves go one at a time with only the latest list (crewWant); a GET never
+  // overwrites a tick that is still being saved.
+  const crewWant = useRef<string[] | null>(null)
+  const crewSaving = useRef(false)
+  const crewConfirmed = useRef<string[]>([])
 
   // Building and posting the list is every signed-in cook's — the only gates
   // are a writable revenue center and a resolved session. Switching an item out
@@ -563,6 +559,31 @@ export default function PrepPage() {
   const dayCtx = useMemo(() => planDayContext(rcServices, nowMin, nowMs), [rcServices, nowMin, nowMs])
   // The ONE "to make" number: tab badges, the planner header, its chip and "Add all".
   const toMake = useMemo(() => toMakeCount(items, dayCtx, nowMin), [items, dayCtx, nowMin])
+
+  // The crew belongs to the PLANNING day: tomorrow once the last service has
+  // ended (dayCtx.roll), so an evening crew is still there in the morning.
+  const crewDay = useMemo(
+    () => prepDayKey(new Date(nowMs + (dayCtx?.roll ? 86_400_000 : 0))),
+    [nowMs, dayCtx?.roll],
+  )
+  useEffect(() => {
+    if (!activeRcId) { setCrewIds([]); crewConfirmed.current = []; return }
+    let alive = true
+    const fetchCrew = () => {
+      if (crewSaving.current) return
+      fetch(`/api/prep/plan/crew?rc=${encodeURIComponent(activeRcId)}&day=${crewDay}`, { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          if (!alive || crewSaving.current || !d || !Array.isArray(d.cookIds)) return
+          crewConfirmed.current = d.cookIds
+          setCrewIds(d.cookIds)
+        })
+        .catch(() => { /* keep the last known crew */ })
+    }
+    fetchCrew()
+    const t = setInterval(fetchCrew, 60_000)   // other devices' ticks, and the iPad left open overnight
+    return () => { alive = false; clearInterval(t) }
+  }, [activeRcId, crewDay])
   // The wait-over alarm — ONE per page (both run sheets are mounted at once).
   const alarms = useWaitAlarms(todayItems)
   const svcStatus = useMemo(
@@ -1005,7 +1026,10 @@ export default function PrepPage() {
     // Guard once more so an ungated caller (or the offline queue) can never
     // fake a change without a writable revenue center.
     if (!canPlan) { setActionError('Pick a revenue center you can edit to change the list.'); return }
-    const before = items.find(i => i.id === itemId)?.isOnList
+    // Read the CURRENT row, not this render's: an Undo replays through here
+    // from an older closure, and a failed write must revert to what was on
+    // screen just before it, not to what was there when the closure was made.
+    const before = itemsRef.current.find(i => i.id === itemId)?.isOnList
     // Added back after it was already made today (a second Sourdough dough): the
     // new job is a fresh log, not the finished one — the server opens it (see
     // ensureLiveLogs' afterDone). Seed it here so draft edits and the planner
@@ -1027,6 +1051,10 @@ export default function PrepPage() {
       return
     }
 
+    // Chained per item with the draft edits (opChains): an Undo's "on" can never
+    // overtake the "off" it undoes, and a re-add can't race its own qty seed.
+    const prevOp = opChains.current.get(itemId) ?? Promise.resolve()
+    const runOp = prevOp.catch(() => {}).then(async () => {
     try {
       // Removing simply takes the item off today's list (isOnList=false) — it drops
       // back to Smart Prep, still re-addable. No SKIPPED log: "removed" is not "skipped".
@@ -1055,9 +1083,16 @@ export default function PrepPage() {
     } catch {
       setActionError('Could not update list — try again.')
       load()
-    } finally {
-      markSaving(itemId, false)
     }
+    })
+    opChains.current.set(itemId, runOp)
+    runOp.finally(() => {
+      if (opChains.current.get(itemId) === runOp) {
+        opChains.current.delete(itemId)
+        markSaving(itemId, false)
+      }
+    })
+    return runOp
   }
 
   // Take one item straight off the kitchen's To Do — no Smart Prep round trip,
@@ -1334,7 +1369,8 @@ export default function PrepPage() {
   function handleAddAllToMake() {
     const ids = addAllToMakeIds(items, dayCtx, nowMin)
     if (!ids.length) return
-    const snap = snapshotDraft(items)
+    // Undo touches only what this button touched — not a + tapped since.
+    const snap = snapshotDraft(items.filter(i => ids.includes(i.id)))
     items.filter(i => ids.includes(i.id)).forEach(handleAddToDraft)
     toast(`Added ${ids.length} to your list`, { label: 'Undo', onClick: undoTo(snap) })
   }
@@ -1342,7 +1378,7 @@ export default function PrepPage() {
   function handleResetQuantities() {
     const targets = resetTargets(items, dayCtx, nowMin)
     if (!targets.length) return
-    const snap = snapshotDraft(items)
+    const snap = snapshotDraft(items.filter(i => targets.some(t => t.id === i.id)))
     for (const t of targets) {
       const it = items.find(i => i.id === t.id)
       if (it) handleDraftEdit(it, { requiredQty: t.to })
@@ -1353,7 +1389,7 @@ export default function PrepPage() {
   function handleEmptyList() {
     const ids = emptyListIds(items)
     if (!ids.length) return
-    const snap = snapshotDraft(items)
+    const snap = snapshotDraft(items.filter(i => ids.includes(i.id)))
     ids.forEach(id => { void handleToggleOnList(id, false) })
     toast(`List emptied — ${ids.length} taken off`, { label: 'Undo', onClick: undoTo(snap) })
   }
@@ -1382,23 +1418,38 @@ export default function PrepPage() {
     }
   }
 
-  // Who's on today — optimistic; the previous crew comes back if the save fails.
+  // Who's on today — optimistic. Saves run one at a time and always send the
+  // newest list, so two quick ticks can't land out of order; a failure puts
+  // back the last list the server confirmed.
   async function handleCrewChange(next: string[]) {
     if (!activeRcId || !canPlan) return
-    const before = crewIds
     setCrewIds(next)
+    crewWant.current = next
+    if (crewSaving.current) return
+    crewSaving.current = true
+    const rc = activeRcId, day = crewDay
     try {
-      const res = await fetch('/api/prep/plan/crew', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revenueCenterId: activeRcId, cookIds: next }),
-      })
-      if (!res.ok) throw new Error(String(res.status))
-      const d = await res.json().catch(() => null)
-      if (d && Array.isArray(d.cookIds)) setCrewIds(d.cookIds)
+      while (crewWant.current) {
+        const send = crewWant.current
+        crewWant.current = null
+        const res = await fetch('/api/prep/plan/crew', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revenueCenterId: rc, cookIds: send, day }),
+        })
+        if (!res.ok) throw new Error(String(res.status))
+        const d = await res.json().catch(() => null)
+        if (d && Array.isArray(d.cookIds)) {
+          crewConfirmed.current = d.cookIds
+          if (!crewWant.current) setCrewIds(d.cookIds)
+        }
+      }
     } catch {
-      setCrewIds(before)
-      toast("Crew not saved — try again")
+      crewWant.current = null
+      setCrewIds(crewConfirmed.current)
+      toast('Crew not saved — try again')
+    } finally {
+      crewSaving.current = false
     }
   }
 

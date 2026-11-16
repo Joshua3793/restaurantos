@@ -19,7 +19,8 @@ import {
 } from '@/lib/prep-smart'
 import { resetTargets, emptyListIds } from '@/lib/prep-bulk'
 import { GroupHead, UrgPicker, AssignPill, QtyStepper, NoteField, Popover, popItemCls } from './atoms'
-import { DraftReason, WontFit } from './DraftRow'
+import { DraftReason, WontFit, ParFlagChip } from './DraftRow'
+import { parFlag } from '@/lib/prep-smart'
 import { PostDialog } from './PostDialog'
 import { PrepListPane, FilterChips, type PrepView } from './PrepListPane'
 import { CrewBar } from './CrewBar'
@@ -54,7 +55,7 @@ function MobileDraftCard({ item, cooks, crewIds, locked, ctx, wont, batchMode, f
             lives on the step button, the schedule only speaks when it won't fit */}
         <button type="button" onClick={() => handlers.onOpen(item)} className="flex-1 min-w-0 text-left">
           <span className="flex text-[14.5px] font-semibold tracking-[-0.01em] text-ink break-words">{item.name}</span>
-          <span className="flex flex-wrap gap-x-1 mt-0.5"><DraftReason item={item} /> <WontFit text={wont} /></span>
+          <span className="flex flex-wrap gap-x-1 gap-y-1 mt-0.5">{parFlag(item) === 'WRONG' && <ParFlagChip />}<DraftReason item={item} /> <WontFit text={wont} /></span>
         </button>
         {/* assign rides the name row — the controls row below is full with the
             stepper and the step button on a 375px phone */}
@@ -285,6 +286,17 @@ export function PlannerMobile({ items, allItems, hidden, cooks, stations, servic
                 <div className="text-[12px] text-ink-3 truncate">
                   Posted {fmtClock(new Date(post!.postedAt).getHours() * 60 + new Date(post!.postedAt).getMinutes())} · {post!.itemCount} items
                 </div>
+              </div>
+              <button type="button" onClick={handlers.onRecall} className="inline-flex items-center gap-1.5 rounded-[10px] px-3 min-h-[44px] text-[13px] font-semibold border border-line-2 bg-paper text-ink-2">
+                <Undo2 size={14} /> Recall
+              </button>
+            </div>
+          ) : post && !onList.length ? (
+            // An empty list can't be posted — Recall is how the cooks' To Do clears.
+            <div className="flex items-center gap-2 bg-paper border border-line rounded-xl px-3 py-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-[13.5px] font-semibold text-ink">Your list is empty</div>
+                <div className="text-[12px] text-ink-3">Recall to clear the cooks&apos; To Do</div>
               </div>
               <button type="button" onClick={handlers.onRecall} className="inline-flex items-center gap-1.5 rounded-[10px] px-3 min-h-[44px] text-[13px] font-semibold border border-line-2 bg-paper text-ink-2">
                 <Undo2 size={14} /> Recall

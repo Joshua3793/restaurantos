@@ -5,16 +5,23 @@ import { canonicalUom, UNIT_FACTORS } from './uom'
 
 interface Disp { factor: number; label: string; decimals: number }
 
+/** kg / L: two decimals under 10 (0.75 kg, 1.25 L), one above (17.1 kg). */
+const bigDecimals = (v: number) => (Math.abs(v) < 10 ? 2 : 1)
+
 /** How to print an amount of `unit` whose largest value is `q`:
  *  g ≥ 1000 → kg, ml ≥ 1000 → L, a tiny kg / L drops to g / ml,
  *  litres print as "L", base g / ml round to whole numbers. */
-function displayFor(q: number, unit: string): Disp {
+function displayFor(q: number, unit: string, exact = false): Disp {
   const u = canonicalUom(unit) || (unit || '').toLowerCase()
   const a = Math.abs(q)
-  if (u === 'g') return a >= 1000 ? { factor: 1 / 1000, label: 'kg', decimals: 1 } : { factor: 1, label: 'g', decimals: a < 10 ? 1 : 0 }
-  if (u === 'ml') return a >= 1000 ? { factor: 1 / 1000, label: 'L', decimals: 1 } : { factor: 1, label: 'ml', decimals: a < 10 ? 1 : 0 }
-  if (u === 'kg') return a > 0 && a < 0.1 ? { factor: 1000, label: 'g', decimals: 0 } : { factor: 1, label: 'kg', decimals: 1 }
-  if (u === 'l') return a > 0 && a < 0.1 ? { factor: 1000, label: 'ml', decimals: 0 } : { factor: 1, label: 'L', decimals: 1 }
+  // exact: the stepper — every 25 g step must read differently, so g / ml
+  // never switch to kg / L there.
+  if (exact && (u === 'g' || u === 'ml')) return { factor: 1, label: u, decimals: a < 10 ? 1 : 0 }
+  if (exact && (u === 'kg' || u === 'l')) return { factor: 1, label: u === 'l' ? 'L' : 'kg', decimals: 2 }
+  if (u === 'g') return a >= 1000 ? { factor: 1 / 1000, label: 'kg', decimals: bigDecimals(a / 1000) } : { factor: 1, label: 'g', decimals: a < 10 ? 1 : 0 }
+  if (u === 'ml') return a >= 1000 ? { factor: 1 / 1000, label: 'L', decimals: bigDecimals(a / 1000) } : { factor: 1, label: 'ml', decimals: a < 10 ? 1 : 0 }
+  if (u === 'kg') return a > 0 && a < 0.01 ? { factor: 1000, label: 'g', decimals: 0 } : { factor: 1, label: 'kg', decimals: bigDecimals(a) }
+  if (u === 'l') return a > 0 && a < 0.01 ? { factor: 1000, label: 'ml', decimals: 0 } : { factor: 1, label: 'L', decimals: bigDecimals(a) }
   const f = UNIT_FACTORS[u]
   return { factor: 1, label: unit, decimals: f && f.dim !== 'count' ? 1 : 2 }
 }
@@ -23,8 +30,8 @@ const num = (q: number, decimals: number) =>
   q.toLocaleString('en-US', { maximumFractionDigits: decimals, minimumFractionDigits: 0 })
 
 /** "17.1 kg" (17055 g), "2 kg", "900 g", "0.5 L", "49 each", "1.5 batch". */
-export function fmtAmount(q: number, unit: string): string {
-  const d = displayFor(q, unit)
+export function fmtAmount(q: number, unit: string, opts: { exact?: boolean } = {}): string {
+  const d = displayFor(q, unit, !!opts.exact)
   return `${num(q * d.factor, d.decimals)} ${d.label}`
 }
 

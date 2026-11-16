@@ -60,3 +60,17 @@ describe('Empty the list', () => {
     expect(emptyListIds([item('A', { isOnList: true }), item('B', { isOnList: true, pipeline }), item('C')])).toEqual(['A'])
   })
 })
+
+describe('review fixes', () => {
+  it('Reset never writes a wrong par\'s suggestion (Kimchi on the list after Stop)', () => {
+    const kimchi = item('Kimchi', { isOnList: true, parLevel: 5000, onHand: 13.6, linkedRecipe: { baseYieldQty: 13.25, yieldUnit: 'kg' }, todayLog: { requiredQty: 13.3 } })
+    expect(resetTargets([kimchi], null, 600)).toEqual([])
+  })
+  it('Undo only touches what the bulk action touched', () => {
+    const a = item('A', { isOnList: false, todayLog: null })
+    const b = item('B', { isOnList: true, todayLog: { requiredQty: 2 } })
+    const snap = snapshotDraft([a])                       // only A was added
+    const now = [{ ...a, isOnList: true }, { ...b, todayLog: { requiredQty: 5 } }]
+    expect(restorePlan(now, snap)).toEqual({ toggles: [{ id: 'A', isOnList: false }], edits: [] })
+  })
+})

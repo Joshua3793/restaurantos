@@ -69,3 +69,25 @@ describe('PUT /api/prep/plan/crew', () => {
     expect((await PUT(put({ revenueCenterId: 'rc1', cookIds: [] }))).status).toBe(401)
   })
 })
+
+describe('the planning day (evening planning for tomorrow)', () => {
+  const key = (offsetDays: number) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(Date.now() + offsetDays * 86_400_000))
+  it('PUT with tomorrow stores the crew under tomorrow', async () => {
+    const { PUT } = await import('../route')
+    const res = await PUT(put({ revenueCenterId: 'rc1', cookIds: ['liam'], day: key(1) }))
+    expect(res.status).toBe(200)
+    expect(upsert.mock.calls[0][0].where.revenueCenterId_listDate.listDate.toISOString().slice(0, 10)).toBe(key(1))
+  })
+  it('GET reads the day asked for', async () => {
+    findUnique.mockResolvedValue(null)
+    const { GET } = await import('../route')
+    await GET(({ nextUrl: new URL(`http://x/api/prep/plan/crew?rc=rc1&day=${key(1)}`) }) as unknown as NextRequest)
+    expect(findUnique.mock.calls[0][0].where.revenueCenterId_listDate.listDate.toISOString().slice(0, 10)).toBe(key(1))
+  })
+  it('any other day is refused', async () => {
+    const { PUT } = await import('../route')
+    expect((await PUT(put({ revenueCenterId: 'rc1', cookIds: [], day: key(5) }))).status).toBe(400)
+  })
+})
