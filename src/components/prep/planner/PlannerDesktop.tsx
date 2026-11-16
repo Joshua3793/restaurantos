@@ -299,7 +299,7 @@ export function PlannerDesktop({
           onConfirm={() => { handlers.onEmptyList(); setConfirmEmpty(false) }} />
       )}
       {dlg && (
-        <PostDialog draft={draft} cooks={cooks} ctx={ctx} reposting={!!post}
+        <PostDialog all={allItems} onList={onList} cooks={cooks} crewIds={smart.crewIds} ctx={ctx} nowMin={nowMin} reposting={!!post}
           onClose={() => setDlg(false)} onConfirm={dues => { handlers.onPost(dues); setDlg(false) }} />
       )}
     </div>
