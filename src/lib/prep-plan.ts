@@ -626,10 +626,18 @@ const activeMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingActiveMin
 const passiveMin = (t: TimedFields) => t.pipeline ? t.pipeline.remainingPassiveMinutes : (t.passiveMinutes ?? 0)
 
 /** The earliest minute a job in flight can take a cook again (shift start otherwise). */
-function earliestStart(t: SchedulableItem, ctx: PlanDayContext): number {
+function earliestStart(t: TimedFields, ctx: PlanDayContext): number {
   const at = t.pipeline?.nextActiveAt
   if (!at || ctx.nowMs == null) return ctx.shiftStart
   return Math.max(ctx.shiftStart, msToLadderMin(new Date(at).getTime(), { nowMs: ctx.nowMs, nowMin: ctx.shiftStart }))
+}
+
+/** What the schedule needs to place one row: hands-on and passive minutes (a
+ *  job in flight is charged only what is LEFT), the earliest minute it can take
+ *  a cook, and its step deadline. Shared by `planSchedule` and Smart Prep's crew
+ *  schedule so both time a row the same way. */
+export function slotInputs(t: TimedFields, ctx: PlanDayContext): { active: number; passive: number; earliest: number; deadline: number } {
+  return { active: activeMin(t), passive: passiveMin(t), earliest: earliestStart(t, ctx), deadline: urgencyDeadline(effectiveUrgency(t), ctx) }
 }
 
 /**
@@ -651,20 +659,21 @@ export function planSchedule<T extends SchedulableItem>(
     const crew = Math.max(1, crewFor(cooks, rows[0].stations).length)
     const cursors = Array<number>(crew).fill(ctx.shiftStart)
     rows
-      .map(t => ({ t, dl: urgencyDeadline(effectiveUrgency(t), ctx) }))
+      .map(t => ({ t, si: slotInputs(t, ctx) }))
       .sort((a, b) =>
-        a.dl - b.dl ||
+        a.si.deadline - b.si.deadline ||
         PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(a.t)) - PLAN_URG_ORDER_LOCAL.indexOf(effectiveUrgency(b.t)) ||
         // within a deadline, what can start now goes before a job still resting
         // (every ordinary row ties here at shift start, so their order is unchanged)
-        earliestStart(a.t, ctx) - earliestStart(b.t, ctx) ||
+        a.si.earliest - b.si.earliest ||
         ord(a.t) - ord(b.t))
-      .forEach(({ t, dl }) => {
+      .forEach(({ t, si }) => {
         let i = 0
         cursors.forEach((c, j) => { if (c < cursors[i]) i = j })
-        const start = Math.max(cursors[i], earliestStart(t, ctx))
-        cursors[i] = start + activeMin(t)
-        const end = start + activeMin(t) + passiveMin(t)
+        const start = Math.max(cursors[i], si.earliest)
+        cursors[i] = start + si.active
+        const end = start + si.active + si.passive
+        const dl = si.deadline
         map.set(t.id, { start, end, deadline: dl, fits: end <= dl, over: Math.max(0, end - dl) })
       })
   }

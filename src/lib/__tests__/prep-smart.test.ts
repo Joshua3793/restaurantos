@@ -121,3 +121,68 @@ describe('deadline words', () => {
     expect(deadlineLabel(1440 + 900, 700, clock)).toBe('TMRW 15:00')
   })
 })
+
+import { planDayContext } from '../prep-plan'
+import { crewCapacity, crewSchedule, wontFitText, cookGroups, planChanges } from '../prep-smart'
+
+describe('crew capacity and the crew schedule', () => {
+  const clock = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+  // Brunch 09:00–15:00, the chef plans at 11:40.
+  const ctx = planDayContext([{ timeMinutes: 540, endMinutes: 900 }], 700)!
+  const focaccia = item({ name: 'Focaccia', isOnList: true, manualPriorityOverride: 'CLOSE', activeMinutes: 60, passiveMinutes: 220 })
+  const salsa = item({ name: 'Corn Salsa', isOnList: true, manualPriorityOverride: 'CLOSE', activeMinutes: 30, passiveMinutes: 0 })
+  const lateCritical = item({ name: 'Bacon Jam', isOnList: true, manualPriorityOverride: 'PASS', activeMinutes: 35, passiveMinutes: 400 })
+  const cooking = item({ name: 'Apple Sauerkraut', isOnList: true, manualPriorityOverride: 'PASS', pipeline: { ...pipeline, remainingActiveMinutes: 10, remainingPassiveMinutes: 600 } })
+
+  it('null without crew', () => expect(crewCapacity([focaccia], 0, ctx)).toBeNull())
+  it('null without ctx (no services today)', () => expect(crewCapacity([focaccia], 2, null)).toBeNull())
+  it('2 cooks from 11:40 to 15:00 = 400 min of hands; cooking jobs count what is left', () => {
+    expect(crewCapacity([focaccia, salsa, cooking], 2, ctx)).toEqual({ hands: 400, needs: 100, fits: true })
+    expect(crewCapacity([focaccia, salsa, cooking], 2, ctx)!.fits).toBe(true)
+    expect(crewCapacity([focaccia, { ...salsa, activeMinutes: 400 }], 1, ctx)!.fits).toBe(false)
+  })
+  it('no crew → no schedule, so no won\'t-fit at all', () => {
+    expect(crewSchedule([focaccia], 0, ctx, 700).size).toBe(0)
+    expect(crewSchedule([focaccia], 2, null, 700).size).toBe(0)
+  })
+  it('an over-long Focaccia runs 80 min over with 2 cooks', () => {
+    const s = crewSchedule([focaccia, salsa], 2, ctx, 700)
+    expect(s.get('Focaccia')).toMatchObject({ fits: false, over: 80, deadline: 900 })
+    expect(s.get('Corn Salsa')!.fits).toBe(true)
+  })
+  it('crewSchedule skips pipeline and passed deadlines', () => {
+    const s = crewSchedule([cooking, lateCritical], 1, ctx, 700)
+    expect(s.get('Apple Sauerkraut')).toMatchObject({ fits: true, over: 0 })
+    expect(s.get('Bacon Jam')).toMatchObject({ fits: true, over: 0 })
+  })
+  it('wontFitText says it in hours and minutes', () => {
+    const slot = crewSchedule([focaccia], 2, ctx, 700).get('Focaccia')!
+    expect(wontFitText(slot, 2, clock)).toBe("won't be ready by 15:00 — 1 h 20 min over with 2 cooks")
+    expect(wontFitText(slot, 1, clock)).toBe("won't be ready by 15:00 — 1 h 20 min over with 1 cook")
+  })
+})
+
+describe('cook groups and plan changes', () => {
+  const log = (o: object) => ({ todayLog: { assignedTo: null, postedAt: null, status: 'NOT_STARTED', ...o } })
+  const a = { ...item({ name: 'A', isOnList: true }), ...log({ assignedTo: 'anju' }) }
+  const b = { ...item({ name: 'B', isOnList: true }), ...log({ assignedTo: 'liam' }) }
+  const c = { ...item({ name: 'C', isOnList: true }), ...log({ assignedTo: 'carson' }) }
+  const d = { ...item({ name: 'D', isOnList: true }), ...log({}) }
+  it('crew first in crew order, then other cooks, then Open', () => {
+    const cooks = [{ id: 'anju', name: 'Anju' }, { id: 'carson', name: 'Carson' }, { id: 'liam', name: 'Liam' }]
+    expect(cookGroups([d, c, a, b], cooks, ['liam', 'anju']).map(g => [g.label, g.rows.map(r => r.name)]))
+      .toEqual([['Liam', ['B']], ['Anju', ['A']], ['Carson', ['C']], ['Open', ['D']]])
+  })
+  it('added, removed, unchanged and cooking since the last post', () => {
+    const added = { ...item({ name: 'Bacon Jam', isOnList: true }), ...log({}) }
+    const kept = { ...item({ name: 'Biscuits', isOnList: true }), ...log({ postedAt: '2026-11-16T16:00:00Z' }) }
+    const removed = { ...item({ name: 'Hash' }), ...log({ postedAt: '2026-11-16T16:00:00Z' }) }
+    const doneAndGone = { ...item({ name: 'Chimichurri' }), ...log({ postedAt: '2026-11-16T16:00:00Z', status: 'DONE' }) }
+    const cooking = { ...item({ name: 'Focaccia', isOnList: true, pipeline }), ...log({ postedAt: '2026-11-16T16:00:00Z', status: 'IN_PROGRESS' }) }
+    const ch = planChanges([added, kept, removed, doneAndGone, cooking])
+    expect(ch.added.map(t => t.name)).toEqual(['Bacon Jam'])
+    expect(ch.removed.map(t => t.name)).toEqual(['Hash'])
+    expect(ch.cooking.map(t => t.name)).toEqual(['Focaccia'])
+    expect(ch.unchanged).toBe(1)
+  })
+})
