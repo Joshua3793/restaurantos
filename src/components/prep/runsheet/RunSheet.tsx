@@ -118,6 +118,7 @@ export function RunSheet({
   onRemove,
   alarmsMuted,
   onToggleAlarms,
+  onEnableNotifications,
   banner,
 }: {
   items: PrepItemRich[]
@@ -144,6 +145,8 @@ export function RunSheet({
   /** Per-device alarm switch, shown in each card's ⋯ menu. */
   alarmsMuted?: boolean
   onToggleAlarms?: () => void
+  /** Ask the browser for notification permission (menu entry; omitted once asked). */
+  onEnableNotifications?: () => void
   /** The wait-over alarm banner(s), painted above the lane. */
   banner?: React.ReactNode
   /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
@@ -380,6 +383,7 @@ export function RunSheet({
                 onOpenRecipe={onOpenRecipe}
                 alarmsMuted={alarmsMuted}
                 onToggleAlarms={onToggleAlarms}
+                onEnableNotifications={onEnableNotifications}
                 showStation={showStation}
               />
             ))}

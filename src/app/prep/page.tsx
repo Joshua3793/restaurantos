@@ -18,6 +18,8 @@ import { PrepBoardDrawer } from '@/components/prep/board/PrepBoardDrawer'
 import { RunSheet } from '@/components/prep/runsheet/RunSheet'
 import { RunSheetMobile } from '@/components/prep/runsheet/RunSheetMobile'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import { useWaitAlarms } from '@/components/prep/runsheet/useWaitAlarms'
+import { AlarmBanner } from '@/components/prep/runsheet/AlarmBanner'
 import type { Cook } from '@/components/prep/runsheet/assignee'
 import LogYieldSheet, { type YieldTarget } from '@/components/prep/LogYieldSheet'
 import type { YieldStatus } from '@/lib/prep-yield'
@@ -545,6 +547,8 @@ export default function PrepPage() {
   // The planner's day anchors — what "Start today for …" and the long-lead seed
   // count back from (same derivation the planners use).
   const dayCtx = useMemo(() => planDayContext(rcServices, nowMin, nowMs), [rcServices, nowMin, nowMs])
+  // The wait-over alarm — ONE per page (both run sheets are mounted at once).
+  const alarms = useWaitAlarms(todayItems)
   const svcStatus = useMemo(
     () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
     [activeRc, rcServices, nowMin],
@@ -1987,6 +1991,10 @@ export default function PrepPage() {
               onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
               onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
               onStep={handleStepChange}
+              alarmsMuted={alarms.muted}
+              onToggleAlarms={alarms.toggleMuted}
+              onEnableNotifications={alarms.canAskNotify ? alarms.askNotify : undefined}
+              banner={<AlarmBanner rows={alarms.due} onStep={handleStepChange} onLog={(item) => setYieldTarget({ item, cookAlongQty: null })} onOpenRecipe={openDrawer} />}
               onClaim={handleClaim}
               onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
             />
@@ -2069,6 +2077,10 @@ export default function PrepPage() {
                 onLog={(item) => setYieldTarget({ item, cookAlongQty: null })}
                 onStop={(item) => onRowStatusChange(item, 'NOT_STARTED')}
                 onStep={handleStepChange}
+                alarmsMuted={alarms.muted}
+                onToggleAlarms={alarms.toggleMuted}
+                onEnableNotifications={alarms.canAskNotify ? alarms.askNotify : undefined}
+                banner={<AlarmBanner rows={alarms.due} onStep={handleStepChange} onLog={(item) => setYieldTarget({ item, cookAlongQty: null })} onOpenRecipe={openDrawer} />}
                 onClaim={handleClaim}
                 onRemove={canPlan ? (item) => handleRemoveFromToDo(item) : undefined}
               />

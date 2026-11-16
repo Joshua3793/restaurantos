@@ -28,6 +28,7 @@ export interface JobCardProps {
   /** Per-device alarm switch (the ⋯ menu). Omitted → no alarm entry. */
   alarmsMuted?: boolean
   onToggleAlarms?: () => void
+  onEnableNotifications?: () => void
   showStation?: boolean
 }
 
@@ -125,6 +126,9 @@ export function menuEntries(p: JobCardProps): JobMenuEntry[] {
     out.push(p.alarmsMuted
       ? { label: 'Turn alarms back on', sub: 'chime + buzz when a wait is over', onClick: p.onToggleAlarms }
       : { label: 'Mute alarms on this device', sub: 'the banner still shows', onClick: p.onToggleAlarms })
+  }
+  if (p.onEnableNotifications) {
+    out.push({ label: 'Turn on notifications', sub: 'a notice when a wait is over, even in another tab', onClick: p.onEnableNotifications })
   }
   return out
 }

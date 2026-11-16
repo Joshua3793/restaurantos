@@ -77,6 +77,7 @@ export function RunSheetMobile({
   onRemove,
   alarmsMuted,
   onToggleAlarms,
+  onEnableNotifications,
   banner,
 }: {
   items: PrepItemRich[]
@@ -100,6 +101,8 @@ export function RunSheetMobile({
   onStep: (item: PrepItemRich, stepKey: string) => void
   alarmsMuted?: boolean
   onToggleAlarms?: () => void
+  /** Ask the browser for notification permission (menu entry; omitted once asked). */
+  onEnableNotifications?: () => void
   /** The wait-over alarm banner(s), painted above the lane. */
   banner?: React.ReactNode
   /** LEAD+ only — omitted for cooks, which is what hides the row's × button. */
@@ -306,6 +309,7 @@ export function RunSheetMobile({
                 onOpenRecipe={onOpenRecipe}
                 alarmsMuted={alarmsMuted}
                 onToggleAlarms={onToggleAlarms}
+                onEnableNotifications={onEnableNotifications}
               />
             ))}
           </div>
