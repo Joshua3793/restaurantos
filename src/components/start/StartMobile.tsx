@@ -2,28 +2,29 @@
 import Link from 'next/link'
 import { useUser } from '@/contexts/UserContext'
 import { clockText } from '@/lib/start-page'
-import { PHONE_TOP, countNow, itemMeta, moreCount, stationsDone, topItems } from '@/lib/pass'
+import { PHONE_TOP, itemMeta, stationsDone, topRows, type PassRow } from '@/lib/pass'
 import type { InboxItem } from '@/components/inbox/format'
 import { useStartData, type StartData } from './useStartData'
 import { greetingFor, crumbDate } from './parts'
 import { ChecklistCard } from './ChecklistCard'
 import {
-  Lede, LastNight, PassItemDialog, StationTileSmall, ItemCta, TagLine, VALUE_TONE,
+  Lede, LastNight, PassItemDialog, StationTileSmall, VALUE_TONE,
   ReportButton, numberRows, usePassItem,
+  RowTag, RowTitle, RowCta, rowMeta, DayPartPill, ReadyForDoors, SEE_ALL_HREF,
 } from './PassParts'
 
 // The phone Pass (/today) for LEAD+, and LEAD's /today on desktop too (in a
-// narrow column). Follows the PassMobile mockup: greeting + lede, what needs
-// you right now (the top of the Inbox), the stations, service + prep, last
-// night's notes, and the numbers (MANAGER only — a LEAD sees no money).
+// narrow column). Greeting + lede, Ready for doors (before doors only — it
+// replaced Pre-shift), what needs you right now (the open alerts, repeats
+// folded into one line, "See all" for the rest), the stations, service + prep,
+// last night's notes, and the numbers (MANAGER only — a LEAD sees no money).
 export function StartMobile() {
   const { user } = useUser()
   const d = useStartData()
   const firstName = (user?.name || user?.email?.split('@')[0] || 'there').split(' ')[0]
   const now = new Date()
   const items = d.inbox?.items ?? []
-  const top = topItems(items, PHONE_TOP)
-  const nowN = countNow(items)
+  const { rows: top, more, nowCount: nowN } = topRows(items, PHONE_TOP)
   const item = usePassItem(d.inbox?.tags ?? [], d.rcId, d.loadInbox)
   const greet = greetingFor(now)
 
@@ -40,12 +41,17 @@ export function StartMobile() {
         <p className="text-[15px] leading-[1.45] text-ink-2">
           <Lede d={d} nowCount={nowN} />
         </p>
-        <ReportButton d={d} className="self-start mt-1.5" />
+        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+          <DayPartPill d={d} />
+          <ReportButton d={d} />
+        </div>
       </header>
+
+      <ReadyForDoors d={d} compact />
 
       {!d.isManager && <ChecklistCard rcId={d.rcId} phase={d.phase} pickedOnly label="Your station" />}
 
-      <RightNow d={d} top={top} nowN={nowN} more={moreCount(items, top.length)} onOpen={item.open} />
+      <RightNow d={d} top={top} nowN={nowN} more={more} onOpen={item.open} />
 
       <Stations d={d} now={now} />
 
@@ -66,7 +72,7 @@ const Panel = ({ children }: { children: React.ReactNode }) => (
 
 function RightNow({ d, top, nowN, more, onOpen }: {
   d: StartData
-  top: InboxItem[]
+  top: PassRow<InboxItem>[]
   nowN: number
   more: number
   onOpen: (item: InboxItem) => void
@@ -85,27 +91,27 @@ function RightNow({ d, top, nowN, more, onOpen }: {
         <Panel>Loading…</Panel>
       ) : d.inboxError && !d.inbox ? (
         <div className="px-4 py-3 flex items-center justify-between gap-3">
-          <span className="text-[14px] text-ink-3">Could not load the Inbox.</span>
+          <span className="text-[14px] text-ink-3">Could not load the alerts.</span>
           <button type="button" onClick={() => d.loadInbox()} className="min-h-[44px] px-3.5 rounded-full border border-line-2 font-mono text-[11px]">Try again</button>
         </div>
       ) : top.length === 0 ? (
         <Panel>Nothing needs you right now — go cook.</Panel>
       ) : (
-        top.map((n, i) => (
-          <div key={n.id} className={`flex gap-3 px-4 py-[13px] items-start ${i > 0 ? 'border-t border-bg-2' : ''}`}>
-            <span className={`flex-none w-2.5 h-2.5 rounded-full mt-[5px] ${n.severity === 'NOW' ? 'bg-red' : 'bg-gold'}`} aria-hidden />
+        top.map((r, i) => (
+          <div key={r.key} className={`flex gap-3 px-4 py-[13px] items-start ${i > 0 ? 'border-t border-bg-2' : ''}`}>
+            <span className={`flex-none w-2.5 h-2.5 rounded-full mt-[5px] ${r.severity === 'NOW' ? 'bg-red' : 'bg-gold'}`} aria-hidden />
             <span className="flex-1 min-w-0 flex flex-col gap-1">
-              <TagLine item={n} />
-              <span className="text-[15px] font-semibold tracking-[-0.015em] leading-[1.3] text-ink">{n.title}</span>
-              <span className="font-mono text-[10.5px] text-ink-3">{itemMeta(n)}</span>
+              <RowTag row={r} />
+              <span className="text-[15px] font-semibold tracking-[-0.015em] leading-[1.3] text-ink"><RowTitle row={r} /></span>
+              <span className="font-mono text-[10.5px] text-ink-3">{rowMeta(r, new Date(), itemMeta)}</span>
             </span>
-            <ItemCta item={n} gold={i === 0} onOpen={onOpen} className="self-center" />
+            <RowCta row={r} gold={i === 0} onOpen={onOpen} className="self-center" />
           </div>
         ))
       )}
-      <Link href="/inbox" className="flex justify-between items-center px-4 min-h-[48px] border-t border-line text-[13.5px] font-medium text-ink-2">
-        <span>{more > 0 ? `${more} more in the Inbox` : 'Everything else is in the Inbox'}</span>
-        <span className="font-mono text-[11px] text-gold-2">Open Inbox →</span>
+      <Link href={SEE_ALL_HREF} className="flex justify-between items-center px-4 min-h-[48px] border-t border-line text-[13.5px] font-medium text-ink-2">
+        <span>{more > 0 ? `${more} more` : 'Snoozed, waiting and done'}</span>
+        <span className="font-mono text-[11px] text-gold-2">See all →</span>
       </Link>
     </section>
   )

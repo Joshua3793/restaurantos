@@ -187,6 +187,8 @@ export function useStartData() {
     inbox,
     inboxError,
     stations: raw.stations,
+    // The prep list, for the "Ready for doors" 911 gauge.
+    prep: raw.prep,
     handovers: raw.handovers,
     hasOrders: raw.orders != null,
     lastClose: raw.lastClose,

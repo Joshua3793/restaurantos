@@ -309,7 +309,7 @@ export function AlertsBell({ dropdownAlign = 'left' }: AlertsBellProps) {
               onClick={() => setOpen(false)}
               className="flex items-center justify-center min-h-[44px] px-4 text-xs font-medium text-gold hover:bg-gold/10 transition-colors border-t border-line"
             >
-              Open Inbox →
+              See all alerts →
             </Link>
           )}
         </div>

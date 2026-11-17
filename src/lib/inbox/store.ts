@@ -56,6 +56,12 @@ export type ItemView = ItemLite & {
   doneAt: string | null
   unread: boolean
   revenueCenterId: string | null
+  /**
+   * What made it: the app alert's family (`prep`, `price`, `station-open`,
+   * `flag`, … — the part of its source key before the first ':'), or null for
+   * a cook's report. The Pass groups repeats of one family into one line.
+   */
+  kind: string | null
 }
 
 export type MineView = ItemView & {
@@ -149,6 +155,7 @@ function toView(row: ItemRow): ItemView {
     doneAt: iso(row.doneAt),
     unread: row.events.length === 0,
     revenueCenterId: row.revenueCenterId,
+    kind: row.sourceKey ? row.sourceKey.split(':')[0] || null : null,
   }
 }
 

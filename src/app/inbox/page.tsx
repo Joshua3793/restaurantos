@@ -1,5 +1,6 @@
 'use client'
 import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -20,7 +21,8 @@ import {
   type InboxAction, type InboxDetail, type InboxItem, type InboxList as InboxListData, type InboxView,
 } from '@/components/inbox/format'
 
-// /inbox — LEAD+: everything waiting on a manager for the kitchen picked in the
+// /inbox — LEAD+: "All alerts", the Pass's "See all" (it left the menu; the
+// Pass shows the top of this list with repeats grouped). Everything waiting on a manager for the kitchen picked in the
 // top bar. One page, both layouts mounted (phone md:hidden, desktop md:grid);
 // the item opens as a bottom sheet on the phone and a pane on desktop, from
 // the one shared selection below. Open / Waiting / Snoozed / Done are tabs at
@@ -272,7 +274,8 @@ function Inbox() {
       {/* ── Phone ─────────────────────────────────────────────────────── */}
       <div className="md:hidden max-w-[640px] mx-auto w-full flex flex-col gap-3.5">
         {tabRow}
-        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Inbox</h1>
+        <Link href="/today" className="self-start font-mono text-[11px] text-gold-2 min-h-[32px] inline-flex items-center">← Pass</Link>
+        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">All alerts</h1>
         <p className="m-0 text-[14px] leading-[1.45] text-ink-2">
           Everything waiting on a manager: cooks’ flags and notes, readings, prep, stock, money and the team.
         </p>
@@ -299,9 +302,9 @@ function Inbox() {
         <header className="flex justify-between items-end gap-4">
           <div className="flex flex-col gap-2 min-w-0">
             <div className="font-mono text-[10.5px] tracking-[0.06em] text-ink-3">
-              {[isManager ? 'PASS / INBOX' : 'INBOX', activeRc?.name.toUpperCase()].filter(Boolean).join(' · ')}
+              <Link href={isManager ? '/pass' : '/today'} className="text-gold-2 hover:text-ink">← PASS</Link>{[' / ALL ALERTS', activeRc?.name.toUpperCase()].filter(Boolean).join(' · ')}
             </div>
-            <h1 className="m-0 text-[36px] leading-none font-semibold tracking-[-0.04em]">Inbox</h1>
+            <h1 className="m-0 text-[36px] leading-none font-semibold tracking-[-0.04em]">All alerts</h1>
             {list && (
               <p className="m-0 text-[15px] text-ink-2">
                 {status === 'done' ? (

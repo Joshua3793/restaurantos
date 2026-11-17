@@ -49,6 +49,11 @@ export async function middleware(request: NextRequest) {
 
   // v2 IA redirects — fire BEFORE auth so external bookmarks land in the right place,
   // then the new URL goes through auth as usual.
+  // Pre-shift became the Pass's "Ready for doors" (/today picks the right
+  // Pass for the role: managers on a desktop go on to /pass).
+  if (pathname === '/preshift' || pathname.startsWith('/preshift/')) {
+    return NextResponse.redirect(new URL('/today', request.url), 308)
+  }
   // End-of-day became "Close the day" on the closing board.
   if (pathname === '/end-of-day' || pathname.startsWith('/end-of-day/')) {
     return NextResponse.redirect(new URL('/checklist/today?phase=CLOSE', request.url), 308)

@@ -5,7 +5,7 @@
 import {
   Sun, Package, FileText, Trash2, BarChart3, BookOpen, UtensilsCrossed,
   ShoppingBag, Settings, ChefHat, Truck, ClipboardList, Activity, Building2,
-  Zap, Flame, Thermometer, Banknote, ListChecks, Inbox,
+  Zap, Thermometer, Banknote, ListChecks,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -32,10 +32,11 @@ export const navGroups: NavGroup[] = [
   {
     label: 'TODAY',
     items: [
-      { href: '/pass',       label: 'Pass',       icon: Sun },
-      // LEAD+ (route-access gates it; the menu dims it for STAFF). Badge = open NOW + TODAY.
-      { href: '/inbox',      label: 'Inbox',      icon: Inbox, badgeKey: 'inbox' },
-      { href: '/preshift',   label: 'Pre-shift',  icon: Flame },
+      // The Pass is the inbox: its badge is the open NOW + TODAY alerts. A lead
+      // or cook (who cannot open /pass) goes to /today — their own Pass.
+      // Pre-shift and the Inbox page left the menu (the Pass's "Ready for
+      // doors" and "See all" replaced them).
+      { href: '/pass',       label: 'Pass',       icon: Sun, badgeKey: 'inbox', staffHref: '/today' },
       { href: '/prep',       label: 'Prep',       icon: ChefHat },
       { href: '/count',      label: 'Count',      icon: ClipboardList },
       { href: '/temps',      label: 'Temps',      icon: Thermometer },
