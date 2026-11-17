@@ -9,8 +9,10 @@ import type { Phase } from '@/lib/checklists/rules'
 import { rangeText } from '@/components/checklists/LineRow'
 import { ConfirmRemove, FIELD_LABEL, INPUT, Sheet, SheetError, SheetHeader } from './EditSheets'
 
-// "Edit item" — the bottom sheet for one job on a station's opening or closing
-// list. The same rules as the server (parseItemInput) run before it sends.
+// "Edit item" — one job on a station's opening or closing list. On a phone it is
+// a bottom sheet (ItemSheet); on a computer the same form sits in the builder's
+// side panel (ItemForm, variant 'panel'). The same rules as the server
+// (parseItemInput) run before it sends.
 
 const ANSWERS: { key: Answer; label: string }[] = [
   { key: 'TICK', label: 'A tick' },
@@ -23,17 +25,9 @@ const SMALL_INPUT = 'h-11 border border-line-2 rounded-[9px] px-2.5 font-mono te
 
 const asText = (n: number | null | undefined) => (n == null ? '' : String(n))
 
-export function ItemSheet({
-  item,
-  categoryId,
-  categories,
-  tempUnits,
-  phase,
-  meta,
-  onClose,
-  onSave,
-  onRemove,
-}: {
+export type ListChoice = { id: string; name: string; color: string }
+
+type ItemFormProps = {
   /** null = a new job. */
   item: EditItem | null
   /** The category the job is in, or the one "+ Add item" was tapped on. */
@@ -48,8 +42,44 @@ export function ItemSheet({
   /** Resolves to the server's message, or null when saved. */
   onSave: (data: ItemData) => Promise<string | null>
   onRemove: () => Promise<string | null>
-}) {
-  const [title, setTitle] = useState(item?.title ?? '')
+  /** Every list in this kitchen, in builder order. */
+  stations: ListChoice[]
+  /** The station this copy is on. */
+  ownStationId: string
+  /** The station ids this job sits on (own first). */
+  lists: string[]
+  /** Puts the job on exactly these lists. Resolves to the server's message, or null. */
+  onLists: (stationIds: string[]) => Promise<string | null>
+  /** Prefill for a new job (from the quick-add box). */
+  draftTitle?: string
+}
+
+export function ItemSheet(props: ItemFormProps) {
+  return (
+    <Sheet label={props.item ? 'Edit item' : 'New item'} onClose={props.onClose}>
+      <ItemForm {...props} variant="sheet" />
+    </Sheet>
+  )
+}
+
+export function ItemForm({
+  item,
+  categoryId,
+  categories,
+  tempUnits,
+  phase,
+  meta,
+  onClose,
+  onSave,
+  onRemove,
+  stations,
+  ownStationId,
+  lists,
+  onLists,
+  draftTitle,
+  variant,
+}: ItemFormProps & { variant: 'sheet' | 'panel' }) {
+  const [title, setTitle] = useState(item?.title ?? draftTitle ?? '')
   const [howTo, setHowTo] = useState(item?.howTo ?? '')
   const [isBlocker, setIsBlocker] = useState(item?.isBlocker ?? false)
   const [answer, setAnswer] = useState<Answer>(item?.answer ?? 'TICK')
@@ -58,7 +88,9 @@ export function ItemSheet({
   const [safeMax, setSafeMax] = useState(item?.answer === 'NUMBER' ? asText(item.safeMax) : '')
   const [tempUnitId, setTempUnitId] = useState(item?.tempUnitId ?? '')
   const [days, setDays] = useState<boolean[]>(() => daysToToggles(item?.days ?? ALL_DAYS))
+  const [dueBy, setDueBy] = useState(item?.dueBy ?? '')
   const [catId, setCatId] = useState(categoryId)
+  const [listsBusy, setListsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState(false)
@@ -71,7 +103,7 @@ export function ItemSheet({
     if (busy) return
     const parsed = parseItemInput({
       title, howTo, isBlocker, answer, unit, safeMin, safeMax,
-      tempUnitId: tempUnitId || null, days: togglesToDays(days), categoryId: catId,
+      tempUnitId: tempUnitId || null, days: togglesToDays(days), dueBy, categoryId: catId,
     })
     if (!parsed.ok) { setError(parsed.error); return }
     setError(null)
@@ -92,10 +124,26 @@ export function ItemSheet({
 
   const toggleDay = (i: number) => setDays(prev => prev.map((on, j) => (j === i ? !on : on)))
 
+  const toggleList = async (stationId: string) => {
+    if (listsBusy || stationId === ownStationId) return
+    const next = lists.includes(stationId) ? lists.filter(id => id !== stationId) : [...lists, stationId]
+    setListsBusy(true)
+    const err = await onLists(next)
+    setListsBusy(false)
+    setError(err)
+  }
+
+  const shared = lists.length > 1
+  const ownName = stations.find(s => s.id === ownStationId)?.name ?? 'this list'
+
   return (
-    <Sheet label={item ? 'Edit item' : 'New item'} onClose={onClose}>
-      <form onSubmit={save} aria-label={item ? 'Edit item' : 'New item'} className="flex flex-col gap-[18px]">
-        <SheetHeader title={item ? 'Edit item' : 'New item'} meta={meta} />
+    <form onSubmit={save} aria-label={item ? 'Edit item' : 'New item'} className="flex flex-col gap-[18px]">
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0"><SheetHeader title={item ? 'Edit item' : 'New item'} meta={meta} /></div>
+          {variant === 'panel' && (
+            <button type="button" onClick={onClose} aria-label="Close" className="flex-none -mr-2 -mt-2 w-11 h-11 grid place-items-center text-ink-3 text-[20px]">×</button>
+          )}
+        </div>
 
         <label className="flex flex-col gap-1.5">
           <span className={FIELD_LABEL}>WHAT TO DO</span>
@@ -210,29 +258,81 @@ export function ItemSheet({
         </fieldset>
 
         <label className="flex flex-col gap-1.5">
+          <span className={FIELD_LABEL}>DUE BY (OPTIONAL)</span>
+          <span className="flex items-center gap-2">
+            <input
+              type="time"
+              value={dueBy}
+              onChange={e => setDueBy(e.target.value)}
+              aria-label="Due by"
+              className={`${SMALL_INPUT} max-w-[150px]`}
+            />
+            {dueBy && (
+              <button type="button" onClick={() => setDueBy('')} className="min-h-[44px] px-2 font-mono text-[11px] text-ink-3">
+                No time
+              </button>
+            )}
+          </span>
+          <span className="text-[12.5px] text-ink-3">The cook sees “by {dueBy ? dueBy.replace(/^0/, '') : '8:45'}”; it turns red when it’s late.</span>
+        </label>
+
+        <label className="flex flex-col gap-1.5">
           <span className={FIELD_LABEL}>CATEGORY</span>
           <select value={catId} onChange={e => setCatId(e.target.value)} className={INPUT}>
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
 
+        <fieldset className="border-0 m-0 p-0 flex flex-col gap-2">
+          <legend className={`${FIELD_LABEL} p-0 mb-2`}>ON THESE LISTS</legend>
+          {item ? (
+            <>
+              <div className="flex gap-1.5 flex-wrap" aria-busy={listsBusy || undefined}>
+                {stations.map(s => {
+                  const on = lists.includes(s.id)
+                  const own = s.id === ownStationId
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-pressed={on}
+                      disabled={own || listsBusy}
+                      onClick={() => toggleList(s.id)}
+                      className={`min-h-[40px] px-3 rounded-full text-[13px] flex items-center gap-1.5 disabled:cursor-default ${on ? 'bg-ink text-paper font-medium' : 'border border-line-2 bg-paper text-ink-2'} ${listsBusy && !own ? 'opacity-60' : ''}`}
+                    >
+                      <span className="w-2 h-2 rounded-full flex-none" style={{ background: s.color }} aria-hidden />
+                      {s.name}{on && ' ✓'}
+                    </button>
+                  )
+                })}
+              </div>
+              <span className="text-[12.5px] text-ink-3">
+                {shared
+                  ? `One job on ${lists.length} lists. Whoever does it first ticks it off on all of them, and saving changes it on all ${lists.length}. Tapping a list saves straight away.`
+                  : 'Tap another list to put this same job there too: done once, ticked off on every list. Saves straight away.'}
+              </span>
+            </>
+          ) : (
+            <span className="text-[12.5px] text-ink-3">Save it first, then you can put it on other lists.</span>
+          )}
+        </fieldset>
+
         <SheetError error={error} />
 
         {confirm && item ? (
-          <ConfirmRemove text={`Remove ${item.title}? Its history stays.`} busy={busy} onKeep={() => setConfirm(false)} onRemove={remove} />
+          <ConfirmRemove text={shared ? `Take ${item.title} off ${ownName}? The other lists keep it.` : `Remove ${item.title}? Its history stays.`} busy={busy} onKeep={() => setConfirm(false)} onRemove={remove} />
         ) : (
           <div className="flex gap-2">
             {item && (
               <button type="button" onClick={() => setConfirm(true)} className="flex-none min-h-[50px] px-4 rounded-xl border border-line-2 bg-paper text-[14px] font-medium text-red-text">
-                Remove
+                {shared ? `Off ${ownName}` : 'Remove'}
               </button>
             )}
             <button type="submit" disabled={busy} className="flex-1 min-h-[50px] rounded-xl bg-ink text-paper text-[14px] font-medium disabled:opacity-50">
-              Save item <span className="text-gold">✓</span>
+              {shared ? `Save on ${lists.length} lists` : 'Save item'} <span className="text-gold">✓</span>
             </button>
           </div>
         )}
-      </form>
-    </Sheet>
+    </form>
   )
 }

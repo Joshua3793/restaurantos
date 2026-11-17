@@ -121,3 +121,34 @@ export function minusDays(businessDate: string, n: number): string {
   d.setUTCDate(d.getUTCDate() - n)
   return d.toISOString().slice(0, 10)
 }
+
+/**
+ * A job's "due by" time from the editor: 'HH:MM' (24h) or null for none.
+ * Accepts "8:45" and "08:45"; undefined means the text is not a time.
+ */
+export function parseDueBy(raw: unknown): string | null | undefined {
+  if (raw === undefined || raw === null) return null
+  if (typeof raw !== 'string') return undefined
+  const s = raw.trim()
+  if (s === '') return null
+  const m = /^(\d{1,2}):([0-5]\d)$/.exec(s)
+  if (!m || Number(m[1]) > 23) return undefined
+  return `${m[1].padStart(2, '0')}:${m[2]}`
+}
+
+/** Minutes into the shift day, which starts at 05:00: a 00:30 close-down sorts after 23:00. */
+export function shiftMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number)
+  const mins = h * 60 + m
+  return mins < 5 * 60 ? mins + 24 * 60 : mins
+}
+
+/** True once the shift clock has passed the job's due time. */
+export function isPastDue(dueBy: string | null, nowHHMM: string): boolean {
+  return !!dueBy && shiftMinutes(nowHHMM) > shiftMinutes(dueBy)
+}
+
+/** "8:45" — the due time as the cook reads it. */
+export function dueText(dueBy: string): string {
+  return dueBy.replace(/^0(\d)/, '$1')
+}

@@ -50,8 +50,20 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status })
 
     const { data } = result
+    // One job on several lists: the other open copies today take the same answer.
+    const siblings = line.linkId
+      ? await prisma.checklistRunLine.findMany({
+          where: {
+            linkId: line.linkId, NOT: { id: line.id },
+            run: { businessDate: line.run.businessDate, phase: line.run.phase, status: 'OPEN' },
+          },
+          select: { id: true, title: true, isBlocker: true, unit: true, tempReadingId: true },
+        })
+      : []
     const logsTemp = line.answer === 'TEMP' && !!line.tempUnitId
-    const oldReadingId = line.tempReadingId
+    // A shared job keeps ONE Temps-log reading, whichever copy wrote it.
+    const oldReadingId = line.tempReadingId ?? siblings.find(s => s.tempReadingId)?.tempReadingId ?? null
+    const siblingHeldReading = siblings.some(s => s.tempReadingId)
     const newReading = logsTemp && data.value != null
     // Existing reading is replaced in place; a first answer gets a fresh id we can store on the line.
     const readingId = newReading ? oldReadingId ?? randomUUID() : null
@@ -67,6 +79,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           data: { ...data, ...(logsTemp || oldReadingId ? { tempReadingId: readingId } : {}) },
         })
         if (upd.count === 0) throw new RunLockedError()
+
+        if (siblings.length) {
+          await tx.checklistRunLine.updateMany({
+            where: { id: { in: siblings.map(s => s.id) }, run: { status: 'OPEN' } },
+            data: { ...data, ...(siblingHeldReading ? { tempReadingId: null } : {}) },
+          })
+        }
 
         if (readingId) {
           const fields = {
@@ -96,6 +115,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           station: { name: line.run.station.name, revenueCenterId: line.run.station.revenueCenterId },
           who,
         })
+        // The copy just answered owns the alert; any older alert on another copy closes.
+        for (const s of siblings) {
+          await syncFlagItem(tx, {
+            line: { id: s.id, title: s.title, isBlocker: s.isBlocker, unit: s.unit, status: 'TODO', flagReason: null, flagNote: null, value: null },
+            run: { id: line.runId },
+            station: { name: line.run.station.name, revenueCenterId: line.run.station.revenueCenterId },
+            who,
+          })
+        }
       })
     } catch (e) {
       if (e instanceof RunLockedError) return NextResponse.json({ error: SIGNED_MSG }, { status: 409 })

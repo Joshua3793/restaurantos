@@ -42,7 +42,7 @@ describe('snapshotLines', () => {
     }]
     expect(snapshotLines('r1', cats, '2026-10-28')[0]).toEqual({
       runId: 'r1', itemId: 'a', categoryName: 'Fridge', title: 'Fryer oil level', howTo: 'Dipstick',
-      isBlocker: true, answer: 'NUMBER', unit: 'cm', safeMin: '2', safeMax: '9', tempUnitId: null, sortOrder: 0,
+      isBlocker: true, answer: 'NUMBER', unit: 'cm', safeMin: '2', safeMax: '9', tempUnitId: null, dueBy: null, linkId: null, sortOrder: 0,
     })
   })
 
@@ -57,7 +57,7 @@ describe('snapshotLines', () => {
     const line = snapshotLines('r1', cats, '2026-10-28')[0]
     expect(line).toEqual({
       runId: 'r1', itemId: 'a', categoryName: 'Fridge', title: 'Walk-in temp', howTo: 'Probe',
-      isBlocker: true, answer: 'TEMP', unit: '°C', safeMin: 0, safeMax: 4, tempUnitId: 't1', sortOrder: 0,
+      isBlocker: true, answer: 'TEMP', unit: '°C', safeMin: 0, safeMax: 4, tempUnitId: 't1', dueBy: null, linkId: null, sortOrder: 0,
     })
     // The frozen range flags a walk-in at 9 °C.
     const out = applyLine(

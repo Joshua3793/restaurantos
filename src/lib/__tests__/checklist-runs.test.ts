@@ -13,6 +13,8 @@ const runFindFirst = vi.fn()
 const runUpsert = vi.fn()
 const categoryFindMany = vi.fn()
 const lineCreateMany = vi.fn()
+const lineFindMany = vi.fn(async (_a: unknown): Promise<unknown[]> => [])
+const lineUpdateMany = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const outerUpsert = vi.fn()
 const outerCreateMany = vi.fn()
 const transaction = vi.fn()
@@ -50,8 +52,55 @@ beforeEach(() => {
   transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
     fn({
       checklistRun: { upsert: (...a: unknown[]) => runUpsert(...a) },
-      checklistRunLine: { createMany: (...a: unknown[]) => lineCreateMany(...a) },
+      checklistRunLine: {
+        createMany: (...a: unknown[]) => lineCreateMany(...a),
+        findMany: (a: unknown) => lineFindMany(a),
+        updateMany: (a: unknown) => lineUpdateMany(a),
+      },
     }))
+  lineFindMany.mockReset().mockResolvedValue([])
+  lineUpdateMany.mockReset().mockResolvedValue({ count: 1 })
+})
+
+describe('ensureRun — a job on several lists', () => {
+  const linkedCats = [{
+    name: 'Line', sortOrder: 0, isActive: true,
+    items: [
+      { ...cats[0].items[0], id: 'i1', linkId: 'L', dueBy: '08:45' },
+      { ...cats[0].items[0], id: 'i2', title: 'Hood on', sortOrder: 1 },
+    ],
+  }]
+
+  it('a list opening after the shared job was ticked elsewhere starts with it ticked', async () => {
+    runFindUnique.mockResolvedValue(null)
+    runUpsert.mockResolvedValue({ id: 'r2' })
+    categoryFindMany.mockResolvedValue(linkedCats)
+    const at = new Date('2026-10-28T15:30:00Z')
+    lineFindMany.mockResolvedValue([{
+      linkId: 'L', status: 'DONE', value: null, doneById: 'u1', doneByName: 'Sam', doneAt: at,
+      flagReason: null, flagNote: null, resolvedById: null, resolvedByName: null, resolvedAt: null, tempReadingId: 'R1',
+    }])
+
+    await ensureRun('s1', 'OPEN', '2026-10-28')
+
+    expect(lineCreateMany.mock.calls[0][0].data[0]).toMatchObject({ itemId: 'i1', linkId: 'L', dueBy: '08:45' })
+    expect(lineFindMany.mock.calls[0][0]).toMatchObject({
+      where: { linkId: { in: ['L'] }, status: { not: 'TODO' }, runId: { not: 'r2' }, run: { phase: 'OPEN', businessDate: '2026-10-28' } },
+    })
+    expect(lineUpdateMany).toHaveBeenCalledTimes(1)
+    const upd = lineUpdateMany.mock.calls[0][0] as { where: unknown; data: Record<string, unknown> }
+    expect(upd.where).toEqual({ runId: 'r2', linkId: 'L' })
+    expect(upd.data).toMatchObject({ status: 'DONE', doneByName: 'Sam', doneAt: at })
+    expect(upd.data).not.toHaveProperty('tempReadingId')
+  })
+
+  it('a list with no shared jobs looks for nothing', async () => {
+    runFindUnique.mockResolvedValue(null)
+    runUpsert.mockResolvedValue({ id: 'r1' })
+    categoryFindMany.mockResolvedValue(cats)
+    await ensureRun('s1', 'OPEN', '2026-10-28')
+    expect(lineFindMany).not.toHaveBeenCalled()
+  })
 })
 
 describe('ensureRun', () => {

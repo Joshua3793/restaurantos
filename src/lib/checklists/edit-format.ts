@@ -1,7 +1,7 @@
 // Pure helpers and shared shapes for the checklist editor (/checklist/edit and
 // its API). No Prisma, no React.
 
-import { daysLabel, EVERY_DAY, type Phase } from './rules'
+import { daysLabel, dueText, EVERY_DAY, type Phase } from './rules'
 import type { Answer } from './item-input'
 
 export type EditItem = {
@@ -15,6 +15,10 @@ export type EditItem = {
   safeMax: number | null
   tempUnitId: string | null
   days: number
+  /** 'HH:MM' or null. */
+  dueBy: string | null
+  /** Shared by every copy of this job on other lists; null = on this list only. */
+  linkId: string | null
 }
 
 export type CategoryTree = { id: string; name: string; items: EditItem[] }
@@ -48,14 +52,16 @@ export function numberPill(unit: string | null, min: number | null, max: number 
   return ['NUMBER', unit?.trim() || '', rangeLabel(min, max)].filter(Boolean).join(' ')
 }
 
-/** The tags under an item in the editor, in board order. */
-export function itemPills(item: EditItem, phase: Phase, tempUnitName: string | null): ItemPill[] {
+/** The tags under an item in the editor, in board order. `lists` = how many lists carry this job. */
+export function itemPills(item: EditItem, phase: Phase, tempUnitName: string | null, lists = 1): ItemPill[] {
   const pills: ItemPill[] = []
   if (item.isBlocker) pills.push({ label: phase === 'OPEN' ? 'BEFORE DOORS' : 'BEFORE YOU LEAVE', tone: 'red' })
+  if (item.dueBy) pills.push({ label: `BY ${dueText(item.dueBy)}`, tone: 'grey' })
   if (item.answer === 'NUMBER') pills.push({ label: numberPill(item.unit, item.safeMin, item.safeMax), tone: 'blue' })
   else if (item.answer === 'TEMP') pills.push({ label: `TEMP · ${tempUnitName ?? 'unit removed'}`, tone: 'blue' })
   const d = daysLabel(item.days)
   if (d) pills.push({ label: d, tone: 'gold' })
+  if (lists > 1) pills.push({ label: `ON ${lists} LISTS`, tone: 'grey' })
   if (item.answer === 'TICK') pills.push({ label: 'TICK', tone: 'grey' })
   return pills
 }

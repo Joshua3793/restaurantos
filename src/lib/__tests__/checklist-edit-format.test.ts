@@ -6,7 +6,7 @@ import {
 
 const item = (o: Partial<EditItem> = {}): EditItem => ({
   id: 'i1', title: 'Lowboy temp', howTo: null, isBlocker: false, answer: 'TICK',
-  unit: null, safeMin: null, safeMax: null, tempUnitId: null, days: 127, ...o,
+  unit: null, safeMin: null, safeMax: null, tempUnitId: null, days: 127, dueBy: null, linkId: null, ...o,
 })
 
 describe('rangeLabel / numberPill', () => {

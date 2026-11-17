@@ -2,7 +2,7 @@
 import { useRef } from 'react'
 import { Check, MoreHorizontal } from 'lucide-react'
 import type { LineView } from '@/lib/checklists/runs'
-import { pacificHHMM } from '@/lib/checklists/rules'
+import { dueText, isPastDue, pacificHHMM } from '@/lib/checklists/rules'
 
 // One job on the cook's list. TICK rows tick on tap (optimistic, in the page);
 // NUMBER/TEMP rows open the log sheet; "⋯" or a long-press opens the sheet on
@@ -172,6 +172,7 @@ export function LineRow({
           <span className="flex items-center justify-end gap-1.5">
             {shared && <Pill>KITCHEN</Pill>}
             {flagged && <Pill tone="red">FLAGGED</Pill>}
+            <DuePill line={line} />
             {!isTick && line.status === 'TODO' && !locked && (
               <span className="font-mono text-[11px] px-2.5 py-1 rounded-[7px] border border-dashed border-line-2 text-ink-3 whitespace-nowrap">
                 — {unitOf(line) || 'log'}
@@ -207,6 +208,7 @@ export function LineRow({
         </span>
         {shared && <Pill>KITCHEN</Pill>}
         {flagged && <Pill tone="red">FLAGGED</Pill>}
+        <DuePill line={line} />
         {!isTick && line.status === 'TODO' && !locked && (
           <span className="font-mono text-[11px] font-medium px-[11px] py-[7px] rounded-full border border-line-2 text-ink whitespace-nowrap">
             Log {unitOf(line) || 'it'}
@@ -225,6 +227,14 @@ export function LineRow({
       )}
     </div>
   )
+}
+
+/** "BY 8:45" on a job still to do; red "LATE · 8:45" once the clock passes it. */
+function DuePill({ line }: { line: Pick<LineView, 'dueBy' | 'status'> }) {
+  if (!line.dueBy || line.status !== 'TODO') return null
+  return isPastDue(line.dueBy, pacificHHMM())
+    ? <Pill tone="red">LATE · {dueText(line.dueBy)}</Pill>
+    : <Pill>BY {dueText(line.dueBy)}</Pill>
 }
 
 export function Pill({ children, tone = 'grey' }: { children: React.ReactNode; tone?: 'grey' | 'red' | 'blue' | 'green' }) {
