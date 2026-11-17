@@ -7,6 +7,7 @@ import { ROLE_RANK, atLeast } from '@/lib/roles'
 import { PIN_DEVICE_COOKIE, isDeviceToken } from '@/lib/pin/http'
 import { hashToken } from '@/lib/pin/rules'
 import { PIN_PHONE_NEEDED } from '@/lib/pin/session-lost'
+import { SIGNED_OUT_OVERNIGHT, sessionSignedInAt, signedInBeforeCutoff } from '@/lib/auth-day'
 
 export class AuthError extends Error {
   constructor(
@@ -98,6 +99,13 @@ export async function requireSession(minRole?: Role): Promise<User> {
 
   if (!authUser) {
     throw new AuthError(401, 'Unauthorized')
+  }
+
+  // Every session ends at 02:00 restaurant time (src/lib/auth-day.ts); a page
+  // left open overnight gets this 401 and UserContext sends it to sign in.
+  const { data: { session } } = await supabase.auth.getSession()
+  if (signedInBeforeCutoff(sessionSignedInAt(session?.access_token, authUser.last_sign_in_at), new Date())) {
+    throw new AuthError(401, SIGNED_OUT_OVERNIGHT)
   }
 
   const user = await prisma.user.findUnique({ where: { id: authUser.id } })

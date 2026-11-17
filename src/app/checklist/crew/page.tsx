@@ -344,7 +344,10 @@ function CrewItem({
       {open && (
         <div className="px-4 pb-3.5 flex flex-col gap-2">
           {c.status.label === 'EMAIL LOGIN' && (
-            <p className="m-0 text-[13px] text-ink-3">They have an email login, so they sign in with email and password.</p>
+            <p className="m-0 text-[13px] text-ink-3">Managers sign in with email and password.</p>
+          )}
+          {c.status.label === 'NEEDS FIX' && (
+            <p className="m-0 text-[13px] text-ink-3">Their login belongs to another cook. Fix it in People before OK’ing a phone.</p>
           )}
           {c.status.label === 'SWITCHED OFF' && (
             <p className="m-0 text-[13px] text-ink-3">Their login is switched off in People, so no phone can sign in.</p>

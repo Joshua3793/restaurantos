@@ -401,13 +401,22 @@ describe('syncSystemItems — reconcile', () => {
     expect(find('phone:d1')!.body).toMatch(/^Code /)
   })
 
-  it('a phone from a cook with an email login never asks for an OK', async () => {
+  it('a phone from a cook with a staff email login asks for an OK like any cook', async () => {
     pinDeviceFindMany.mockResolvedValue([{
       id: 'd2', status: 'PENDING', createdAt: new Date(NOW.getTime() - 600_000), tokenHash: 'abc123',
       cook: { id: 'c1', name: 'Robyn', lastName: 'Hale', isActive: true, user: { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' } },
     }])
     await syncSystemItems('rcA', NOW)
-    expect(find('phone:d2')).toBeUndefined()
+    expect(find('phone:d2')).toMatchObject({ title: "Robyn Hale's phone wants your OK" })
+  })
+
+  it('a phone from a cook whose login is a manager’s never asks for an OK', async () => {
+    pinDeviceFindMany.mockResolvedValue([{
+      id: 'd3', status: 'PENDING', createdAt: new Date(NOW.getTime() - 600_000), tokenHash: 'abc124',
+      cook: { id: 'c2', name: 'Liam', lastName: 'S', isActive: true, user: { role: 'MANAGER', isActive: true, email: 'liam@gmail.com' } },
+    }])
+    await syncSystemItems('rcA', NOW)
+    expect(find('phone:d3')).toBeUndefined()
   })
 })
 

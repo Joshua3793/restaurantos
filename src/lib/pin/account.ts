@@ -7,7 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { findAuthUserByEmail, isAlreadyRegisteredError } from '@/lib/users'
 import { atLeast } from '@/lib/roles'
 import { accessAppMetadata } from '@/lib/auth-access'
-import { pinEmail } from '@/lib/pin/rules'
+import { isPinEmail, pinEmail } from '@/lib/pin/rules'
 import { PinError } from '@/lib/pin/errors'
 
 export { PinError } from '@/lib/pin/errors'
@@ -23,7 +23,6 @@ export interface PinCook {
 
 const SWITCHED_OFF = 'This login is switched off'
 const MANAGERS_USE_EMAIL = 'Managers sign in with email and password'
-const EMAIL_LOGIN_USE_EMAIL = 'You have an email login — sign in with your email and password'
 const NEEDS_A_MANAGER = 'This PIN account needs a manager to fix it'
 const SIGN_IN_FAILED = 'Could not sign in — try again'
 
@@ -39,17 +38,17 @@ function isUniqueViolation(e: unknown): boolean {
 }
 
 /**
- * The gate every PIN sign-in passes: the login must be on, must not be a
- * manager's (MANAGER and above sign in with email and password — RULING P3),
- * and must be this cook's own PIN login. A cook linked to an email login signs
- * in with that email: a PIN session on it would carry no phone binding and no
- * LEAD cap (both key off the PIN stamp), and stamping it would lock its email
- * sign-in to an OK'd phone.
+ * The gate every PIN sign-in passes: the login must be on and must not be a
+ * manager's (MANAGER and above sign in with email and password — RULING P3).
+ * A cook linked to an email login (below MANAGER) may use their PIN too: the
+ * PIN route still needs a manager-OK'd phone before it mints a session, and the
+ * email login is never stamped, so its own email sign-in is untouched. Only a
+ * link to ANOTHER cook's PIN login is refused — never sign into someone else.
  */
 function admit(user: PinUserRow, cookId: string): { userId: string; email: string } {
   if (!user.isActive) throw new PinError(403, SWITCHED_OFF)
   if (atLeast(user.role, 'MANAGER')) throw new PinError(403, MANAGERS_USE_EMAIL)
-  if (user.email.toLowerCase() !== pinEmail(cookId)) throw new PinError(403, EMAIL_LOGIN_USE_EMAIL)
+  if (isPinEmail(user.email) && user.email.trim().toLowerCase() !== pinEmail(cookId)) throw new PinError(403, NEEDS_A_MANAGER)
   return { userId: user.id, email: user.email }
 }
 
@@ -63,7 +62,7 @@ async function linkedUser(userId: string, cookId: string): Promise<{ userId: str
 /**
  * The early gate on the PIN screen, run before any phone is queued for
  * approval: a cook whose linked login is a manager's (RULING P3), switched
- * off, or an email login is refused with the same 403 `ensurePinUser` would
+ * off, or another cook's PIN login is refused with the same 403 `ensurePinUser` would
  * give. A cook with no login yet, or a link to a missing row, passes —
  * `ensurePinUser` makes one.
  */

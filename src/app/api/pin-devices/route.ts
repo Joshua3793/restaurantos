@@ -7,7 +7,7 @@ import { PENDING_MAX_AGE_MS, pairCode, pinFullName } from '@/lib/pin/rules'
 export const dynamic = 'force-dynamic'
 
 const REJECTED_KEEP_MS = 30 * 24 * 60 * 60_000
-const STATUS_ORDER = ['WAITING', 'NOT YET', 'NO PIN', 'SET UP', 'EMAIL LOGIN', 'SWITCHED OFF']
+const STATUS_ORDER = ['WAITING', 'NOT YET', 'NO PIN', 'SET UP', 'EMAIL LOGIN', 'NEEDS FIX', 'SWITCHED OFF']
 
 /**
  * GET — phones waiting for approval, and every active cook's sign-in status.

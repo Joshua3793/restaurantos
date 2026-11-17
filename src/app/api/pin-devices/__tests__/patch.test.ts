@@ -75,6 +75,11 @@ describe('PATCH /api/pin-devices/[id]', () => {
     expect(deviceUpdateMany.mock.calls[0][0].where).toEqual({ id: 'd1', status: 'PENDING' })
   })
 
+  it('approving a phone for a cook with their own staff email login is allowed', async () => {
+    deviceFindUnique.mockResolvedValue(pendingDevice({}, { user: { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' } }))
+    expect((await patch({ action: 'approve' })).status).toBe(200)
+  })
+
   it('approving a phone with no linked login is allowed (the PIN flow creates it)', async () => {
     deviceFindUnique.mockResolvedValue(pendingDevice({}, { user: null }))
     expect((await patch({ action: 'approve' })).status).toBe(200)
@@ -85,9 +90,9 @@ describe('PATCH /api/pin-devices/[id]', () => {
     ['an owner', pendingDevice({}, { user: { role: 'OWNER', isActive: true } }), 'Managers sign in with email and password'],
     ['a switched-off login', pendingDevice({}, { user: { role: 'STAFF', isActive: false } }), 'This login is switched off'],
     [
-      'a cook with an email login',
-      pendingDevice({}, { user: { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' } }),
-      'This cook has an email login — they sign in with email and password',
+      'a cook linked to another cook’s PIN login',
+      pendingDevice({}, { user: { role: 'STAFF', isActive: true, email: 'pin.c9@crew.controlaos.vercel.app' } }),
+      'This cook’s login needs fixing in People first',
     ],
     ['a switched-off cook', pendingDevice({}, { isActive: false }), 'This cook is switched off'],
     [
@@ -252,7 +257,7 @@ describe('GET /api/pin-devices', () => {
     cookFindMany.mockResolvedValue([
       cook('m', 'Mia', { user: { role: 'MANAGER', isActive: true }, pinDevices: [dev('dm', 'PENDING', 1)] }),
       cook('s', 'Sid', { user: { role: 'STAFF', isActive: false }, pinDevices: [dev('ds', 'PENDING', 1)] }),
-      cook('e', 'Eve', { user: { role: 'STAFF', isActive: true, email: 'eve@gmail.com' }, pinDevices: [dev('de', 'PENDING', 1)] }),
+      cook('e', 'Eve', { user: { role: 'STAFF', isActive: true, email: 'pin.zz@crew.controlaos.vercel.app' }, pinDevices: [dev('de', 'PENDING', 1)] }),
       cook('l', 'Lou', { user: { role: 'LEAD', isActive: true, email: 'pin.l@crew.controlaos.vercel.app' }, pinDevices: [dev('dl', 'PENDING', 1)] }),
       cook('n', 'Nia'),
     ])
@@ -262,7 +267,7 @@ describe('GET /api/pin-devices', () => {
     const by = Object.fromEntries(body.crew.map((c: { cookId: string }) => [c.cookId, c]))
     expect(by.m).toMatchObject({ blocked: 'MANAGER', status: { label: 'EMAIL LOGIN', tone: 'grey' } })
     expect(by.s).toMatchObject({ blocked: 'SWITCHED_OFF', status: { label: 'SWITCHED OFF', tone: 'red' } })
-    expect(by.e).toMatchObject({ blocked: 'EMAIL_LOGIN', status: { label: 'EMAIL LOGIN', tone: 'grey' } })
+    expect(by.e).toMatchObject({ blocked: 'MISLINKED', status: { label: 'NEEDS FIX', tone: 'red' } })
     expect(by.l.blocked).toBeNull()
     expect(by.n.blocked).toBeNull()
     expect(body.crew.map((c: { cookId: string }) => c.cookId).slice(0, 2)).toEqual(['l', 'n'])
