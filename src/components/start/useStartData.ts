@@ -13,7 +13,8 @@ import type { HandoverNote } from '@/lib/pass'
 import type { InboxList } from '@/components/inbox/format'
 import { prepProgress, runningLow, type StartPrepItem, type StartOrderLine } from '@/lib/start-page'
 
-// The last close for the active RC (GET /api/eod/handover). MANAGER only.
+// The last close for the active RC (GET /api/eod/handover). LEAD+ (the kitchen
+// handover note is for every opener); its money snapshot is MANAGER-only.
 export interface LastClose {
   handoverNote: string | null
   signedOffByName: string | null
@@ -134,13 +135,16 @@ export function useStartData() {
         put('foodCost', null)
         put('yesterday', null)
       }
-      if (isManager && rcOnly) {
+      if (isLead && rcOnly) {
         // Only a recent close is "last night" — a months-old note must not read as news.
         getJson(`/api/eod/handover?rcId=${rcOnly}`).then(v => put('lastClose',
           v?.businessDate && v.businessDate >= dayAgo(CLOSE_FRESH_DAYS) ? v : null))
-        getJson(`/api/eod/orders?rcId=${rcOnly}`).then(v => put('orders', v?.suppliers ? v : null))
       } else {
         put('lastClose', null)
+      }
+      if (isManager && rcOnly) {
+        getJson(`/api/eod/orders?rcId=${rcOnly}`).then(v => put('orders', v?.suppliers ? v : null))
+      } else {
         put('orders', null)
       }
     }

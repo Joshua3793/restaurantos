@@ -20,6 +20,7 @@ export function ChecklistView({
   shared,
   stations,
   handover,
+  kitchenNote = null,
   busyIds,
   onTap,
   onMore,
@@ -33,6 +34,8 @@ export function ChecklistView({
   shared: RunView | null
   stations: StationCard[]
   handover: Record<string, Handover>
+  /** OPEN: last night's kitchen handover (the "Close the day" note), shown to every opener. */
+  kitchenNote?: Handover | null
   /** Lines with a save in flight. */
   busyIds: ReadonlySet<string>
   onTap: (line: RowLine) => void
@@ -115,6 +118,16 @@ export function ChecklistView({
           <div className="bg-red" style={{ width: `${flagPct}%` }} />
         </div>
       </section>
+
+      {phase === 'OPEN' && kitchenNote && (
+        <section aria-label="Kitchen handover" className="rounded-[14px] bg-gold-soft px-4 py-3 flex flex-col gap-1">
+          <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-gold-2">KITCHEN HANDOVER · LAST NIGHT</span>
+          <span className="text-[14px] leading-[1.45] text-ink-2">
+            {kitchenNote.note}
+            {kitchenNote.byName && <span className="text-ink-3"> — {firstName(kitchenNote.byName)}</span>}
+          </span>
+        </section>
+      )}
 
       {mine.map((run, i) => {
         const station = stationById.get(run.stationId)

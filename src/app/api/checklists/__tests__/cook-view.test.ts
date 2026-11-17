@@ -15,12 +15,14 @@ const seed = vi.fn(async () => {})
 const ensureRun = vi.fn()
 const loadRunView = vi.fn()
 const lastHandover = vi.fn()
+const eodFindFirst = vi.fn()
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     checklistStation: { findMany: (...a: unknown[]) => stationFindMany(...a) },
     checklistRun: { findMany: (...a: unknown[]) => runFindMany(...a) },
     checklistItem: { findMany: (...a: unknown[]) => itemFindMany(...a) },
+    eodClose: { findFirst: (...a: unknown[]) => eodFindFirst(...a) },
   },
 }))
 vi.mock('@/lib/auth', () => ({ AuthError: MockAuthError }))
@@ -49,6 +51,7 @@ beforeEach(() => {
   runFindMany.mockResolvedValue([])
   itemFindMany.mockResolvedValue([])
   lastHandover.mockResolvedValue(null)
+  eodFindFirst.mockResolvedValue(null)
 })
 
 describe('buildCookView', () => {
@@ -145,6 +148,24 @@ describe('buildCookView', () => {
       expect(v.visiting).toBeNull()
       expect(v.mine).toEqual([])
     }
+  })
+
+  it('OPEN carries last night\'s kitchen handover note for every opener', async () => {
+    eodFindFirst.mockResolvedValue({ handoverNote: '  Alpha lowboy seal loose  ', signedOffByName: 'Sam', businessDate: '2026-11-16' })
+    const v = await buildCookView(user, 'rc1', 'OPEN')
+    expect(v.kitchenNote).toEqual({ note: 'Alpha lowboy seal loose', byName: 'Sam', businessDate: '2026-11-16' })
+    const where = eodFindFirst.mock.calls[0][0].where
+    expect(where.revenueCenterId).toBe('rc1')
+    expect(where.businessDate.lt).toBe(v.businessDate)
+  })
+
+  it('no kitchen note on CLOSE, or when none was written', async () => {
+    expect((await buildCookView(user, 'rc1', 'OPEN')).kitchenNote).toBeNull()
+    eodFindFirst.mockClear()
+    ensureRun.mockResolvedValue({ id: 'r-all', created: false })
+    loadRunView.mockResolvedValue({ id: 'r-all', stationId: 'all', lines: [] })
+    expect((await buildCookView(lead, 'rc1', 'CLOSE')).kitchenNote).toBeNull()
+    expect(eodFindFirst).not.toHaveBeenCalled()
   })
 
   it('CLOSE has no handover lookup', async () => {

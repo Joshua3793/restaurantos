@@ -86,7 +86,6 @@ const SHORT_CTA: Array<[string, string]> = [
   ['/count', 'Count'],
   ['/inventory', 'Stock'],
   ['/recipes', 'Recipe'],
-  ['/end-of-day', 'Close'],
 ]
 
 /** A row's button: where its link goes in a word, or "Open" (the item sheet) when it has none. */

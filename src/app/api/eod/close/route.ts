@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { businessDateLocal, computeTempsReady, computeProgress, loadStationsClosed } from '@/lib/eod-close'
+import { closeBusinessDate, computeTempsReady, computeProgress, loadStationsClosed, retryOnUniqueRace } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,14 +10,14 @@ export async function GET(req: NextRequest) {
     const user = await requireSession('LEAD')
     const rcId = new URL(req.url).searchParams.get('rcId')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
-    const date = businessDateLocal()
+    const date = closeBusinessDate()
 
     const [stations, temps, close] = await Promise.all([
       // The gate: every station's closing run signed off (station checklists,
       // at the closing shift's date) AND temps — see computeProgress.
       loadStationsClosed(rcId),
       computeTempsReady(rcId, date),
-      prisma.eodClose.upsert({
+      retryOnUniqueRace(() => prisma.eodClose.upsert({
         where: { revenueCenterId_businessDate: { revenueCenterId: rcId, businessDate: date } },
         create: { revenueCenterId: rcId, businessDate: date },
         update: {},
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
           id: true, status: true, handoverNote: true, signedOffByName: true, signedOffAt: true, snapshot: true,
           labourCost: true, grossSales: true, compsVoids: true, discounts: true,
         },
-      }),
+      })),
     ])
 
     const progress = computeProgress(stations, temps)
@@ -74,7 +74,7 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json()
     const rcId = String(body.rcId ?? '')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
-    const date = businessDateLocal()
+    const date = closeBusinessDate()
 
     const labourCost = parseOptionalNumber(body.labourCost)
     const grossSales = parseOptionalNumber(body.grossSales)
@@ -103,11 +103,11 @@ export async function PATCH(req: NextRequest) {
       ...(discounts !== undefined ? { discounts } : {}),
     }
 
-    await prisma.eodClose.upsert({
+    await retryOnUniqueRace(() => prisma.eodClose.upsert({
       where: { revenueCenterId_businessDate: { revenueCenterId: rcId, businessDate: date } },
       create: { revenueCenterId: rcId, businessDate: date, ...data },
       update: data,
-    })
+    }))
     return NextResponse.json({ ok: true })
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })

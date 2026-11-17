@@ -5,7 +5,7 @@
 import {
   Sun, Package, FileText, Trash2, BarChart3, BookOpen, UtensilsCrossed,
   ShoppingBag, Settings, ChefHat, Truck, ClipboardList, Activity, Building2,
-  Zap, Flame, Thermometer, Clock, Banknote, ListChecks, Inbox,
+  Zap, Flame, Thermometer, Banknote, ListChecks, Inbox,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -41,7 +41,6 @@ export const navGroups: NavGroup[] = [
       { href: '/temps',      label: 'Temps',      icon: Thermometer },
       { href: '/checklist',  label: 'Checklist', icon: ListChecks },
       // LEAD+ (route-access gates it; the menu dims it for STAFF).
-      { href: '/end-of-day', label: 'End-of-day', icon: Clock },
     ],
   },
   {

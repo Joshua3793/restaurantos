@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { stationsClosed, computeProgress, isLiveCloseRun, closeGateFrom, type CloseRunInfo } from '@/lib/eod-close'
+import { describe, it, expect, vi } from 'vitest'
+import { stationsClosed, computeProgress, isLiveCloseRun, closeGateFrom, closeBusinessDate, businessDateLocal, retryOnUniqueRace, type CloseRunInfo } from '@/lib/eod-close'
 
 describe('stationsClosed', () => {
   it('leaves the shared station out and is not ready while one is open', () => {
@@ -89,5 +89,38 @@ describe('computeProgress (the end-of-day gate)', () => {
   it('is ready with no temp units and no closing runs', () => {
     const p = computeProgress(gate(0, 0), { total: 0, ready: true })
     expect(p).toMatchObject({ done: 0, total: 0, blockers: 0, ready: true, hasTempUnits: false })
+  })
+})
+
+describe('closeBusinessDate (the day a close belongs to)', () => {
+  it('a close finished after midnight still belongs to the night before', () => {
+    const d = new Date('2026-11-18T08:30:00Z') // 00:30 Pacific, Wed 18 Nov
+    expect(businessDateLocal(d)).toBe('2026-11-18')
+    expect(closeBusinessDate(d)).toBe('2026-11-17')
+  })
+
+  it('rolls to the new day at 05:00, like the station closing lists', () => {
+    expect(closeBusinessDate(new Date('2026-11-18T12:59:00Z'))).toBe('2026-11-17') // 04:59
+    expect(closeBusinessDate(new Date('2026-11-18T13:00:00Z'))).toBe('2026-11-18') // 05:00
+  })
+
+  it('an evening close is that calendar day', () => {
+    expect(closeBusinessDate(new Date('2026-11-17T23:00:00Z'))).toBe('2026-11-17') // 15:00
+  })
+})
+
+describe('retryOnUniqueRace', () => {
+  it('retries once when a twin request created the row first', async () => {
+    const write = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error('unique'), { code: 'P2002' }))
+      .mockResolvedValueOnce('row')
+    await expect(retryOnUniqueRace(write)).resolves.toBe('row')
+    expect(write).toHaveBeenCalledTimes(2)
+  })
+
+  it('passes any other error straight through', async () => {
+    const write = vi.fn().mockRejectedValue(Object.assign(new Error('down'), { code: 'P1001' }))
+    await expect(retryOnUniqueRace(write)).rejects.toThrow('down')
+    expect(write).toHaveBeenCalledTimes(1)
   })
 })

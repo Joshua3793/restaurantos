@@ -43,12 +43,12 @@ describe('nav tables', () => {
     }
   })
 
-  it('offers the cook checklist in TODAY, with End-of-day right after it', () => {
+  it('offers the Checklist in TODAY, and no End-of-day (it is the closing board now)', () => {
     const today = navGroups.find(g => g.label === 'TODAY')!.items
     const i = today.findIndex(x => x.href === '/checklist')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(today[i].label).toBe('Checklist')
-    expect(today[i + 1]?.href).toBe('/end-of-day')
+    expect(today.some(x => x.href === '/end-of-day')).toBe(false)
   })
 
   it('offers the Inbox in TODAY right after Pass, with its own badge', () => {
@@ -95,7 +95,6 @@ describe('nav <-> middleware clearance parity', () => {
 describe('navLabelFor', () => {
   it('names the page behind a gated path', () => {
     expect(navLabelFor('/pass')).toBe('Pass')
-    expect(navLabelFor('/end-of-day')).toBe('End-of-day')
     expect(navLabelFor('/checklist/today')).toBe('Checklist')
     expect(navLabelFor('/setup/revenue-centers')).toBe('Revenue centers')
   })

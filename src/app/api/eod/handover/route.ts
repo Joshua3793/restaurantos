@@ -5,8 +5,13 @@ import { businessDateLocal } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
-// The most recent CLOSED close BEFORE today for the RC — the artifact the next
-// morning's Pass opens with ("From last night's close" band). Returns the close
+// The most recent close BEFORE today for the RC — the artifact the next
+// morning's Pass opens with ("From last night's close" band). A close counts
+// once it is signed off OR carries a kitchen handover note: the note is for
+// every opener, so it must not wait on the close being finished.
+//
+// LEAD+ read it (the note is the whole point for a shift lead); the money
+// snapshot is MANAGER-only and is left out entirely for a LEAD. Returns the close
 // regardless of whether a handover note was written: the reconciled snapshot
 // (netSales/covers/foodCostPct) and sign-off time are useful on their own, and
 // the note is just one optional field of the payload.
@@ -19,12 +24,19 @@ export const dynamic = 'force-dynamic'
 // the checklist/temps state stay as-recorded at close.
 export async function GET(req: NextRequest) {
   try {
-    await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const rcId = new URL(req.url).searchParams.get('rcId')
     if (!rcId) return NextResponse.json(null)
     const today = businessDateLocal()
     const close = await prisma.eodClose.findFirst({
-      where: { revenueCenterId: rcId, status: 'CLOSED', businessDate: { lt: today } },
+      where: {
+        revenueCenterId: rcId,
+        businessDate: { lt: today },
+        OR: [
+          { status: 'CLOSED' },
+          { AND: [{ handoverNote: { not: null } }, { handoverNote: { not: '' } }] },
+        ],
+      },
       orderBy: { businessDate: 'desc' },
       select: {
         handoverNote: true,
@@ -35,6 +47,12 @@ export async function GET(req: NextRequest) {
       },
     })
     if (!close) return NextResponse.json(null)
+    // No cost or money below MANAGER (clearance ladder): the note, who and when only.
+    if (user.role === 'LEAD') {
+      const { snapshot: _money, ...rest } = close
+      void _money
+      return NextResponse.json(rest, { headers: { 'Cache-Control': 'no-store' } })
+    }
 
     // Live-reconcile the close's business date. Sales are stored date-only at UTC
     // midnight, so bracket the business date at UTC — identical window to sign-off.

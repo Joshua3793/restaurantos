@@ -35,9 +35,8 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   ['/invoices', 'LEAD'],
   ['/inventory', 'LEAD'],
   ['/sales', 'LEAD'],
-  // A Lead runs the operational close (checklist, temps, sign-off) and WRITES
-  // the handover note (PATCH /api/eod/close), but does not read the handover
-  // money recap (GET /api/eod/handover) — that stays MANAGER. See src/app/api/eod/*.
+  // /end-of-day now redirects to the closing board (middleware). A Lead runs the
+  // close there and reads the handover note; the money recap stays MANAGER.
   ['/end-of-day', 'LEAD'],
   // Station checklists. /checklist itself (the cook's own list) is open to
   // STAFF, so it has no entry; the board, history and editor are gated here.
