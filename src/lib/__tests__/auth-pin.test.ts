@@ -5,7 +5,8 @@ import { hashToken } from '@/lib/pin/rules'
 // cookie of a phone APPROVED for that cook, and is never more than a LEAD.
 
 const getUser = vi.fn()
-vi.mock('@/lib/supabase/server', () => ({ createClient: () => ({ auth: { getUser } }) }))
+const getSession = vi.fn()
+vi.mock('@/lib/supabase/server', () => ({ createClient: () => ({ auth: { getUser, getSession } }) }))
 
 let cookieJar: Record<string, string> = {}
 vi.mock('next/headers', () => ({
@@ -45,6 +46,28 @@ beforeEach(() => {
   cookieJar = {}
   userFindUnique.mockResolvedValue(row())
   deviceFindUnique.mockResolvedValue(null)
+  getSession.mockResolvedValue({ data: { session: null } })
+})
+
+describe('requireSession — the 02:00 sign-out', () => {
+  const tokenAt = (signedIn: Date) =>
+    `h.${Buffer.from(JSON.stringify({ amr: [{ method: 'password', timestamp: Math.floor(signedIn.getTime() / 1000) }] })).toString('base64url')}.s`
+
+  it('refuses a session signed in before the last 2am with 401 "Signed out overnight"', async () => {
+    authAs()
+    // Signed in two days ago — always before the last 2am, whenever this runs.
+    getSession.mockResolvedValue({ data: { session: { access_token: tokenAt(new Date(Date.now() - 48 * 3600_000)) } } })
+    const err = await requireSession().catch((e) => e)
+    expect(err).toBeInstanceOf(AuthError)
+    expect(err).toMatchObject({ status: 401, message: 'Signed out overnight — sign in to start your day' })
+    expect(userFindUnique).not.toHaveBeenCalled()
+  })
+
+  it('lets a session signed in a minute ago through', async () => {
+    authAs()
+    getSession.mockResolvedValue({ data: { session: { access_token: tokenAt(new Date(Date.now() - 60_000)) } } })
+    await expect(requireSession()).resolves.toMatchObject({ id: 'u1' })
+  })
 })
 
 describe('requireSession — ordinary (email) logins', () => {

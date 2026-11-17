@@ -62,7 +62,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       const blocked = pinBlocked(device.cook.id, device.cook.user)
       if (blocked === 'MANAGER') return refuse('Managers sign in with email and password')
       if (blocked === 'SWITCHED_OFF') return refuse('This login is switched off')
-      if (blocked === 'EMAIL_LOGIN') return refuse('This cook has an email login — they sign in with email and password')
+      if (blocked === 'MISLINKED') return refuse('This cook’s login needs fixing in People first')
       if (!device.cook.isActive) return refuse('This cook is switched off')
       if (Date.now() - device.createdAt.getTime() > PENDING_MAX_AGE_MS) {
         return refuse('This request is too old — ask them to try again on their phone')

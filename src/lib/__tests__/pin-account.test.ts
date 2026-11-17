@@ -46,7 +46,7 @@ vi.mock('@supabase/ssr', () => ({
 
 const { ensurePinUser, mintSession, assertPinLoginAllowed } = await import('@/lib/pin/account')
 const { PinError } = await import('@/lib/pin/errors')
-const EMAIL_LOGIN = 'You have an email login — sign in with your email and password'
+const NEEDS_A_MANAGER = 'This PIN account needs a manager to fix it'
 
 const unlinked = { id: 'c1', name: 'Sam', lastName: 'Lee', userId: null }
 const EMAIL = 'pin.c1@crew.controlaos.vercel.app'
@@ -97,18 +97,19 @@ describe('ensurePinUser — already linked', () => {
     await expect(ensurePinUser({ ...unlinked, userId: 'u9' })).resolves.toEqual({ userId: 'u9', email: EMAIL })
   })
 
-  it('refuses a cook linked to an email login (403) — no PIN session without the phone binding', async () => {
+  it('signs a cook linked to their own email login in as that login — no new account, no stamp', async () => {
     userFindUnique.mockResolvedValue({ id: 'u9', email: 'robyn@gmail.com', name: 'Robyn', role: 'STAFF', isActive: true })
-    const err = await ensurePinUser({ ...unlinked, userId: 'u9' }).catch((e) => e)
-    expect(err).toBeInstanceOf(PinError)
-    expect(err).toMatchObject({ status: 403, message: EMAIL_LOGIN })
+    await expect(ensurePinUser({ ...unlinked, userId: 'u9' })).resolves.toEqual({ userId: 'u9', email: 'robyn@gmail.com' })
     expect(createUser).not.toHaveBeenCalled()
+    expect(updateUserById).not.toHaveBeenCalled()
     expect(transaction).not.toHaveBeenCalled()
   })
 
   it("refuses another cook's PIN login (403)", async () => {
     userFindUnique.mockResolvedValue({ id: 'u9', email: 'pin.c2@crew.controlaos.vercel.app', name: 'Al', role: 'STAFF', isActive: true })
-    await expect(ensurePinUser({ ...unlinked, userId: 'u9' })).rejects.toMatchObject({ status: 403, message: EMAIL_LOGIN })
+    const err = await ensurePinUser({ ...unlinked, userId: 'u9' }).catch((e) => e)
+    expect(err).toBeInstanceOf(PinError)
+    expect(err).toMatchObject({ status: 403, message: NEEDS_A_MANAGER })
   })
 
   it('matches the PIN email whatever its case', async () => {
@@ -345,11 +346,11 @@ describe('ensurePinUser — two first sign-ins at once', () => {
     expect(deleteUser).not.toHaveBeenCalledWith('winner')
   })
 
-  it('refuses a race winner who is an email login (an admin linked one meanwhile)', async () => {
+  it('uses a race winner who is a staff email login (an admin linked one meanwhile)', async () => {
     txCookUpdateMany.mockResolvedValue({ count: 0 })
     cookFindUnique.mockResolvedValue({ userId: 'winner' })
     userFindUnique.mockResolvedValue({ id: 'winner', email: 'w@x.com', name: 'W', role: 'STAFF', isActive: true })
-    await expect(ensurePinUser(unlinked)).rejects.toMatchObject({ status: 403, message: EMAIL_LOGIN })
+    await expect(ensurePinUser(unlinked)).resolves.toEqual({ userId: 'winner', email: 'w@x.com' })
     expect(deleteUser).toHaveBeenCalledWith('auth-new')
     expect(deleteUser).not.toHaveBeenCalledWith('winner')
   })
@@ -412,11 +413,16 @@ describe('assertPinLoginAllowed', () => {
     })
   })
 
-  it('refuses a cook linked to an email login with 403, before any phone is queued', async () => {
+  it('passes a cook linked to their own staff email login', async () => {
     userFindUnique.mockResolvedValue(staffRow('u9', { email: 'simon@gmail.com' }))
+    await expect(assertPinLoginAllowed({ id: 'c1', userId: 'u9' })).resolves.toBeUndefined()
+  })
+
+  it("refuses a link to another cook's PIN login with 403, before any phone is queued", async () => {
+    userFindUnique.mockResolvedValue(staffRow('u9', { email: 'pin.c2@crew.controlaos.vercel.app' }))
     await expect(assertPinLoginAllowed({ id: 'c1', userId: 'u9' })).rejects.toMatchObject({
       status: 403,
-      message: EMAIL_LOGIN,
+      message: NEEDS_A_MANAGER,
     })
   })
 })

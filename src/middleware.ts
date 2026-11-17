@@ -3,6 +3,18 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { atLeast } from '@/lib/roles'
 import { pageAccess } from '@/lib/auth-access'
 import { requiredClearance } from '@/lib/route-access'
+import { sessionSignedInAt, signedInBeforeCutoff } from '@/lib/auth-day'
+
+/**
+ * Where a signed-out visitor goes: a phone that has asked for (or been OK'd
+ * for) PIN sign-in carries the `pin_device` cookie, so it goes straight to the
+ * PIN keypad; everyone else gets email and password. The PIN screen links to
+ * email sign-in, so a manager on such a phone is one tap away.
+ */
+function signInPath(request: NextRequest): string {
+  const device = request.cookies.get('pin_device')?.value
+  return device && /^[A-Za-z0-9_-]{43}$/.test(device) ? '/auth/pin' : '/login'
+}
 
 // Routes that never require authentication
 const PUBLIC_PREFIXES = ['/login', '/auth']
@@ -83,7 +95,26 @@ export async function middleware(request: NextRequest) {
 
   // Not authenticated → redirect to login
   if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url))
+    return NextResponse.redirect(new URL(signInPath(request), request.url))
+  }
+
+  // Everyone is signed out at 02:00 restaurant time so each morning starts
+  // with a fresh sign-in. The session's sign-in time rides in the (already
+  // verified) access token and survives token refreshes.
+  const { data: { session } } = await supabase.auth.getSession()
+  if (signedInBeforeCutoff(sessionSignedInAt(session?.access_token, user.last_sign_in_at), new Date())) {
+    try {
+      // This device only; clears the auth cookies through setAll above.
+      await supabase.auth.signOut({ scope: 'local' })
+    } catch {
+      // Cookies are cleared below whether or not Supabase answered.
+    }
+    const out = NextResponse.redirect(new URL(signInPath(request), request.url))
+    response.cookies.getAll().forEach(cookie => out.cookies.set(cookie))
+    for (const { name } of request.cookies.getAll()) {
+      if (name.startsWith('sb-') && !out.cookies.get(name)) out.cookies.set(name, '', { path: '/', maxAge: 0 })
+    }
+    return out
   }
 
   // Page access comes from app_metadata, which only the service role can

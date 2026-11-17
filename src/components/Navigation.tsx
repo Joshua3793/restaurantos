@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useState, Suspense, useEffect } from 'react'
 import { X, LogOut, ChevronRight, Wifi, WifiOff, Lock, Menu } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
@@ -58,7 +58,6 @@ function TenantName() {
 
 function NavigationInner() {
   const pathname  = usePathname()
-  const router    = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
@@ -142,8 +141,15 @@ function NavigationInner() {
 
   async function handleLogout() {
     const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login')
+    // This device only — signing out the till must not sign a cook out of
+    // their phone. A full load of '/' lets middleware pick the sign-in screen:
+    // the PIN keypad on a cook's phone, email and password everywhere else.
+    try {
+      await supabase.auth.signOut({ scope: 'local' })
+    } catch {
+      // Signed out or not, the sign-in screen is the way back in.
+    }
+    window.location.assign('/')
   }
 
   // No app chrome on auth/standalone routes — same gate as CostChromeGate.

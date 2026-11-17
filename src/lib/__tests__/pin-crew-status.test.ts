@@ -69,11 +69,14 @@ describe('pinBlocked', () => {
   it('switched off → SWITCHED_OFF', () => {
     expect(pinBlocked('c1', { role: 'STAFF', isActive: false, email: 'robyn@gmail.com' })).toBe('SWITCHED_OFF')
   })
-  it('an email login, or another cook’s PIN login → EMAIL_LOGIN, shown as EMAIL LOGIN grey', () => {
-    expect(pinBlocked('c1', { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' })).toBe('EMAIL_LOGIN')
-    expect(pinBlocked('c1', { role: 'STAFF', isActive: true, email: 'pin.c2@crew.controlaos.vercel.app' })).toBe('EMAIL_LOGIN')
-    expect(crewStatus({ clockId: '1234' }, [{ status: 'PENDING' }], 'EMAIL_LOGIN')).toEqual({
-      label: 'EMAIL LOGIN', tone: 'grey', phones: 0,
+  it('the cook’s own staff email login → not blocked (they can use their PIN too)', () => {
+    expect(pinBlocked('c1', { role: 'STAFF', isActive: true, email: 'robyn@gmail.com' })).toBeNull()
+    expect(pinBlocked('c1', { role: 'LEAD', isActive: true, email: 'Robyn@Gmail.com' })).toBeNull()
+  })
+  it('another cook’s PIN login → MISLINKED, shown as NEEDS FIX red', () => {
+    expect(pinBlocked('c1', { role: 'STAFF', isActive: true, email: 'pin.c2@crew.controlaos.vercel.app' })).toBe('MISLINKED')
+    expect(crewStatus({ clockId: '1234' }, [{ status: 'PENDING' }], 'MISLINKED')).toEqual({
+      label: 'NEEDS FIX', tone: 'red', phones: 0,
     })
   })
 })
