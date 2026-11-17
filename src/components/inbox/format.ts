@@ -32,6 +32,8 @@ export type InboxItem = {
   doneAt: string | null
   unread: boolean
   revenueCenterId: string | null
+  /** The app alert's family (`prep`, `price`, …), null for a cook's report. Optional: older callers and tests omit it. */
+  kind?: string | null
 }
 
 export type InboxEventKind =

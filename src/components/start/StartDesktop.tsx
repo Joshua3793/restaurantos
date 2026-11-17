@@ -1,35 +1,35 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { Activity, Clock, RefreshCw, ArrowRight, ListChecks } from 'lucide-react'
+import { Clock, RefreshCw, ArrowRight, ListChecks } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { clockText, dayTimeline } from '@/lib/start-page'
 import { whenLabel, type InboxItem } from '@/components/inbox/format'
 import { TagDot } from '@/components/inbox/TagChips'
-import { DESKTOP_TOP, countNow, itemMeta, moreCount, stationsDone, tagRows, topItems } from '@/lib/pass'
+import { DESKTOP_TOP, itemMeta, stationsDone, tagRows, topRows, type PassRow } from '@/lib/pass'
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { useStartData, type StartData } from './useStartData'
 import { greetingFor, crumbDate, personName } from './parts'
 import {
-  Lede, LastNight, PassItemDialog, StationTileWide, ItemCta, TagLine, WhenPill, VALUE_TONE,
+  Lede, LastNight, PassItemDialog, StationTileWide, VALUE_TONE,
   ReportButton, numberRows, useInboxCount, usePassItem,
+  RowTag, RowTitle, RowPill, RowCta, rowMeta, DayPartPill, ReadyForDoors, SEE_ALL_HREF,
 } from './PassParts'
 
-// The desktop Pass (/pass, MANAGER+). Follows the PassDesktop mockup: the
-// header with the Inbox, the service band, then what needs you first (the top
-// of the Inbox, NOW then TODAY) and the stations on the left; the Inbox by tag,
-// last night's notes and the numbers on the right. The deeper numbers live in
-// Reports — this page only carries what changes the next hour.
+// The desktop Pass (/pass, MANAGER+). The Pass IS the inbox: what needs you
+// first is the open alerts, NOW then TODAY, with repeats folded into one line
+// (14 "none left" prep alerts read as one row); "See all" opens the full list.
+// Before doors, "Ready for doors" (it replaced Pre-shift) sits under the
+// header. Then the service band, the stations, all alerts by tag, last night's
+// notes and the numbers. The deeper numbers live in Reports.
 export function StartDesktop() {
   const { user } = useUser()
   const d = useStartData()
   const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
   const now = new Date()
   const items = d.inbox?.items ?? []
-  const top = topItems(items, DESKTOP_TOP)
-  const nowN = countNow(items)
-  const laterToday = moreCount(items, nowN)
+  const { rows: top, more, nowCount: nowN } = topRows(items, DESKTOP_TOP)
   const feedCount = useInboxCount(d.rcId)
   const inboxCount = feedCount ?? (d.inbox ? items.filter(i => i.severity !== 'FYI').length : null)
   const item = usePassItem(d.inbox?.tags ?? [], d.rcId, d.loadInbox)
@@ -39,7 +39,6 @@ export function StartDesktop() {
       <SubNav
         tabs={[
           { href: '/pass', label: 'Pass' },
-          { href: '/preshift', label: 'Pre-shift', icon: <Activity size={14} /> },
           // The manager's view of the station checklists is the board, not the cook screen.
           { href: '/checklist/today', label: 'Checklist', icon: <ListChecks size={14} /> },
         ]}
@@ -49,19 +48,22 @@ export function StartDesktop() {
           crumbs={<><Clock size={12} /> PASS · {crumbDate(now)}{d.rcName && <> · {d.rcName.toUpperCase()}</>}</>}
           title={<>Good {greetingFor(now)}, <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.</>}
           sub={
-            <span className="text-[15px] text-ink-2">
-              <Lede d={d} nowCount={nowN} />
-              {d.loaded && d.isRc && laterToday > 0 && <> {laterToday} more today in the Inbox.</>}
+            <span className="flex flex-col items-start gap-2.5">
+              <span className="text-[15px] text-ink-2">
+                <Lede d={d} nowCount={nowN} />
+                {d.loaded && d.isRc && more > 0 && <> {more} more under See all.</>}
+              </span>
+              <DayPartPill d={d} />
             </span>
           }
           actions={<>
             <ReportButton d={d} />
             {d.isRc && (
             <Link
-              href="/inbox"
+              href={SEE_ALL_HREF}
               className="inline-flex items-center gap-2 min-h-[44px] px-3.5 rounded-[9px] bg-ink text-paper text-[13px] font-medium hover:bg-ink-2"
             >
-              Open Inbox
+              See all alerts
               {inboxCount != null && inboxCount > 0 && (
                 <span className="font-mono text-[10.5px] bg-red text-paper rounded-full px-[7px] py-px">{inboxCount}</span>
               )}
@@ -71,7 +73,9 @@ export function StartDesktop() {
           </>}
         />
 
-        <ServiceBand d={d} />
+        <ReadyForDoors d={d} />
+
+        <div className="mt-5"><ServiceBand d={d} /></div>
 
         <div className="grid gap-5 grid-cols-1 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] mt-5 items-start">
           <div className="flex flex-col gap-5 min-w-0">
@@ -164,12 +168,12 @@ const Empty = ({ children }: { children: React.ReactNode }) => (
   <p className="px-[18px] py-10 text-center text-[14px] text-ink-3">{children}</p>
 )
 
-function NeedsFirst({ d, top, onOpen, now }: { d: StartData; top: InboxItem[]; onOpen: (i: InboxItem) => void; now: Date }) {
+function NeedsFirst({ d, top, onOpen, now }: { d: StartData; top: PassRow<InboxItem>[]; onOpen: (i: InboxItem) => void; now: Date }) {
   return (
     <section aria-label="Needs you first" className="bg-paper border border-line rounded-xl overflow-hidden min-w-0">
       <div className="flex justify-between items-baseline px-[18px] py-3.5 border-b border-line">
         <h2 className="text-[13.5px] font-semibold">Needs you first</h2>
-        <span className="font-mono text-[10.5px] text-ink-3">NOW + TODAY · RANKED</span>
+        <span className="font-mono text-[10.5px] text-ink-3">NOW + TODAY · REPEATS GROUPED</span>
       </div>
       {!d.isRc ? (
         <Empty>Pick a kitchen in the top bar to see what needs you.</Empty>
@@ -177,7 +181,7 @@ function NeedsFirst({ d, top, onOpen, now }: { d: StartData; top: InboxItem[]; o
         <Empty>Loading…</Empty>
       ) : d.inboxError && !d.inbox ? (
         <div className="px-[18px] py-8 flex items-center justify-center gap-3">
-          <span className="text-[14px] text-ink-3">Could not load the Inbox.</span>
+          <span className="text-[14px] text-ink-3">Could not load the alerts.</span>
           <button type="button" onClick={() => d.loadInbox()} className="min-h-[44px] px-3.5 rounded-full border border-line-2 font-mono text-[11px] hover:border-ink-3">Try again</button>
         </div>
       ) : top.length === 0 ? (
@@ -186,16 +190,16 @@ function NeedsFirst({ d, top, onOpen, now }: { d: StartData; top: InboxItem[]; o
           <p className="text-[14px] text-ink-3 mt-1.5">Nothing needs you right now — go cook.</p>
         </div>
       ) : (
-        top.map((n, i) => (
-          <div key={n.id} className={`grid grid-cols-[24px_minmax(0,1fr)_64px_auto] gap-3 items-center px-[18px] py-3 ${i > 0 ? 'border-t border-bg-2' : ''}`}>
+        top.map((r, i) => (
+          <div key={r.key} className={`grid grid-cols-[24px_minmax(0,1fr)_64px_auto] gap-3 items-center px-[18px] py-3 ${i > 0 ? 'border-t border-bg-2' : ''}`}>
             <span className="font-mono text-[11px] text-ink-4">{String(i + 1).padStart(2, '0')}</span>
             <span className="flex flex-col gap-[3px] min-w-0">
-              <TagLine item={n} />
-              <span className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink">{n.title}</span>
-              <span className="font-mono text-[10.5px] text-ink-3 truncate">{itemMeta(n, now)}</span>
+              <RowTag row={r} />
+              <span className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink"><RowTitle row={r} /></span>
+              <span className="font-mono text-[10.5px] text-ink-3 truncate">{rowMeta(r, now, itemMeta)}</span>
             </span>
-            <WhenPill item={n} />
-            <ItemCta item={n} gold={i === 0} onOpen={onOpen} />
+            <RowPill row={r} />
+            <RowCta row={r} gold={i === 0} onOpen={onOpen} />
           </div>
         ))
       )}
@@ -226,15 +230,15 @@ function InboxByTag({ d }: { d: StartData }) {
   if (!d.inbox) return null
   const rows = tagRows(d.inbox.tags, d.inbox.counts.byTag, d.inbox.items)
   return (
-    <section aria-label="Inbox by tag" className="bg-paper border border-line rounded-xl px-[18px] py-4 flex flex-col gap-2.5">
+    <section aria-label="All alerts by tag" className="bg-paper border border-line rounded-xl px-[18px] py-4 flex flex-col gap-2.5">
       <div className="flex justify-between items-baseline">
-        <h2 className="text-[13.5px] font-semibold">Inbox by tag</h2>
+        <h2 className="text-[13.5px] font-semibold">All alerts by tag</h2>
         <span className="font-mono text-[10.5px] text-ink-3">{d.inbox.counts.open} OPEN</span>
       </div>
       {rows.length === 0 ? (
         <p className="text-[13.5px] text-ink-3">Nothing open. All clear.</p>
       ) : rows.map(r => (
-        <Link key={r.tag.id} href="/inbox" className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[44px] text-ink hover:text-gold-2">
+        <Link key={r.tag.id} href={SEE_ALL_HREF} className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[44px] text-ink hover:text-gold-2">
           <TagDot color={r.tag.color} />
           <span className="text-[13.5px] truncate">{r.tag.name}</span>
           <span className="font-mono text-[12px] font-semibold text-right tabular-nums">{r.count}</span>

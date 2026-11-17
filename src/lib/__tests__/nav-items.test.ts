@@ -51,10 +51,10 @@ describe('nav tables', () => {
     expect(today.some(x => x.href === '/end-of-day')).toBe(false)
   })
 
-  it('offers the Inbox in TODAY right after Pass, with its own badge', () => {
+  it('the Pass carries the inbox badge; Inbox and Pre-shift are not in the menu', () => {
     const today = navGroups.find(g => g.label === 'TODAY')!.items
-    const i = today.findIndex(x => x.href === '/pass')
-    expect(today[i + 1]).toMatchObject({ href: '/inbox', label: 'Inbox', badgeKey: 'inbox' })
+    expect(today.find(x => x.href === '/pass')).toMatchObject({ label: 'Pass', badgeKey: 'inbox', staffHref: '/today' })
+    expect(today.some(x => x.href === '/inbox' || x.href === '/preshift')).toBe(false)
   })
 
   it('has no duplicate hrefs', () => {

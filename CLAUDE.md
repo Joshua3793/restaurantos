@@ -36,13 +36,13 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | Page (`src/app/`) | API prefix / notes |
 |---|---|
 | `/today` | home — MANAGER+ get `StartMobile`, staff get `CookStart` (both `src/components/start/`; desktop managers bounce to `/pass`). `CookStart` is the posted To Do cut to the cook: a login linked to a crew row (`Cook.userId`, via `GET /api/prep/me`) sees its own jobs + urgent unassigned ones; an unlinked/shared login sees every posted job with the cook's name. Rules in `src/lib/cook-start.ts`; order comes from `runSheetGroups`. No money. Rows deep-link to `/prep?item=<id>` (opens the drawer) |
-| `/pass` (MANAGER+) | the start page (`StartDesktop`) — service clock + To Do progress, a ranked "Needs you" list, last night's note, yesterday + WTD food cost, running low. Rules in `src/lib/start-page.ts`; data from `useStartData` (prep items, temps, invoice alerts/kpis, counts, cost-chrome, eod handover/orders). KPI depth lives in Reports, not here |
+| `/pass` (MANAGER+) · `/today` Pass for LEAD+ | **The Pass is the inbox** (`StartDesktop`/`StartMobile`): "Needs you first" is the open `InboxItem`s, NOW then TODAY, with repeats of one app-alert family (`InboxItem.kind` = the source key's prefix: `prep`, `price`, `station-open`, `flag`, …) folded into one line by `passRows`/`topRows` in `src/lib/pass.ts`. "See all" = `/inbox` ("All alerts", out of the menu; the Pass menu item carries the inbox badge, `staffHref: '/today'`). Before doors: "Ready for doors" (`readyForDoors` — stations started, opening must-dos, 911 prep; it replaced Pre-shift) and the Before doors · Service · Closing marker (`dayPart`). Then service band, stations, last night (`/api/eod/handover` LEAD+), numbers (MANAGER). Data from `useStartData` |
 | `/inventory` | `/api/inventory`, `/api/categories`, `/api/suppliers`, `/api/storage-areas` |
 | `/invoices` | `/api/invoices/sessions` (multi-step upload → OCR → review → approve) |
 | `/recipes` (PREP) | `/api/recipes?type=PREP` |
 | `/menu` (MENU) | `/api/recipes?type=MENU` |
 | `/prep` | `/api/prep/{items,logs,settings,cooks,sync-from-recipes}` + `/api/prep/plan{,/post,/recall,/reorder}` (Smart Prep v2 posting) |
-| `/preshift` | briefing view over `/api/prep/items` |
+| ~~`/preshift`~~ → 308 to `/today` | retired; the Pass's "Ready for doors" replaced it |
 | `/count` | `/api/count/sessions` |
 | `/sales` | `/api/sales`, `/api/toast/*` |
 | `/tips` (MANAGER+) | `/api/tips/{settings,roles,roster,periods}` — periods, punches, split, envelopes |

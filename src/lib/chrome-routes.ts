@@ -7,7 +7,6 @@ export const SPINE_ROUTES = [
   '/',
   '/today',
   '/pass',
-  '/preshift',
   '/prep',
   '/count',
   '/inventory',

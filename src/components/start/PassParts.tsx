@@ -10,7 +10,7 @@ import { TagDot } from '@/components/inbox/TagChips'
 import { SEVERITY_PILL, whenLabel, type InboxAction, type InboxDetail, type InboxItem } from '@/components/inbox/format'
 import { subscribeInboxCount, refreshInboxCount } from '@/lib/inbox-count-feed'
 import type { TagLite } from '@/lib/inbox/rules'
-import { ctaLabel, passLede, stationTile, type PassStation } from '@/lib/pass'
+import { ctaLabel, dayPart, passLede, readyForDoors, stationTile, type PassRow, type PassStation } from '@/lib/pass'
 import { formatCurrency } from '@/lib/utils'
 import { personName, scoreRows } from './parts'
 import type { StartData } from './useStartData'
@@ -197,6 +197,116 @@ export function WhenPill({ item }: { item: InboxItem }) {
     <span className={`justify-self-start font-mono text-[10px] font-medium px-[9px] py-[3px] rounded-full ${SEVERITY_PILL[item.severity]}`}>
       {item.severity}
     </span>
+  )
+}
+
+// ── a Pass row: one alert, or a family of repeats folded into one line ─────
+
+/** The line above a row's title: tag dot + tag name (an alert's, or its family's). */
+export function RowTag({ row }: { row: PassRow<InboxItem> }) {
+  const tag = row.type === 'group' ? row.tag : row.item.tag
+  return (
+    <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-ink-3 uppercase">
+      <TagDot color={tag.color} />{tag.name}
+      {row.type === 'group' && <span className="text-ink-4">· {row.items.length} alerts</span>}
+    </span>
+  )
+}
+
+export function RowTitle({ row }: { row: PassRow<InboxItem> }) {
+  return <>{row.type === 'group' ? row.title : row.item.title}</>
+}
+
+/** A family lists its names; one alert shows who · where · when. */
+export function rowMeta(row: PassRow<InboxItem>, now: Date, meta: (i: InboxItem, now: Date) => string): string {
+  return row.type === 'group' ? row.detail : meta(row.item, now)
+}
+
+export function RowPill({ row }: { row: PassRow<InboxItem> }) {
+  return (
+    <span className={`justify-self-start font-mono text-[10px] font-medium px-[9px] py-[3px] rounded-full ${SEVERITY_PILL[row.severity]}`}>
+      {row.severity}
+    </span>
+  )
+}
+
+/** A family goes where it is dealt with (Prep, Invoices, the board); else "See all". One alert keeps its own button. */
+export function RowCta({ row, gold, onOpen, className = '' }: {
+  row: PassRow<InboxItem>
+  gold: boolean
+  onOpen: (item: InboxItem) => void
+  className?: string
+}) {
+  if (row.type === 'item') return <ItemCta item={row.item} gold={gold} onOpen={onOpen} className={className} />
+  const cls = `shrink-0 inline-flex items-center justify-center min-h-[44px] px-3.5 rounded-full font-mono text-[11px] font-medium whitespace-nowrap ${
+    gold ? 'bg-gold text-ink hover:bg-gold-2 hover:text-paper' : 'bg-paper text-ink border border-line-2 hover:border-ink-3'
+  } ${className}`
+  return <Link href={row.href ?? SEE_ALL_HREF} className={cls}>{row.href ? ctaLabel(row.href) : 'See all'}</Link>
+}
+
+/** The full list of alerts (Open / Waiting / Snoozed / Done) — the Pass's "See all". */
+export const SEE_ALL_HREF = '/inbox'
+
+// ── where the day is, and how ready the kitchen is for doors ───────────────
+
+const PARTS = [['before', 'Before doors'], ['service', 'Service'], ['closing', 'Closing']] as const
+
+/** Before doors · Service · Closing, the current one lit. Nothing with no service hours set. */
+export function DayPartPill({ d }: { d: StartData }) {
+  const part = d.isRc ? dayPart(d.status) : null
+  if (!part) return null
+  return (
+    <span className="inline-flex bg-bg-2 rounded-full p-[3px]" aria-label="Part of the day">
+      {PARTS.map(([k, label]) => (
+        <span
+          key={k}
+          aria-current={k === part ? 'true' : undefined}
+          className={`font-mono text-[10.5px] px-2.5 py-1 rounded-full whitespace-nowrap ${k === part ? 'bg-paper text-ink font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.04)]' : 'text-ink-3'}`}
+        >
+          {label}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/**
+ * Before doors only: how ready the kitchen is, read from the station lists and
+ * the prep list (it replaced the Pre-shift page — nothing to tick here).
+ */
+export function ReadyForDoors({ d, compact = false }: { d: StartData; compact?: boolean }) {
+  if (!d.isRc || !d.loaded || dayPart(d.status) !== 'before' || d.phase !== 'OPEN') return null
+  const r = readyForDoors(d.stations, d.prep)
+  if (r.gauges.length === 0) return null
+  const tone = r.pct >= 100 ? 'bg-green' : 'bg-gold'
+  const hrefFor = (k: string) => (k === 'prep' ? '/prep' : '/checklist/today?phase=OPEN')
+  return (
+    <section aria-label="Ready for doors" className={`bg-paper border border-line rounded-[14px] overflow-hidden ${compact ? '' : 'mt-5'}`}>
+      <div className={`grid ${compact ? 'grid-cols-1' : 'grid-cols-[220px_repeat(3,minmax(0,1fr))]'}`}>
+        <div className={`flex items-center gap-3 ${compact ? 'px-4 pt-3.5 pb-2' : 'px-[18px] py-4'}`}>
+          <span className="font-mono text-[22px] font-semibold tracking-[-0.03em]">{r.pct}%</span>
+          <span className="flex flex-col">
+            <span className="text-[14px] font-semibold">Ready for doors</span>
+            <span className="font-mono text-[10.5px] text-ink-3">{r.pct >= 100 ? 'ALL SET' : 'FROM THE LISTS'}</span>
+          </span>
+        </div>
+        {r.gauges.map(g => (
+          <Link
+            key={g.key}
+            href={hrefFor(g.key)}
+            className={`flex flex-col gap-1.5 hover:bg-bg ${compact ? 'px-4 py-2.5 border-t border-bg-2' : 'px-[18px] py-4 border-l border-line'}`}
+          >
+            <span className="flex justify-between items-baseline gap-2">
+              <span className="font-mono text-[10px] tracking-[0.08em] uppercase text-ink-3">{g.label}</span>
+              <span className="font-mono text-[13px] font-semibold">{g.done}<span className="text-ink-4">/{g.of}</span></span>
+            </span>
+            <span className="block h-1.5 rounded-full bg-bg-2 overflow-hidden">
+              <span className={`block h-full ${g.done >= g.of ? 'bg-green' : tone}`} style={{ width: `${Math.round((g.done / g.of) * 100)}%` }} />
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   )
 }
 

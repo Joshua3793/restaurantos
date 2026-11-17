@@ -32,6 +32,129 @@ export function topItems<T extends { severity: Severity }>(items: T[], n: number
   return [...now, ...today].slice(0, Math.max(0, n))
 }
 
+// ── Repeats become one line ────────────────────────────────────────────────
+
+/**
+ * How a family of app alerts reads as ONE line on the Pass. 14 "X — none left"
+ * prep alerts become "14 prep items with nobody on them"; nine price rises
+ * become "9 price rises". `short` cuts one alert's title to the name the line
+ * lists ("Hollandaise — none left" → "Hollandaise").
+ */
+type GroupSpec = { title: (n: number) => string; href: string | null; short: (title: string) => string }
+
+const GROUPS: Record<string, GroupSpec> = {
+  prep: {
+    title: n => `${n} prep items with nobody on them`,
+    href: '/prep',
+    short: t => t.replace(/\s+—\s+.*$/, ''),
+  },
+  price: {
+    title: n => `${n} price rises`,
+    href: '/invoices',
+    short: t => t.replace(/\s+at\s+.*$/, '').replace(/\s+up\s+/, ' +'),
+  },
+  'station-open': {
+    title: n => `${n} stations haven’t started opening`,
+    href: '/checklist/today?phase=OPEN',
+    short: t => t.replace(/\s+hasn't started opening$/, ''),
+  },
+  'close-unsigned': {
+    title: n => `${n} closing lists weren’t signed off`,
+    href: '/checklist/today?phase=CLOSE',
+    short: t => t.replace(/\s+closing wasn't signed off$/, ''),
+  },
+  'temp-bad': {
+    title: n => `${n} fridges out of range`,
+    href: '/temps',
+    short: t => t,
+  },
+  flag: {
+    title: n => `${n} flagged jobs`,
+    href: '/checklist/today',
+    short: t => t,
+  },
+  phone: {
+    title: n => `${n} phones waiting for an OK`,
+    href: '/checklist/crew',
+    short: t => t,
+  },
+}
+
+export type PassItemRow<T> = { type: 'item'; key: string; severity: Severity; item: T }
+export type PassGroupRow<T> = {
+  type: 'group'
+  key: string
+  kind: string
+  severity: Severity
+  title: string
+  /** "Hollandaise · Bacon Jam · Chimichurri +11" */
+  detail: string
+  href: string | null
+  tag: TagLite
+  items: T[]
+}
+export type PassRow<T> = PassItemRow<T> | PassGroupRow<T>
+
+type Groupable = { id: string; severity: Severity; title: string; kind?: string | null; tag: TagLite }
+
+const RANK: Record<Severity, number> = { NOW: 0, TODAY: 1, FYI: 2 }
+
+/** "A · B · C +4" — the first three names, then how many more. */
+export function namesLine(names: string[], show = 3): string {
+  const head = names.slice(0, show).join(' · ')
+  return names.length > show ? `${head} +${names.length - show}` : head
+}
+
+/**
+ * The Pass list: NOW then TODAY (FYI never), with every family of two or more
+ * app alerts folded into one row at the place its first alert stood. A row's
+ * severity is its most urgent alert. Reports and lone alerts stay as they are.
+ */
+export function passRows<T extends Groupable>(items: T[]): PassRow<T>[] {
+  const live = items.filter(i => i.severity !== 'FYI')
+  const byKind = new Map<string, T[]>()
+  for (const i of live) {
+    if (!i.kind || !GROUPS[i.kind]) continue
+    byKind.set(i.kind, [...(byKind.get(i.kind) ?? []), i])
+  }
+  const rows: PassRow<T>[] = []
+  const placed = new Set<string>()
+  for (const i of live) {
+    const family = i.kind ? byKind.get(i.kind) : undefined
+    if (family && family.length > 1) {
+      if (placed.has(i.kind!)) continue
+      placed.add(i.kind!)
+      const spec = GROUPS[i.kind!]
+      const severity = family.reduce<Severity>((s, x) => (RANK[x.severity] < RANK[s] ? x.severity : s), 'FYI')
+      rows.push({
+        type: 'group',
+        key: `group:${i.kind}`,
+        kind: i.kind!,
+        severity,
+        title: spec.title(family.length),
+        detail: namesLine(family.map(x => spec.short(x.title))),
+        href: spec.href,
+        tag: i.tag,
+        items: family,
+      })
+    } else {
+      rows.push({ type: 'item', key: i.id, severity: i.severity, item: i })
+    }
+  }
+  // Stable: NOW rows first, then TODAY, each in the list's own order.
+  return rows.sort((a, b) => RANK[a.severity] - RANK[b.severity])
+}
+
+/** The rows on screen and how many more are left behind "See all". */
+export function topRows<T extends Groupable>(items: T[], n: number): { rows: PassRow<T>[]; more: number; nowCount: number } {
+  const all = passRows(items)
+  return {
+    rows: all.slice(0, Math.max(0, n)),
+    more: Math.max(0, all.length - n),
+    nowCount: all.filter(r => r.severity === 'NOW').length,
+  }
+}
+
 /** NOW + TODAY items left in the Inbox after the ones shown. */
 export function moreCount(items: Array<{ severity: Severity }>, shown: number): number {
   return Math.max(0, items.filter(i => i.severity !== 'FYI').length - shown)
@@ -158,4 +281,48 @@ export function stationTile(s: PassStation, now: Date = new Date()): StationTile
 export function stationsDone(stations: PassStation[]): { done: number; of: number } {
   const live = stations.filter(s => s.status.label !== 'NOTHING TODAY')
   return { done: live.filter(s => s.status.tone === 'green').length, of: live.length }
+}
+
+// ── Ready for doors (it replaced the Pre-shift page) ───────────────────────
+
+export type ReadyGauge = { key: 'stations' | 'mustdos' | 'prep'; label: string; done: number; of: number }
+export type ReadyForDoors = { gauges: ReadyGauge[]; pct: number }
+
+const PREP_DONE = new Set(['DONE', 'PARTIAL'])
+
+/**
+ * Before doors, the Pass shows how ready the kitchen is, from what is already
+ * true elsewhere — no list of its own to tick:
+ * - stations: opening lists started (not "NOT STARTED"), shared list and
+ *   stations with nothing today left out;
+ * - must-dos: every opening must-do across the stations and the whole-kitchen
+ *   list, done or flagged;
+ * - 911 prep: critical prep done.
+ * A gauge with nothing to count is left out; `pct` is all done ÷ all counted.
+ */
+export function readyForDoors(
+  stations: Array<{ isShared: boolean; status: { label: string }; lines: Array<{ isBlocker: boolean; status: string }> }>,
+  prep: Array<{ priority: string; todayLog?: { status: string } | null }>,
+): ReadyForDoors {
+  const live = stations.filter(s => !s.isShared && s.status.label !== 'NOTHING TODAY')
+  const blockers = stations.flatMap(s => s.lines.filter(l => l.isBlocker))
+  const critical = prep.filter(p => p.priority === '911')
+  const gauges: ReadyGauge[] = [
+    { key: 'stations' as const, label: 'Stations open', done: live.filter(s => s.status.label !== 'NOT STARTED').length, of: live.length },
+    { key: 'mustdos' as const, label: 'Must-dos done', done: blockers.filter(l => l.status !== 'TODO').length, of: blockers.length },
+    { key: 'prep' as const, label: '911 prep done', done: critical.filter(p => !!p.todayLog && PREP_DONE.has(p.todayLog.status)).length, of: critical.length },
+  ].filter(g => g.of > 0)
+  const done = gauges.reduce((n, g) => n + g.done, 0)
+  const of = gauges.reduce((n, g) => n + g.of, 0)
+  return { gauges, pct: of > 0 ? Math.round((done / of) * 100) : 100 }
+}
+
+export type DayPart = 'before' | 'service' | 'closing'
+
+/** Where the day is, from the service clock: before doors, in service, or closing (after the last service). */
+export function dayPart(status: ServiceStatus): DayPart | null {
+  if (status.kind === 'upcoming') return 'before'
+  if (status.kind === 'underway') return 'service'
+  if (status.kind === 'closed') return 'closing'
+  return null
 }
