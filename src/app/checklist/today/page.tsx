@@ -11,6 +11,7 @@ import { defaultPhase, pacificHHMM, type Phase } from '@/lib/checklists/rules'
 import type { StationTone } from '@/lib/checklists/station-status'
 import type { TodayFlag, TodayLine, TodayStation, TodayView } from '@/lib/checklists/today-types'
 import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
+import { CloseTheDay } from '@/components/checklists/CloseTheDay'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 // /checklist/today — LEAD+ board: every station's opening / closing progress
@@ -19,7 +20,9 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 // the picked station's jobs and the flagged problems in a column on the right.
 // "Work this list" opens a station on /checklist?station= so the lead can tick,
 // flag and sign off for its crew. ?station= here pre-opens that station (the
-// Pass's station tiles link this way).
+// Pass's station tiles link this way). On Closing the board ends with "Close
+// the day" — the gate, the kitchen handover note and the close itself (it
+// replaced the End-of-day page).
 
 const POLL_MS = 30_000
 
@@ -327,6 +330,8 @@ function TodayBoard() {
   const [view, setView] = useState<TodayView | null>(null)
   const [now, setNow] = useState(() => new Date())
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Bumped on every board reload so "Close the day" re-reads its gate with it.
+  const [loadTick, setLoadTick] = useState(0)
   // ?station= (from a Pass tile, or "All stations" on a station's list) opens that station.
   const [openId, setOpenId] = useState<string | null>(paramStation)
   // Flags a lead just marked fixed: hidden at once, and kept hidden if a poll lands first.
@@ -334,6 +339,7 @@ function TodayBoard() {
 
   const allowed = !role || atLeast(role as Role, 'LEAD')
   const canBuild = !!role && atLeast(role as Role, 'MANAGER')
+  const canManage = canBuild
   const desk = useMediaQuery('(min-width: 1024px)') === true
 
   // The kitchen + phase whose reply may land; a slow reply for an older pick is dropped.
@@ -351,6 +357,7 @@ function TodayBoard() {
     setLoadError(null)
     setNow(new Date())
     setView(r.data)
+    setLoadTick(t => t + 1)
   }, [activeRcId, paramPhase])
 
   useEffect(() => {
@@ -445,6 +452,10 @@ function TodayBoard() {
       ))}
     </section>
   )
+  const closeCard = phase === 'CLOSE' && activeRcId && view
+    ? <CloseTheDay rcId={activeRcId} tick={loadTick} canManage={canManage} flagsOpen={flags.length} />
+    : null
+
   // Desktop: the picked card, else the first station that is behind, else the first.
   const deskStation = stations.find(s => s.id === openId)
     ?? working.find(s => s.status.tone === 'red')
@@ -501,6 +512,7 @@ function TodayBoard() {
               </div>
             )}
             <aside className="sticky top-[60px] max-h-[calc(100dvh-76px)] overflow-y-auto flex flex-col gap-3">
+              {closeCard}
               {deskStation && <StationDetail s={deskStation} phase={phase} />}
               {flagSection}
             </aside>
@@ -520,6 +532,7 @@ function TodayBoard() {
           </section>
 
           {flagSection}
+          {closeCard}
         </>
         )
       )}

@@ -531,6 +531,7 @@ function ChecklistScreen() {
               shared={view.shared}
               stations={stations}
               handover={view.handover}
+            kitchenNote={view.kitchenNote}
               busyIds={busyIds}
               onTap={tapLine}
               onMore={l => setSheetLineId(l.id)}
@@ -549,6 +550,7 @@ function ChecklistScreen() {
             shared={view.shared}
             stations={stations}
             handover={view.handover}
+            kitchenNote={view.kitchenNote}
             busyIds={busyIds}
             onTap={tapLine}
             onMore={l => setSheetLineId(l.id)}

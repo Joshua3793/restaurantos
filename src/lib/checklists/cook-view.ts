@@ -33,6 +33,22 @@ export type CookView = {
    * so the lead can tick, flag and sign off for the crew. Null on the cook's own list.
    */
   visiting: string | null
+  /**
+   * OPEN only: the kitchen handover note from the last close (written on the
+   * closing board's "Close the day"), so every opener sees it. Null when there
+   * is none from the last two days.
+   */
+  kitchenNote: Handover | null
+}
+
+/** A kitchen note older than this many days is not "last night". */
+const KITCHEN_NOTE_DAYS = 2
+
+/** 'YYYY-MM-DD' minus n calendar days. */
+function daysBefore(ymd: string, n: number): string {
+  const d = new Date(ymd + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() - n)
+  return d.toISOString().slice(0, 10)
 }
 
 /**
@@ -143,5 +159,20 @@ export async function buildCookView(
     }))
   }
 
-  return { phase, businessDate, stations: cards, mine, shared, handover, visiting: visitStation?.id ?? null }
+  let kitchenNote: Handover | null = null
+  if (phase === 'OPEN') {
+    const close = await prisma.eodClose.findFirst({
+      where: {
+        revenueCenterId: rcId,
+        businessDate: { lt: businessDate, gte: daysBefore(businessDate, KITCHEN_NOTE_DAYS) },
+        AND: [{ handoverNote: { not: null } }, { handoverNote: { not: '' } }],
+      },
+      orderBy: { businessDate: 'desc' },
+      select: { handoverNote: true, signedOffByName: true, businessDate: true },
+    })
+    const note = close?.handoverNote?.trim()
+    if (close && note) kitchenNote = { note, byName: close.signedOffByName, businessDate: close.businessDate }
+  }
+
+  return { phase, businessDate, stations: cards, mine, shared, handover, visiting: visitStation?.id ?? null, kitchenNote }
 }

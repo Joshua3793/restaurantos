@@ -12,6 +12,32 @@ export function businessDateLocal(d: Date = new Date()): string {
   }).format(d)
 }
 
+/**
+ * The day a close belongs to: the closing shift's business date — the same
+ * date the station closing lists use (shiftBusinessDate('CLOSE'), which only
+ * rolls at 05:00). Using the plain calendar date here made a close finished
+ * after midnight open a blank new day, lose the note typed before midnight and
+ * count the wrong day's temps.
+ */
+export function closeBusinessDate(now: Date = new Date()): string {
+  return shiftBusinessDate('CLOSE', now)
+}
+
+/**
+ * Runs a create-if-missing write (an EodClose upsert) and, when a twin request
+ * created the same day's row first (unique (revenueCenterId, businessDate) →
+ * Prisma P2002), runs it once more — the row now exists, so the retry updates.
+ * The board loads the close from several places at once, so this race is real.
+ */
+export async function retryOnUniqueRace<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write()
+  } catch (e) {
+    if ((e as { code?: string } | null)?.code !== 'P2002') throw e
+    return write()
+  }
+}
+
 // Temp safety: a reading is in-range when within [safeMin, safeMax] (either bound
 // may be null). A unit is "logged & ok today" if it has ≥1 reading today and its
 // latest reading is in range. Mirrors temp-utils.unitStatus without importing a

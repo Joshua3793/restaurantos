@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
-import { businessDateLocal, computeTempsReady, computeProgress, loadStationsClosed } from '@/lib/eod-close'
+import { closeBusinessDate, computeTempsReady, computeProgress, loadStationsClosed, retryOnUniqueRace } from '@/lib/eod-close'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,14 +10,14 @@ export async function POST(req: NextRequest) {
     const user = await requireSession('LEAD')
     const rcId = String((await req.json()).rcId ?? '')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
-    const date = businessDateLocal()
+    const date = closeBusinessDate()
 
-    const close = await prisma.eodClose.upsert({
+    const close = await retryOnUniqueRace(() => prisma.eodClose.upsert({
       where: { revenueCenterId_businessDate: { revenueCenterId: rcId, businessDate: date } },
       create: { revenueCenterId: rcId, businessDate: date },
       update: {},
       select: { id: true },
-    })
+    }))
     // The gate: temps ready AND every station's closing run signed off.
     const [stations, temps] = await Promise.all([
       loadStationsClosed(rcId),

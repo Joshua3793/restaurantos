@@ -220,7 +220,6 @@ const GO_TO: Array<[string, string]> = [
   ['/count', 'the count'],
   ['/inventory', 'inventory'],
   ['/recipes', 'recipes'],
-  ['/end-of-day', 'end of day'],
 ]
 
 /** "Go to …" wording for a system item's own link. */
