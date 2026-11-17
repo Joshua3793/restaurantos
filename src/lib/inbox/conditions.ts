@@ -155,7 +155,8 @@ function stationConditions(s: NonNullable<ConditionsInput['stations']>): Conditi
       title: `${st.name} hasn't started opening`,
       body: `${st.jobCount} ${st.jobCount === 1 ? 'job' : 'jobs'} on today's opening list`,
       place: st.name,
-      href: '/checklist/today',
+      // Straight to that station on the board, where "Work this list" starts it.
+      href: `/checklist/today?phase=OPEN&station=${encodeURIComponent(st.id)}`,
       managerOnly: false,
       revenueCenterId: st.revenueCenterId,
     }))

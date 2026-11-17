@@ -1,4 +1,4 @@
-// The one row of tabs at the top of a section (Open & close, Inbox): which
+// The one row of tabs at the top of a section (Checklist, Inbox): which
 // tabs a role sees, where each goes, and the count it carries. Pure, so the
 // role rules are tested without rendering. What a page REQUIRES is still
 // enforced by route-access + the API; this only decides what to offer.
@@ -19,7 +19,7 @@ export type ChecklistTabKey = 'mine' | 'board' | 'crew' | 'history' | 'edit'
 export type ChecklistTabCounts = { behind?: number; phones?: number }
 
 /**
- * Open & close. A cook has only their own list, so no row at all (empty).
+ * Checklist. A cook has only their own list, so no row at all (empty).
  * A lead adds the station board; a manager also gets sign-ins, history and
  * the list editor.
  */
@@ -33,7 +33,7 @@ export function checklistTabs(role: Role | null, counts: ChecklistTabCounts = {}
     tabs.push(
       { key: 'crew', label: 'Sign-ins', href: '/checklist/crew', count: counts.phones, alert: true },
       { key: 'history', label: 'History', href: '/checklist/history' },
-      { key: 'edit', label: 'Edit lists', href: '/checklist/edit' },
+      { key: 'edit', label: 'Build lists', href: '/checklist/edit' },
     )
   }
   return tabs

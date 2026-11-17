@@ -27,6 +27,12 @@ export type CookView = {
   mine: RunView[]
   shared: RunView | null
   handover: Record<string, Handover>
+  /**
+   * Set when a LEAD+ opened another station's list from the board
+   * (`?station=`): `mine` then holds that one station's run, whoever is on it,
+   * so the lead can tick, flag and sign off for the crew. Null on the cook's own list.
+   */
+  visiting: string | null
 }
 
 /**
@@ -37,7 +43,12 @@ export type CookView = {
  * Throws AuthError(403) when the RC is outside the caller's access. That check
  * runs before seeding, so a cook cannot trigger a first-open seed elsewhere.
  */
-export async function buildCookView(user: User, rcId: string, phase: Phase): Promise<CookView> {
+export async function buildCookView(
+  user: User,
+  rcId: string,
+  phase: Phase,
+  visitStationId: string | null = null,
+): Promise<CookView> {
   if (!(await isRcInScope(user, rcId))) {
     throw new AuthError(403, 'Revenue center is outside your access.')
   }
@@ -61,8 +72,24 @@ export async function buildCookView(user: User, rcId: string, phase: Phase): Pro
   })
   const runByStation = new Map(runRows.map(r => [r.stationId, r]))
 
-  const mineRows = runRows.filter(r => r.crew.some(c => c.userId === user.id))
-  const mine = await Promise.all(mineRows.map(r => loadRunView(r.id)))
+  // A lead visiting a station from the board works that station's list instead
+  // of their own. Cooks (and the shared list, which is always on screen) never visit.
+  const visitStation = visitStationId && atLeast(user.role, 'LEAD')
+    ? stations.find(s => s.id === visitStationId && !s.isShared) ?? null
+    : null
+
+  let mine: RunView[]
+  if (visitStation) {
+    // Opening it starts the list if nobody has yet, so the lead can get it moving.
+    const { id } = await ensureRun(visitStation.id, phase, businessDate)
+    mine = [await loadRunView(id)]
+    if (!runByStation.has(visitStation.id)) {
+      runByStation.set(visitStation.id, { id, stationId: visitStation.id, crew: [], _count: { lines: mine[0].lines.length } })
+    }
+  } else {
+    const mineRows = runRows.filter(r => r.crew.some(c => c.userId === user.id))
+    mine = await Promise.all(mineRows.map(r => loadRunView(r.id)))
+  }
 
   // The whole-kitchen list shows for anyone who has picked a station, and for
   // a LEAD+ even with no pick: its blockers gate the end-of-day close (R15).
@@ -116,5 +143,5 @@ export async function buildCookView(user: User, rcId: string, phase: Phase): Pro
     }))
   }
 
-  return { phase, businessDate, stations: cards, mine, shared, handover }
+  return { phase, businessDate, stations: cards, mine, shared, handover, visiting: visitStation?.id ?? null }
 }

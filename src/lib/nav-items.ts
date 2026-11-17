@@ -39,7 +39,7 @@ export const navGroups: NavGroup[] = [
       { href: '/prep',       label: 'Prep',       icon: ChefHat },
       { href: '/count',      label: 'Count',      icon: ClipboardList },
       { href: '/temps',      label: 'Temps',      icon: Thermometer },
-      { href: '/checklist',  label: 'Open & close', icon: ListChecks },
+      { href: '/checklist',  label: 'Checklist', icon: ListChecks },
       // LEAD+ (route-access gates it; the menu dims it for STAFF).
       { href: '/end-of-day', label: 'End-of-day', icon: Clock },
     ],

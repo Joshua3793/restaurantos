@@ -83,7 +83,7 @@ describe('collectConditions — stations', () => {
     const [c] = collectConditions(stations([{ id: 's1', name: 'Grill', revenueCenterId: 'rcA', hasRun: false, jobCount: 6 }]))
     expect(c).toMatchObject({
       sourceKey: 'station-open:s1:2026-10-30', tagBuiltIn: 'CHECKLISTS', severity: 'NOW',
-      title: "Grill hasn't started opening", place: 'Grill', href: '/checklist/today', revenueCenterId: 'rcA',
+      title: "Grill hasn't started opening", place: 'Grill', href: '/checklist/today?phase=OPEN&station=s1', revenueCenterId: 'rcA',
     })
   })
 

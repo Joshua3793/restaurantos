@@ -2,7 +2,7 @@
 import { useRef } from 'react'
 import { chipName, type EditStation } from '@/lib/checklists/edit-format'
 
-// The editor's station chips: the shared list ("Everyone") first, then the
+// The editor's station chips: the shared list ("Whole kitchen") first, then the
 // stations in their order, scrolling sideways. The selected station gets an
 // "Edit" chip; a long-press on any station chip opens the same menu.
 

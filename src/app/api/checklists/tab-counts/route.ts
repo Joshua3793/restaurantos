@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 const BEHIND_PREFIXES = ['station-open:', 'close-unsigned:']
 
 /**
- * GET ?rcId= — the numbers on the Open & close tabs. LEAD+. Reads only.
+ * GET ?rcId= — the numbers on the Checklist tabs. LEAD+. Reads only.
  * `behind`: open Inbox alerts for stations not started / closing lists left
  *   unsigned in this kitchen — the same alerts the Inbox shows, so they agree.
  * `phones`: phones waiting for an OK (MANAGER+, else null), counted the way

@@ -1,5 +1,6 @@
 'use client'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronDown, Flag } from 'lucide-react'
 import type { Role } from '@prisma/client'
@@ -24,6 +25,8 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { lineOrder, type ListFilter } from '@/lib/checklists/list-layout'
 
 // /checklist — the cook's opening / closing list for their station(s).
+// ?station=<id> (LEAD+): work that station's list for its crew — opened from
+// the board's "Work this list". Ticks, flags and the sign-off are the same.
 // Phone: one fluid column; a job opens in a bottom sheet. Desktop (lg+): the
 // list on the left, the picked job in a panel on the right with the hand-over
 // and sign-off under it, and the keyboard walks the list (↑ ↓ Space F 0–9).
@@ -85,6 +88,7 @@ function ChecklistScreen() {
   const router = useRouter()
   const params = useSearchParams()
   const paramPhase = parsePhase(params.get('phase'))
+  const paramStation = params.get('station') || null
   const { activeRcId, activeRc, ready } = useRc()
   const { user, role } = useUser()
   const toast = useToast()
@@ -131,15 +135,16 @@ function ChecklistScreen() {
     })
   }, [])
 
-  const key = `${activeRcId ?? ''}|${paramPhase ?? ''}`
+  const key = `${activeRcId ?? ''}|${paramPhase ?? ''}|${paramStation ?? ''}`
   const load = useCallback(async () => {
     if (!activeRcId) return
-    const myKey = `${activeRcId}|${paramPhase ?? ''}`
+    const myKey = `${activeRcId}|${paramPhase ?? ''}|${paramStation ?? ''}`
     reqKey.current = myKey
     const seq = mutSeq.current
     const qs = new URLSearchParams({ rcId: activeRcId })
     const askPhase = paramPhase ?? pinnedPhase.current
     if (askPhase) qs.set('phase', askPhase)
+    if (paramStation) qs.set('station', paramStation)
     const r = await call<CookView>(`/api/checklists?${qs}`)
     if (reqKey.current !== myKey) return
     if (!r.ok) { setLoadError(r.error); return }
@@ -148,7 +153,7 @@ function ChecklistScreen() {
     setLoadError(null)
     setView(r.data)
     setViewFor(myKey)
-  }, [activeRcId, paramPhase])
+  }, [activeRcId, paramPhase, paramStation])
 
   useEffect(() => {
     if (!ready) return
@@ -168,12 +173,13 @@ function ChecklistScreen() {
 
   useEffect(() => {
     // A lead with no pick lands on the whole-kitchen list instead (it gates the close).
-    if (!view || !meLoaded || view.mine.length > 0 || view.shared || autoOpened.current === key) return
+    // A lead working another station's list is not asked to pick their own.
+    if (!view || !meLoaded || view.mine.length > 0 || view.shared || view.visiting || paramStation || autoOpened.current === key) return
     // Never on a view left over from the kitchen or phase we just switched away from.
     if (viewFor !== key || (paramPhase && view.phase !== paramPhase)) return
     autoOpened.current = key
     setPickerOpen(true)
-  }, [view, viewFor, meLoaded, key, paramPhase])
+  }, [view, viewFor, meLoaded, key, paramPhase, paramStation])
 
   /** Wraps a save so a poll in flight cannot paint over it. */
   const mutate = async <T,>(fn: () => Promise<T>): Promise<T> => {
@@ -268,7 +274,7 @@ function ChecklistScreen() {
   const phase: Phase = view?.phase ?? paramPhase ?? defaultPhase()
   const setPhase = (p: Phase) => {
     if (p === phase) return
-    router.replace(`/checklist?phase=${p}`, { scroll: false })
+    router.replace(`/checklist?phase=${p}${paramStation ? `&station=${encodeURIComponent(paramStation)}` : ''}`, { scroll: false })
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────
@@ -280,6 +286,10 @@ function ChecklistScreen() {
   const mine = view?.mine ?? []
   const openMine = mine.filter(r => r.status === 'OPEN')
   const picked = mine.map(r => stations.find(s => s.id === r.stationId)).filter((s): s is NonNullable<typeof s> => !!s)
+  // A lead working another station's list (from the board).
+  const visiting = view?.visiting ? stations.find(s => s.id === view.visiting) ?? null : null
+  // The station asked for is gone, or this user may not visit: say so rather than show their own list silently.
+  const visitRefused = !!view && !!paramStation && !visiting
 
   // OPEN: every before-doors job still to do on screen (the whole-kitchen ones too).
   // CLOSE: what holds up this cook's sign-off.
@@ -389,7 +399,22 @@ function ChecklistScreen() {
     : 0
 
   let lede: React.ReactNode = null
-  if (sharedOnly) {
+  if (visiting) {
+    const crew = visiting.crew.length > 0 ? visiting.crew.join(', ') : null
+    const signed = openMine.length === 0
+    lede = <>
+      Working <b className="font-semibold">{visiting.name}</b>’s list{crew ? <> with {crew}</> : <> — nobody has picked it yet</>}.{' '}
+      {signed
+        ? <span className="text-green-text">Signed off.</span>
+        : mine[0]?.lines.length === 0
+          ? <>Nothing on this list today.</>
+          : blockersLeft > 0
+          ? <b className="font-semibold text-red-text">{things} left {phase === 'OPEN' ? 'before doors' : 'before sign-off'}.</b>
+          : <span className="text-green-text">Ready to sign off.</span>}
+    </>
+  } else if (visitRefused) {
+    lede = <>That station’s list isn’t available — showing your own list.</>
+  } else if (sharedOnly) {
     lede = sharedLeft > 0
       ? <><b className="font-semibold text-red-text">{sharedLeft} whole-kitchen {sharedLeft === 1 ? 'job' : 'jobs'}</b> {phase === 'OPEN' ? 'before doors' : 'before you leave'}. Pick a station for its own list.</>
       : <>Whole-kitchen list below. Pick a station for its own list.</>
@@ -420,7 +445,7 @@ function ChecklistScreen() {
   return (
     <div className="max-w-[480px] lg:max-w-none mx-auto w-full flex flex-col">
       {/* Leads and up move between the section's pages here; a cook has no tabs. */}
-      <ChecklistTabs active="mine" />
+      <ChecklistTabs active={visiting ? 'board' : 'mine'} />
       {/* Desktop: the greeting on the left, Report + Opening/Closing on the right. */}
       <div className="flex flex-col lg:flex-row-reverse lg:items-end lg:justify-between lg:gap-6">
       <header className="flex flex-wrap items-center justify-between gap-x-3">
@@ -451,10 +476,28 @@ function ChecklistScreen() {
       <section className="pt-2.5 flex flex-col gap-2.5">
         <div className="font-mono text-[10.5px] tracking-[0.08em] text-ink-3">{crumb}</div>
         <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">
-          {phase === 'OPEN' ? 'Morning' : 'Close down'}, <em className="font-fraunces italic font-medium text-gold-2">{name}</em>.
+          {visiting
+            ? <>{visiting.name} · {phase === 'OPEN' ? 'opening' : 'closing'}</>
+            : <>{phase === 'OPEN' ? 'Morning' : 'Close down'}, <em className="font-fraunces italic font-medium text-gold-2">{name}</em>.</>}
         </h1>
         {lede && <p className="m-0 text-[15px] leading-[1.45] text-ink-2">{lede}</p>}
-        {view && picked.length > 0 && (
+        {(visiting || visitRefused) && (
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/checklist/today?phase=${phase}${visiting ? `&station=${encodeURIComponent(visiting.id)}` : ''}`}
+              className="inline-flex items-center gap-1.5 border border-line bg-paper rounded-full px-3.5 min-h-[44px] text-[13px] font-medium text-ink-2"
+            >
+              ← All stations
+            </Link>
+            <Link
+              href={`/checklist?phase=${phase}`}
+              className="inline-flex items-center gap-1.5 border border-line bg-paper rounded-full px-3.5 min-h-[44px] text-[13px] font-medium text-ink-2"
+            >
+              My own list
+            </Link>
+          </div>
+        )}
+        {view && !visiting && picked.length > 0 && (
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
