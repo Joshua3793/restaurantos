@@ -1,10 +1,13 @@
 'use client'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
 import { itemPills, type CategoryTree, type EditItem, type PillTone } from '@/lib/checklists/edit-format'
 import type { Phase } from '@/lib/checklists/rules'
 
-// One category on the editor: header (name, move up / down, Edit), its jobs with
-// their tags and move buttons, and "+ Add item".
+// One category on the builder: header (name, move up / down, Edit), its jobs
+// with their tags, and a quick-add box (type, Enter, keep typing). On a
+// computer jobs drag by their handle — within the category, into another
+// category, or across to the other half of the day; phones keep the arrows.
 
 const TONE: Record<PillTone, string> = {
   red: 'bg-red-soft text-red-text',
@@ -13,10 +16,12 @@ const TONE: Record<PillTone, string> = {
   grey: 'bg-bg-2 text-ink-3',
 }
 
-function MoveButtons({ label, first, last, onMove }: { label: string; first: boolean; last: boolean; onMove: (dir: -1 | 1) => void }) {
+function MoveButtons({ label, first, last, onMove, className = '' }: {
+  label: string; first: boolean; last: boolean; onMove: (dir: -1 | 1) => void; className?: string
+}) {
   const cls = 'w-11 h-11 grid place-items-center rounded-[9px] text-ink-3 disabled:text-line-2'
   return (
-    <span className="flex-none flex">
+    <span className={`flex-none flex ${className}`}>
       <button type="button" aria-label={`Move ${label}up`} disabled={first} onClick={() => onMove(-1)} className={cls}>
         <ChevronUp size={18} aria-hidden />
       </button>
@@ -27,30 +32,114 @@ function MoveButtons({ label, first, last, onMove }: { label: string; first: boo
   )
 }
 
+/** The job being dragged, as the page tracks it. */
+export type DragJob = { itemId: string; categoryId: string } | null
+
+function QuickAdd({ name, onAdd, onDetails }: {
+  name: string
+  onAdd: (title: string) => Promise<string | null>
+  onDetails: (title: string) => void
+}) {
+  const [title, setTitle] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const ref = useRef<HTMLInputElement>(null)
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = title.trim()
+    if (!t || busy) return
+    setBusy(true)
+    const err = await onAdd(t)
+    setBusy(false)
+    setError(err)
+    if (!err) setTitle('')
+    ref.current?.focus()
+  }
+
+  return (
+    <form onSubmit={submit} className="px-3 pt-2 pb-3 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <input
+          ref={ref}
+          type="text"
+          value={title}
+          maxLength={120}
+          onChange={e => { setTitle(e.target.value); if (error) setError(null) }}
+          placeholder="Add a job…"
+          aria-label={`Add a job to ${name}`}
+          disabled={busy}
+          className="flex-1 min-w-0 h-11 rounded-[9px] border border-dashed border-line-2 focus:border-solid focus:border-gold bg-paper px-3 text-[14px] text-ink placeholder:text-ink-4 outline-none disabled:opacity-60"
+        />
+        {title.trim() ? (
+          <button type="submit" disabled={busy} className="flex-none min-h-[44px] px-3 rounded-[9px] bg-ink text-paper font-mono text-[11px] disabled:opacity-50">
+            Add ↵
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onDetails(title.trim())}
+          className="flex-none min-h-[44px] px-2 font-mono text-[11px] text-gold-2"
+        >
+          More…
+        </button>
+      </div>
+      {error && <span role="alert" className="text-[12px] text-red-text">{error}</span>}
+    </form>
+  )
+}
+
 export function CategoryCard({
   category,
   phase,
   first,
   last,
   tempUnitName,
+  listCount,
+  selectedId,
+  drag,
   onMove,
   onEdit,
   onMoveItem,
   onOpenItem,
   onAddItem,
+  onQuickAdd,
+  onDragStart,
+  onDragEnd,
+  onDrop,
 }: {
   category: CategoryTree
   phase: Phase
   first: boolean
   last: boolean
   tempUnitName: (id: string | null) => string | null
+  /** How many lists carry this job (1 = this one only). */
+  listCount: (item: EditItem) => number
+  /** The job open in the side panel, if any. */
+  selectedId: string | null
+  drag: DragJob
   onMove: (dir: -1 | 1) => void
   onEdit: () => void
   onMoveItem: (index: number, dir: -1 | 1) => void
   onOpenItem: (item: EditItem) => void
-  onAddItem: () => void
+  /** Opens the full form for a new job, prefilled with what was typed. */
+  onAddItem: (draftTitle: string) => void
+  onQuickAdd: (title: string) => Promise<string | null>
+  onDragStart: (itemId: string) => void
+  onDragEnd: () => void
+  /** Drop the dragged job before `index` (items.length = at the end). */
+  onDrop: (index: number) => void
 }) {
   const items = category.items
+  const [over, setOver] = useState<number | null>(null)
+  const dragging = drag !== null
+
+  const dragProps = (index: number) => ({
+    onDragOver: (e: React.DragEvent) => { if (!dragging) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== index) setOver(index) },
+    onDragLeave: () => setOver(o => (o === index ? null : o)),
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setOver(null); onDrop(index) },
+  })
+
   return (
     <section aria-label={category.name} className="bg-paper border border-line rounded-[14px] overflow-hidden">
       <div className="flex items-center gap-1 pl-4 pr-1 py-1 border-b border-line">
@@ -62,34 +151,52 @@ export function CategoryCard({
       </div>
 
       {items.length === 0 && (
-        <p className="m-0 px-4 py-3 text-[13px] text-ink-3 border-b border-bg-2">No jobs here yet.</p>
+        <p {...dragProps(0)} className={`m-0 px-4 py-3 text-[13px] text-ink-3 border-b border-bg-2 ${over === 0 ? 'bg-gold-soft' : ''}`}>
+          {dragging ? 'Drop here' : 'No jobs here yet.'}
+        </p>
       )}
-      {items.map((it, i) => (
-        <div key={it.id} className="flex items-center gap-1 pl-1 pr-1 border-b border-bg-2 min-h-[56px]">
-          <button
-            type="button"
-            onClick={() => onOpenItem(it)}
-            className="flex-1 min-w-0 flex items-center gap-2 min-h-[52px] py-1.5 pl-3 pr-1 text-left"
+      {items.map((it, i) => {
+        const selected = it.id === selectedId
+        const isDragged = drag?.itemId === it.id
+        return (
+          <div
+            key={it.id}
+            {...dragProps(i)}
+            draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', it.id); onDragStart(it.id) }}
+            onDragEnd={() => { setOver(null); onDragEnd() }}
+            className={`flex items-center gap-1 pl-1 pr-1 border-b border-bg-2 min-h-[56px] border-l-[3px] ${selected ? 'border-l-gold bg-[#fffbeb]' : 'border-l-transparent'} ${isDragged ? 'opacity-40' : ''} ${over === i && !isDragged ? 'shadow-[inset_0_2px_0_#d97706]' : ''}`}
           >
-            <span className="flex-1 min-w-0 flex flex-col gap-[5px]">
-              <span className="text-[14.5px] font-medium tracking-[-0.01em] text-ink">{it.title}</span>
-              <span className="flex gap-1 flex-wrap">
-                {itemPills(it, phase, tempUnitName(it.tempUnitId)).map(p => (
-                  <span key={p.label} className={`font-mono text-[9.5px] font-medium px-[7px] py-0.5 rounded-full whitespace-nowrap ${TONE[p.tone]}`}>
-                    {p.label}
-                  </span>
-                ))}
-              </span>
+            <span className="hidden lg:grid flex-none w-6 h-11 place-items-center text-ink-4 cursor-grab active:cursor-grabbing" aria-hidden>
+              <GripVertical size={15} />
             </span>
-            <span className="flex-none text-ink-4 text-[16px]" aria-hidden>›</span>
-          </button>
-          <MoveButtons label="" first={i === 0} last={i === items.length - 1} onMove={dir => onMoveItem(i, dir)} />
-        </div>
-      ))}
+            <button
+              type="button"
+              onClick={() => onOpenItem(it)}
+              aria-current={selected || undefined}
+              className="flex-1 min-w-0 flex items-center gap-2 min-h-[52px] py-1.5 pl-3 lg:pl-1 pr-1 text-left"
+            >
+              <span className="flex-1 min-w-0 flex flex-col gap-[5px]">
+                <span className="text-[14.5px] font-medium tracking-[-0.01em] text-ink">{it.title}</span>
+                <span className="flex gap-1 flex-wrap">
+                  {itemPills(it, phase, tempUnitName(it.tempUnitId), listCount(it)).map(p => (
+                    <span key={p.label} className={`font-mono text-[9.5px] font-medium px-[7px] py-0.5 rounded-full whitespace-nowrap ${TONE[p.tone]}`}>
+                      {p.label}
+                    </span>
+                  ))}
+                </span>
+              </span>
+              <span className="flex-none text-ink-4 text-[16px]" aria-hidden>›</span>
+            </button>
+            <MoveButtons label="" first={i === 0} last={i === items.length - 1} onMove={dir => onMoveItem(i, dir)} className="lg:hidden" />
+          </div>
+        )
+      })}
+      {dragging && items.length > 0 && (
+        <div {...dragProps(items.length)} className={`h-6 ${over === items.length ? 'shadow-[inset_0_2px_0_#d97706]' : ''}`} aria-hidden />
+      )}
 
-      <button type="button" onClick={onAddItem} className="w-full min-h-[48px] px-4 text-left text-[13px] font-medium text-gold-2">
-        + Add item
-      </button>
+      <QuickAdd name={category.name} onAdd={onQuickAdd} onDetails={onAddItem} />
     </section>
   )
 }

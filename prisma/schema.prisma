@@ -1302,6 +1302,10 @@ model ChecklistItem {
   safeMax    Decimal?
   tempUnitId String?
   days       Int                @default(127)
+  // 'HH:MM' Pacific: when the job should be done by. null = no time.
+  dueBy      String?
+  // Copies of one job on several lists share a linkId: same job, done once.
+  linkId     String?
   sortOrder  Int                @default(0)
   isActive   Boolean            @default(true)
   createdAt  DateTime           @default(now())
@@ -1311,6 +1315,7 @@ model ChecklistItem {
   runLines   ChecklistRunLine[]
 
   @@index([categoryId, isActive])
+  @@index([linkId])
 }
 
 model ChecklistRun {
@@ -1348,6 +1353,8 @@ model ChecklistRunLine {
   safeMax        Decimal?
   tempUnitId     String? // plain column, no relation (history survives unit deletion)
   tempReadingId  String? // plain column, no relation: the Temps-log row this answer wrote, so a re-answer or untick keeps the log true
+  dueBy          String? // snapshot of ChecklistItem.dueBy
+  linkId         String? // snapshot of ChecklistItem.linkId: lines with the same linkId on the same day + phase are one job
   sortOrder      Int
   // Result
   status         ChecklistLineStatus  @default(TODO)
@@ -1367,6 +1374,7 @@ model ChecklistRunLine {
   @@unique([runId, itemId])
   @@index([runId])
   @@index([status, resolvedAt])
+  @@index([linkId])
 }
 
 model ChecklistRunCrew {

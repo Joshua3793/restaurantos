@@ -11,6 +11,7 @@ class MockAuthError extends Error {
 const requireSession = vi.fn(async () => ({ id: 'u1', name: 'Sam Lee', email: 'sam@x.ca', role: 'STAFF', isActive: true }))
 const assertRcWritable = vi.fn(async () => {})
 const lineFindUnique = vi.fn()
+const lineFindMany = vi.fn(async (_a: unknown): Promise<unknown[]> => [])
 // Writes are only reachable through the transaction callback's `tx`, never stand-alone.
 const lineUpdate = vi.fn(async (_a: unknown) => ({ count: 1 }))
 const readingUpsert = vi.fn(async (a: unknown) => a)
@@ -45,7 +46,10 @@ const loadRunView = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     cook: { findUnique: async () => null },
-    checklistRunLine: { findUnique: (...a: unknown[]) => lineFindUnique(...a) },
+    checklistRunLine: {
+      findUnique: (...a: unknown[]) => lineFindUnique(...a),
+      findMany: (a: unknown) => lineFindMany(a),
+    },
     $transaction: (fn: (t: typeof tx) => Promise<unknown>) => transaction(fn),
   },
 }))
@@ -78,6 +82,7 @@ const baseLine = (over: Record<string, unknown> = {}, runStatus = 'OPEN') => ({
 beforeEach(() => {
   vi.clearAllMocks()
   lineUpdate.mockResolvedValue({ count: 1 })
+  lineFindMany.mockResolvedValue([])
   inboxFind.mockResolvedValue(null)
   lineFindUnique.mockResolvedValue(baseLine())
   loadRunView.mockResolvedValue({
@@ -275,5 +280,62 @@ describe('PUT /api/checklists/lines/[id]', () => {
   it('400 for an unreadable body', async () => {
     const res = await PUT({ json: async () => { throw new Error('bad') } } as unknown as NextRequest, { params: { id: 'l1' } })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('a job on several lists', () => {
+  const linked = (over: Record<string, unknown> = {}) =>
+    baseLine({ linkId: 'L', run: { status: 'OPEN', businessDate: '2026-10-29', phase: 'OPEN', station: { name: 'Grill', revenueCenterId: 'rc1', isShared: false } }, ...over })
+  const sib = (id: string, over: Record<string, unknown> = {}) => ({ id, title: 'Walk-in temp', isBlocker: true, unit: null, tempReadingId: null, ...over })
+
+  it('a tick on one list ticks the open copies on the other lists the same day', async () => {
+    lineFindUnique.mockResolvedValue(linked())
+    lineFindMany.mockResolvedValue([sib('l2'), sib('l3')])
+    const res = await call({ action: 'tick' })
+    expect(res.status).toBe(200)
+    expect(lineFindMany.mock.calls[0][0]).toMatchObject({
+      where: { linkId: 'L', NOT: { id: 'l1' }, run: { businessDate: '2026-10-29', phase: 'OPEN', status: 'OPEN' } },
+    })
+    expect(lineUpdate).toHaveBeenCalledTimes(2)
+    expect(lineUpdate.mock.calls[1][0]).toMatchObject({
+      where: { id: { in: ['l2', 'l3'] }, run: { status: 'OPEN' } },
+      data: { status: 'DONE', doneByName: 'Sam Lee' },
+    })
+  })
+
+  it('an untick clears every copy', async () => {
+    lineFindUnique.mockResolvedValue(linked({ status: 'DONE' }))
+    lineFindMany.mockResolvedValue([sib('l2')])
+    await call({ action: 'untick' })
+    expect(lineUpdate.mock.calls[1][0]).toMatchObject({ where: { id: { in: ['l2'] } }, data: { status: 'TODO', doneById: null } })
+  })
+
+  it('a shared temperature keeps ONE Temps-log reading, whichever copy wrote it', async () => {
+    lineFindUnique.mockResolvedValue(linked({ answer: 'TEMP', tempUnitId: 't1', safeMin: 0, safeMax: 4 }))
+    lineFindMany.mockResolvedValue([sib('l2', { tempReadingId: 'R1' })])
+    await call({ action: 'value', raw: '3' })
+    expect(readingUpsert).toHaveBeenCalledTimes(1)
+    expect(readingUpsert.mock.calls[0][0]).toMatchObject({ where: { id: 'R1' }, update: { temp: 3 } })
+    expect(lineUpdate.mock.calls[0][0]).toMatchObject({ data: { tempReadingId: 'R1' } })
+    expect(lineUpdate.mock.calls[1][0]).toMatchObject({ data: { tempReadingId: null, value: 3 } })
+  })
+
+  it('only the copy that was answered raises the alert; older alerts on copies close', async () => {
+    lineFindUnique.mockResolvedValue(linked())
+    lineFindMany.mockResolvedValue([sib('l2')])
+    inboxFind.mockImplementation(async (a: unknown) => {
+      const key = (a as { where: { sourceKey: string } }).where.sourceKey
+      return key === 'flag:l2' ? { id: 'old', status: 'OPEN' } : null
+    })
+    await call({ action: 'flag', reason: 'BROKEN' })
+    expect(inboxCreate).toHaveBeenCalledTimes(1)
+    expect(inboxCreate.mock.calls[0][0]).toMatchObject({ data: { sourceKey: 'flag:l1' } })
+    expect(inboxUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'old' }, data: expect.objectContaining({ status: 'DONE' }) }))
+  })
+
+  it('a job on one list only looks for no copies', async () => {
+    await call({ action: 'tick' })
+    expect(lineFindMany).not.toHaveBeenCalled()
+    expect(lineUpdate).toHaveBeenCalledTimes(1)
   })
 })

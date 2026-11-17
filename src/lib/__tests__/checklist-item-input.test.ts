@@ -29,21 +29,21 @@ describe('parseItemInput', () => {
   it('a valid NUMBER item round-trips', () => {
     expect(ok(base)).toEqual({
       title: 'Lowboy temp', howTo: 'Probe the middle shelf', isBlocker: true, answer: 'NUMBER',
-      unit: '°C', safeMin: 0, safeMax: 4, tempUnitId: null, days: 127, categoryId: 'c1',
+      unit: '°C', safeMin: 0, safeMax: 4, tempUnitId: null, days: 127, dueBy: null, categoryId: 'c1',
     })
   })
 
   it('a valid TICK item round-trips and drops unit, range and Temps unit', () => {
     expect(ok({ ...base, answer: 'TICK', tempUnitId: 't1', isBlocker: false, howTo: '  ' })).toEqual({
       title: 'Lowboy temp', howTo: null, isBlocker: false, answer: 'TICK',
-      unit: null, safeMin: null, safeMax: null, tempUnitId: null, days: 127, categoryId: 'c1',
+      unit: null, safeMin: null, safeMax: null, tempUnitId: null, days: 127, dueBy: null, categoryId: 'c1',
     })
   })
 
   it('a valid TEMP item round-trips; unit and range come from the Temps unit', () => {
     expect(ok({ ...base, answer: 'TEMP', tempUnitId: 't1', unit: '°F', safeMin: 3, safeMax: 1 })).toEqual({
       title: 'Lowboy temp', howTo: 'Probe the middle shelf', isBlocker: true, answer: 'TEMP',
-      unit: null, safeMin: null, safeMax: null, tempUnitId: 't1', days: 127, categoryId: 'c1',
+      unit: null, safeMin: null, safeMax: null, tempUnitId: 't1', days: 127, dueBy: null, categoryId: 'c1',
     })
   })
 
@@ -150,5 +150,24 @@ describe('isPaletteColor', () => {
     expect(isPaletteColor('#DC2626')).toBe(false)
     expect(isPaletteColor('#000000')).toBe(false)
     expect(isPaletteColor(undefined)).toBe(false)
+  })
+})
+
+describe('due by', () => {
+  const base = { title: 'Hot line on', answer: 'TICK', days: 127, categoryId: 'c1' }
+  it('takes a 24h time and pads the hour', () => {
+    const r = parseItemInput({ ...base, dueBy: '8:45' })
+    expect(r.ok && r.data.dueBy).toBe('08:45')
+  })
+  it('blank or missing is no time', () => {
+    const a = parseItemInput({ ...base, dueBy: '  ' })
+    const b = parseItemInput(base)
+    expect(a.ok && a.data.dueBy).toBe(null)
+    expect(b.ok && b.data.dueBy).toBe(null)
+  })
+  it('rejects text that is not a time', () => {
+    for (const bad of ['25:00', '8.45', 'noon', '8:7', 845]) {
+      expect(parseItemInput({ ...base, dueBy: bad })).toEqual({ ok: false, error: 'Due by must be a time like 08:45' })
+    }
   })
 })

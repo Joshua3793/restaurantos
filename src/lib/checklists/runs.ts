@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import type { Phase } from './rules'
 import { snapshotLines } from './snapshot'
+import { sharedState } from './links'
 
 type RunKey = { stationId: string; phase: Phase; businessDate: string }
 const keyWhere = (k: RunKey) => ({ stationId_phase_businessDate: k })
@@ -49,10 +50,9 @@ export async function ensureRun(
         update: {},
         select: { id: true },
       })
-      await tx.checklistRunLine.createMany({
-        data: snapshotLines(run.id, categories, businessDate),
-        skipDuplicates: true,
-      })
+      const lines = snapshotLines(run.id, categories, businessDate)
+      await tx.checklistRunLine.createMany({ data: lines, skipDuplicates: true })
+      await catchUpSharedLines(tx, run.id, phase, businessDate, lines.map(l => l.linkId))
       return run.id
     })
     return { id: runId, created: true }
@@ -62,6 +62,35 @@ export async function ensureRun(
     const won = await prisma.checklistRun.findUnique({ where: keyWhere(key), select: { id: true } })
     if (!won) throw e
     return { id: won.id, created: false }
+  }
+}
+
+/**
+ * A shared job already answered on another list today shows as answered here
+ * too, the moment this list opens. The Temps-log reading stays with the line
+ * that wrote it.
+ */
+async function catchUpSharedLines(
+  tx: Prisma.TransactionClient,
+  runId: string,
+  phase: Phase,
+  businessDate: string,
+  linkIds: (string | null)[],
+): Promise<void> {
+  const links = Array.from(new Set(linkIds.filter((x): x is string => !!x)))
+  if (!links.length) return
+  const answered = await tx.checklistRunLine.findMany({
+    where: { linkId: { in: links }, status: { not: 'TODO' }, runId: { not: runId }, run: { phase, businessDate } },
+    orderBy: { updatedAt: 'desc' },
+  })
+  const seen = new Set<string>()
+  for (const line of answered) {
+    if (!line.linkId || seen.has(line.linkId)) continue
+    seen.add(line.linkId)
+    await tx.checklistRunLine.updateMany({
+      where: { runId, linkId: line.linkId },
+      data: sharedState(line) as Prisma.ChecklistRunLineUpdateManyMutationInput,
+    })
   }
 }
 
@@ -79,6 +108,10 @@ export type LineView = {
   safeMin: number | null
   safeMax: number | null
   tempUnitId: string | null
+  /** 'HH:MM' or null */
+  dueBy: string | null
+  /** Same value on every list that carries this job; null = this list only */
+  linkId: string | null
   sortOrder: number
   status: 'TODO' | 'DONE' | 'FLAGGED'
   value: number | null
@@ -139,6 +172,8 @@ export function toRunView(run: RunRow): RunView {
       safeMin: num(l.safeMin),
       safeMax: num(l.safeMax),
       tempUnitId: l.tempUnitId,
+      dueBy: l.dueBy,
+      linkId: l.linkId,
       sortOrder: l.sortOrder,
       status: l.status,
       value: num(l.value),

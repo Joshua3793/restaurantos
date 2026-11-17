@@ -1,7 +1,7 @@
 // Pure validation for the checklist editor. No Prisma, no React: the routes use it
 // to guard writes and the item sheet runs the same rules before it sends.
 
-import { parseReading } from './rules'
+import { parseDueBy, parseReading } from './rules'
 
 export type Answer = 'TICK' | 'NUMBER' | 'TEMP'
 
@@ -15,6 +15,8 @@ export type ItemData = {
   safeMax: number | null
   tempUnitId: string | null
   days: number
+  /** 'HH:MM' (24h, Pacific) or null for no time. */
+  dueBy: string | null
   categoryId: string
 }
 
@@ -74,6 +76,9 @@ export function parseItemInput(body: unknown): ItemInputResult {
     return { ok: false, error: 'Pick at least one day' }
   }
 
+  const dueBy = parseDueBy(b.dueBy)
+  if (dueBy === undefined) return { ok: false, error: 'Due by must be a time like 08:45' }
+
   const categoryId = typeof b.categoryId === 'string' ? b.categoryId : ''
   if (!categoryId) return { ok: false, error: 'Pick a category' }
 
@@ -98,6 +103,6 @@ export function parseItemInput(body: unknown): ItemInputResult {
 
   return {
     ok: true,
-    data: { title, howTo, isBlocker: b.isBlocker === true, answer, unit, safeMin, safeMax, tempUnitId, days, categoryId },
+    data: { title, howTo, isBlocker: b.isBlocker === true, answer, unit, safeMin, safeMax, tempUnitId, days, dueBy, categoryId },
   }
 }

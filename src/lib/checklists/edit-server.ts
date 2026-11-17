@@ -26,12 +26,13 @@ const num = (v: unknown) => (v == null ? null : Number(v))
 
 export const ITEM_SELECT = {
   id: true, title: true, howTo: true, isBlocker: true, answer: true, unit: true,
-  safeMin: true, safeMax: true, tempUnitId: true, days: true,
+  safeMin: true, safeMax: true, tempUnitId: true, days: true, dueBy: true, linkId: true,
 } as const
 
 type ItemRow = {
   id: string; title: string; howTo: string | null; isBlocker: boolean; answer: EditItem['answer']
   unit: string | null; safeMin: unknown; safeMax: unknown; tempUnitId: string | null; days: number
+  dueBy: string | null; linkId: string | null
 }
 
 /** Prisma Decimals become numbers. */
@@ -39,6 +40,7 @@ export function toEditItem(r: ItemRow): EditItem {
   return {
     id: r.id, title: r.title, howTo: r.howTo, isBlocker: r.isBlocker, answer: r.answer,
     unit: r.unit, safeMin: num(r.safeMin), safeMax: num(r.safeMax), tempUnitId: r.tempUnitId, days: r.days,
+    dueBy: r.dueBy, linkId: r.linkId,
   }
 }
 

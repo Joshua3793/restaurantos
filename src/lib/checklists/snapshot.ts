@@ -19,6 +19,8 @@ export type ItemTemplate = {
   /** The linked Temps unit. A TEMP item's range lives here, not on the item. */
   tempUnit?: { safeMin: Dec; safeMax: Dec } | null
   days: number
+  dueBy?: string | null
+  linkId?: string | null
   sortOrder: number
   isActive: boolean
 }
@@ -43,6 +45,8 @@ export type LineCreate = {
   safeMin: Dec
   safeMax: Dec
   tempUnitId: string | null
+  dueBy: string | null
+  linkId: string | null
   sortOrder: number
 }
 
@@ -78,6 +82,8 @@ export function snapshotLines(
         safeMin: temp ? (i.tempUnit?.safeMin ?? null) : i.safeMin,
         safeMax: temp ? (i.tempUnit?.safeMax ?? null) : i.safeMax,
         tempUnitId: i.tempUnitId,
+        dueBy: i.dueBy ?? null,
+        linkId: i.linkId ?? null,
         sortOrder: out.length,
       })
     }

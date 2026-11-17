@@ -17,7 +17,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const user = await requireSession('LEAD')
     const line = await prisma.checklistRunLine.findUnique({
       where: { id: params.id },
-      select: { id: true, run: { select: { station: { select: { revenueCenterId: true } } } } },
+      select: { id: true, linkId: true, run: { select: { businessDate: true, phase: true, station: { select: { revenueCenterId: true } } } } },
     })
     if (!line) return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     await assertRcWritable(user, line.run.station.revenueCenterId)
@@ -31,6 +31,23 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       })
       if (upd.count === 0) return false
       await closeFlagItem(tx, line.id, who)
+      // One job on several lists: its other copies today are fixed with it.
+      if (line.linkId) {
+        const copies = await tx.checklistRunLine.findMany({
+          where: {
+            linkId: line.linkId, NOT: { id: line.id }, status: 'FLAGGED', resolvedAt: null,
+            run: { businessDate: line.run.businessDate, phase: line.run.phase },
+          },
+          select: { id: true },
+        })
+        if (copies.length) {
+          await tx.checklistRunLine.updateMany({
+            where: { id: { in: copies.map(c => c.id) } },
+            data: { resolvedById: who.id, resolvedByName: who.name, resolvedAt: new Date() },
+          })
+          for (const c of copies) await closeFlagItem(tx, c.id, who)
+        }
+      }
       return true
     })
     if (!handled) return NextResponse.json({ error: 'Already handled' }, { status: 409 })
