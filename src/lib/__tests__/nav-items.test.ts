@@ -47,7 +47,7 @@ describe('nav tables', () => {
     const today = navGroups.find(g => g.label === 'TODAY')!.items
     const i = today.findIndex(x => x.href === '/checklist')
     expect(i).toBeGreaterThanOrEqual(0)
-    expect(today[i].label).toBe('Open & close')
+    expect(today[i].label).toBe('Checklist')
     expect(today[i + 1]?.href).toBe('/end-of-day')
   })
 
@@ -96,7 +96,7 @@ describe('navLabelFor', () => {
   it('names the page behind a gated path', () => {
     expect(navLabelFor('/pass')).toBe('Pass')
     expect(navLabelFor('/end-of-day')).toBe('End-of-day')
-    expect(navLabelFor('/checklist/today')).toBe('Open & close')
+    expect(navLabelFor('/checklist/today')).toBe('Checklist')
     expect(navLabelFor('/setup/revenue-centers')).toBe('Revenue centers')
   })
 

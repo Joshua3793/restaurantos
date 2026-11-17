@@ -5,7 +5,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
 import { useToast } from '@/components/Toast'
 import { atLeast } from '@/lib/roles'
-import type { Phase } from '@/lib/checklists/rules'
+import { defaultPhase, type Phase } from '@/lib/checklists/rules'
 import type { ItemData } from '@/lib/checklists/item-input'
 import {
   chipName, chipOrder, moveId, phaseCount,
@@ -68,7 +68,8 @@ export default function ChecklistEditPage() {
   const [view, setView] = useState<EditView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [stationId, setStationId] = useState<string | null>(null)
-  const [phase, setPhase] = useState<Phase>('OPEN')
+  // Opens on the half of the day the clock is in, like the cook screen and the board.
+  const [phase, setPhase] = useState<Phase>(() => defaultPhase())
   const [sheet, setSheet] = useState<SheetState>(null)
 
   const allowed = !role || atLeast(role as Role, 'MANAGER')
@@ -164,7 +165,7 @@ export default function ChecklistEditPage() {
     <div className="max-w-[640px] mx-auto w-full flex flex-col gap-3.5 pb-6">
       <ChecklistTabs active="edit" />
       <header className="flex items-center justify-between gap-3">
-        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Edit lists</h1>
+        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Build lists</h1>
         <button
           type="button"
           disabled={!station || station.isShared}

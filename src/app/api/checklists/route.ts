@@ -6,8 +6,10 @@ import { buildCookView } from '@/lib/checklists/cook-view'
 export const dynamic = 'force-dynamic'
 
 /**
- * GET ?rcId=&phase=OPEN|CLOSE — the cook's checklist screen: station cards,
- * the runs this cook has picked, the whole-kitchen run and last night's notes.
+ * GET ?rcId=&phase=OPEN|CLOSE[&station=] — the cook's checklist screen: station
+ * cards, the runs this cook has picked, the whole-kitchen run and last night's
+ * notes. `station` (LEAD+ only, ignored for cooks) opens that station's list
+ * instead of the caller's own — the board's "Work this list".
  */
 export async function GET(req: NextRequest) {
   try {
@@ -16,7 +18,8 @@ export async function GET(req: NextRequest) {
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     const p = req.nextUrl.searchParams.get('phase')
     const phase: Phase = p === 'OPEN' || p === 'CLOSE' ? p : defaultPhase()
-    return NextResponse.json(await buildCookView(user, rcId, phase))
+    const station = req.nextUrl.searchParams.get('station') || null
+    return NextResponse.json(await buildCookView(user, rcId, phase, station))
   } catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     console.error('GET /api/checklists', e)

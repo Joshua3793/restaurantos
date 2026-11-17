@@ -1,25 +1,28 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Sun, ChefHat, ClipboardList, Grid2x2, Plus } from 'lucide-react'
+import { Sun, ChefHat, ListChecks, Grid2x2, Plus } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-// Bottom tab bar: Today · Prep · ＋ · Count · More.
+// Bottom tab bar: Today · Checklist · ＋ · Prep · More.
+// The station checklist is a daily job for every cook, so it sits on the bar;
+// Count lives in ＋ ("Start a count") and in More.
 // ＋ opens the quick-add sheet; More opens the existing "All Pages" drawer.
 // Any route outside the three core routes activates "More".
 
 const CORE_LEFT = [
-  { href: '/today', label: 'Today', icon: Sun },
-  { href: '/prep',  label: 'Prep',  icon: ChefHat },
+  { href: '/today',     label: 'Today',     icon: Sun },
+  { href: '/checklist', label: 'Checklist', icon: ListChecks },
 ]
 const CORE_RIGHT = [
-  { href: '/count', label: 'Count', icon: ClipboardList },
+  { href: '/prep', label: 'Prep', icon: ChefHat },
 ]
+const CORE_HREFS = [...CORE_LEFT, ...CORE_RIGHT].map(t => t.href)
 
 export function MobileTabBar({ onAdd, onMore, moreBadge = 0 }: { onAdd: () => void; onMore: () => void; moreBadge?: number }) {
   const pathname = usePathname() ?? ''
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
-  const moreActive = !['/today', '/prep', '/count'].some(isActive)
+  const moreActive = !CORE_HREFS.some(isActive)
 
   const Tab = ({ href, label, Icon }: { href: string; label: string; Icon: LucideIcon }) => {
     const on = isActive(href)

@@ -94,9 +94,10 @@ export function phaseCount(s: Pick<EditStation, 'phases'>, phase: Phase): number
   return s.phases[phase].reduce((n, c) => n + c.items.length, 0)
 }
 
-/** Shared station first ("Everyone"), then the rest in the order the API gave (sortOrder). */
+/** Shared station first (its own name, e.g. "Whole kitchen"), then the rest in the order the API gave (sortOrder). */
 export function chipOrder<T extends { isShared: boolean }>(stations: T[]): T[] {
   return [...stations.filter(s => s.isShared), ...stations.filter(s => !s.isShared)]
 }
 
-export const chipName = (s: { isShared: boolean; name: string }) => (s.isShared ? 'Everyone' : s.name)
+/** The shared list reads by its real name ("Whole kitchen") — the same name the cook screen and board use. */
+export const chipName = (s: { isShared: boolean; name: string }) => s.name

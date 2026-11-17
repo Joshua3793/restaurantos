@@ -1,5 +1,6 @@
 'use client'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -16,6 +17,9 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 // for today's shift, plus the open flagged problems. Phone: one fluid column of
 // rows that open in place. Desktop (lg+): every station as a card in a grid,
 // the picked station's jobs and the flagged problems in a column on the right.
+// "Work this list" opens a station on /checklist?station= so the lead can tick,
+// flag and sign off for its crew. ?station= here pre-opens that station (the
+// Pass's station tiles link this way).
 
 const POLL_MS = 30_000
 
@@ -96,7 +100,25 @@ function whoLine(s: TodayStation): string {
 
 const LINE_TEXT: Record<'TODO' | 'DONE' | 'FLAGGED', string> = { TODO: 'TO DO', DONE: 'DONE', FLAGGED: 'FLAGGED' }
 
-function StationRow({ s, open, onToggle }: { s: TodayStation; open: boolean; onToggle: () => void }) {
+/** Where "Work this list" goes: a station's own list, or the whole-kitchen list (every lead has it). */
+function workHref(s: TodayStation, phase: Phase): string {
+  return s.isShared ? `/checklist?phase=${phase}` : `/checklist?phase=${phase}&station=${encodeURIComponent(s.id)}`
+}
+
+function WorkLink({ s, phase }: { s: TodayStation; phase: Phase }) {
+  // Nobody on it and nothing ticked: opening it starts the list for the crew.
+  const label = s.signedOffAt ? 'Open the list' : s.lines.length === 0 && s.crew.length === 0 && !s.isShared ? 'Start this list' : 'Work this list'
+  return (
+    <Link
+      href={workHref(s, phase)}
+      className="w-full min-h-[44px] rounded-[10px] bg-ink text-paper text-[13.5px] font-medium inline-flex items-center justify-center gap-1.5"
+    >
+      {label} <span className="text-gold" aria-hidden>→</span>
+    </Link>
+  )
+}
+
+function StationRow({ s, phase, open, onToggle }: { s: TodayStation; phase: Phase; open: boolean; onToggle: () => void }) {
   const pct = s.total > 0 ? Math.round((s.handled / s.total) * 100) : 0
   return (
     <div className="border-t border-bg-2 first:border-t-0">
@@ -124,7 +146,7 @@ function StationRow({ s, open, onToggle }: { s: TodayStation; open: boolean; onT
         </span>
       </button>
       {open && (
-        <div className="px-4 pb-3.5">
+        <div className="px-4 pb-3.5 flex flex-col gap-3">
           {s.lines.length === 0 ? (
             <p className="m-0 font-mono text-[11px] text-ink-3">No list opened yet.</p>
           ) : (
@@ -142,6 +164,7 @@ function StationRow({ s, open, onToggle }: { s: TodayStation; open: boolean; onT
               ))}
             </ul>
           )}
+          <WorkLink s={s} phase={phase} />
         </div>
       )}
     </div>
@@ -198,7 +221,7 @@ function StationCard({ s, selected, onSelect }: { s: TodayStation; selected: boo
   )
 }
 
-function StationDetail({ s }: { s: TodayStation }) {
+function StationDetail({ s, phase }: { s: TodayStation; phase: Phase }) {
   const blockers = s.lines.filter(l => l.isBlocker)
   const rest = s.lines.filter(l => !l.isBlocker)
   const group = (label: string, lines: TodayLine[], urgent: boolean) => lines.length > 0 && (
@@ -246,6 +269,9 @@ function StationDetail({ s }: { s: TodayStation }) {
           {group('THE REST', rest, false)}
         </div>
       )}
+      <div className="px-[18px] py-3.5 border-t border-line">
+        <WorkLink s={s} phase={phase} />
+      </div>
     </section>
   )
 }
@@ -293,6 +319,7 @@ function TodayBoard() {
   const router = useRouter()
   const params = useSearchParams()
   const paramPhase = parsePhase(params.get('phase'))
+  const paramStation = params.get('station') || null
   const { activeRcId, activeRc, ready } = useRc()
   const { role } = useUser()
   const toast = useToast()
@@ -300,11 +327,13 @@ function TodayBoard() {
   const [view, setView] = useState<TodayView | null>(null)
   const [now, setNow] = useState(() => new Date())
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [openId, setOpenId] = useState<string | null>(null)
+  // ?station= (from a Pass tile, or "All stations" on a station's list) opens that station.
+  const [openId, setOpenId] = useState<string | null>(paramStation)
   // Flags a lead just marked fixed: hidden at once, and kept hidden if a poll lands first.
   const [fixing, setFixing] = useState<ReadonlySet<string>>(() => new Set())
 
   const allowed = !role || atLeast(role as Role, 'LEAD')
+  const canBuild = !!role && atLeast(role as Role, 'MANAGER')
   const desk = useMediaQuery('(min-width: 1024px)') === true
 
   // The kitchen + phase whose reply may land; a slow reply for an older pick is dropped.
@@ -328,14 +357,14 @@ function TodayBoard() {
     if (!ready || !allowed) return
     setView(null)
     setLoadError(null)
-    setOpenId(null)
+    setOpenId(paramStation)
     if (!activeRcId) return
     load()
     const id = setInterval(() => { if (document.visibilityState === 'visible') load() }, POLL_MS)
     const onVis = () => { if (document.visibilityState === 'visible') load() }
     document.addEventListener('visibilitychange', onVis)
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
-  }, [ready, allowed, activeRcId, load])
+  }, [ready, allowed, activeRcId, load, paramStation])
 
   const markFixed = async (f: TodayFlag) => {
     if (fixing.has(f.lineId)) return
@@ -355,7 +384,7 @@ function TodayBoard() {
   const phase: Phase = view?.phase ?? paramPhase ?? defaultPhase()
   const setPhase = (p: Phase) => {
     if (p === phase) return
-    router.replace(`/checklist/today?phase=${p}`, { scroll: false })
+    router.replace(`/checklist/today?phase=${p}${openId ? `&station=${encodeURIComponent(openId)}` : ''}`, { scroll: false })
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────
@@ -463,7 +492,7 @@ function TodayBoard() {
         desk ? (
           <div className="grid grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
             {stations.length === 0 ? (
-              <p className="m-0 bg-paper border border-line rounded-[14px] px-4 py-4 text-[14px] text-ink-3">No stations are set up for this kitchen yet.</p>
+              <p className="m-0 bg-paper border border-line rounded-[14px] px-4 py-4 text-[14px] text-ink-3">No stations are set up for this kitchen yet.{canBuild && <> <Link href="/checklist/edit" className="text-gold-2 font-medium">Build the lists →</Link></>}</p>
             ) : (
               <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
                 {stations.map(s => (
@@ -472,7 +501,7 @@ function TodayBoard() {
               </div>
             )}
             <aside className="sticky top-[60px] max-h-[calc(100dvh-76px)] overflow-y-auto flex flex-col gap-3">
-              {deskStation && <StationDetail s={deskStation} />}
+              {deskStation && <StationDetail s={deskStation} phase={phase} />}
               {flagSection}
             </aside>
           </div>
@@ -484,9 +513,9 @@ function TodayBoard() {
               <span className="font-mono text-[10.5px] text-ink-3">{doneCount} OF {stations.length} DONE</span>
             </div>
             {stations.length === 0 ? (
-              <p className="m-0 px-4 py-4 text-[14px] text-ink-3">No stations are set up for this kitchen yet.</p>
+              <p className="m-0 px-4 py-4 text-[14px] text-ink-3">No stations are set up for this kitchen yet.{canBuild && <> <Link href="/checklist/edit" className="text-gold-2 font-medium">Build the lists →</Link></>}</p>
             ) : stations.map(s => (
-              <StationRow key={s.id} s={s} open={openId === s.id} onToggle={() => setOpenId(id => (id === s.id ? null : s.id))} />
+              <StationRow key={s.id} s={s} phase={phase} open={openId === s.id} onToggle={() => setOpenId(id => (id === s.id ? null : s.id))} />
             ))}
           </section>
 

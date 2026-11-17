@@ -75,9 +75,9 @@ describe('copyName', () => {
 
 describe('stations', () => {
   const s = (id: string, isShared = false) => ({ id, name: id, isShared })
-  it('the shared station goes first and reads "Everyone"', () => {
+  it('the shared station goes first and reads by its own name', () => {
     expect(chipOrder([s('grill'), s('kitchen', true), s('dish')]).map(x => x.id)).toEqual(['kitchen', 'grill', 'dish'])
-    expect(chipName({ name: 'Whole kitchen', isShared: true })).toBe('Everyone')
+    expect(chipName({ name: 'Whole kitchen', isShared: true })).toBe('Whole kitchen')
     expect(chipName({ name: 'Grill', isShared: false })).toBe('Grill')
   })
   it('counts the jobs in a phase', () => {

@@ -205,13 +205,16 @@ export function WhenPill({ item }: { item: InboxItem }) {
 const STAT_TONE = { red: 'text-red-text', green: 'text-green-text', gold: 'text-gold-2', grey: 'text-ink-2' } as const
 const BAR_TONE = { red: 'bg-red', green: 'bg-green', gold: 'bg-gold', grey: 'bg-gold' } as const
 
+/** A tile opens its own station on the board, not the bare board. */
+const stationHref = (s: PassStation) => `/checklist/today?station=${encodeURIComponent(s.id)}`
+
 /** The phone's compact tile: name, then one stat line. */
 export function StationTileSmall({ s, now }: { s: PassStation; now: Date }) {
   const t = stationTile(s, now)
   const bg = t.tone === 'red' ? 'bg-red-soft' : t.tone === 'green' ? 'bg-green-soft' : 'bg-bg-2'
   const stat = t.tone === 'grey' && t.who && s.status.label === 'IN PROGRESS' ? `${t.stat} · ${t.who.toUpperCase()}` : t.stat
   return (
-    <Link href="/checklist/today" className={`flex flex-col gap-1 p-2.5 min-h-[56px] rounded-[10px] min-w-0 ${bg}`}>
+    <Link href={stationHref(s)} className={`flex flex-col gap-1 p-2.5 min-h-[56px] rounded-[10px] min-w-0 ${bg}`}>
       <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink min-w-0">
         <TagDot color={s.color} /><span className="truncate">{s.name}</span>
       </span>
@@ -224,7 +227,7 @@ export function StationTileSmall({ s, now }: { s: PassStation; now: Date }) {
 export function StationTileWide({ s, now }: { s: PassStation; now: Date }) {
   const t = stationTile(s, now)
   return (
-    <Link href="/checklist/today" className={`flex flex-col gap-1.5 p-3 rounded-[10px] border min-w-0 hover:border-ink-3 ${t.tone === 'red' ? 'border-red' : 'border-line'}`}>
+    <Link href={stationHref(s)} className={`flex flex-col gap-1.5 p-3 rounded-[10px] border min-w-0 hover:border-ink-3 ${t.tone === 'red' ? 'border-red' : 'border-line'}`}>
       <span className="flex items-center gap-1.5 text-[13px] font-semibold text-ink min-w-0">
         <TagDot color={s.color} /><span className="truncate">{s.name}</span>
       </span>

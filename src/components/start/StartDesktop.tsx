@@ -41,7 +41,7 @@ export function StartDesktop() {
           { href: '/pass', label: 'Pass' },
           { href: '/preshift', label: 'Pre-shift', icon: <Activity size={14} /> },
           // The manager's view of the station checklists is the board, not the cook screen.
-          { href: '/checklist/today', label: 'Open & close', icon: <ListChecks size={14} /> },
+          { href: '/checklist/today', label: 'Checklist', icon: <ListChecks size={14} /> },
           { href: '/end-of-day', label: 'End-of-day', icon: <Clock size={14} /> },
         ]}
       />

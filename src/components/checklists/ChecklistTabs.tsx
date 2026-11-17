@@ -6,7 +6,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { SectionTabs } from '@/components/nav/SectionTabs'
 import { checklistTabs, type ChecklistTabCounts, type ChecklistTabKey } from '@/lib/section-tabs'
 
-// The Open & close tab row, on every page of the section. A cook sees none.
+// The Checklist tab row, on every page of the section. A cook sees none.
 // The counts (stations behind, phones waiting) load once per page and again
 // whenever the phone comes back to the app.
 
@@ -32,5 +32,5 @@ export function ChecklistTabs({ active }: { active: ChecklistTabKey }) {
     return () => { live = false; document.removeEventListener('visibilitychange', load) }
   }, [lead, ready, activeRcId])
 
-  return <SectionTabs tabs={checklistTabs(role as Role | null, counts)} active={active} label="Open & close pages" />
+  return <SectionTabs tabs={checklistTabs(role as Role | null, counts)} active={active} label="Checklist pages" />
 }

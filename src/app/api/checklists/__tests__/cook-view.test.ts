@@ -113,6 +113,40 @@ describe('buildCookView', () => {
     expect(ensureRun).not.toHaveBeenCalled()
   })
 
+  it('a LEAD visiting a station works that station, starting its list if nobody has', async () => {
+    // Grill has no run yet; the lead's own pick (Fryer) is not what they asked for.
+    runFindMany.mockResolvedValue([{ id: 'r-fry', stationId: 'fry', crew: [{ userId: 'u9', userName: 'Kai' }], _count: { lines: 4 } }])
+    ensureRun.mockImplementation(async (sid: string) => ({ id: `r-${sid}`, created: true }))
+    loadRunView.mockImplementation(async (id: string) => ({ id, stationId: id.slice(2), lines: [{}, {}, {}] }))
+    lastHandover.mockResolvedValue({ note: 'brush the grates', byName: 'Dev', businessDate: '2026-11-16' })
+
+    const v = await buildCookView(lead, 'rc1', 'OPEN', 'grill')
+    expect(v.visiting).toBe('grill')
+    expect(v.mine.map(r => r.id)).toEqual(['r-grill'])
+    expect(ensureRun).toHaveBeenCalledWith('grill', 'OPEN', expect.any(String))
+    expect(v.handover).toEqual({ grill: { note: 'brush the grates', byName: 'Dev', businessDate: '2026-11-16' } })
+    expect(v.shared?.id).toBe('r-all')
+    // The visit does not put the lead on Grill's crew.
+    expect(Object.fromEntries(v.stations.map(s => [s.id, s])).grill).toMatchObject({ crew: [], jobCount: 3, picked: false })
+  })
+
+  it('a STAFF cook asking to visit gets their own list', async () => {
+    const v = await buildCookView(user, 'rc1', 'OPEN', 'grill')
+    expect(v.visiting).toBeNull()
+    expect(v.mine).toEqual([])
+    expect(ensureRun).not.toHaveBeenCalled()
+  })
+
+  it('the shared list and unknown stations are never visited', async () => {
+    ensureRun.mockResolvedValue({ id: 'r-all', created: false })
+    loadRunView.mockResolvedValue({ id: 'r-all', stationId: 'all', lines: [] })
+    for (const sid of ['all', 'nope']) {
+      const v = await buildCookView(lead, 'rc1', 'OPEN', sid)
+      expect(v.visiting).toBeNull()
+      expect(v.mine).toEqual([])
+    }
+  })
+
   it('CLOSE has no handover lookup', async () => {
     runFindMany.mockResolvedValue([{ id: 'r-grill', stationId: 'grill', crew: [{ userId: 'u1', userName: 'Sam Lee' }], _count: { lines: 1 } }])
     loadRunView.mockResolvedValue({ id: 'r-grill', stationId: 'grill', lines: [{}] })
