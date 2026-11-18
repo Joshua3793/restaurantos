@@ -75,7 +75,7 @@ const GROUPS: Record<string, GroupSpec> = {
   },
   phone: {
     title: n => `${n} phones waiting for an OK`,
-    href: '/checklist/crew',
+    href: '/setup/sign-ins',
     short: t => t,
   },
 }
@@ -202,6 +202,8 @@ export function ledeText(l: PassLede): string {
 
 const SHORT_CTA: Array<[string, string]> = [
   ['/checklist/today', 'Board'],
+  ['/setup/sign-ins', 'Review'],
+  // Alerts raised before the move keep the old address; the middleware redirects it.
   ['/checklist/crew', 'Review'],
   ['/temps', 'Check it'],
   ['/prep', 'Prep'],

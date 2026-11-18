@@ -54,7 +54,7 @@ Stack: Next.js 14 App Router · TypeScript · Prisma + PostgreSQL (Supabase) · 
 | `/checklist` (cook; `?station=` lets LEAD+ work any station) · `/checklist/today` (LEAD, the board; `?station=` opens one; Closing ends with Close the day) · `/checklist/history` + `/checklist/edit` + `/checklist/crew` (MANAGER) | Station checklists — `/api/checklists/*` (cook view, pick, lines, sign-off/reopen, today, history, editor CRUD/reorder/copy) and `/api/pin-devices` (Crew sign-in). Pure rules in `src/lib/checklists/`. Design + rulings: `docs/superpowers/specs/2026-10-29-station-checklists-*.md` |
 | `/auth/pin` (public) | PIN sign-in — `/api/auth/pin`, `/api/auth/pin/status`; libs in `src/lib/pin/`. See "PIN sign-in" under Auth & roles |
 | `/wastage` | `/api/wastage` |
-| `/setup/*` (ADMIN) | hub with sub-pages: categories, storage-areas, suppliers, revenue-centers, users, uom, toast, general (the old `/setup/open-checklist` and `/setup/eod-checklist` redirect to `/checklist/edit`) |
+| `/setup/*` (ADMIN) | hub with sub-pages: categories, storage-areas, suppliers, revenue-centers, users (People), uom, toast, general, plus `sign-ins` (phone PIN approvals, was /checklist/crew) and `alert-tags` (was /inbox/tags), which MANAGER can open too (`src/lib/route-access.ts`); the old `/setup/open-checklist` and `/setup/eod-checklist` redirect to `/checklist/edit` |
 
 ### Key data flows
 

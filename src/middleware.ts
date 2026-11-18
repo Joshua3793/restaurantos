@@ -34,6 +34,9 @@ const REDIRECTS: Array<[string, string]> = [
   ['/reports/theoretical-usage','/variance'],
   ['/reports/signals',         '/signals'],
   ['/cost',                    '/reports'],
+  // Phone sign-ins and alert tags moved into Setup.
+  ['/checklist/crew',          '/setup/sign-ins'],
+  ['/inbox/tags',              '/setup/alert-tags'],
   // The old kitchen-wide lists were replaced by station checklists.
   ['/setup/open-checklist',    '/checklist/edit'],
   ['/setup/eod-checklist',     '/checklist/edit'],

@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import {
-  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, Banknote,
+  Truck, Building2, MapPin, Tag, Ruler, Users, Bell, Link2, ClipboardCheck, Banknote, Smartphone, Tags,
 } from 'lucide-react'
 import { PageHead } from '@/components/layout/PageHead'
 
@@ -20,6 +20,8 @@ const cards: Card[] = [
   { href: '/setup/storage-areas',   label: 'Storage areas',    icon: MapPin,   description: 'Walk-ins, dry storage, bar. Drives count routing.',               built: true },
   { href: '/setup/categories',      label: 'Categories',       icon: Tag,      description: 'Inventory and recipe categories, accent colors.',                 built: true },
   { href: '/setup/users',           label: 'People',           icon: Users,    description: 'Logins, clearance & assignments, kitchen roster, tip payout setup.',  built: true },
+  { href: '/setup/sign-ins',        label: 'Phone sign-ins',   icon: Smartphone, description: 'OK the phones cooks sign in on with a PIN; remove lost ones.',     built: true },
+  { href: '/setup/alert-tags',      label: 'Alert tags',       icon: Tags,     description: 'The tags that sort alerts on the Pass, and where flags go.',      built: true },
   { href: '/setup/uom',             label: 'UOM & conversions',icon: Ruler,    description: 'Unit-of-measure groups, custom conversions, inspector.',          built: true },
   { href: '/setup/general',         label: 'General',          icon: Bell,     description: 'Email digest schedule, notifications, brand.',                    built: true },
   { href: '/setup/toast',           label: 'Toast integration',icon: Link2,    description: 'Connect Toast sales; map menu items to recipes.',                 built: true },
