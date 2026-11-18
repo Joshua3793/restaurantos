@@ -41,13 +41,15 @@ export const ROUTE_CLEARANCE: ReadonlyArray<readonly [string, Role]> = [
   // Station checklists. /checklist itself (the cook's own list) is open to
   // STAFF, so it has no entry; the board, history and editor are gated here.
   ['/checklist/today', 'LEAD'],
-  ['/checklist/history', 'MANAGER'],
+  // Leads get the "closing wasn't signed off" alert, which opens History on that night.
+  ['/checklist/history', 'LEAD'],
   ['/checklist/edit', 'MANAGER'],
-  // Crew sign-in: OK / reject / remove the phones cooks sign in on with a PIN.
-  ['/checklist/crew', 'MANAGER'],
-  // The Inbox: leads and managers work it; only managers edit its tags.
+  // The Inbox (All alerts): leads and managers work it.
   ['/inbox', 'LEAD'],
-  ['/inbox/tags', 'MANAGER'],
+  // Setup is ADMIN, but two of its pages are a manager's job too (longest prefix wins):
+  // OK / reject / remove the phones cooks sign in on with a PIN, and the alert tags.
+  ['/setup/sign-ins', 'MANAGER'],
+  ['/setup/alert-tags', 'MANAGER'],
 ] as const
 
 /**

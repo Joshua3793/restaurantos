@@ -215,7 +215,8 @@ export function eventBy(e: InboxEvent): string | null {
 
 const GO_TO: Array<[string, string]> = [
   ['/checklist/today', 'today’s checklists'],
-  ['/checklist/crew', 'crew sign-in'],
+  ['/setup/sign-ins', 'phone sign-ins'],
+  ['/checklist/crew', 'phone sign-ins'],
   ['/temps', 'temps'],
   ['/prep', 'prep'],
   ['/invoices', 'invoices'],

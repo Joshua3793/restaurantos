@@ -5,9 +5,9 @@ import { useUser } from '@/contexts/UserContext'
 import { useToast } from '@/components/Toast'
 import { atLeast } from '@/lib/roles'
 import type { CrewStatus } from '@/lib/pin/crew-status'
-import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
+import { SetupCrumb } from '@/components/setup/SetupCrumb'
 
-// /checklist/crew — MANAGER+ "Crew sign-in". Phones waiting for an OK come
+// /setup/sign-ins — MANAGER+ "Phone sign-ins" (was /checklist/crew; lives with People in Setup). Phones waiting for an OK come
 // first (each with the pair code the cook's phone shows), then every active
 // cook with their sign-in status; a row opens to list that cook's phones.
 // Phones are OK'd only here, from the manager's own signed-in session.
@@ -456,8 +456,8 @@ export default function CrewSignInPage() {
 
   return (
     <div className="max-w-[640px] mx-auto w-full flex flex-col gap-3.5">
-      <ChecklistTabs active="crew" />
-      <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Sign-ins</h1>
+      <SetupCrumb trail={[{ label: 'People', href: '/setup/users' }, { label: 'Phone sign-ins' }]} />
+      <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Phone sign-ins</h1>
       {view && (
         <p className="m-0 text-[15px] leading-[1.45] text-ink-2">
           {n > 0 ? (

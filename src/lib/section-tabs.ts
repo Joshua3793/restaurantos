@@ -15,13 +15,13 @@ export type SectionTab = {
   alert?: boolean
 }
 
-export type ChecklistTabKey = 'mine' | 'board' | 'crew' | 'history' | 'edit'
+export type ChecklistTabKey = 'mine' | 'board' | 'history' | 'edit'
 export type ChecklistTabCounts = { behind?: number; phones?: number }
 
 /**
  * Checklist. A cook has only their own list, so no row at all (empty).
- * A lead adds the station board and history; a manager also gets sign-ins and
- * the list editor.
+ * A lead adds the station board and history; a manager also gets the list
+ * editor. Phone sign-ins live in Setup → People.
  */
 export function checklistTabs(role: Role | null, counts: ChecklistTabCounts = {}): SectionTab[] {
   if (!role || !atLeast(role, 'LEAD')) return []
@@ -29,18 +29,15 @@ export function checklistTabs(role: Role | null, counts: ChecklistTabCounts = {}
     { key: 'mine', label: 'My list', href: '/checklist' },
     { key: 'board', label: 'Stations', href: '/checklist/today', count: counts.behind, alert: true },
   ]
-  if (atLeast(role, 'MANAGER')) {
-    tabs.push({ key: 'crew', label: 'Sign-ins', href: '/checklist/crew', count: counts.phones, alert: true })
-  }
   tabs.push({ key: 'history', label: 'History', href: '/checklist/history' })
   if (atLeast(role, 'MANAGER')) tabs.push({ key: 'edit', label: 'Build lists', href: '/checklist/edit' })
   return tabs
 }
 
-export type InboxTabKey = 'open' | 'waiting' | 'snoozed' | 'done' | 'tags'
+export type InboxTabKey = 'open' | 'waiting' | 'snoozed' | 'done'
 export type InboxTabCounts = { open?: number; now?: number; waiting?: number; snoozed?: number }
 
-/** Inbox views are `?view=` on /inbox; Tags is its own page for managers. */
+/** Inbox views are `?view=` on /inbox. Its tags are edited in Setup → Alert tags. */
 export function inboxTabs(role: Role | null, counts: InboxTabCounts = {}): SectionTab[] {
   const tabs: SectionTab[] = [
     { key: 'open', label: 'Open', href: '/inbox', count: counts.open, alert: (counts.now ?? 0) > 0 },
@@ -48,7 +45,6 @@ export function inboxTabs(role: Role | null, counts: InboxTabCounts = {}): Secti
     { key: 'snoozed', label: 'Snoozed', href: '/inbox?view=snoozed', count: counts.snoozed },
     { key: 'done', label: 'Done', href: '/inbox?view=done' },
   ]
-  if (role && atLeast(role, 'MANAGER')) tabs.push({ key: 'tags', label: 'Tags', href: '/inbox/tags' })
   return tabs
 }
 

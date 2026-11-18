@@ -190,7 +190,7 @@ describe('collectConditions — phones', () => {
     const [c] = collectConditions(base({ phones: [phone()] }))
     expect(c).toMatchObject({
       sourceKey: 'phone:d1', tagBuiltIn: 'TEAM', severity: 'TODAY',
-      title: "Sam Lee's phone wants your OK", body: 'Code 4821', href: '/checklist/crew',
+      title: "Sam Lee's phone wants your OK", body: 'Code 4821', href: '/setup/sign-ins',
       managerOnly: true, revenueCenterId: null,
     })
   })

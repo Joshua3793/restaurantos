@@ -36,7 +36,7 @@ describe('requiredClearance', () => {
   it('opens the cook checklist to STAFF and gates the board, history and editor', () => {
     expect(requiredClearance('/checklist')).toBeNull()
     expect(requiredClearance('/checklist/today')).toBe('LEAD')
-    expect(requiredClearance('/checklist/history')).toBe('MANAGER')
+    expect(requiredClearance('/checklist/history')).toBe('LEAD')
     expect(requiredClearance('/checklist/edit')).toBe('MANAGER')
     expect(canAccess('STAFF', '/checklist')).toBe(true)
     expect(canAccess('STAFF', '/checklist/today')).toBe(false)
@@ -44,20 +44,20 @@ describe('requiredClearance', () => {
     expect(canAccess('LEAD', '/checklist/edit')).toBe(false)
   })
 
-  it('gates Crew sign-in to managers', () => {
-    expect(requiredClearance('/checklist/crew')).toBe('MANAGER')
-    expect(canAccess('LEAD', '/checklist/crew')).toBe(false)
-    expect(canAccess('MANAGER', '/checklist/crew')).toBe(true)
-    expect(canAccess('STAFF', '/checklist')).toBe(true)
+  it('opens Setup to admins, except phone sign-ins and alert tags, which managers open too', () => {
+    expect(requiredClearance('/setup')).toBe('ADMIN')
+    expect(requiredClearance('/setup/users')).toBe('ADMIN')
+    for (const path of ['/setup/sign-ins', '/setup/alert-tags']) {
+      expect(requiredClearance(path)).toBe('MANAGER')
+      expect(canAccess('LEAD', path)).toBe(false)
+      expect(canAccess('MANAGER', path)).toBe(true)
+    }
   })
 
-  it('opens the Inbox to leads and its tags to managers', () => {
+  it('opens the Inbox to leads', () => {
     expect(requiredClearance('/inbox')).toBe('LEAD')
-    expect(requiredClearance('/inbox/tags')).toBe('MANAGER')
     expect(canAccess('STAFF', '/inbox')).toBe(false)
     expect(canAccess('LEAD', '/inbox')).toBe(true)
-    expect(canAccess('LEAD', '/inbox/tags')).toBe(false)
-    expect(canAccess('MANAGER', '/inbox/tags')).toBe(true)
     // Segment match: a lookalike path does not inherit the gate.
     expect(requiredClearance('/inboxes')).toBeNull()
   })

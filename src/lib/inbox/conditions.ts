@@ -260,7 +260,7 @@ function phoneConditions(now: Date, phones: PhoneIn[]): Condition[] {
       severity: 'TODAY' as const,
       title: `${p.name}'s phone wants your OK`,
       body: `Code ${p.pairCode}`,
-      href: '/checklist/crew',
+      href: '/setup/sign-ins',
       managerOnly: true,
       revenueCenterId: null,
     }))

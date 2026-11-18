@@ -8,10 +8,9 @@ import type { TagLite } from '@/lib/inbox/rules'
 import { call } from '@/components/inbox/api'
 import { TagDot } from '@/components/inbox/TagChips'
 import { TagSheet, type TagDraft } from '@/components/inbox/TagSheet'
-import { SectionTabs } from '@/components/nav/SectionTabs'
-import { inboxTabs } from '@/lib/section-tabs'
+import { SetupCrumb } from '@/components/setup/SetupCrumb'
 
-// /inbox/tags — MANAGER+: add, rename, recolour and remove Inbox tags, and say
+// /setup/alert-tags — MANAGER+ (was /inbox/tags): add, rename, recolour and remove Inbox tags, and say
 // which tag each kind of checklist flag lands in. One column on every screen.
 
 type ManagedTag = TagLite & { openCount?: number }
@@ -220,10 +219,10 @@ export default function InboxTagsPage() {
   return (
     <>
       <div className="max-w-[640px] mx-auto w-full flex flex-col gap-3.5">
-        <SectionTabs tabs={inboxTabs(role as Role | null)} active="tags" label="Inbox pages" />
-        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Inbox tags</h1>
+        <SetupCrumb trail={[{ label: 'Alert tags' }]} />
+        <h1 className="m-0 text-[26px] leading-[1.1] font-semibold tracking-[-0.035em]">Alert tags</h1>
         <p className="m-0 text-[14px] leading-[1.45] text-ink-2">
-          Tags sort the Inbox. Cooks pick one when they report something. Changes show up for everyone straight away.
+          Tags sort the alerts on the Pass. Cooks pick one when they report something. Changes show up for everyone straight away.
         </p>
         {body}
       </div>

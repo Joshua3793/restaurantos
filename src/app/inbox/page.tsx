@@ -342,6 +342,11 @@ function Inbox() {
                 from={from?.id ?? null}
                 onFrom={id => setFrom(id ? people.find(p => p.id === id) ?? null : null)}
               />
+              {isManager && (
+                <Link href="/setup/alert-tags" className="block mt-3 px-3 font-mono text-[10.5px] text-ink-3 hover:text-gold-2">
+                  Edit tags in Setup →
+                </Link>
+              )}
             </div>
 
             {/* Below xl the pane sits above the list; at xl it is the third column. */}

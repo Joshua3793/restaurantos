@@ -10,6 +10,7 @@ import { reorderPatches } from '@/components/people/hub/hub-utils'
 import AccessAuditPanel from '@/components/people/AccessAuditPanel'
 import AddPersonModal from '@/components/people/hub/AddPersonModal'
 import InviteModal from '@/components/people/InviteModal'
+import { PhoneSignInsLink } from '@/components/setup/PhoneSignInsLink'
 
 export interface TipRoleOption {
   id: string
@@ -127,7 +128,8 @@ export default function PeopleHubPage() {
             {people.length} {people.length === 1 ? 'person' : 'people'} · {loginCount} with a login · {rosterCount} on the roster
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          <PhoneSignInsLink />
           <button
             onClick={() => setBulkInviting(true)}
             className="text-[12px] text-ink-3 underline hover:no-underline"

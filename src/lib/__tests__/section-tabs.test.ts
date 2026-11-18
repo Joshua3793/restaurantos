@@ -11,21 +11,20 @@ describe('checklistTabs', () => {
   it('a lead gets their list, the stations and history', () => {
     expect(keys(checklistTabs('LEAD'))).toEqual(['mine', 'board', 'history'])
   })
-  it('a manager gets all five, in order', () => {
-    expect(keys(checklistTabs('MANAGER'))).toEqual(['mine', 'board', 'crew', 'history', 'edit'])
-    expect(keys(checklistTabs('OWNER'))).toHaveLength(5)
+  it('a manager gets all four, in order; phone sign-ins live in Setup', () => {
+    expect(keys(checklistTabs('MANAGER'))).toEqual(['mine', 'board', 'history', 'edit'])
+    expect(keys(checklistTabs('OWNER'))).toHaveLength(4)
   })
-  it('puts the counts on Stations and Sign-ins, both as alerts', () => {
+  it('puts the behind count on Stations, as an alert', () => {
     const t = checklistTabs('MANAGER', { behind: 2, phones: 1 })
     expect(t.find(x => x.key === 'board')).toMatchObject({ count: 2, alert: true, href: '/checklist/today' })
-    expect(t.find(x => x.key === 'crew')).toMatchObject({ count: 1, alert: true, href: '/checklist/crew' })
   })
 })
 
 describe('inboxTabs', () => {
-  it('Tags is for managers only', () => {
+  it('the same views for everyone; tags are edited in Setup', () => {
     expect(keys(inboxTabs('LEAD'))).toEqual(['open', 'waiting', 'snoozed', 'done'])
-    expect(keys(inboxTabs('MANAGER'))).toEqual(['open', 'waiting', 'snoozed', 'done', 'tags'])
+    expect(keys(inboxTabs('MANAGER'))).toEqual(['open', 'waiting', 'snoozed', 'done'])
   })
   it('Open is red only when something is due now', () => {
     expect(inboxTabs('LEAD', { open: 5, now: 0 })[0]).toMatchObject({ count: 5, alert: false })
