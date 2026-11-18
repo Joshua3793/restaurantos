@@ -18,7 +18,7 @@ function isRealDate(raw: string): boolean {
 }
 
 /**
- * GET ?rcId=&date=YYYY-MM-DD&userId=&stationId= — MANAGER+ review of one day's
+ * GET ?rcId=&date=YYYY-MM-DD&userId=&stationId= — LEAD+ review of one day's
  * opening and closing lists, with a 7-day strip of how each day went.
  * `date` defaults to the last finished night. Read-only.
  *
@@ -28,7 +28,7 @@ function isRealDate(raw: string): boolean {
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const q = req.nextUrl.searchParams
     const rcId = q.get('rcId')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })

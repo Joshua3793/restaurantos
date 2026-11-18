@@ -67,7 +67,8 @@ function Inbox() {
   const view: InboxView = parseInboxView(params.get('view'))
   // Waiting is a slice of the open list; Snoozed (still asleep) and Done are lists of their own.
   const status: 'open' | 'snoozed' | 'done' = view === 'done' || view === 'snoozed' ? view : 'open'
-  const [tagId, setTagId] = useState<string | null>(null)
+  // "All alerts by tag" on the Pass opens here with ?tag=<id>: start on that tag.
+  const [tagId, setTagId] = useState<string | null>(() => params.get('tag') || null)
   const [place, setPlace] = useState<string | null>(null)
   const [from, setFrom] = useState<{ id: string; name: string } | null>(null)
   const [list, setList] = useState<InboxListData | null>(null)

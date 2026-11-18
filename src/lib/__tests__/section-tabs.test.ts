@@ -8,8 +8,8 @@ describe('checklistTabs', () => {
     expect(checklistTabs('STAFF')).toEqual([])
     expect(checklistTabs(null)).toEqual([])
   })
-  it('a lead gets their list and the stations', () => {
-    expect(keys(checklistTabs('LEAD'))).toEqual(['mine', 'board'])
+  it('a lead gets their list, the stations and history', () => {
+    expect(keys(checklistTabs('LEAD'))).toEqual(['mine', 'board', 'history'])
   })
   it('a manager gets all five, in order', () => {
     expect(keys(checklistTabs('MANAGER'))).toEqual(['mine', 'board', 'crew', 'history', 'edit'])

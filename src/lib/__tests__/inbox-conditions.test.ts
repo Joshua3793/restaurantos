@@ -100,11 +100,13 @@ describe('collectConditions — stations', () => {
 describe('collectConditions — closing left unsigned', () => {
   it('close-unsigned:<runId>, Checklists, TODAY', () => {
     const [c] = collectConditions(base({
-      closeRuns: [{ id: 'r9', stationName: 'Pastry', revenueCenterId: 'rcA', businessDate: '2026-10-29' }],
+      closeRuns: [{ id: 'r9', stationId: 's7', stationName: 'Pastry', revenueCenterId: 'rcA', businessDate: '2026-10-29' }],
     }))
     expect(c).toMatchObject({
       sourceKey: 'close-unsigned:r9', tagBuiltIn: 'CHECKLISTS', severity: 'TODAY',
       title: "Pastry closing wasn't signed off", body: 'Closing list for Thu 29 Oct', place: 'Pastry',
+      // A past night: History on that night and station, not today's board.
+      href: '/checklist/history?date=2026-10-29&station=s7',
     })
   })
 })

@@ -14,7 +14,7 @@ import { greetingFor, crumbDate, personName } from './parts'
 import {
   Lede, LastNight, PassItemDialog, StationTileWide, VALUE_TONE,
   ReportButton, numberRows, useInboxCount, usePassItem,
-  RowTag, RowTitle, RowPill, RowCta, rowMeta, DayPartPill, ReadyForDoors, SEE_ALL_HREF,
+  RowTag, RowTitle, RowPill, RowCta, rowMeta, DayPartPill, ReadyForDoors, SEE_ALL_HREF, tagHref,
 } from './PassParts'
 
 // The desktop Pass (/pass, MANAGER+). The Pass IS the inbox: what needs you
@@ -238,7 +238,7 @@ function InboxByTag({ d }: { d: StartData }) {
       {rows.length === 0 ? (
         <p className="text-[13.5px] text-ink-3">Nothing open. All clear.</p>
       ) : rows.map(r => (
-        <Link key={r.tag.id} href={SEE_ALL_HREF} className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[44px] text-ink hover:text-gold-2">
+        <Link key={r.tag.id} href={tagHref(r.tag.id)} className="grid grid-cols-[12px_minmax(0,1fr)_32px_64px] gap-2.5 items-center min-h-[44px] text-ink hover:text-gold-2">
           <TagDot color={r.tag.color} />
           <span className="text-[13.5px] truncate">{r.tag.name}</span>
           <span className="font-mono text-[12px] font-semibold text-right tabular-nums">{r.count}</span>
