@@ -247,6 +247,9 @@ export function RowCta({ row, gold, onOpen, className = '' }: {
 /** The full list of alerts (Open / Waiting / Snoozed / Done) — the Pass's "See all". */
 export const SEE_ALL_HREF = '/inbox'
 
+/** All alerts, showing only one tag's. */
+export const tagHref = (tagId: string) => `${SEE_ALL_HREF}?tag=${encodeURIComponent(tagId)}`
+
 // ── where the day is, and how ready the kitchen is for doors ───────────────
 
 const PARTS = [['before', 'Before doors'], ['service', 'Service'], ['closing', 'Closing']] as const

@@ -1,5 +1,6 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import type { Role } from '@prisma/client'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -12,7 +13,7 @@ import type { LineView } from '@/lib/checklists/runs'
 import { firstName, fmtReading, unitOf } from '@/components/checklists/LineRow'
 import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 
-// /checklist/history — MANAGER+ review of any day's opening and closing lists:
+// /checklist/history — LEAD+ review of any day's opening and closing lists:
 // who ticked what and when, filtered by person or station, exportable as CSV.
 // Mobile first: one fluid column, capped at 640 px on a desktop.
 
@@ -262,6 +263,25 @@ type Filters = { rc: string | null; date: string | null; userId: string; station
 const NO_FILTERS = { date: null, userId: '', stationId: '' } as const
 
 export default function ChecklistHistoryPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChecklistHistory />
+    </Suspense>
+  )
+}
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/
+
+function ChecklistHistory() {
+  const params = useSearchParams()
+  // An alert ("Grill closing wasn't signed off") opens here with ?date=&station=:
+  // the first kitchen starts on that night and station, with its closing open.
+  const fromLink = useRef({
+    date: YMD.test(params.get('date') ?? '') ? params.get('date') : null,
+    stationId: params.get('station') ?? '',
+  })
+  // The station whose closing unfolds on the first load from such a link.
+  const unfold = useRef(fromLink.current.stationId)
   const { activeRcId, activeRc, ready } = useRc()
   const { role } = useUser()
   const toast = useToast()
@@ -273,9 +293,17 @@ export default function ChecklistHistoryPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set())
 
-  const allowed = !role || atLeast(role as Role, 'MANAGER')
+  const allowed = !role || atLeast(role as Role, 'LEAD')
   // A different kitchen starts clean: its date, person and station picks do not carry over.
-  const f: Filters = filters.rc === activeRcId ? filters : { rc: activeRcId, ...NO_FILTERS }
+  // The first one starts on what the link asked for (see the effect below).
+  const f: Filters = filters.rc === activeRcId
+    ? filters
+    : { rc: activeRcId, ...NO_FILTERS, ...(filters.rc === null ? { date: fromLink.current.date, stationId: fromLink.current.stationId } : {}) }
+  useEffect(() => {
+    if (activeRcId && filters.rc === null && (fromLink.current.date || fromLink.current.stationId)) {
+      setFilters({ rc: activeRcId, date: fromLink.current.date, userId: '', stationId: fromLink.current.stationId })
+    }
+  }, [activeRcId, filters.rc])
   const update = (patch: Partial<Omit<Filters, 'rc'>>) => setFilters({ ...f, ...patch })
 
   // The last finished night: nothing later has a history yet.
@@ -298,7 +326,14 @@ export default function ChecklistHistoryPage() {
     if (!r.ok) { setLoadError(r.error); return }
     setLoadError(null)
     setView(r.data)
-    setOpenIds(new Set())
+    // Opened from an alert: unfold that station's closing once.
+    const want = unfold.current
+    if (want) {
+      unfold.current = ''
+      setOpenIds(new Set(r.data.runs.filter(x => x.stationId === want && x.phase === 'CLOSE').map(x => x.id)))
+    } else {
+      setOpenIds(new Set())
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRcId, f.date, f.userId, f.stationId])
 
@@ -387,7 +422,7 @@ export default function ChecklistHistoryPage() {
       </header>
 
       {!allowed ? (
-        <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">History is for managers.</div>
+        <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">History is for leads and managers.</div>
       ) : !ready ? (
         <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">Loading…</div>
       ) : !activeRcId ? (

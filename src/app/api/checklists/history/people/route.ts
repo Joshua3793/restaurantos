@@ -12,7 +12,7 @@ const WINDOW_DAYS = 60
 /** GET ?rcId= — MANAGER+: who has worked a list here in the last 60 days, for the "Everyone" filter. */
 export async function GET(req: NextRequest) {
   try {
-    const user = await requireSession('MANAGER')
+    const user = await requireSession('LEAD')
     const rcId = req.nextUrl.searchParams.get('rcId')
     if (!rcId) return NextResponse.json({ error: 'rcId required' }, { status: 400 })
     if (!(await isRcInScope(user, rcId))) {

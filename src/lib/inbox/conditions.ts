@@ -61,6 +61,7 @@ export type StationIn = {
 
 export type CloseRunIn = {
   id: string
+  stationId: string
   stationName: string
   revenueCenterId: string
   businessDate: string
@@ -178,7 +179,8 @@ function closeConditions(runs: CloseRunIn[]): Condition[] {
     title: `${r.stationName} closing wasn't signed off`,
     body: `Closing list for ${dayLabel(r.businessDate)}`,
     place: r.stationName,
-    href: '/checklist/today',
+    // A past night lives in History: open it on that night, that station.
+    href: `/checklist/history?${new URLSearchParams({ date: r.businessDate, station: r.stationId })}`,
     managerOnly: false,
     revenueCenterId: r.revenueCenterId,
   }))

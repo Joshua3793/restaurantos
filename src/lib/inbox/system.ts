@@ -226,10 +226,10 @@ function loaders(rcId: string | null, now: Date): Loaders {
           station: { revenueCenterId: rcId, isShared: false, isActive: true },
           lines: { some: {} },
         },
-        select: { id: true, businessDate: true, station: { select: { name: true } } },
+        select: { id: true, businessDate: true, station: { select: { id: true, name: true } } },
       })
       return rows.map(r => ({
-        id: r.id, stationName: r.station.name, revenueCenterId: rcId, businessDate: r.businessDate,
+        id: r.id, stationId: r.station.id, stationName: r.station.name, revenueCenterId: rcId, businessDate: r.businessDate,
       }))
     },
     closeAged: async () => {

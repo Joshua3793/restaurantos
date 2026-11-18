@@ -77,10 +77,10 @@ beforeEach(() => {
 })
 
 describe('GET /api/checklists/history', () => {
-  it('asks for a MANAGER session: 403 below it, before reading anything', async () => {
+  it('asks for a LEAD session: 403 below it, before reading anything', async () => {
     requireSession.mockRejectedValue(new MockAuthError(403, 'Forbidden'))
     const res = await getHistory('rcId=rc1')
-    expect(requireSession).toHaveBeenCalledWith('MANAGER')
+    expect(requireSession).toHaveBeenCalledWith('LEAD')
     expect(res.status).toBe(403)
     expect(runFindMany).not.toHaveBeenCalled()
   })
@@ -173,10 +173,10 @@ describe('GET /api/checklists/history', () => {
 })
 
 describe('GET /api/checklists/history/people', () => {
-  it('needs a MANAGER session, an rcId and a kitchen in scope', async () => {
+  it('needs a LEAD session, an rcId and a kitchen in scope', async () => {
     expect((await getPeople('x=1')).status).toBe(400)
     await getPeople('rcId=rc1')
-    expect(requireSession).toHaveBeenCalledWith('MANAGER')
+    expect(requireSession).toHaveBeenCalledWith('LEAD')
     isRcInScope.mockResolvedValue(false)
     expect((await getPeople('rcId=rc1')).status).toBe(403)
   })

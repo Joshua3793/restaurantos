@@ -20,7 +20,7 @@ export type ChecklistTabCounts = { behind?: number; phones?: number }
 
 /**
  * Checklist. A cook has only their own list, so no row at all (empty).
- * A lead adds the station board; a manager also gets sign-ins, history and
+ * A lead adds the station board and history; a manager also gets sign-ins and
  * the list editor.
  */
 export function checklistTabs(role: Role | null, counts: ChecklistTabCounts = {}): SectionTab[] {
@@ -30,12 +30,10 @@ export function checklistTabs(role: Role | null, counts: ChecklistTabCounts = {}
     { key: 'board', label: 'Stations', href: '/checklist/today', count: counts.behind, alert: true },
   ]
   if (atLeast(role, 'MANAGER')) {
-    tabs.push(
-      { key: 'crew', label: 'Sign-ins', href: '/checklist/crew', count: counts.phones, alert: true },
-      { key: 'history', label: 'History', href: '/checklist/history' },
-      { key: 'edit', label: 'Build lists', href: '/checklist/edit' },
-    )
+    tabs.push({ key: 'crew', label: 'Sign-ins', href: '/checklist/crew', count: counts.phones, alert: true })
   }
+  tabs.push({ key: 'history', label: 'History', href: '/checklist/history' })
+  if (atLeast(role, 'MANAGER')) tabs.push({ key: 'edit', label: 'Build lists', href: '/checklist/edit' })
   return tabs
 }
 
