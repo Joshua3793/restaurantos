@@ -2,7 +2,7 @@
 import { useRef } from 'react'
 import { Check, MoreHorizontal } from 'lucide-react'
 import type { LineView } from '@/lib/checklists/runs'
-import { dueText, isPastDue, pacificHHMM } from '@/lib/checklists/rules'
+import { dueText, isPastDue, pacificHHMM, type Phase } from '@/lib/checklists/rules'
 
 // One job on the cook's list. TICK rows tick on tap (optimistic, in the page);
 // NUMBER/TEMP rows open the log sheet; "⋯" or a long-press opens the sheet on
@@ -76,6 +76,7 @@ export function LineRow({
   shared,
   locked,
   busy,
+  phase,
   onTap,
   onMore,
   selected = false,
@@ -88,6 +89,8 @@ export function LineRow({
   locked: boolean
   /** A save for this line is still in flight: dimmed, taps ignored. */
   busy: boolean
+  /** Names the blocker pill: BEFORE DOORS when opening, BEFORE YOU LEAVE when closing. */
+  phase?: Phase
   onTap: (line: RowLine) => void
   onMore: (line: RowLine) => void
   /** Desktop: this job is open in the side panel. */
@@ -105,6 +108,7 @@ export function LineRow({
   const flagged = line.status === 'FLAGGED'
   const urgent = line.isBlocker && line.status === 'TODO'
   const sub = subLine(line)
+  const blockerPill = urgent ? <Pill tone="red">{phase === 'CLOSE' ? 'BEFORE YOU LEAVE' : 'BEFORE DOORS'}</Pill> : null
 
   const clearTimer = () => {
     if (timer.current) clearTimeout(timer.current)
@@ -171,6 +175,7 @@ export function LineRow({
           <span className={`font-mono text-[10.5px] leading-[1.4] truncate ${subTone}`}>{sub}</span>
           <span className="flex items-center justify-end gap-1.5">
             {shared && <Pill>KITCHEN</Pill>}
+            {blockerPill}
             {flagged && <Pill tone="red">FLAGGED</Pill>}
             <DuePill line={line} />
             {!isTick && line.status === 'TODO' && !locked && (
@@ -207,6 +212,7 @@ export function LineRow({
           {sub && <span className={`font-mono text-[10.5px] leading-[1.4] truncate ${subTone}`}>{sub}</span>}
         </span>
         {shared && <Pill>KITCHEN</Pill>}
+        {blockerPill}
         {flagged && <Pill tone="red">FLAGGED</Pill>}
         <DuePill line={line} />
         {!isTick && line.status === 'TODO' && !locked && (

@@ -12,24 +12,15 @@ export type ListFilter = 'all' | 'left' | 'done'
 
 const handled = <L extends LineLike>(rows: ListRow<L>[]) => rows.filter(r => r.line.status !== 'TODO').length
 
-/** Blockers first ("BEFORE DOORS" / "BEFORE YOU LEAVE"), then each category in line order. */
-export function sectionsFor<L extends LineLike>(rows: ListRow<L>[], phase: Phase): ListSection<L>[] {
+/**
+ * Each category in line order (the order the jobs were set up in the editor).
+ * Blockers stay where they were set up and are flagged on their row; a
+ * category with a blocker still to do turns its header red.
+ */
+export function sectionsFor<L extends LineLike>(rows: ListRow<L>[], _phase: Phase): ListSection<L>[] {
   const out: ListSection<L>[] = []
-  const blockers = rows.filter(r => r.line.isBlocker)
-  if (blockers.length > 0) {
-    const left = blockers.filter(r => r.line.status === 'TODO').length
-    const base = phase === 'OPEN' ? 'BEFORE DOORS' : 'BEFORE YOU LEAVE'
-    out.push({
-      key: '__blockers',
-      label: left > 0 ? `${base} · ${left} LEFT` : base,
-      urgent: left > 0,
-      count: `${handled(blockers)}/${blockers.length}`,
-      rows: blockers,
-    })
-  }
   const byCat = new Map<string, ListRow<L>[]>()
   for (const r of rows) {
-    if (r.line.isBlocker) continue
     const name = r.line.categoryName.trim()
     const list = byCat.get(name)
     if (list) list.push(r)
@@ -39,7 +30,7 @@ export function sectionsFor<L extends LineLike>(rows: ListRow<L>[], phase: Phase
     out.push({
       key: `cat:${name}`,
       label: (name || 'Other jobs').toUpperCase(),
-      urgent: false,
+      urgent: list.some(r => r.line.isBlocker && r.line.status === 'TODO'),
       count: `${handled(list)}/${list.length}`,
       rows: list,
     })

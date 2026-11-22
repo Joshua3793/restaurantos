@@ -11,15 +11,18 @@ const grill = {
 const kitchen = { status: 'OPEN', lines: [line('k1', 'Safety', true, 'DONE'), line('k2', 'Safety')] }
 
 describe('sectionsFor', () => {
-  it('puts blockers first with a LEFT count, then categories in line order', () => {
+  it('keeps every job in its category, categories in line order — blockers are not pulled out', () => {
     const s = sectionsFor(cardRows(grill, 0, null), 'OPEN')
-    expect(s.map(x => x.label)).toEqual(['BEFORE DOORS · 1 LEFT', 'EQUIPMENT', 'MISE'])
-    expect(s.map(x => x.count)).toEqual(['0/1', '1/2', '1/1'])
+    expect(s.map(x => x.label)).toEqual(['EQUIPMENT', 'MISE'])
+    expect(s.map(x => x.count)).toEqual(['1/2', '1/2'])
+    expect(s[1].rows.map(r => r.line.id)).toEqual(['g2', 'g3'])
   })
 
-  it('says BEFORE YOU LEAVE when closing, and drops the count once blockers are handled', () => {
-    const s = sectionsFor(cardRows({ status: 'OPEN', lines: [line('a', 'X', true, 'DONE')] }, 0, null), 'CLOSE')
-    expect(s[0]).toMatchObject({ label: 'BEFORE YOU LEAVE', urgent: false })
+  it('turns a category red only while it holds a blocker still to do', () => {
+    const s = sectionsFor(cardRows(grill, 0, null), 'OPEN')
+    expect(s.map(x => x.urgent)).toEqual([false, true])
+    const done = sectionsFor(cardRows({ status: 'OPEN', lines: [line('a', 'X', true, 'DONE')] }, 0, null), 'CLOSE')
+    expect(done[0]).toMatchObject({ label: 'X', urgent: false })
   })
 })
 
@@ -42,12 +45,12 @@ describe('keepRow', () => {
 })
 
 describe('lineOrder', () => {
-  it('walks the list the way it is drawn: blockers, then categories, kitchen lines in the first card', () => {
-    expect(lineOrder([grill], kitchen, 'OPEN')).toEqual(['g2', 'k1', 'g1', 'g4', 'g3', 'k2'])
+  it('walks the list the way it is drawn: categories in line order, kitchen lines in the first card', () => {
+    expect(lineOrder([grill], kitchen, 'OPEN')).toEqual(['g1', 'g4', 'g2', 'g3', 'k1', 'k2'])
   })
 
   it('applies the filter', () => {
-    expect(lineOrder([grill], kitchen, 'OPEN', 'left')).toEqual(['g2', 'g1', 'k2'])
+    expect(lineOrder([grill], kitchen, 'OPEN', 'left')).toEqual(['g1', 'g2', 'k2'])
   })
 
   it('uses the whole-kitchen run on its own when no station is picked', () => {
