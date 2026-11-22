@@ -8,9 +8,9 @@ import { cardRows, keepRow, sectionsFor, type ListFilter, type ListRow } from '@
 // The cook's list: a progress card, then one card per picked station. The
 // whole-kitchen run's lines are merged into the first card with a KITCHEN pill.
 // A lead with no station picked gets the whole-kitchen run as its own card.
-// Each card: blockers first ("BEFORE DOORS" / "BEFORE YOU LEAVE"), then each
-// category in line order (list-layout.ts). On a desktop the rows select into the
-// side panel and the filter chips can hide what is done or what is left.
+// Each card: each category in line order (list-layout.ts); a blocker stays in
+// its category and carries a red BEFORE DOORS / BEFORE YOU LEAVE pill. On a
+// desktop the rows select into the side panel and the filter chips can hide what is done or what is left.
 
 type Row = ListRow<RowLine>
 
@@ -79,6 +79,7 @@ export function ChecklistView({
             shared={r.shared}
             locked={r.locked}
             busy={busyIds.has(r.line.id)}
+            phase={phase}
             onTap={onTap}
             onMore={onMore}
             selected={selectedId === r.line.id}
