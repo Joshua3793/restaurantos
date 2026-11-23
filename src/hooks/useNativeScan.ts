@@ -106,6 +106,12 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
     setIsScanning(true)
     setScanError(null)
 
+    // Same guard as InvoiceUploadModal: a session created but never handed on
+    // (every upload path failed, a page too large, a crash) is deleted again so
+    // it can't sit in the inbox as "Uploading" forever.
+    let createdId: string | null = null
+    let handedOff = false
+
     try {
       // 1. Create session
       const sessRes = await fetch('/api/invoices/sessions', {
@@ -118,6 +124,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
         return
       }
       const sess = await sessRes.json()
+      createdId = sess.id
 
       // 2a. Try UploadThing CDN (8 s timeout, same as InvoiceUploadModal)
       let uploadOk = false
@@ -165,6 +172,7 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
 
       // 3. One page → OCR immediately. Multi-page capture → grouping screen
       //    (the batch may be several invoices photographed in one go).
+      handedOff = true
       if (pageFiles.length > 1 && onGrouping) {
         onGrouping(sess.id)
       } else {
@@ -176,6 +184,9 @@ export function useNativeScan({ activeRcId, onComplete, onGrouping }: Options) {
     } catch (err) {
       setScanError(`Scan error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
+      if (createdId && !handedOff) {
+        fetch(`/api/invoices/sessions/${createdId}`, { method: 'DELETE' }).catch(() => {})
+      }
       setIsScanning(false)
     }
   }, [activeRcId, onComplete, onGrouping])

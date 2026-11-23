@@ -5,9 +5,12 @@ import { Trash2, Loader2 } from 'lucide-react'
 // desktop queue row and the mobile inbox card. Bottom sheet on phones,
 // centred dialog from sm: up. z-[80] sits above the sorter (z-50) and its
 // photo viewer (z-[60]).
-export function DiscardBatchDialog({ photoCount, noun = 'photos', onCancel, onConfirm, busy }: {
+export function DiscardBatchDialog({ photoCount, noun = 'photos', kind = 'batch', onCancel, onConfirm, busy }: {
   photoCount: number
   noun?: string
+  /** 'upload' = a single unscanned invoice (a failed scan, or an upload whose
+   *  photos never arrived) rather than an unsorted batch. Same delete. */
+  kind?: 'batch' | 'upload'
   onCancel: () => void
   onConfirm: () => void
   busy: boolean
@@ -24,12 +27,15 @@ export function DiscardBatchDialog({ photoCount, noun = 'photos', onCancel, onCo
             <Trash2 size={15} />
           </div>
           <div className="flex-1">
-            <h3 className="text-[16px] font-semibold text-ink tracking-[-0.015em]">Discard this batch?</h3>
+            <h3 className="text-[16px] font-semibold text-ink tracking-[-0.015em]">{kind === 'upload' ? 'Delete this upload?' : 'Discard this batch?'}</h3>
             <p className="font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3 mt-0.5">This cannot be undone</p>
           </div>
         </div>
         <p className="text-[13px] text-ink-2 leading-[1.5] mb-4">
-          This deletes {photoCount} {noun}. Nothing has been scanned, so no invoice, price or stock is affected.
+          {kind === 'upload' && photoCount === 0
+            ? 'No photos ever arrived for it.'
+            : `This deletes ${photoCount} ${noun}.`}{' '}
+          Nothing has been scanned, so no invoice, price or stock is affected.
         </p>
         <div className="flex gap-2">
           <button
@@ -44,7 +50,7 @@ export function DiscardBatchDialog({ photoCount, noun = 'photos', onCancel, onCo
             disabled={busy}
             className="flex-1 bg-red text-white rounded-[9px] py-2.5 text-[13px] font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Discard batch
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} {kind === 'upload' ? 'Delete' : 'Discard batch'}
           </button>
         </div>
       </div>

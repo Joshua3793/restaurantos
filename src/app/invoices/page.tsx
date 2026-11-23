@@ -307,8 +307,9 @@ export default function InvoicesPage() {
     await fetchSessions()
   }, [fetchSessions])
 
-  // Discard an unsorted batch from wherever it is being looked at (queue row,
-  // mobile card). The sorter has its own copy of this dialog.
+  // Discard an unscanned session — an unsorted batch, a failed scan, or an
+  // upload whose photos never arrived (`canDiscardFromInbox`) — from wherever it
+  // is being looked at (queue row, mobile card). The sorter has its own copy.
   const [discardTarget, setDiscardTarget] = useState<SessionSummary | null>(null)
   const [discarding, setDiscarding] = useState(false)
   const requestDiscard = useCallback((id: string) => {
@@ -472,6 +473,7 @@ export default function InvoicesPage() {
         <DiscardBatchDialog
           photoCount={discardTarget.files.length}
           noun={batchNoun(discardTarget, discardTarget.files.length)}
+          kind={discardTarget.status === 'GROUPING' ? 'batch' : 'upload'}
           busy={discarding}
           onCancel={() => setDiscardTarget(null)}
           onConfirm={confirmDiscard}

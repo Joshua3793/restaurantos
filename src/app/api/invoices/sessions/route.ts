@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { deleteSession, RollbackRefused, type DeleteSessionResult } from '@/lib/invoice/rollback-load'
+import { UPLOAD_NEVER_FINISHED } from '@/lib/invoices/inbox-items'
 
 // The bulk DELETE below runs `deleteSession` (and its 30s-headroom rollback
 // transaction, `TX_OPTIONS` in rollback-load.ts) once per id in the list — past
@@ -29,6 +30,18 @@ export async function GET(req: NextRequest) {
   await prisma.invoiceSession.updateMany({
     where: { AND: [scopeWhere, { status: 'PROCESSING', updatedAt: { lt: staleThreshold } }] },
     data: { status: 'ERROR', errorMessage: 'Processing timed out. Tap retry to try again.' },
+  })
+
+  // Same rescue for an upload that never finished. The session row is created
+  // BEFORE the photos are sent, and both upload routes flip it out of UPLOADING
+  // the moment a file lands — so a session still UPLOADING after 10 min holds
+  // no photos at all (the upload failed, or the screen was closed mid-send).
+  // Left alone it spins in the inbox forever; as ERROR it says why and can be
+  // deleted from the inbox (nothing was scanned, so nothing to roll back).
+  const staleUploadThreshold = new Date(Date.now() - 10 * 60 * 1000)
+  await prisma.invoiceSession.updateMany({
+    where: { AND: [scopeWhere, { status: 'UPLOADING', updatedAt: { lt: staleUploadThreshold } }] },
+    data: { status: 'ERROR', errorMessage: UPLOAD_NEVER_FINISHED },
   })
 
   const sessions = await prisma.invoiceSession.findMany({
