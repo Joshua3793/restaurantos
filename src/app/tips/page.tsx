@@ -239,14 +239,26 @@ export default function TipsPage() {
     } finally { setBusy(false) }
   }, [periodId, payload, patchPeriod, loadPeriod])
 
-  const markPaid = useCallback(async () => {
+  // Blocking issues the server refused to pay over. Some can never be fixed
+  // (a closed day has no sales), so the manager can choose "Pay anyway".
+  const [payOverride, setPayOverride] = useState<string[] | null>(null)
+  useEffect(() => { setPayOverride(null) }, [periodId])
+
+  const markPaid = useCallback(async (override = false) => {
     if (!periodId || !payload) return
     const reopen = payload.period.status === 'PAID'
     setBusy(true)
+    setPayOverride(null)
     const res = await fetch(`/api/tips/periods/${periodId}/pay`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reopen }),
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reopen, override }),
     })
-    const errorMessage = res.ok ? null : ((await res.json()).error ?? 'Could not update the period')
+    const body = res.ok ? null : await res.json().catch(() => ({}))
+    if (body?.needsOverride && Array.isArray(body.findings)) {
+      setPayOverride(body.findings as string[])
+      setBusy(false)
+      return
+    }
+    const errorMessage = res.ok ? null : (body?.error ?? 'Could not update the period')
     const reloaded = await loadPeriod(periodId)
     if (errorMessage && reloaded) setError(errorMessage)
     setBusy(false)
@@ -388,7 +400,7 @@ export default function TipsPage() {
                 <Download size={13} className="text-ink-3" />Export for payroll
               </a>
               <button
-                onClick={markPaid}
+                onClick={() => markPaid()}
                 disabled={busy}
                 className="inline-flex items-center gap-[7px] px-4 py-[9px] rounded bg-ink text-paper text-[13px] font-medium border border-ink hover:bg-ink-2 disabled:opacity-50"
               >
@@ -401,6 +413,35 @@ export default function TipsPage() {
 
         {error && (
           <div className="mb-4 rounded-md border border-red bg-red-soft px-3.5 py-2.5 text-[13px] text-red-text">{error}</div>
+        )}
+
+        {payOverride && !periodReadOnly && (
+          <div className="mb-4 rounded-md border border-red bg-red-soft px-3.5 py-3 text-[13px] text-red-text">
+            <div className="font-semibold">
+              {payOverride.length} {payOverride.length === 1 ? 'issue is' : 'issues are'} still open on the Checks tab
+            </div>
+            <ul className="mt-1.5 list-disc pl-5 space-y-0.5">
+              {payOverride.map((t, i) => <li key={i}>{t}</li>)}
+            </ul>
+            <div className="mt-2">
+              If these can’t be fixed (for example, a day you were closed), you can pay anyway. The payout will note these issues were overridden.
+            </div>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                onClick={() => markPaid(true)}
+                disabled={busy}
+                className="px-3.5 py-[7px] rounded bg-red text-paper text-[13px] font-medium border border-red disabled:opacity-50"
+              >
+                Pay anyway
+              </button>
+              <button
+                onClick={() => { setPayOverride(null); setTab('checks') }}
+                className="px-3.5 py-[7px] rounded border border-line bg-paper text-[13px] font-medium text-ink-2 hover:border-ink-3"
+              >
+                Review checks
+              </button>
+            </div>
+          </div>
         )}
 
         <div className="grid gap-3 mb-6" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}>
