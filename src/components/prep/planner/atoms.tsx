@@ -5,6 +5,7 @@
 // Tailwind tokens and Lucide icons.
 import { fmtAmount, stepOnGrid, onGrid } from '@/lib/prep-amount'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Pencil, ChevronDown, Undo2, Minus, Plus, UserPlus, MessageSquareText } from 'lucide-react'
 import type { PrepUrgency } from '@/lib/prep-utils'
 import {
@@ -27,6 +28,33 @@ export function Popover({ children, onClose, w = 'w-48', align = 'right' }: {
         {children}
       </div>
     </>
+  )
+}
+
+/**
+ * Phone: the choices slide up from the bottom, full width, above the tab bar
+ * and the post bar — a popover anchored to a button near the screen edge got
+ * cut off on the left and hidden under the post bar on the last card.
+ * Portalled to <body> so no card's overflow or transform can clip it.
+ */
+export function Sheet({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  if (!mounted) return null
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-end">
+      <span className="absolute inset-0 bg-ink/30" onClick={onClose} />
+      <div role="dialog" aria-label={title}
+        className="relative w-full max-h-[80vh] overflow-y-auto bg-paper rounded-t-2xl shadow-[0_-10px_30px_-12px_rgba(9,9,11,0.3)] px-2 pt-2 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div className="mx-auto mb-1 h-1 w-9 rounded-full bg-line-2" />
+        <div className="flex items-center px-2.5 pt-1 pb-1.5">
+          <span className="text-[13px] font-semibold text-ink-3">{title}</span>
+          <button type="button" onClick={onClose} className="ml-auto min-h-[40px] px-2 text-[13px] font-semibold text-ink-2">Done</button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -72,13 +100,15 @@ export function Reason({ item, sm }: { item: PrepItemRich; sm?: boolean }) {
 // long label, and "CRIT" read as a code rather than a word.
 const STEP_NAME: Record<PrepUrgency, string> = { PASS: 'Critical', MID: 'Mid-service', CLOSE: 'Before close', TMRW: 'Tomorrow' }
 
-export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: {
+export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]', sm }: {
   item: PrepItemRich
   locked: boolean
   /** day anchors for the per-step deadline captions; null hides the times */
   ctx: PlanDayContext | null
   onChange: (step: string) => void
   w?: string
+  /** phone: step over its time on two short lines, choices in a bottom sheet */
+  sm?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const u = effectiveUrgency(item)
@@ -88,7 +118,7 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
   // repeats it on a meta line.
   const dl = ctx ? urgencyDeadline(u, ctx) : null
   return (
-    <div className="relative shrink-0">
+    <div className={`relative ${sm ? 'flex-1 min-w-0' : 'shrink-0'}`}>
       <button
         type="button"
         onClick={() => !locked && setOpen(v => !v)}
@@ -96,20 +126,27 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
         className={`inline-flex items-center gap-1.5 ${w} ${m.softClass} ${m.textClass} border ${item.manualPriorityOverride ? 'border-current' : 'border-transparent'} rounded-lg px-2 py-1.5 text-[11.5px] font-semibold whitespace-nowrap ${locked ? 'cursor-default' : 'cursor-pointer'}`}
       >
         <span className={`w-1.5 h-1.5 rounded-full ${m.dotClass} shrink-0`} />
-        <span className="flex-1 text-left">
-          {STEP_NAME[u]}
-          {dl != null && ctx && <span className="font-mono text-[11px] font-medium"> · {deadlineLabel(dl, ctx.shiftStart, fmtClock)}</span>}
-        </span>
+        {sm ? (
+          <span className="flex-1 min-w-0 flex flex-col text-left leading-[1.15]">
+            <span className="text-[12.5px]">{STEP_NAME[u]}</span>
+            {dl != null && ctx && <span className="font-mono text-[11px] font-medium">{deadlineLabel(dl, ctx.shiftStart, fmtClock)}</span>}
+          </span>
+        ) : (
+          <span className="flex-1 text-left">
+            {STEP_NAME[u]}
+            {dl != null && ctx && <span className="font-mono text-[11px] font-medium"> · {deadlineLabel(dl, ctx.shiftStart, fmtClock)}</span>}
+          </span>
+        )}
         {item.manualPriorityOverride ? <Pencil size={10} className="shrink-0" /> : !locked && <ChevronDown size={10} className="shrink-0" />}
       </button>
-      {open && (
-        <Popover onClose={() => setOpen(false)} w="w-[274px]">
-          <div className={popHeadCls}>Needed</div>
+      {open && (() => {
+        const choices = (
+          <>
           {PLAN_URG_ORDER.map(k => {
             const km = PLAN_URG_META[k]
             const dl = ctx ? urgencyDeadline(k, ctx) : null
             return (
-              <button key={k} type="button" onClick={() => { onChange(k === auto ? '' : k); setOpen(false) }} className={`${popItemCls(u === k)} !items-start`}>
+              <button key={k} type="button" onClick={() => { onChange(k === auto ? '' : k); setOpen(false) }} className={`${popItemCls(u === k)} !items-start ${sm ? 'min-h-[52px] !text-[14px]' : ''}`}>
                 <span className={`w-[7px] h-[7px] rounded-full mt-[5px] shrink-0 ${km.dotClass}`} />
                 <span className="flex-1 min-w-0">
                   <span className="flex items-baseline gap-1.5">
@@ -123,12 +160,16 @@ export function UrgPicker({ item, locked, ctx, onChange, w = 'min-w-[126px]' }: 
             )
           })}
           {item.manualPriorityOverride && (
-            <button type="button" onClick={() => { onChange(''); setOpen(false) }} className={`${popItemCls(false)} border-t border-line rounded-none mt-1 pt-2.5 !text-gold-2`}>
+            <button type="button" onClick={() => { onChange(''); setOpen(false) }} className={`${popItemCls(false)} ${sm ? 'min-h-[48px]' : ''} border-t border-line rounded-none mt-1 pt-2.5 !text-gold-2`}>
               <Undo2 size={13} /> Back to smart ({PLAN_URG_META[auto].label})
             </button>
           )}
-        </Popover>
-      )}
+          </>
+        )
+        return sm
+          ? <Sheet title={`${item.name} — needed`} onClose={() => setOpen(false)}>{choices}</Sheet>
+          : <Popover onClose={() => setOpen(false)} w="w-[274px]"><div className={popHeadCls}>Needed</div>{choices}</Popover>
+      })()}
     </div>
   )
 }
@@ -164,8 +205,8 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
   // urgency dial + assign pill must share one row (wrapping is the fallback).
   // sm = phone: 44 px targets (the row wraps under the name when it must)
   const h = sm ? 'h-11' : 'h-7'
-  const bw = sm ? 'w-11' : 'w-[26px]'
-  const midW = batch ? (sm ? 'min-w-[68px]' : 'min-w-[84px]') : (sm ? 'min-w-[44px]' : 'min-w-[52px]')
+  const bw = sm ? 'w-10' : 'w-[26px]'
+  const midW = batch ? (sm ? 'min-w-[64px]' : 'min-w-[84px]') : (sm ? 'min-w-[56px]' : 'min-w-[52px]')
   return (
     <div className="inline-flex items-stretch bg-bg-2 border border-line rounded-lg shrink-0 overflow-hidden">
       <button type="button" disabled={locked} onClick={() => nudge(-1)} className={`${bw} ${h} grid place-items-center ${locked ? 'cursor-not-allowed' : ''}`}>
@@ -188,7 +229,7 @@ export function QtyStepper({ item, locked, batchMode, onQty, onToggleBatch, sugg
           title={batch ? `1 batch = ${fmtUom(yieldPerBatch, item.unit)} · switch to ${item.unit}` : `Count in batches of ${fmtUom(yieldPerBatch, item.unit)}`}
           // Names what a tap switches TO ("kg" while counting batches, "batch"
           // while counting kg) — the old black "×" read as a delete button.
-          className={`border-l border-line ${sm ? 'min-w-[44px] px-2' : 'px-2'} font-mono text-[11px] font-semibold text-ink-3 bg-paper hover:text-ink ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+          className={`border-l border-line ${sm ? 'min-w-[40px] px-1.5' : 'px-2'} font-mono text-[11px] font-semibold text-ink-3 bg-paper hover:text-ink ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
         >
           {batch ? item.unit : 'batch'}
         </button>
@@ -213,13 +254,14 @@ export function AssignPill({ cookId, cooks, crewIds = [], locked, onAssign, sm }
         // Unassigned is a small round button, the same one the To Do uses —
         // "+ ASSIGN" cost a pill's width on every card.
         className={c
-          ? `inline-flex items-center gap-1.5 rounded-full font-mono text-[11px] font-bold whitespace-nowrap ${sm ? 'px-3 min-h-[44px]' : 'px-2.5 py-1.5'} bg-ink text-paper border border-ink ${locked ? 'cursor-default' : 'cursor-pointer'}`
-          : `${sm ? 'w-11 h-11' : 'w-[30px] h-[30px]'} rounded-full grid place-items-center bg-paper text-ink-3 border border-dashed border-line-2 ${locked ? 'cursor-default' : 'cursor-pointer hover:text-ink hover:border-ink-3'}`}
+          ? `inline-flex items-center gap-1.5 rounded-full font-mono text-[11px] font-bold whitespace-nowrap ${sm ? 'px-3 min-h-[40px]' : 'px-2.5 py-1.5'} bg-ink text-paper border border-ink ${locked ? 'cursor-default' : 'cursor-pointer'}`
+          : `${sm ? 'w-10 h-10' : 'w-[30px] h-[30px]'} rounded-full grid place-items-center bg-paper text-ink-3 border border-dashed border-line-2 ${locked ? 'cursor-default' : 'cursor-pointer hover:text-ink hover:border-ink-3'}`}
       >
         {c ? <><span className="w-[5px] h-[5px] rounded-full bg-gold" />{c.initials}</> : <UserPlus size={13} strokeWidth={2.2} />}
       </button>
-      {open && (
-        <Popover onClose={() => setOpen(false)}>
+      {open && (() => {
+        const choices = (
+          <>
           {/* Today's crew first ("Who's on today"), then everyone else. */}
           {[
             { head: crewIds.length ? 'On today' : 'Assign to', list: cooks.filter(x => crewIds.includes(x.id)).sort((a, b) => crewIds.indexOf(a.id) - crewIds.indexOf(b.id)) },
@@ -228,7 +270,7 @@ export function AssignPill({ cookId, cooks, crewIds = [], locked, onAssign, sm }
             <div key={g.head ?? 'all'}>
               {g.head && <div className={popHeadCls}>{g.head}</div>}
               {g.list.map(x => (
-                <button key={x.id} type="button" onClick={() => { onAssign(x.id); setOpen(false) }} className={popItemCls(cookId === x.id)}>
+                <button key={x.id} type="button" onClick={() => { onAssign(x.id); setOpen(false) }} className={`${popItemCls(cookId === x.id)} ${sm ? 'min-h-[48px] !text-[14px]' : ''}`}>
                   <span className="font-mono text-[11px] font-bold bg-bg-2 rounded px-1.5 py-0.5">{x.initials}</span>
                   <span className="truncate">{x.name}</span>
                 </button>
@@ -236,9 +278,13 @@ export function AssignPill({ cookId, cooks, crewIds = [], locked, onAssign, sm }
             </div>
           ))}
           {cooks.length === 0 && <div className="px-2.5 py-2 text-[12px] text-ink-3">No crew yet — add cooks in Setup.</div>}
-          {cookId && <button type="button" onClick={() => { onAssign(null); setOpen(false) }} className={`${popItemCls(false)} !text-ink-3`}>Leave open</button>}
-        </Popover>
-      )}
+          {cookId && <button type="button" onClick={() => { onAssign(null); setOpen(false) }} className={`${popItemCls(false)} ${sm ? 'min-h-[48px]' : ''} !text-ink-3`}>Leave open</button>}
+          </>
+        )
+        return sm
+          ? <Sheet title="Who makes it?" onClose={() => setOpen(false)}>{choices}</Sheet>
+          : <Popover onClose={() => setOpen(false)}>{choices}</Popover>
+      })()}
     </div>
   )
 }

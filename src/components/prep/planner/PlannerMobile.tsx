@@ -40,38 +40,44 @@ function MobileDraftCard({ item, cooks, crewIds, locked, ctx, wont, batchMode, f
   handlers: PlannerHandlers
 }) {
   const m = PLAN_URG_META[effectiveUrgency(item)]
+  // Reorder arrows sit at the end of the note line (a row the card already
+  // has), not in a tall column beside the name — that column squeezed the name
+  // and reason into narrow wrapped lines. Hidden when there is nothing to move.
   const arrow = (dir: -1 | 1, disabled: boolean) => (
     <button type="button" onClick={() => onMove(dir)} disabled={locked || disabled}
       aria-label={dir < 0 ? 'Move up' : 'Move down'}
-      className={`w-11 h-11 rounded-[9px] bg-bg border border-line grid place-items-center ${disabled ? 'opacity-30' : ''}`}>
+      className={`w-10 h-10 rounded-[9px] bg-bg border border-line grid place-items-center shrink-0 ${disabled ? 'opacity-30' : ''}`}>
       <ChevronDown size={16} className="text-ink-2" style={{ transform: dir < 0 ? 'rotate(180deg)' : 'none' }} />
     </button>
   )
+  const canMove = !locked && !(first && last)
   return (
-    <div className="bg-paper border border-line rounded-[11px] px-2.5 py-[9px] border-l-[3px]" style={{ borderLeftColor: m.hex }}>
-      <div className="flex items-start gap-2">
-        <div className="flex flex-col gap-1 shrink-0">{arrow(-1, first)}{arrow(1, last)}</div>
-        {/* name (wraps, never truncates) and ONE plain reason line — the deadline
-            lives on the step button, the schedule only speaks when it won't fit */}
-        <button type="button" onClick={() => handlers.onOpen(item)} className="flex-1 min-w-0 text-left">
-          <span className="flex text-[14.5px] font-semibold tracking-[-0.01em] text-ink break-words">{item.name}</span>
+    <div className="bg-paper border border-line rounded-[11px] pl-3 pr-2 py-2 border-l-[3px]" style={{ borderLeftColor: m.hex }}>
+      {/* name (wraps, never truncates) + ONE plain reason line, with assign
+          and remove beside it */}
+      <div className="flex items-start gap-1.5">
+        <button type="button" onClick={() => handlers.onOpen(item)} className="flex-1 min-w-0 text-left pt-1">
+          <span className="flex text-[14.5px] font-semibold tracking-[-0.01em] text-ink break-words leading-snug">{item.name}</span>
           <span className="flex flex-wrap gap-x-1 gap-y-1 mt-0.5">{parFlag(item) === 'WRONG' && <ParFlagChip />}<DraftReason item={item} /> <WontFit text={wont} /></span>
         </button>
-        {/* assign rides the name row — the controls row below is full with the
-            stepper and the step button on a 375px phone */}
         <AssignPill cookId={item.todayLog?.assignedTo ?? null} cooks={cooks} crewIds={crewIds} locked={locked} onAssign={id => handlers.onAssign(item, id)} sm />
         <button type="button" disabled={locked} onClick={() => handlers.onRemove(item)}
           aria-label={`Take ${item.name} off the list`}
-          className="w-11 h-11 -mr-1 -mt-1 rounded-[9px] grid place-items-center shrink-0">
+          className="w-10 h-10 rounded-[9px] grid place-items-center shrink-0">
           <X size={16} className={locked ? 'text-line-2' : 'text-ink-3'} />
         </button>
       </div>
-      {/* flex-wrap stays as the fallback for very narrow screens */}
-      <div className="flex flex-wrap items-center gap-x-[7px] gap-y-1.5 mt-2 pl-[52px]">
+      {/* amount + step share one full-width row; the step button takes the rest */}
+      <div className="flex items-center gap-2 mt-2">
         <QtyStepper item={item} locked={locked} batchMode={batchMode} onQty={handlers.onQty} onToggleBatch={onToggleBatch} suggested={suggestedDraftQty(item)} sm />
-        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="min-h-[44px]" />
+        <UrgPicker item={item} locked={locked} ctx={ctx} onChange={step => handlers.onPriorityChange(item.id, step)} w="w-full min-h-[44px]" sm />
       </div>
-      <div className="pl-[52px]"><NoteField item={item} locked={locked} onNote={handlers.onNote} sm /></div>
+      {(canMove || !locked || item.todayLog?.note) && (
+        <div className="flex items-start gap-1.5 mt-1">
+          <div className="flex-1 min-w-0"><NoteField item={item} locked={locked} onNote={handlers.onNote} sm /></div>
+          {canMove && <div className="flex gap-1.5 shrink-0 pt-0.5">{arrow(-1, first)}{arrow(1, last)}</div>}
+        </div>
+      )}
     </div>
   )
 }
