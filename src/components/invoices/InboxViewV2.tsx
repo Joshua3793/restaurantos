@@ -6,7 +6,7 @@ import {
   Upload, Clock, CheckCircle2, AlertTriangle, X, Loader2, Layers, Trash2,
 } from 'lucide-react'
 import { SessionSummary, SessionStatus } from './types'
-import { batchSummary, batchTitle, batchNoun } from '@/lib/invoices/inbox-items'
+import { batchSummary, batchTitle, batchNoun, canDiscardFromInbox, UPLOAD_NEVER_FINISHED } from '@/lib/invoices/inbox-items'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -196,11 +196,19 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
         ) : (
           <div className="bg-paper border border-line rounded-[12px] overflow-hidden">
             {queue.map((session, idx) => {
-              const isActive = session.status === 'PROCESSING' || session.status === 'UPLOADING' || session.status === 'APPROVING'
-              const isError  = session.status === 'ERROR'
+              // An upload whose photos never arrived holds nothing to open or
+              // retry — it can only be thrown away. Flagged ERROR by the
+              // sessions-list sweeper after 10 min; deletable from 2 min.
+              const isDeadUpload = (session.status === 'UPLOADING' || session.status === 'ERROR') && session.files.length === 0
+              const discardable = !!onDiscardBatch && canDiscardFromInbox(session)
+              const isActive = (session.status === 'PROCESSING' || session.status === 'UPLOADING' || session.status === 'APPROVING')
+                && !(isDeadUpload && discardable)
+              const isError  = session.status === 'ERROR' || (isDeadUpload && discardable)
               const isBatch  = session.status === 'GROUPING'
-              const canOpen  = session.status === 'REVIEW' || session.status === 'ERROR' || isBatch
-              const tint = STATUS_TINT[session.status] ?? { bg: 'bg-bg-2', text: 'text-ink-3', dot: 'bg-ink-4' }
+              const canOpen  = (session.status === 'REVIEW' || session.status === 'ERROR' || isBatch) && !isDeadUpload
+              // A dead upload reads as the failure it is, not "Uploading".
+              const shownStatus = isDeadUpload && discardable ? 'ERROR' : session.status
+              const tint = STATUS_TINT[shownStatus] ?? { bg: 'bg-bg-2', text: 'text-ink-3', dot: 'bg-ink-4' }
               const isLast = idx === queue.length - 1
               const batch = isBatch ? batchSummary(session) : null
 
@@ -233,7 +241,7 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
                       </span>
                       <span className={`inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.04em] font-medium px-2 py-0.5 rounded-full ${tint.bg} ${tint.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${tint.dot}`} />
-                        {STATUS_LABEL[session.status] ?? session.status}
+                        {STATUS_LABEL[shownStatus] ?? shownStatus}
                       </span>
                     </div>
                     <div className="font-mono text-[10.5px] text-ink-3 mt-1 tracking-[0]">
@@ -257,20 +265,25 @@ export function InboxViewV2({ sessions, onSelectSession, onUploadClick, onScanCl
                       )}
                       <> · <span className="text-ink-4">{fmtAge(session.createdAt)}</span></>
                     </div>
+                    {isDeadUpload && discardable ? (
+                      <div className="font-mono text-[10.5px] text-red-text mt-0.5 truncate">{UPLOAD_NEVER_FINISHED}</div>
+                    ) : isError && session.errorMessage ? (
+                      <div className="font-mono text-[10.5px] text-red-text mt-0.5 truncate" title={session.errorMessage}>{session.errorMessage}</div>
+                    ) : null}
                   </div>
 
                   {/* Total — or, for a batch, the discard affordance */}
-                  {isBatch ? (
-                    onDiscardBatch ? (
-                      <button
-                        type="button"
-                        onClick={e => { e.stopPropagation(); onDiscardBatch(session.id) }}
-                        className="inline-flex items-center gap-1.5 font-mono text-[11px] px-2.5 py-1.5 rounded-full border border-line text-ink-3 hover:border-red hover:text-red-text hover:bg-red-soft/40 transition-colors whitespace-nowrap"
-                        title="Discard this batch"
-                      >
-                        <Trash2 size={11} /> Discard
-                      </button>
-                    ) : <span />
+                  {discardable ? (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); onDiscardBatch!(session.id) }}
+                      className="inline-flex items-center gap-1.5 font-mono text-[11px] px-2.5 py-1.5 rounded-full border border-line text-ink-3 hover:border-red hover:text-red-text hover:bg-red-soft/40 transition-colors whitespace-nowrap"
+                      title={isBatch ? 'Discard this batch' : 'Delete this upload'}
+                    >
+                      <Trash2 size={11} /> {isBatch ? 'Discard' : 'Delete'}
+                    </button>
+                  ) : isBatch ? (
+                    <span />
                   ) : session.total ? (
                     <div className="font-mono text-[13.5px] font-semibold text-ink tabular-nums tracking-[-0.01em] text-right whitespace-nowrap">
                       {formatCurrency(parseFloat(String(session.total)))}

@@ -67,6 +67,12 @@ export function InvoiceUploadModal({ onClose, onComplete, onGrouping, activeRcId
     setUploadStep(null)
     setNoApiKey(false)
 
+    // The session row exists before any photo is sent. If we bail out after
+    // creating it (upload failed, too large, a crash), throw it away again —
+    // otherwise it sits in the inbox as "Uploading" forever with nothing in it.
+    let createdId: string | null = null
+    let handedOff = false
+
     try {
       // 0. Compress images client-side so large photos become ~0.5-1 MB.
       //    PDFs and CSVs are passed through unchanged.
@@ -87,6 +93,7 @@ export function InvoiceUploadModal({ onClose, onComplete, onGrouping, activeRcId
         return
       }
       const sess = await sessRes.json()
+      createdId = sess.id
 
       // 2a. Try UploadThing CDN (8s timeout — fail fast so local fallback kicks in)
       let uploadOk = false
@@ -148,6 +155,7 @@ export function InvoiceUploadModal({ onClose, onComplete, onGrouping, activeRcId
 
       // 3. One file → process immediately (today's flow). Multiple files →
       //    hand off to the grouping screen; OCR starts only after confirm.
+      handedOff = true
       if (compressedFiles.length > 1) {
         onGrouping(sess.id)
       } else {
@@ -157,6 +165,7 @@ export function InvoiceUploadModal({ onClose, onComplete, onGrouping, activeRcId
     } catch (err) {
       setScanError(`Unexpected error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
+      if (createdId && !handedOff) discardAbandonedSession(createdId)
       setIsCreating(false)
       setUploadStep(null)
     }
@@ -265,4 +274,11 @@ export function InvoiceUploadModal({ onClose, onComplete, onGrouping, activeRcId
 
     </>
   )
+}
+
+/** Best-effort delete of a session whose upload never completed. Nothing was
+ *  scanned, so the server lets the uploader delete it; if this fails too, the
+ *  sessions-list sweeper flags it after 10 min and the inbox offers Delete. */
+function discardAbandonedSession(id: string) {
+  fetch(`/api/invoices/sessions/${id}`, { method: 'DELETE' }).catch(() => {})
 }

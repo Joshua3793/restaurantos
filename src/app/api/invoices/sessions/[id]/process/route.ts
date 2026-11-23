@@ -8,6 +8,7 @@ import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
 import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { loadBuffer } from '@/lib/invoice-files'
+import { UPLOAD_NEVER_FINISHED } from '@/lib/invoices/inbox-items'
 import type { OcrResult } from '@/lib/invoice-ocr'
 
 function hasAnthropicKey(): boolean {
@@ -42,6 +43,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       { error: "This batch hasn't been sorted yet — open it and confirm the invoices first" },
       { status: 409 },
     )
+  }
+
+  // Nothing to read: an upload whose photos never arrived (created, then the
+  // upload failed or the screen closed). Refuse BEFORE the retry reset below —
+  // flipping it to PROCESSING here would leave it spinning until the sweeper
+  // flips it back, forever. The inbox offers Delete for these instead.
+  if (session.files.length === 0) {
+    return NextResponse.json({ error: UPLOAD_NEVER_FINISHED }, { status: 400 })
   }
 
   // Allow retrying ERROR sessions — reset their files to PENDING

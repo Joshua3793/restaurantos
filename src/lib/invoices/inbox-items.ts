@@ -71,6 +71,33 @@ export function batchNoun(s: Pick<SessionSummary, 'files'>, n: number): string {
   return photos ? (n === 1 ? 'photo' : 'photos') : (n === 1 ? 'file' : 'files')
 }
 
+/** The reason the sessions-list sweeper writes on an upload whose photos never arrived. */
+export const UPLOAD_NEVER_FINISHED = "Upload didn't finish — no photos arrived. Delete it and scan again."
+
+/** An UPLOADING session older than this is treated as dead, not in flight. */
+const UPLOAD_GRACE_MS = 2 * 60 * 1000
+
+/**
+ * Can this session be thrown away straight from the inbox? Only when nothing
+ * was ever scanned from it (no lines → nothing to roll back, and the server
+ * lets any uploader delete it), and it is not mid-flight:
+ *   - GROUPING — an unsorted batch;
+ *   - ERROR    — a failed scan or a dead upload;
+ *   - UPLOADING past a short grace — the photos never arrived (the sweeper
+ *     turns these into ERROR after 10 min; this covers the gap before that).
+ * PROCESSING / APPROVING are excluded: something is still working on them.
+ */
+export function canDiscardFromInbox(
+  s: Pick<SessionSummary, 'status' | 'createdAt' | 'parentSessionId' | '_count'>,
+  now = Date.now(),
+): boolean {
+  if (s.parentSessionId) return false
+  if ((s._count?.scanItems ?? 0) > 0) return false
+  if (s.status === 'GROUPING' || s.status === 'ERROR') return true
+  if (s.status === 'UPLOADING') return now - new Date(s.createdAt).getTime() > UPLOAD_GRACE_MS
+  return false
+}
+
 function batchToItem(s: SessionSummary): InboxItem {
   const { photos, invoices } = batchSummary(s)
   const meta = [
