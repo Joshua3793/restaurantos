@@ -3,6 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 /**
  * GET /api/toast/status — last sync state for the setup page (ToastConnection +

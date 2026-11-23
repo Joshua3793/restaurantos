@@ -3,6 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { testConnection } from '@/lib/toast/client'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 /**
  * GET /api/toast/test — verifies Toast credentials end-to-end (auth → restaurant
