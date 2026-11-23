@@ -3,6 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { listMenuRoutes, setMenuRoutes } from '@/lib/toast/menu-sync'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 /**
  * GET /api/toast/menu-routing — distinct Toast menus + the app RC each routes to.

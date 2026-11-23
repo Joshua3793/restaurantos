@@ -3,6 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { listToastItems, setItemMappings } from '@/lib/toast/item-mapping'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 /**
  * GET /api/toast/items — list ToastItemMap rows with current recipe links and a

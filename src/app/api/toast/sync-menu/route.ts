@@ -3,6 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { syncToastMenu } from '@/lib/toast/menu-sync'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 /**
  * POST /api/toast/sync-menu — pull the published Toast menu and upsert

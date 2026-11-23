@@ -7,6 +7,7 @@ import {
 } from '@/lib/toast/menu-sync'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 
 /**
  * GET /api/toast/revenue-centers — discover distinct Toast revenue-center GUIDs

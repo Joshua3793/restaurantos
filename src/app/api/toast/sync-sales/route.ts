@@ -3,6 +3,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { runToastSync, laBusinessDateInt } from '@/lib/toast/sales-sync'
 
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 // A busy day's pull can exceed the default budget.
 export const maxDuration = 300
 

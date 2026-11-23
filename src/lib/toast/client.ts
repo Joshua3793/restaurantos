@@ -105,6 +105,10 @@ interface ToastAuthResponse {
 async function requestToken(creds: ToastCredentials): Promise<{ accessToken: string; expiresAt: number }> {
   const res = await fetch(`${creds.host}/authentication/v1/authentication/login`, {
     method: 'POST',
+    // Never let Next.js keep a copy of this. Inside the nightly job (no signed-in
+    // user) Next's fetch cache stored the login reply forever, so every night got
+    // back the same token that died on Nov 7, 2026 → 401 on every data call.
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       clientId: creds.clientId,
@@ -178,6 +182,7 @@ export async function toastGet<T = unknown>(
   const doFetch = async (token: string) => {
     await throttle()
     return fetch(url.toString(), {
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${token}`,
         'Toast-Restaurant-External-ID': creds.restaurantGuid,
