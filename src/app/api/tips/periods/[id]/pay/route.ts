@@ -22,8 +22,13 @@ export const dynamic = 'force-dynamic'
  * `history` and leaves `current` null — the period stops looking paid without
  * the record of the disbursement being destroyed. See lib/tips/snapshot.ts.
  *
- * A period with unresolved ERRORS cannot be paid — that is the entire point of
- * the Checks tab. Warnings and info do not block.
+ * A period with unresolved ERRORS is refused unless the manager explicitly
+ * overrides (`override: true`). Some errors cannot be fixed — a day the
+ * restaurant was closed has no sales and never will — so the owner must be
+ * able to pay anyway. The refusal returns `needsOverride` + the issue titles so
+ * the page can show them and ask; an override payout records exactly which
+ * issues were waved through (`overriddenIssues`) and by whom. Warnings and
+ * info never block.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -63,10 +68,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const built = await buildPeriodSplit(user, params.id)
     if (!built) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    if (built.audit.counts.error > 0) {
+    const openIssues = built.audit.findings.filter(f => f.severity === 'error').map(f => f.title)
+    if (openIssues.length > 0 && body.override !== true) {
       return NextResponse.json({
-        error: `${built.audit.counts.error} unresolved ${built.audit.counts.error === 1 ? 'issue' : 'issues'} on the Checks tab. Settle them before paying.`,
-        findings: built.audit.findings.filter(f => f.severity === 'error').map(f => f.title),
+        error: `${openIssues.length} unresolved ${openIssues.length === 1 ? 'issue' : 'issues'} on the Checks tab.`,
+        findings: openIssues,
+        needsOverride: true,
       }, { status: 409 })
     }
 
@@ -91,6 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // multiplier at the moment of payment.
       split: built.split,
       audit: built.audit,
+      ...(openIssues.length ? { overriddenIssues: openIssues } : {}),
     })
 
     // Optimistic concurrency: two managers hitting Pay at the same moment both

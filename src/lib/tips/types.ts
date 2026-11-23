@@ -143,6 +143,12 @@ export interface TipPayoutRecord {
   roles: TipRoleDef[]
   split: SplitResult
   audit: AuditResult
+  /**
+   * Titles of the blocking Checks-tab issues the manager chose to pay over
+   * (e.g. a day the restaurant was closed, so it has no sales). Absent when
+   * the period was paid clean.
+   */
+  overriddenIssues?: string[]
 }
 
 /**
