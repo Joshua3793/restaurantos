@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 import type { CookItem, NextAction } from '@/lib/prep-steps'
+import { Sheet } from '@/components/prep/planner/atoms'
 
 // ─── StepTrack ───────────────────────────────────────────────────────────
 const capsuleWidth = (minutes: number, lg: boolean) =>
@@ -141,8 +142,19 @@ export interface JobMenuEntry {
 export function JobMenu({ entries, size = 36 }: { entries: JobMenuEntry[]; size?: 36 | 44 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  // Phone: the menu slides up from the bottom (see Sheet) — hung under the
+  // button it ran off the screen / under the tab bar on a card low on the page.
+  const [phone, setPhone] = useState(false)
   useEffect(() => {
-    if (!open) return
+    const mq = window.matchMedia('(max-width: 767px)')
+    const on = () => setPhone(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  useEffect(() => {
+    // The sheet has its own backdrop; its portalled content is "outside" ref.
+    if (!open || phone) return
     const close = (e: MouseEvent | TouchEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
@@ -155,8 +167,19 @@ export function JobMenu({ entries, size = 36 }: { entries: JobMenuEntry[]; size?
       document.removeEventListener('touchstart', close)
       document.removeEventListener('keydown', esc)
     }
-  }, [open])
+  }, [open, phone])
   if (entries.length === 0) return null
+  const list = entries.map(e => (
+    <button
+      key={e.label}
+      type="button"
+      onClick={() => { setOpen(false); e.onClick() }}
+      className={`flex flex-col w-full text-left px-3.5 ${phone ? 'py-3 min-h-[52px] rounded-lg' : 'py-[11px] border-b border-line last:border-b-0'} hover:bg-bg cursor-pointer ${e.danger ? 'text-red-text' : 'text-ink'}`}
+    >
+      <span className={`${phone ? 'text-[14px]' : 'text-[13px]'} font-semibold`}>{e.label}</span>
+      {e.sub && <span className="font-mono text-[10px] text-ink-3 mt-0.5">{e.sub}</span>}
+    </button>
+  ))
   return (
     <div ref={ref} className="relative shrink-0">
       <button
@@ -169,21 +192,13 @@ export function JobMenu({ entries, size = 36 }: { entries: JobMenuEntry[]; size?
       >
         <MoreHorizontal size={16} />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-30 w-[250px] bg-paper border border-line-2 rounded-[12px] shadow-xl overflow-hidden">
-          {entries.map(e => (
-            <button
-              key={e.label}
-              type="button"
-              onClick={() => { setOpen(false); e.onClick() }}
-              className={`flex flex-col w-full text-left px-3.5 py-[11px] border-b border-line last:border-b-0 hover:bg-bg cursor-pointer ${e.danger ? 'text-red-text' : 'text-ink'}`}
-            >
-              <span className="text-[13px] font-semibold">{e.label}</span>
-              {e.sub && <span className="font-mono text-[10px] text-ink-3 mt-0.5">{e.sub}</span>}
-            </button>
-          ))}
-        </div>
-      )}
+      {open && (phone
+        ? <Sheet title="More" onClose={() => setOpen(false)}>{list}</Sheet>
+        : (
+          <div className="absolute right-0 top-full mt-1.5 z-30 w-[250px] bg-paper border border-line-2 rounded-[12px] shadow-xl overflow-hidden">
+            {list}
+          </div>
+        ))}
     </div>
   )
 }

@@ -760,6 +760,12 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
   // Auto-focus search input when substituting mode opens
   useEffect(() => { if (substituting) subInputRef.current?.focus() }, [substituting])
+  // Bring the search + its results into view — on the last ingredient they
+  // open below the fold of the panel.
+  const hasSubResults = subResults.length > 0
+  useEffect(() => {
+    if (substituting) subRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [substituting, hasSubResults])
 
   // Close substitute dropdown on outside click
   useEffect(() => {
@@ -973,7 +979,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
       {/* Inline substitute search */}
       {substituting && (
-        <div ref={subRef} className="relative px-3 pb-2">
+        <div ref={subRef} className="px-3 pb-2">
           <div className="flex items-center gap-2 border border-[#93c5fd] rounded-lg px-2 py-1.5 bg-blue-soft">
             <Search size={13} className="text-blue shrink-0" />
             <input
@@ -992,8 +998,11 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
               <X size={13} />
             </button>
           </div>
+          {/* In the flow, not floating: a floating list hung off the LAST
+              ingredient was cut off by the panel's edge. In the flow it pushes
+              the rows below down and the panel scrolls to show it. */}
           {subResults.length > 0 && (
-            <div className="absolute left-3 right-3 top-full mt-1 bg-white border border-line rounded-xl shadow-xl z-50 max-h-52 overflow-y-auto">
+            <div className="mt-1 bg-white border border-line rounded-xl shadow-sm max-h-60 overflow-y-auto">
               {subResults.map(item => (
                 <button key={`${item.type}-${item.id}`} onClick={() => pickSubstitute(item)}
                   className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-bg text-left text-sm">
