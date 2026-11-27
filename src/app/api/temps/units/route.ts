@@ -33,8 +33,10 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST /api/temps/units ─────────────────────────────────────────────────────
+// Adding a fridge / freezer / hot-hold unit is MANAGER+.
 export async function POST(req: NextRequest) {
   try {
+    await requireSession('MANAGER')
     const { name, type, safeMin, safeMax, revenueCenterId, sortOrder } = await req.json()
 
     if (!name || !String(name).trim()) {
@@ -57,6 +59,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(serializeUnit(unit), { status: 201 })
   } catch (err) {
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[temps/units POST]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

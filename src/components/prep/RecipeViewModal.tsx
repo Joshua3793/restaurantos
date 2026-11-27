@@ -2,9 +2,11 @@
 /**
  * RecipeViewModal — read-only recipe card opened from the prep list.
  * Shows all ingredients scaled by a user-controlled multiplier.
+ * Also the Recipe Book / Menu read-only view (every phone tap, and cooks on any
+ * screen); `onEdit` adds an Edit button for leads and up.
  */
 import { useEffect, useState } from 'react'
-import { X, Minus, Plus, ChefHat, AlertTriangle } from 'lucide-react'
+import { X, Minus, Plus, ChefHat, AlertTriangle, Pencil } from 'lucide-react'
 import { computeBakersPercents } from '@/lib/bakers-percent'
 import { parseMethod, legacyToMethod } from '@/lib/recipe-method'
 import { resolveStages } from '@/lib/prep-stages'
@@ -47,9 +49,11 @@ interface Props {
   checkedIngredients: Set<string>
   onToggleIngredient: (id: string) => void
   onClose: () => void
+  /** Leads and up: opens the full recipe editor. Omitted = no Edit button. */
+  onEdit?: () => void
 }
 
-export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit, baseYieldQty, checkedIngredients, onToggleIngredient, onClose }: Props) {
+export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit, baseYieldQty, checkedIngredients, onToggleIngredient, onClose, onEdit }: Props) {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [loading, setLoading] = useState(true)
   const [scale, setScale] = useState(1)
@@ -123,6 +127,11 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
               </p>
             )}
           </div>
+          {onEdit && (
+            <button onClick={onEdit} className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-[13px] font-medium text-ink-2 hover:bg-bg-2">
+              <Pencil size={13} /> Edit
+            </button>
+          )}
           <button onClick={onClose} className="shrink-0 p-2.5 flex items-center justify-center text-ink-4 hover:text-ink-3 hover:bg-bg-2 rounded-lg">
             <X size={18} />
           </button>

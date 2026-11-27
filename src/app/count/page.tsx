@@ -993,11 +993,30 @@ export default function CountPage() {
     }))
     setOpenId(null)
     setToast(`${line.inventoryItem.itemName} cleared`)
-    await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skipped: false }),
-    })
+    // Any count still waiting to send for this line is now superseded — drop it, or
+    // the flush would replay it and put the old number back on the server.
+    dropQueuedStateForLine(line.id)
+    setPendingCount(loadCountQueue().length)
+    // Durable save — same rationale as confirmLine. A bare PATCH with no signal used
+    // to show "cleared" on screen while the server kept the old number (and the
+    // approve then counted it). Queue + cache it so the flush sends it later.
+    const clearOne = (l: Line): Line =>
+      l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null, carriedForward: false, entries: null } : l
+    const queueClear = () => {
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'clear' })
+      setPendingCount(loadCountQueue().length)
+      if (active) saveCountSessionCache(active.id, { ...active, lines: active.lines!.map(clearOne) })
+    }
+    if (isOffline) { queueClear(); return }
+    try {
+      const res = await fetch(`/api/count/sessions/${active!.id}/lines/${line.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skipped: false }),
+      })
+      if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
+      else queueClear()
+    } catch { queueClear() }
   }
 
   const handleScan = useCallback(async (text: string) => {
@@ -1101,29 +1120,53 @@ export default function CountPage() {
   const handleFinalize = async () => {
     if (!active || finalizing) return
     setFinalizing(true)
-    // Sync any offline mutations before finalizing
-    if (loadCountQueue().length > 0) {
-      setOfflineSyncing(true)
-      const { rejected } = await flushCountQueue()
-      setOfflineSyncing(false)
-      setPendingCount(loadCountQueue().length)
-      if (rejected.length > 0) {
-        // Don't finalize over a count the server just refused — the screen shows a
-        // number the session doesn't hold. Surface it and let them re-enter first.
-        setFinalizing(false)
-        setToast(`Can't approve yet — ${rejected.length} queued count${rejected.length !== 1 ? 's were' : ' was'} rejected: ${rejected[0].message}`)
-        const refreshed = await loadSession(active.id)
-        if (refreshed) setActive(refreshed)
+    const sessionId = active.id
+    // Phase 1 — make sure every count on this session has reached the server, then
+    // mark it UPDATING. Any failure here stops BEFORE anything is approved, and the
+    // finally always frees the button (it used to stick on "Updating…" when a fetch
+    // threw with no signal).
+    let marked = false
+    try {
+      if (pendingCountForSession(sessionId) > 0) {
+        setOfflineSyncing(true)
+        const { rejected } = await flushCountQueue()
+        setOfflineSyncing(false)
+        setPendingCount(loadCountQueue().length)
+        if (rejected.length > 0) {
+          // Don't finalize over a count the server just refused — the screen shows a
+          // number the session doesn't hold. Surface it and let them re-enter first.
+          setToast(`Can't approve yet — ${rejected.length} queued count${rejected.length !== 1 ? 's were' : ' was'} rejected: ${rejected[0].message}`)
+          const refreshed = await loadSession(sessionId)
+          if (refreshed) setActive(refreshed)
+          return
+        }
+      }
+      // Counts that failed to send (no signal) are still in the queue. Approving now
+      // would leave them out of the approved count — stop and say so.
+      const waiting = pendingCountForSession(sessionId)
+      if (waiting > 0) {
+        setToast(`${waiting} count${waiting !== 1 ? 's' : ''} ${waiting !== 1 ? "haven't" : "hasn't"} sent yet — wait for signal, then approve again.`)
         return
       }
+      // Mark as UPDATING immediately so the list reflects processing state
+      const markRes = await fetch(`/api/count/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'UPDATING' }),
+      })
+      if (!markRes.ok) {
+        const data = await markRes.json().catch(() => null)
+        setToast(`Couldn't approve: ${data?.error ?? `HTTP ${markRes.status}`}. Nothing was approved — try again.`)
+        return
+      }
+      marked = true
+    } catch {
+      setToast('No signal — nothing was approved. Try again.')
+      return
+    } finally {
+      setOfflineSyncing(false)
+      if (!marked) setFinalizing(false)
     }
-    // Mark as UPDATING immediately so the list reflects processing state
-    await fetch(`/api/count/sessions/${active.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'UPDATING' }),
-    })
-    const sessionId = active.id
     // Navigate back to list right away — don't wait for heavy processing
     await loadSessions()
     setView('list'); setActive(null); setFinalizing(false)
@@ -1148,7 +1191,7 @@ export default function CountPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'PENDING_REVIEW' }),
       }).catch(() => {})
-      setToast(`Couldn't finalize: ${(err as Error).message}. Reopen the session to retry.`)
+      setToast(`No signal — the count wasn't approved (${(err as Error).message}). Reopen it to try again.`)
       await loadSessions()
     }
   }

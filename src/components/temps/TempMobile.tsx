@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import {
-  Plus, Minus, X, Trash2, Clock, Download, ArrowRight, AlertTriangle, Check, ChevronDown, ChevronRight, Wand2,
+  Plus, Minus, X, Trash2, Clock, Download, ArrowRight, AlertTriangle, Check, ChevronDown, ChevronRight, Wand2, CloudOff,
 } from 'lucide-react'
 import { Sheet } from './Sheet'
 import {
@@ -18,6 +18,10 @@ type SheetState =
 
 export interface TempMobileProps {
   units: TempUnit[]
+  /** MANAGER+: add / edit / delete units, the "Read" auto-fill. */
+  canManage: boolean
+  /** LEAD+: delete a reading. */
+  canRemove: boolean
   metrics: TempDayMetrics
   handlers: TempHandlers
   today: string
@@ -55,13 +59,15 @@ export function TempMobile(p: TempMobileProps) {
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={p.onBackfill}
-            disabled={p.backfilling}
-            className="h-[38px] px-3 rounded-full bg-paper border border-line inline-flex items-center gap-1.5 text-ink-2 text-[12.5px] font-medium disabled:opacity-50"
-          >
-            <Wand2 size={15} className="text-gold-2" /> {p.backfilling ? 'Reading…' : 'Read'}
-          </button>
+          {p.canManage && (
+            <button
+              onClick={p.onBackfill}
+              disabled={p.backfilling}
+              className="h-[38px] px-3 rounded-full bg-paper border border-line inline-flex items-center gap-1.5 text-ink-2 text-[12.5px] font-medium disabled:opacity-50"
+            >
+              <Wand2 size={15} className="text-gold-2" /> {p.backfilling ? 'Reading…' : 'Read'}
+            </button>
+          )}
           <button
             onClick={() => { p.ensureHistory(); setSheet({ kind: 'history' }) }}
             className="h-[38px] px-3 rounded-full bg-paper border border-line inline-flex items-center gap-1.5 text-ink-2 text-[12.5px] font-medium"
@@ -93,12 +99,14 @@ export function TempMobile(p: TempMobileProps) {
               {us.map(u => (
                 <MobileUnitRow key={u.id} u={u} readings={u.readings ?? []} onTap={() => setSheet({ kind: 'log', uid: u.id })} />
               ))}
-              <button
-                onClick={() => setSheet({ kind: 'add', type: g.type })}
-                className="inline-flex items-center justify-center gap-1.5 w-full h-[42px] rounded-xl bg-transparent border border-dashed border-line-2 text-ink-3 text-[13px] font-medium"
-              >
-                <Plus size={15} /> Add {TEMP_TYPES[g.type].label.toLowerCase()}
-              </button>
+              {p.canManage && (
+                <button
+                  onClick={() => setSheet({ kind: 'add', type: g.type })}
+                  className="inline-flex items-center justify-center gap-1.5 w-full h-[42px] rounded-xl bg-transparent border border-dashed border-line-2 text-ink-3 text-[13px] font-medium"
+                >
+                  <Plus size={15} /> Add {TEMP_TYPES[g.type].label.toLowerCase()}
+                </button>
+              )}
             </div>
           </div>
         )
@@ -112,14 +120,16 @@ export function TempMobile(p: TempMobileProps) {
             u={openUnit}
             readings={openUnit.readings ?? []}
             handlers={handlers}
+            canManage={p.canManage}
+            canRemove={p.canRemove}
             onClose={() => setSheet(null)}
           />
         )}
       </Sheet>
 
       {/* add-unit sheet */}
-      <Sheet open={sheet?.kind === 'add'} onClose={() => setSheet(null)} title="Add unit">
-        {sheet?.kind === 'add' && (
+      <Sheet open={p.canManage && sheet?.kind === 'add'} onClose={() => setSheet(null)} title="Add unit">
+        {p.canManage && sheet?.kind === 'add' && (
           <AddUnitBody
             initialType={sheet.type}
             rcLabel={p.rcLabel}
@@ -200,11 +210,32 @@ function MobileUnitRow({ u, readings, onTap }: { u: TempUnit; readings: TempUnit
 }
 
 // ── log sheet body (big stepper) ──────────────────────────────────────────────
-function LogBody({ u, readings, handlers, onClose }: { u: TempUnit; readings: TempUnit['readings']; handlers: TempHandlers; onClose: () => void }) {
+/** "4" ↔ "-4". iPhone's decimal keypad has no minus key, so freezer readings need this. */
+function flipSign(raw: string): string {
+  const t = raw.trim()
+  return t.startsWith('-') ? t.slice(1) : `-${t}`
+}
+const parseTemp = (raw: string): number | null => {
+  const t = raw.trim()
+  if (t === '' || t === '-') return null
+  const n = Number(t)
+  return Number.isFinite(n) ? +n.toFixed(1) : null
+}
+
+function LogBody({ u, readings, handlers, canManage, canRemove, onClose }: {
+  u: TempUnit
+  readings: TempUnit['readings']
+  handlers: TempHandlers
+  canManage: boolean
+  canRemove: boolean
+  onClose: () => void
+}) {
   const rs = readings ?? []
   const mid = u.safeMin != null && u.safeMax != null ? (u.safeMin + u.safeMax) / 2 : u.safeMax != null ? u.safeMax - 1 : u.safeMin != null ? u.safeMin + 3 : 4
-  const seed = rs.length ? rs[rs.length - 1].temp : Math.round(mid)
-  const [val, setVal] = useState(+(+seed).toFixed(1))
+  // Where the stepper starts once the cook taps it — never pre-filled, so an
+  // untouched sheet can't log yesterday's number by accident.
+  const seed = +(+(rs.length ? rs[rs.length - 1].temp : Math.round(mid))).toFixed(1)
+  const [val, setVal] = useState<number | null>(null)
   const [time, setTime] = useState(nowHM())
   const [editTime, setEditTime] = useState(false)
   const [showRange, setShowRange] = useState(false)
@@ -212,8 +243,15 @@ function LogBody({ u, readings, handlers, onClose }: { u: TempUnit; readings: Te
   const [maxBuf, setMaxBuf] = useState(u.safeMax == null ? '' : String(u.safeMax))
   const [editing, setEditing] = useState(false)
   const [buf, setBuf] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const [confirmUnit, setConfirmUnit] = useState(false)
 
-  const safe = isSafe(u, val)
+  // While typing, the box is the number.
+  const current = editing ? parseTemp(buf) : val
+  const safe = current == null ? null : isSafe(u, current)
   const banner =
     safe === null
       ? { cls: 'bg-bg-2 text-ink-3', icon: <Clock size={17} />, txt: 'Enter a temperature' }
@@ -221,13 +259,37 @@ function LogBody({ u, readings, handlers, onClose }: { u: TempUnit; readings: Te
       ? { cls: 'bg-green-soft text-green-text', icon: <Check size={17} />, txt: 'In range — safe' }
       : { cls: 'bg-red-soft text-red-text', icon: <AlertTriangle size={17} />, txt: 'Out of range — re-check & escalate' }
 
+  const step = (d: number) => {
+    setError(null)
+    setVal(v => +((v ?? seed) + (v == null ? 0 : d)).toFixed(1))
+  }
   const commitNum = () => {
-    const n = parseFloat(buf)
-    if (!Number.isNaN(n)) setVal(+n.toFixed(1))
+    setVal(parseTemp(buf))
     setEditing(false)
+  }
+  const onFlip = () => {
+    setError(null)
+    if (editing) setBuf(flipSign)
+    else setVal(v => (v == null ? v : +(-v).toFixed(1)))
   }
   const commitRange = () => {
     handlers.updateUnit(u.id, { safeMin: minBuf.trim() === '' ? null : Number(minBuf), safeMax: maxBuf.trim() === '' ? null : Number(maxBuf) })
+  }
+  const onLog = async () => {
+    if (current == null || saving) return
+    if (editing) { setVal(current); setEditing(false) }
+    setSaving(true)
+    setError(null)
+    const r = await handlers.logReading(u.id, current, time)
+    setSaving(false)
+    if (r.status === 'error') setError(r.error)
+    else onClose()
+  }
+  const onRemove = async (id: string) => {
+    setRemoving(true)
+    await handlers.removeReading(id, u.id)
+    setRemoving(false)
+    setConfirmId(null)
   }
 
   return (
@@ -244,33 +306,50 @@ function LogBody({ u, readings, handlers, onClose }: { u: TempUnit; readings: Te
       {/* big stepper */}
       <div className="bg-bg rounded-2xl px-4 pt-5 pb-4 mb-3">
         <div className="flex items-center justify-between gap-3">
-          <button onClick={() => setVal(v => +(v - 0.1).toFixed(1))} className="w-[66px] h-[66px] rounded-[18px] grid place-items-center bg-bg-2 text-ink-2 border border-line shrink-0">
+          <button onClick={() => step(-0.1)} aria-label="Down 0.1" className="w-[66px] h-[66px] rounded-[18px] grid place-items-center bg-bg-2 text-ink-2 border border-line shrink-0">
             <Minus size={26} />
           </button>
           <div className="flex-1 text-center min-w-0">
             {editing ? (
               <input
-                value={buf} autoFocus type="number" inputMode="decimal" step="0.1"
-                onChange={e => setBuf(e.target.value)} onBlur={commitNum}
+                value={buf} autoFocus type="text" inputMode="decimal" autoComplete="off" placeholder="—"
+                onChange={e => { setError(null); setBuf(e.target.value) }} onBlur={commitNum}
                 onKeyDown={e => { if (e.key === 'Enter') commitNum() }}
+                aria-label="Temperature in °C"
                 className="w-[150px] text-center text-[56px] font-semibold tracking-[-0.04em] text-ink border-0 border-b-2 border-gold bg-transparent outline-none p-0"
               />
             ) : (
-              <div onClick={() => { setBuf(String(val)); setEditing(true) }} className="cursor-text">
-                <span className="text-[62px] font-semibold leading-none tracking-[-0.04em]">{fmtTemp(val)}</span>
+              <div onClick={() => { setBuf(val == null ? '' : String(val)); setEditing(true) }} className="cursor-text">
+                <span className={`text-[62px] font-semibold leading-none tracking-[-0.04em] ${val == null ? 'text-ink-4' : ''}`}>{val == null ? '—' : fmtTemp(val)}</span>
                 <span className="text-[26px] font-medium text-ink-3 ml-0.5">°C</span>
               </div>
             )}
             <div className="font-mono text-[10.5px] text-ink-3 mt-1.5">tap number to type</div>
           </div>
-          <button onClick={() => setVal(v => +(v + 0.1).toFixed(1))} className="w-[66px] h-[66px] rounded-[18px] grid place-items-center bg-ink text-gold shrink-0">
+          <button onClick={() => step(0.1)} aria-label="Up 0.1" className="w-[66px] h-[66px] rounded-[18px] grid place-items-center bg-ink text-gold shrink-0">
             <Plus size={26} />
           </button>
         </div>
         <div className="flex justify-center gap-1.5 mt-3.5">
-          {[-1, -0.1, 0.1, 1].map(d => (
-            <button key={d} onClick={() => setVal(v => +(v + d).toFixed(1))} className="font-mono text-[12.5px] font-semibold px-3 py-2 rounded-[10px] bg-paper border border-line text-ink-2 min-w-[52px]">
-              {d > 0 ? '+' : ''}{d}
+          {[-1, -0.1].map(d => (
+            <button key={d} onClick={() => step(d)} className="font-mono text-[12.5px] font-semibold px-3 py-2 rounded-[10px] bg-paper border border-line text-ink-2 min-w-[52px]">
+              {d}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={onFlip}
+            // Keep focus (and the iPhone number pad) on the box while typing.
+            onPointerDown={e => e.preventDefault()}
+            onMouseDown={e => e.preventDefault()}
+            aria-label={current != null && current < 0 ? 'Make positive' : 'Make negative'}
+            className="font-mono text-[15px] font-semibold px-3 py-1.5 rounded-[10px] bg-bg-2 border border-line text-ink-2 min-w-[52px]"
+          >
+            ±
+          </button>
+          {[0.1, 1].map(d => (
+            <button key={d} onClick={() => step(d)} className="font-mono text-[12.5px] font-semibold px-3 py-2 rounded-[10px] bg-paper border border-line text-ink-2 min-w-[52px]">
+              +{d}
             </button>
           ))}
         </div>
@@ -298,48 +377,125 @@ function LogBody({ u, readings, handlers, onClose }: { u: TempUnit; readings: Te
             {rs.map(r => {
               const ok = isSafe(u, r.temp) !== false
               return (
-                <span key={r.id} className={`shrink-0 inline-flex items-center gap-1.5 font-mono text-[12px] border rounded-[9px] px-2 py-1.5 ${ok ? 'bg-green-soft text-green-text border-[#bbf7d0]' : 'bg-red-soft text-red-text border-[#fca5a5]'}`}>
+                <span
+                  key={r.id}
+                  title={r.pending ? 'Saved on this phone — sends when signal is back' : undefined}
+                  className={`shrink-0 inline-flex items-center gap-1.5 font-mono text-[12px] border rounded-[9px] px-2 py-1.5 ${r.pending ? 'border-dashed ' : ''}${ok ? 'bg-green-soft text-green-text border-[#bbf7d0]' : 'bg-red-soft text-red-text border-[#fca5a5]'}`}
+                >
                   <span style={{ color: ok ? '#16a34a' : '#dc2626' }}>{r.time}</span>
                   <b className="font-semibold">{fmtTemp(r.temp)}°</b>
-                  <button onClick={() => handlers.removeReading(r.id, u.id)} className="opacity-60 grid place-items-center"><X size={12} /></button>
+                  {r.pending && <CloudOff size={11} aria-label="Waiting to send" />}
+                  {canRemove && (
+                    <button
+                      onClick={() => setConfirmId(r.id)}
+                      aria-label="Delete this reading"
+                      className="-my-1.5 -mr-1.5 w-7 h-7 opacity-60 grid place-items-center"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
                 </span>
               )
             })}
           </div>
+          {confirmId && (() => {
+            const r = rs.find(x => x.id === confirmId)
+            if (!r) return null
+            return (
+              <div className="rounded-xl border border-[#fca5a5] bg-red-soft px-3.5 py-3 mb-3.5 flex flex-col gap-2.5">
+                <span className="text-[14px] font-semibold text-red-text">
+                  Delete this reading? {r.time} · {fmtTemp(r.temp)}°C
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onRemove(r.id)}
+                    disabled={removing}
+                    className="flex-1 h-11 rounded-[10px] bg-red text-white text-[14px] font-semibold disabled:opacity-60"
+                  >
+                    {removing ? 'Deleting…' : 'Delete'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmId(null)}
+                    disabled={removing}
+                    className="flex-1 h-11 rounded-[10px] bg-paper border border-line text-ink-2 text-[14px] font-medium"
+                  >
+                    Keep it
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
         </>
+      )}
+
+      {error && (
+        <div role="alert" className="rounded-xl bg-red-soft text-red-text px-3.5 py-2.5 mb-2.5 text-[13.5px] font-medium flex items-center gap-2">
+          <AlertTriangle size={16} className="shrink-0" /> Not saved — {error}
+        </div>
       )}
 
       {/* primary log */}
       <button
-        onClick={() => { handlers.logReading(u.id, val, time); onClose() }}
-        className={`w-full h-[52px] rounded-2xl inline-flex items-center justify-center gap-2 text-[15px] font-semibold tracking-[-0.01em] ${
-          safe === false ? 'bg-red text-white' : 'bg-ink text-paper'
+        onClick={onLog}
+        disabled={current == null || saving}
+        className={`w-full h-[52px] rounded-2xl inline-flex items-center justify-center gap-2 text-[15px] font-semibold tracking-[-0.01em] disabled:opacity-60 ${
+          current == null ? 'bg-bg-2 text-ink-3' : safe === false ? 'bg-red text-white' : 'bg-ink text-paper'
         }`}
       >
-        {safe === false ? <AlertTriangle size={18} /> : <Plus size={18} className="text-gold" />}
-        {safe === false ? `Log out-of-range · ${fmtTemp(val)}°C` : `Log ${fmtTemp(val)}°C`}
+        {current == null
+          ? 'Enter a temperature'
+          : saving
+          ? 'Saving…'
+          : <>
+              {safe === false ? <AlertTriangle size={18} /> : <Plus size={18} className="text-gold" />}
+              {safe === false ? `Log out-of-range · ${fmtTemp(current)}°C` : `Log ${fmtTemp(current)}°C`}
+            </>}
       </button>
 
-      {/* settings */}
-      <button onClick={() => setShowRange(s => !s)} className="mt-4 w-full flex items-center justify-between px-0.5 py-1.5 text-ink-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.04em]">Unit settings</span>
-        {showRange ? <ChevronDown size={15} className="text-ink-4" /> : <ChevronRight size={15} className="text-ink-4" />}
-      </button>
-      {showRange && (
-        <div className="bg-bg rounded-xl p-3.5 mt-1">
-          <div className="font-mono text-[10.5px] text-ink-3 mb-2.5 uppercase tracking-[0.02em]">Safe range — leave a side blank for one-sided limits</div>
-          <div className="flex items-center gap-2.5 mb-3">
-            <RangeField label="MIN °C" value={minBuf} onChange={setMinBuf} onCommit={commitRange} />
-            <span className="text-ink-4 mt-3.5">–</span>
-            <RangeField label="MAX °C" value={maxBuf} onChange={setMaxBuf} onCommit={commitRange} />
-          </div>
-          <button
-            onClick={() => { if (confirm(`Delete "${u.name}"? Its readings stay in History.`)) { handlers.deleteUnit(u.id); onClose() } }}
-            className="inline-flex items-center gap-1.5 font-mono text-[12px] font-semibold text-red-text bg-red-soft rounded-[10px] px-3 py-2.5"
-          >
-            <Trash2 size={14} /> Delete unit
+      {/* settings — MANAGER+ (the server refuses anyone else) */}
+      {canManage && (
+        <>
+          <button onClick={() => setShowRange(s => !s)} className="mt-4 w-full flex items-center justify-between px-0.5 py-1.5 text-ink-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.04em]">Unit settings</span>
+            {showRange ? <ChevronDown size={15} className="text-ink-4" /> : <ChevronRight size={15} className="text-ink-4" />}
           </button>
-        </div>
+          {showRange && (
+            <div className="bg-bg rounded-xl p-3.5 mt-1">
+              <div className="font-mono text-[10.5px] text-ink-3 mb-2.5 uppercase tracking-[0.02em]">Safe range — leave a side blank for one-sided limits</div>
+              <div className="flex items-center gap-2.5 mb-3">
+                <RangeField label="MIN °C" value={minBuf} onChange={setMinBuf} onCommit={commitRange} />
+                <span className="text-ink-4 mt-3.5">–</span>
+                <RangeField label="MAX °C" value={maxBuf} onChange={setMaxBuf} onCommit={commitRange} />
+              </div>
+              {confirmUnit ? (
+                <div className="flex flex-col gap-2">
+                  <span className="text-[13.5px] font-semibold text-red-text">Delete &ldquo;{u.name}&rdquo;? Its readings stay in History.</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { handlers.deleteUnit(u.id); onClose() }}
+                      className="flex-1 h-11 rounded-[10px] bg-red text-white text-[14px] font-semibold"
+                    >
+                      Delete unit
+                    </button>
+                    <button
+                      onClick={() => setConfirmUnit(false)}
+                      className="flex-1 h-11 rounded-[10px] bg-paper border border-line text-ink-2 text-[14px] font-medium"
+                    >
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmUnit(true)}
+                  className="inline-flex items-center gap-1.5 font-mono text-[12px] font-semibold text-red-text bg-red-soft rounded-[10px] px-3 py-2.5"
+                >
+                  <Trash2 size={14} /> Delete unit
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

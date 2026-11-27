@@ -1,5 +1,5 @@
 'use client'
-import { FileText, AlertTriangle, ChevronRight, Layers, Trash2 } from 'lucide-react'
+import { FileText, AlertTriangle, ChevronRight, Layers, Trash2, RotateCcw } from 'lucide-react'
 import { InboxItem, fmtAge, canDiscardFromInbox, UPLOAD_NEVER_FINISHED } from '@/lib/invoices/inbox-items'
 import type { SessionSummary } from '@/components/invoices/types'
 
@@ -10,12 +10,14 @@ const TONE: Record<string, { border: string; iconBg: string; icon: string; badge
   blue: { border: '#2563eb', iconBg: 'bg-blue-soft', icon: 'text-blue-text', badge: 'bg-blue-soft text-blue-text', cta: 'text-blue-text bg-blue-soft' },
 }
 
-export function InboxInvoiceCard({ item, onOpen, onDiscardBatch }: {
+export function InboxInvoiceCard({ item, onOpen, onDiscardBatch, onRetry }: {
   item: InboxItem
   onOpen: (sessionId: string) => void
   /** Present when the viewer may throw an unscanned session (a batch, a failed
    *  or dead upload) away from the card. */
   onDiscardBatch?: (sessionId: string) => void
+  /** Run a failed scan through OCR again — the "Retry" chip calls it. */
+  onRetry?: (sessionId: string) => void
 }) {
   const s = item.raw as SessionSummary
   const t = TONE[item.tone] ?? TONE.gold
@@ -25,6 +27,8 @@ export function InboxInvoiceCard({ item, onOpen, onDiscardBatch }: {
   const isDeadUpload = (s.status === 'UPLOADING' || s.status === 'ERROR') && s.files.length === 0
   const open = () => { if (!isDeadUpload) onOpen(s.id) }
   const actionLabel = isBatch ? 'Sort photos' : s.status === 'ERROR' ? 'Retry' : 'Review'
+  // A failed scan with its photos: the chip retries in place, as on desktop.
+  const canRetry = !!onRetry && !isBatch && s.status === 'ERROR' && !isDeadUpload
   const discardButton = discardable ? (
     <button
       type="button"
@@ -54,9 +58,17 @@ export function InboxInvoiceCard({ item, onOpen, onDiscardBatch }: {
         {isDeadUpload && discardable && (
           <div className="font-mono text-[10.5px] text-red-text mt-0.5">{UPLOAD_NEVER_FINISHED}</div>
         )}
-        {((item.needsAction && !isDeadUpload) || discardButton) && (
+        {((item.needsAction && !isDeadUpload) || canRetry || discardButton) && (
           <div className="flex items-center gap-2 mt-2">
-            {item.needsAction && !isDeadUpload && (
+            {canRetry ? (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onRetry!(s.id) }}
+                className={`inline-flex items-center gap-1 font-mono text-[10.5px] font-semibold px-2 py-1 rounded-full ${t.cta}`}
+              >
+                <RotateCcw size={11} /> Retry
+              </button>
+            ) : item.needsAction && !isDeadUpload && (
               <span className={`inline-flex items-center gap-1 font-mono text-[10.5px] font-semibold px-2 py-1 rounded-full ${t.cta}`}>
                 {actionLabel} <ChevronRight size={12} />
               </span>

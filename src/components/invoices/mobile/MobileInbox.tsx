@@ -17,7 +17,7 @@ const EMPTY_TEXT: Record<ChipId, string> = {
   other: 'Nothing here.',
 }
 
-export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick, onScanClick, onSignalAct, onDiscardBatch }: {
+export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick, onScanClick, onSignalAct, onDiscardBatch, onRetry }: {
   sessions: SessionSummary[]
   signals: Signal[]
   onSelectSession: (id: string) => void
@@ -26,6 +26,8 @@ export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick,
   onSignalAct: (id: string, action: 'apply' | 'snooze' | 'dismiss') => void
   /** Throw an unsorted batch away from its card (the page owns the confirm). */
   onDiscardBatch?: (id: string) => void
+  /** Run a failed scan through OCR again (same handler as the desktop history list). */
+  onRetry?: (id: string) => void
 }) {
   const [chip, setChip] = useState<ChipId>('all')
   const [sheet, setSheet] = useState<InboxItem | null>(null)
@@ -76,7 +78,7 @@ export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick,
       ) : (
         <div className="flex flex-col gap-2.5">
           {visible.map(it => it.kind !== 'signal'
-            ? <InboxInvoiceCard key={it.id} item={it} onOpen={onSelectSession} onDiscardBatch={onDiscardBatch} />
+            ? <InboxInvoiceCard key={it.id} item={it} onOpen={onSelectSession} onDiscardBatch={onDiscardBatch} onRetry={onRetry} />
             : <InboxSignalCard key={it.id} item={it} onOpen={setSheet} />
           )}
         </div>

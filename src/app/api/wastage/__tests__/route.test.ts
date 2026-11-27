@@ -23,10 +23,11 @@ vi.mock('@/lib/prisma', () => ({
     inventoryItem: { findUnique: async () => current, findMany: async () => [current] },
     invoiceScanItem: { findMany: async () => [{ matchedItemId: 'i1', rawLineTotal: '100', receivedQtyBase: '10000' }] },
     wastageLog: { create },
+    cook: { findUnique: async () => null },
   },
 }))
 vi.mock('@/lib/auth', () => ({
-  requireSession: async () => ({ id: 'u1', role: 'STAFF', isActive: true }),
+  requireSession: async () => ({ id: 'u1', role: 'STAFF', isActive: true, name: 'Sam Lee', email: 'sam@fergies.test' }),
   AuthError: class extends Error { status = 401 },
 }))
 vi.mock('@/lib/rc-scope', () => ({ scopeWhereFromParams: async () => ({}), assertRcWritable: async () => {} }))
@@ -56,5 +57,28 @@ describe('POST /api/wastage', () => {
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/log it in each/)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('records the signed-in person, never a typed name or "System"', async () => {
+    const req = { url: 'http://x/api/wastage', json: async () => ({
+      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1', loggedBy: 'Someone Else',
+    }) } as unknown as NextRequest
+    await route.POST(req)
+    expect(create.mock.calls[0][0].data.loggedBy).toBe('Sam Lee')
+  })
+
+  it('keeps a picked day as that day, and dates a missing day by Pacific (not UTC)', async () => {
+    const mk = (date?: string) => ({ url: 'http://x/api/wastage', json: async () => ({
+      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1', ...(date ? { date } : {}),
+    }) } as unknown as NextRequest)
+    await route.POST(mk('2026-11-26'))
+    expect((create.mock.calls[0][0].data.date as Date).toISOString()).toBe('2026-11-26T00:00:00.000Z')
+    vi.useFakeTimers()
+    // 9pm Pacific on Nov 26 = 05:00 UTC Nov 27 — still the 26th in the kitchen.
+    vi.setSystemTime(new Date('2026-11-27T05:00:00.000Z'))
+    try {
+      await route.POST(mk())
+      expect((create.mock.calls[1][0].data.date as Date).toISOString()).toBe('2026-11-26T00:00:00.000Z')
+    } finally { vi.useRealTimers() }
   })
 })

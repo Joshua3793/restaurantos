@@ -2,7 +2,8 @@
 import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { X, BookOpen, Search, Link2, Check, Download, SlidersHorizontal, ScanLine } from 'lucide-react'
-import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
+import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar, isPhoneWidth } from '@/components/recipes/shared'
+import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { PREP_YIELD_UNITS } from '@/lib/uom'
 import { useDrawer } from '@/contexts/DrawerContext'
@@ -29,6 +30,8 @@ function RecipesInner() {
   // Recipe Scan is MANAGER+ (the people who edit recipes and see costs).
   const { role } = useUser()
   const canScan = role != null && atLeast(role, 'MANAGER')
+  // Changing a recipe is LEAD+ (the API enforces it); cooks only read.
+  const canEdit = role != null && atLeast(role, 'LEAD')
   const recipeScans = useRecipeScans(scopeReady && canScan)
   const [showScan, setShowScan]             = useState(false)
   const [recipes, setRecipes]               = useState<Recipe[]>([])
@@ -45,6 +48,9 @@ function RecipesInner() {
   const [sortMode, setSortMode]             = useState<'az' | 'cost' | 'usage'>('az')
   const [viewMode, setViewMode]             = useState<'list' | 'grid'>('list')
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
+  // Read-only view: every phone tap, and cooks on any screen.
+  const [viewRecipeId, setViewRecipeId]     = useState<string | null>(null)
+  const [viewChecked, setViewChecked]       = useState<Set<string>>(new Set())
   const [showNewForm, setShowNewForm]       = useState(false)
   const [showCatManager, setShowCatManager] = useState(false)
   const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set())
@@ -94,10 +100,25 @@ function RecipesInner() {
     if (itemId) setSelectedRecipeId(itemId)
   }, [searchParams])
 
+  // Cooks never get the editor — a deep link (/recipes?item=…) opens the read-only view.
   useEffect(() => {
-    setDrawerOpen(selectedRecipeId !== null)
+    if (role == null || canEdit || !selectedRecipeId) return
+    setViewChecked(new Set())
+    setViewRecipeId(selectedRecipeId)
+    setSelectedRecipeId(null)
+  }, [role, canEdit, selectedRecipeId])
+
+  useEffect(() => {
+    setDrawerOpen(selectedRecipeId !== null && canEdit)
     return () => setDrawerOpen(false)
-  }, [selectedRecipeId, setDrawerOpen])
+  }, [selectedRecipeId, canEdit, setDrawerOpen])
+
+  // Row tap: phones (and cooks) see the recipe first; leads on a desktop go straight to the editor.
+  const openRecipe = (id: string) => {
+    if (canEdit && !isPhoneWidth()) { setSelectedRecipeId(id); return }
+    setViewChecked(new Set())
+    setViewRecipeId(id)
+  }
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
 
@@ -203,13 +224,15 @@ function RecipesInner() {
           <BookOpen size={14} />
           Recipe Book
         </button>
-        <button
-          onClick={() => setShowCatManager(true)}
-          className="flex items-center gap-2 px-4 text-[13.5px] font-medium text-ink-3 hover:text-ink border-b-2 border-transparent transition-colors tracking-[-0.005em]"
-        >
-          <SlidersHorizontal size={13} />
-          Categories
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowCatManager(true)}
+            className="flex items-center gap-2 px-4 text-[13.5px] font-medium text-ink-3 hover:text-ink border-b-2 border-transparent transition-colors tracking-[-0.005em]"
+          >
+            <SlidersHorizontal size={13} />
+            Categories
+          </button>
+        )}
         <div className="ml-auto flex items-center">
           <span className="font-mono text-[10.5px] text-ink-3 bg-bg-2 border border-line rounded-[6px] px-2 py-0.5">⌘ K</span>
         </div>
@@ -236,13 +259,15 @@ function RecipesInner() {
             <Download size={13} className="text-ink-3" />
             Export
           </button>
-          <button
-            onClick={() => setShowCatManager(true)}
-            className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors"
-          >
-            <SlidersHorizontal size={13} className="text-ink-3" />
-            Edit categories
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowCatManager(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors"
+            >
+              <SlidersHorizontal size={13} className="text-ink-3" />
+              Edit categories
+            </button>
+          )}
           {canScan && (
             <button onClick={() => setShowScan(true)}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors">
@@ -251,12 +276,14 @@ function RecipesInner() {
               <span className="sm:hidden">Scan</span>
             </button>
           )}
-          <button onClick={() => setShowNewForm(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors">
-            <span className="text-gold font-semibold">+</span>
-            <span className="hidden sm:inline">New recipe</span>
-            <span className="sm:hidden">New</span>
-          </button>
+          {canEdit && (
+            <button onClick={() => setShowNewForm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors">
+              <span className="text-gold font-semibold">+</span>
+              <span className="hidden sm:inline">New recipe</span>
+              <span className="sm:hidden">New</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -332,7 +359,10 @@ function RecipesInner() {
         <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase">
           {displayRecipes.length} {displayRecipes.length === 1 ? 'recipe' : 'recipes'} · {sortLabel}
           {activeCatId && <> · {typeCats.find(c => c.id === activeCatId)?.name}</>}
-          {!activeCatId && <> · click any row to edit</>}
+          {!activeCatId && <>
+            <span className="md:hidden"> · tap a recipe to view it</span>
+            <span className="hidden md:inline"> · {canEdit ? 'click any row to edit' : 'click any row to view'}</span>
+          </>}
         </p>
         <label className="flex items-center gap-2 font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase cursor-pointer select-none">
           <input
@@ -347,7 +377,7 @@ function RecipesInner() {
 
       {/* ── MAIN CONTENT ── */}
       <div className="flex-1 pb-20 md:pb-4">
-        {showNewForm && (
+        {showNewForm && canEdit && (
           <div className="bg-paper rounded-xl border border-line p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-[15px] text-ink tracking-[-0.02em]">New recipe</h3>
@@ -417,7 +447,7 @@ function RecipesInner() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <BookOpen size={40} className="text-ink-4 mb-3" />
             <p className="text-ink-3 text-[13px]">{search ? `No recipes match "${search}"` : 'No recipes yet'}</p>
-            {!search && (
+            {!search && canEdit && (
               <button onClick={() => setShowNewForm(true)} className="mt-3 font-mono text-[11px] text-gold-2 hover:text-gold">
                 Create your first recipe →
               </button>
@@ -426,47 +456,60 @@ function RecipesInner() {
         ) : (
           <div className="bg-paper rounded-xl border border-line overflow-hidden">
             <div className="flex items-center gap-3 px-4 py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">
-              <button
-                onClick={handleSelectAll}
-                className={`shrink-0 w-4 h-4 rounded-[4px] border-[1.5px] flex items-center justify-center transition-colors ${
-                  allVisibleSelected
-                    ? 'border-ink bg-ink'
+              {canEdit && (
+                <button
+                  onClick={handleSelectAll}
+                  className={`shrink-0 w-4 h-4 rounded-[4px] border-[1.5px] flex items-center justify-center transition-colors ${
+                    allVisibleSelected
+                      ? 'border-ink bg-ink'
+                      : selectedIds.size > 0
+                        ? 'border-ink bg-bg-2'
+                        : 'border-line-2 hover:border-ink-3 bg-paper'
+                  }`}
+                  title={allVisibleSelected ? 'Deselect all' : 'Select all'}
+                >
+                  {allVisibleSelected
+                    ? <Check size={10} className="text-paper" strokeWidth={3} />
                     : selectedIds.size > 0
-                      ? 'border-ink bg-bg-2'
-                      : 'border-line-2 hover:border-ink-3 bg-paper'
-                }`}
-                title={allVisibleSelected ? 'Deselect all' : 'Select all'}
-              >
-                {allVisibleSelected
-                  ? <Check size={10} className="text-paper" strokeWidth={3} />
-                  : selectedIds.size > 0
-                    ? <span className="w-1.5 h-0.5 bg-ink rounded-full" />
-                    : null}
-              </button>
+                      ? <span className="w-1.5 h-0.5 bg-ink rounded-full" />
+                      : null}
+                </button>
+              )}
               <span className="flex-1">Name</span>
               <span className="hidden sm:block pr-20">Total cost · Base cost / unit</span>
             </div>
             {displayRecipes.map(recipe => (
               <RecipeCard key={recipe.id} recipe={recipe}
-                onOpen={() => setSelectedRecipeId(recipe.id)}
-                onToggle={() => handleToggle(recipe.id)}
-                onDuplicate={() => handleDuplicate(recipe)}
-                onDelete={() => handleDelete(recipe.id)}
+                onOpen={() => openRecipe(recipe.id)}
+                onToggle={canEdit ? () => handleToggle(recipe.id) : undefined}
+                onDuplicate={canEdit ? () => handleDuplicate(recipe) : undefined}
+                onDelete={canEdit ? () => handleDelete(recipe.id) : undefined}
                 isSelected={selectedIds.has(recipe.id)}
-                onSelect={() => handleSelect(recipe.id)} />
+                onSelect={canEdit ? () => handleSelect(recipe.id) : undefined} />
             ))}
           </div>
         )}
       </div>
 
-      {selectedRecipeId && (
+      {selectedRecipeId && canEdit && (
         <RecipePanel recipeId={selectedRecipeId} categories={categories}
           onClose={() => setSelectedRecipeId(null)}
           onUpdated={() => { loadRecipes(); loadCategories() }}
           revenueCenters={revenueCenters} />
       )}
 
-      {showCatManager && (
+      {viewRecipeId && (
+        <RecipeViewModal
+          recipeId={viewRecipeId}
+          recipeName={recipes.find(r => r.id === viewRecipeId)?.name ?? ''}
+          checkedIngredients={viewChecked}
+          onToggleIngredient={id => setViewChecked(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })}
+          onClose={() => setViewRecipeId(null)}
+          onEdit={canEdit ? () => { setSelectedRecipeId(viewRecipeId); setViewRecipeId(null) } : undefined}
+        />
+      )}
+
+      {showCatManager && canEdit && (
         <CategoryManager type={type} categories={categories}
           onClose={() => setShowCatManager(false)}
           onUpdated={loadCategories}

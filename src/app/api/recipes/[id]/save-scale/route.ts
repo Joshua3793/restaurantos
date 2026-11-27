@@ -22,7 +22,7 @@ import { assertRcWritable } from '@/lib/rc-scope'
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   let user
-  try { user = await requireSession() }
+  try { user = await requireSession('LEAD') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

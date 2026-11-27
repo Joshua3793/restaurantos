@@ -8,7 +8,7 @@ import { parseAllergenKeys } from '@/lib/allergens'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  try { await requireSession() }
+  try { await requireSession('LEAD') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
