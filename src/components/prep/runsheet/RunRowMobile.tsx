@@ -84,11 +84,11 @@ export function RunRowMobile({
       <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
         <div className="flex items-center gap-1.5">
           <UrgencyDot item={item} />
-          <div className="text-[13.5px] font-semibold tracking-[-0.01em] break-words min-w-0">
+          <div className="text-[15px] font-semibold tracking-[-0.01em] break-words min-w-0">
             {item.name}
           </div>
         </div>
-        <div className={`font-mono text-[9.5px] text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
+        <div className={`font-mono text-[12px] leading-snug text-ink-3 ${dense ? 'mt-px' : 'mt-[3px]'}`}>
           {metaText}
         </div>
       </div>

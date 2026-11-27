@@ -15,9 +15,9 @@ export function GroupHead({
   return (
     <div className="flex items-baseline gap-2 mt-5 mb-2.5 px-0.5">
       <span className={`w-2 h-2 rounded-full shrink-0 self-center ${dot}`} />
-      <span className="font-mono text-[11px] font-semibold tracking-[0.05em] uppercase text-ink">{title}</span>
-      <span className="font-mono text-[10.5px] text-ink-3">· {count}</span>
-      {sub && <span className="font-mono text-[10px] text-ink-4 ml-1">{sub}</span>}
+      <span className="font-mono text-[11px] max-md:text-[13px] font-semibold tracking-[0.05em] uppercase text-ink">{title}</span>
+      <span className="font-mono text-[10.5px] max-md:text-[12px] text-ink-3">· {count}</span>
+      {sub && <span className="font-mono text-[10px] max-md:text-[12px] text-ink-4 ml-1">{sub}</span>}
     </div>
   )
 }

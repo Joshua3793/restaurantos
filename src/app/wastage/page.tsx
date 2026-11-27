@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
+import { QUICKADD_WASTE } from '@/components/mobile/QuickAddSheet'
 import { formatCurrency, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
 import { prepDayKey, prepDaysAgo, displayDayKey } from '@/lib/prep-day'
 import { CategoryBadge } from '@/components/CategoryBadge'
@@ -187,6 +189,25 @@ export default function WastagePage() {
   const [startDate, setStartDate] = useState(weekAgoKey)
   const [endDate, setEndDate] = useState(todayKey)
   const [showAdd, setShowAdd] = useState(false)
+  const router = useRouter()
+  // ＋ "Log waste" from another page lands here with ?new=1: drop the param
+  // first (replace, so the ?new=1 history entry is gone and Back / refresh
+  // can't reopen it), then open the Log form. (window, not useSearchParams, so
+  // the page needs no Suspense boundary.) Already on this page, the ＋ sheet
+  // doesn't navigate — it fires QUICKADD_WASTE instead.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('new') !== '1') return
+    params.delete('new')
+    const qs = params.toString()
+    router.replace(qs ? `/wastage?${qs}` : '/wastage', { scroll: false })
+    setShowAdd(true)
+  }, [router])
+  useEffect(() => {
+    const open = () => setShowAdd(true)
+    window.addEventListener(QUICKADD_WASTE, open)
+    return () => window.removeEventListener(QUICKADD_WASTE, open)
+  }, [])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({

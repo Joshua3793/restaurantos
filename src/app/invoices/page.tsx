@@ -1,6 +1,8 @@
 'use client'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
+import { QUICKADD_INVOICE } from '@/components/mobile/QuickAddSheet'
 import { Mail, Clock } from 'lucide-react'
 import { InvoiceKpiStripV2 } from '@/components/invoices/InvoiceKpiStripV2'
 import { InvoiceListV2 } from '@/components/invoices/InvoiceListV2'
@@ -161,6 +163,35 @@ export default function InvoicesPage() {
     : scanMode === 'web'
       ? () => { if (!isReadOnly) setShowWebScanner(true) }
       : undefined
+
+  // ＋ "Capture invoice" from another page lands here with ?capture=1: drop the
+  // param first (replace, so Back / refresh can't reopen the camera), then
+  // start the scanner (same as tapping Scan) once the kitchen and scanner kind
+  // are known. Already on this page, the ＋ sheet fires QUICKADD_INVOICE
+  // instead of navigating. A Location/"All" view can't take an upload — the
+  // read-only banner explains, no scanner.
+  const router = useRouter()
+  const [captureWanted, setCaptureWanted] = useState(false)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('capture') !== '1') return
+    params.delete('capture')
+    const qs = params.toString()
+    router.replace(qs ? `/invoices?${qs}` : '/invoices', { scroll: false })
+    setCaptureWanted(true)
+  }, [router])
+  useEffect(() => {
+    const want = () => setCaptureWanted(true)
+    window.addEventListener(QUICKADD_INVOICE, want)
+    return () => window.removeEventListener(QUICKADD_INVOICE, want)
+  }, [])
+  const scanClickRef = useRef(handleScanClick)
+  scanClickRef.current = handleScanClick
+  useEffect(() => {
+    if (!captureWanted || !scopeReady || scanMode === null) return
+    setCaptureWanted(false)
+    if (!isReadOnly) scanClickRef.current?.()
+  }, [captureWanted, scopeReady, scanMode, isReadOnly])
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
 

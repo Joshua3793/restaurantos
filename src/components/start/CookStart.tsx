@@ -13,7 +13,7 @@ import type { PrepItemRich } from '@/components/prep/types'
 import { clockText, tempNeeds, fmtTimeOfDay, type StartTempUnit, type NeedItem } from '@/lib/start-page'
 import { defaultPhase } from '@/lib/checklists/rules'
 import { cookBoard, makeText, type CookJob } from '@/lib/cook-start'
-import { greetingFor, crumbDate } from './parts'
+import { greetingFor, crumbDate, firstNameOf } from './parts'
 import { ChecklistCard } from './ChecklistCard'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
 import { YourReports } from '@/components/inbox/YourReports'
@@ -35,6 +35,11 @@ export function CookStart() {
   const { nowMs, nowMin } = useNowMinute()
   const [me, setMe] = useState<Me | null | undefined>(undefined)
   const [items, setItems] = useState<PrepItemRich[] | null>(null)
+  // A failed To Do fetch is NOT an empty To Do: with no list yet the cook sees
+  // "Couldn't load" + Try again, never "not posted yet". A failed refresh keeps
+  // the last good list.
+  const [itemsError, setItemsError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [temps, setTemps] = useState<StartTempUnit[]>([])
   const [count, setCount] = useState<CountSession | null>(null)
   // This cook's own reports (last 14 days): drives the "Your reports" line.
@@ -55,7 +60,11 @@ export function CookStart() {
     tempQs.set('date', ymd(new Date()))
     const load = () => {
       getJson('/api/prep/me').then(v => { if (!cancelled) setMe(v?.cook ?? null) })
-      getJson(`/api/prep/items${qs}`).then(v => { if (!cancelled) setItems(Array.isArray(v) ? v : []) })
+      getJson(`/api/prep/items${qs}`).then(v => {
+        if (cancelled) return
+        if (Array.isArray(v)) { setItems(v); setItemsError(false) }
+        else setItemsError(true)
+      })
       getJson(`/api/temps/units?${tempQs}`).then(v => { if (!cancelled) setTemps(Array.isArray(v) ? v : []) })
       loadMine()
       getJson(`/api/count/sessions${qs}`).then((v: CountSession[] | null) => {
@@ -63,9 +72,15 @@ export function CookStart() {
       })
     }
     load()
-    const id = setInterval(load, 60_000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [ready, activeKind, activeRcId, activeRc, activeLocationId, loadMine])
+    // Refresh every minute, but only while the page is on screen (a phone in a
+    // pocket does not poll); coming back to it refreshes at once.
+    const tick = () => { if (document.visibilityState === 'visible') load() }
+    const id = setInterval(tick, 60_000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', tick) }
+  }, [ready, activeKind, activeRcId, activeRc, activeLocationId, loadMine, attempt])
+  const retry = () => { setItemsError(false); setAttempt(a => a + 1) }
+  const failed = itemsError && items === null
 
   const services = useMemo<RcService[]>(
     () => (activeKind === 'rc' ? ((activeRc?.services ?? []) as RcService[]) : []),
@@ -113,7 +128,8 @@ export function CookStart() {
   const phase = defaultPhase(new Date(nowMs))
 
   const loaded = items !== null && me !== undefined
-  const name = me?.name.split(' ')[0] ?? (user?.name || user?.email?.split('@')[0] || 'chef').split(' ')[0]
+  // Linked crew name, then the login's name — never the email ("Good morning.").
+  const name = me === undefined ? null : firstNameOf(me?.name, user?.name)
   const now = new Date()
   const left = board.jobs.length
   const pct = board.total > 0 ? Math.round((board.done / board.total) * 100) : 0
@@ -127,10 +143,12 @@ export function CookStart() {
             {crumbDate(now)}{me?.homeStation && <> · {me.homeStation.toUpperCase()}</>}
           </div>
           <h1 className="mt-1.5 text-[28px] md:text-[32px] font-semibold tracking-[-0.03em] leading-[1.1]">
-            Good {greetingFor(now)}, <em className="font-fraunces italic font-medium text-gold-2">{name}</em>.
+            Good {greetingFor(now)}
+            {name && <>,{' '}<em className="font-fraunces italic font-medium text-gold-2">{name}</em></>}.
           </h1>
           <p className="mt-1.5 text-[15px] leading-[1.45] text-ink-2 [&_b]:font-semibold">
-            {!loaded ? 'Loading…'
+            {failed ? 'Could not load the To Do.'
+              : !loaded ? 'Loading…'
               : board.total === 0 ? (me ? 'Nothing on the To Do for you yet.' : 'The To Do has not been posted yet.')
               : left === 0 && board.doing.length === 0 ? <>All {me ? 'your' : 'the'} jobs are done. Nice work.</>
               : <>{me ? 'You have' : 'The kitchen has'} <b>{left} {left === 1 ? 'job' : 'jobs'}</b> to start{svc ? ` before ${svc}` : ''}.</>}
@@ -208,7 +226,12 @@ export function CookStart() {
             <h2 className="text-[15px] font-semibold">{me ? 'My jobs' : 'Jobs to start'}</h2>
             <span className="font-mono text-[10.5px] text-ink-3">in the To Do order</span>
           </div>
-          {!loaded ? (
+          {failed ? (
+            <div className="bg-paper border border-line rounded-[14px] px-4 py-3 flex items-center justify-between gap-3">
+              <span className="text-[14px] text-ink-3">Couldn&apos;t load the To Do.</span>
+              <button type="button" onClick={retry} className="min-h-[44px] px-3.5 rounded-full border border-line-2 font-mono text-[11px]">Try again</button>
+            </div>
+          ) : !loaded ? (
             <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">Loading…</div>
           ) : board.jobs.length === 0 ? (
             <div className="bg-paper border border-line rounded-[14px] p-4 text-[14px] text-ink-3">

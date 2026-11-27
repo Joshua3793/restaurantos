@@ -5,7 +5,7 @@ import { clockText } from '@/lib/start-page'
 import { PHONE_TOP, itemMeta, stationsDone, topRows, type PassRow } from '@/lib/pass'
 import type { InboxItem } from '@/components/inbox/format'
 import { useStartData, type StartData } from './useStartData'
-import { greetingFor, crumbDate } from './parts'
+import { greetingWord, crumbDate, firstNameOf, useCookName } from './parts'
 import { ChecklistCard } from './ChecklistCard'
 import {
   Lede, LastNight, PassItemDialog, StationTileSmall, VALUE_TONE,
@@ -21,12 +21,14 @@ import {
 export function StartMobile() {
   const { user } = useUser()
   const d = useStartData()
-  const firstName = (user?.name || user?.email?.split('@')[0] || 'there').split(' ')[0]
+  const cookName = useCookName()
+  // Linked crew name, then the login's name — never the email. Held back while
+  // the crew name loads so the greeting does not flip from one name to another.
+  const firstName = cookName === undefined ? null : firstNameOf(cookName, user?.name)
   const now = new Date()
   const items = d.inbox?.items ?? []
   const { rows: top, more, nowCount: nowN } = topRows(items, PHONE_TOP)
   const item = usePassItem(d.inbox?.tags ?? [], d.rcId, d.loadInbox)
-  const greet = greetingFor(now)
 
   return (
     <div className="flex flex-col gap-4 pt-2">
@@ -35,8 +37,8 @@ export function StartMobile() {
           {crumbDate(now)}{d.rcName && <> · {d.rcName.toUpperCase()}</>}
         </div>
         <h1 className="text-[28px] font-semibold tracking-[-0.03em] leading-[1.1]">
-          {greet === 'morning' ? 'Morning' : greet === 'afternoon' ? 'Afternoon' : 'Evening'},{' '}
-          <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.
+          {greetingWord(now)}
+          {firstName && <>,{' '}<em className="font-fraunces italic font-medium text-gold-2">{firstName}</em></>}.
         </h1>
         <p className="text-[15px] leading-[1.45] text-ink-2">
           <Lede d={d} nowCount={nowN} />
@@ -77,7 +79,18 @@ function RightNow({ d, top, nowN, more, onOpen }: {
   more: number
   onOpen: (item: InboxItem) => void
 }) {
-  if (!d.isRc) return null
+  // Alerts belong to one kitchen. With "All Revenue Centers" or a location
+  // picked there is nothing to list, so say why instead of hiding the card.
+  if (!d.isRc) {
+    return (
+      <section aria-label="Right now" className="bg-paper border border-line rounded-[14px] overflow-hidden">
+        <div className="px-4 py-3 border-b border-line">
+          <h2 className="text-[13.5px] font-semibold">Right now</h2>
+        </div>
+        <Panel>Pick a kitchen in the top bar to see its alerts.</Panel>
+      </section>
+    )
+  }
   const right = nowN > 0
     ? `${nowN} ${d.status.kind === 'upcoming' ? 'BEFORE DOORS' : 'NOW'}`
     : top.length > 0 ? `${top.length} TODAY` : null
@@ -126,7 +139,8 @@ function Stations({ d, now }: { d: StartData; now: Date }) {
         <h2 className="text-[13.5px] font-semibold">{d.phase === 'OPEN' ? 'Opening' : 'Closing'} · stations</h2>
         <span className="font-mono text-[10.5px] text-ink-3">{done} OF {of} DONE</span>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      {/* 2 across on phones so names like "ALPHA GRILL" are not cut short. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {d.stations.map(s => <StationTileSmall key={s.id} s={s} now={now} />)}
       </div>
       <Link href="/checklist/today" className="font-mono text-[11px] text-gold-2 min-h-[44px] flex items-center self-start">Station board →</Link>

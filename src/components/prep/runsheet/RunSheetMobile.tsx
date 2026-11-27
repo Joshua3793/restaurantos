@@ -46,6 +46,16 @@ const isDone = (i: PrepItemRich) => i.todayLog?.status === 'DONE' || i.todayLog?
 const isGoing = (i: PrepItemRich) => i.todayLog?.status === 'IN_PROGRESS'
 const isTodo = (i: PrepItemRich) => !isDone(i) && !isGoing(i)
 
+// Cook-picker label: the first name, plus the surname's first letter when two
+// cooks share a first name ("Sam B" / "Sam K"). Falls back to initials.
+function chipName(c: Cook, all: Cook[]): string {
+  const parts = (c.name ?? '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return c.initials
+  const first = parts[0]
+  const clash = all.some(o => o.id !== c.id && (o.name ?? '').trim().split(/\s+/)[0]?.toLowerCase() === first.toLowerCase())
+  return clash && parts.length > 1 ? `${first} ${parts[parts.length - 1][0]}` : first
+}
+
 // Empty state for My-station mode. Module scope (not inline) so it doesn't
 // remount on every render — see CLAUDE.md's client-component note.
 function StationClear() {
@@ -226,7 +236,7 @@ export function RunSheetMobile({
           </div>
         ))}
         {!todoAll.length && (
-          <div className="font-mono text-[11px] text-ink-4 text-center py-9">
+          <div className="font-mono text-[12px] text-ink-4 text-center py-9">
             LIST CLEAR — EVERYTHING STARTED OR DONE
           </div>
         )}
@@ -249,12 +259,12 @@ export function RunSheetMobile({
       </div>
       {/* Two short lines: the count, then the clock and where the list came from. */}
       <div className="pt-0.5 pb-2.5">
-        <div className="font-mono text-[11px] font-medium text-ink-3">
+        <div className="font-mono text-[13px] font-medium text-ink-3">
           <b className="text-ink font-semibold">{done.length}</b><span className="text-ink-4">/{items.length}</span> done
           {goingAll.length > 0 && <> · {goingAll.length} on the go</>}
           {readyN > 0 && <span className="text-green-text"> · {readyN} ready</span>}
         </div>
-        <div className="font-mono text-[10px] tracking-[0.04em] uppercase text-ink-4 mt-0.5">
+        <div className="font-mono text-[12px] tracking-[0.04em] uppercase text-ink-4 mt-0.5">
           Now {fmtClock(nowMin)}
           {svcCaption ? ` · ${svcCaption}` : ''}
           {post && ` · Posted ${postedWhenLabel(post.postedAt, post.listDate)}`}
@@ -262,7 +272,7 @@ export function RunSheetMobile({
       </div>
       {post?.dirty && (
         <div className="mb-2.5">
-          <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.05em] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full whitespace-nowrap">
+          <span className="font-mono text-[12px] font-bold uppercase tracking-[0.05em] bg-gold-soft text-gold-2 px-2 py-0.5 rounded-full whitespace-nowrap">
             Chef has unposted changes
           </span>
         </div>
@@ -287,12 +297,15 @@ export function RunSheetMobile({
                 key={c.id}
                 type="button"
                 onClick={() => { setCook(c.id); saveCook(c.id) }}
-                className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-full shrink-0 border font-mono text-[10.5px] font-semibold cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 min-h-[44px] px-3.5 rounded-full shrink-0 border text-[14px] font-semibold cursor-pointer ${
                   on ? 'border-ink bg-ink text-paper' : 'border-line bg-paper text-ink-2'
                 }`}
               >
-                {c.initials}
-                <span className={`text-[8.5px] font-normal ${on ? 'text-line-2' : 'text-ink-4'}`}>{c.homeStation ?? ''}</span>
+                {/* First name, not initials: "JB" means nothing at arm's length. */}
+                {chipName(c, cooks)}
+                {c.homeStation && (
+                  <span className={`font-mono text-[12px] font-normal ${on ? 'text-line-2' : 'text-ink-4'}`}>{c.homeStation}</span>
+                )}
               </button>
             )
           })}
@@ -350,7 +363,7 @@ export function RunSheetMobile({
           <button
             type="button"
             onClick={() => setShowDone(s => !s)}
-            className="flex items-center gap-2 w-full bg-transparent border border-dashed border-line-2 rounded-[10px] px-[13px] py-2.5 cursor-pointer font-mono text-[10px] text-ink-3 tracking-[0.03em]"
+            className="flex items-center gap-2 w-full bg-transparent border border-dashed border-line-2 rounded-[10px] px-[13px] py-2.5 min-h-[44px] cursor-pointer font-mono text-[12px] text-ink-3 tracking-[0.03em]"
           >
             <ChevronDown size={12} className={`text-ink-4 transition-transform ${showDone ? 'rotate-180' : ''}`} />
             DONE · {done.length}
@@ -367,17 +380,18 @@ export function RunSheetMobile({
                     <span className="w-[22px] h-[22px] rounded-[7px] bg-green grid place-items-center shrink-0">
                       <IcCheck size={13} className="text-white" strokeWidth={3} />
                     </span>
-                    <span className="flex-1 min-w-0 text-[13px] font-medium text-ink-3 line-through break-words">
+                    <span className="flex-1 min-w-0 text-[14px] font-medium text-ink-3 line-through break-words">
                       {i.name}
                     </span>
-                    <span className="font-mono text-[10.5px] font-semibold text-green-text">{fmtQty(qty, i.unit)}</span>
+                    <span className="font-mono text-[12px] font-semibold text-green-text">{fmtQty(qty, i.unit)}</span>
                     <button
                       type="button"
                       onClick={() => onReopen(i)}
                       title="Reopen"
-                      className="w-[26px] h-[26px] rounded-[7px] bg-transparent border border-line grid place-items-center cursor-pointer text-ink-3 shrink-0"
+                      aria-label={`Reopen ${i.name}`}
+                      className="w-11 h-11 -my-1.5 rounded-[9px] bg-transparent border border-line grid place-items-center cursor-pointer text-ink-3 shrink-0"
                     >
-                      <RotateCcw size={12} />
+                      <RotateCcw size={16} />
                     </button>
                   </div>
                 )

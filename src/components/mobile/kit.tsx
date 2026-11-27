@@ -6,10 +6,12 @@ import { ChevronRight } from 'lucide-react'
 // (bg / paper / ink / line / gold). Keeps every mobile screen short + consistent.
 // All are mobile-only surfaces; pages mount them inside a md:hidden block.
 
-// Full-height scroll surface that clears the top RC bar and bottom tab bar.
+// Mobile-only surface. AppShell already gives phone content its 16px side
+// gutter and clears the top bar and bottom tab bar, so MScreen adds no padding
+// of its own (it used to add px-4 pb-28 on top, doubling the margins).
 export function MScreen({ children }: { children: ReactNode }) {
   return (
-    <div className="md:hidden min-h-screen bg-bg text-ink px-4 pb-28">
+    <div className="md:hidden bg-bg text-ink">
       {children}
     </div>
   )

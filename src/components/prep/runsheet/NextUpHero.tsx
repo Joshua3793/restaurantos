@@ -29,13 +29,13 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
   return (
     <div className="bg-ink text-paper rounded-2xl px-[17px] py-4 mt-3.5">
       <div className="flex items-baseline justify-between gap-2.5">
-        <span className="font-mono text-[9.5px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP · READY AT</span>
+        <span className="font-mono text-[12px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP · READY AT</span>
         {rest.state === 'overdue' ? (
-          <span className="font-mono text-[9.5px] font-bold bg-red text-white px-2 py-0.5 rounded-full tracking-[0.03em]">{fmtMins(-delta)} PAST READY</span>
+          <span className="font-mono text-[12px] font-bold bg-red text-white px-2 py-0.5 rounded-full tracking-[0.03em]">{fmtMins(-delta)} PAST READY</span>
         ) : rest.state === 'ready' ? (
-          <span className="font-mono text-[9.5px] font-bold bg-green text-white px-2 py-0.5 rounded-full tracking-[0.03em]">READY</span>
+          <span className="font-mono text-[12px] font-bold bg-green text-white px-2 py-0.5 rounded-full tracking-[0.03em]">READY</span>
         ) : (
-          <span className="font-mono text-[9.5px] text-[#a1a1aa]">in {fmtMins(delta)}</span>
+          <span className="font-mono text-[12px] text-[#a1a1aa]">in {fmtMins(delta)}</span>
         )}
       </div>
       <div className="flex items-end gap-3 mt-2">
@@ -45,10 +45,10 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
           {fmtStartBy(rest.readyAtMin)}
         </span>
         <span className="min-w-0 pb-px">
-          <span className="block text-[17px] font-semibold tracking-[-0.02em] break-words">{item.name} · {restPhaseName(rest.stage)}</span>
+          <span className="block text-[19px] font-semibold tracking-[-0.02em] break-words">{item.name} · {restPhaseName(rest.stage)}</span>
         </span>
       </div>
-      <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-[9px] leading-[1.5] flex items-center gap-1.5 flex-wrap">
+      <div className="font-mono text-[13px] text-[#a1a1aa] mt-[9px] leading-[1.5] flex items-center gap-1.5 flex-wrap">
         <Hourglass size={11} className="text-[#a1a1aa]" />
         {rest.stage.note ? `${rest.stage.note} · ` : ''}
         {rest.state === 'resting' ? `resting ${fmtMins(elapsed)} of ${fmtMins(rest.stage.minutes)}` : `rested ${fmtMins(elapsed)}`}
@@ -67,7 +67,7 @@ function RestHero({ item, nowMin, nowMs, onStage, onOpenRecipe }: {
       )}
       <button
         onClick={() => onOpenRecipe(item)}
-        className="flex items-center justify-center gap-[7px] w-full bg-transparent text-[#e4e4e7] border border-[#3f3f46] rounded-[11px] py-[11px] mt-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer"
+        className="flex items-center justify-center gap-[7px] w-full bg-transparent text-[#e4e4e7] border border-[#3f3f46] rounded-[11px] py-[11px] mt-2 min-h-[44px] text-[14px] font-medium tracking-[-0.01em] cursor-pointer"
       >
         <BookOpen size={14} className="text-gold" /> Recipe · method
       </button>
@@ -103,18 +103,18 @@ export function NextUpHero({
     <div className="bg-ink text-paper rounded-2xl px-[17px] py-4 mt-3.5">
       {/* No start-by clock: the step and the chef's order say what comes next. */}
       <div className="flex items-center gap-2">
-        <span className="font-mono text-[9.5px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP</span>
-        <span className="inline-flex items-center gap-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-paper">
+        <span className="font-mono text-[12px] text-[#a1a1aa] tracking-[0.06em]">NEXT UP</span>
+        <span className="inline-flex items-center gap-1.5 font-mono text-[12px] font-semibold uppercase tracking-[0.04em] text-paper">
           <span className="w-[7px] h-[7px] rounded-full" style={{ background: step.hex }} />
           {step.label}
         </span>
       </div>
 
-      <div className="mt-2 text-[20px] font-semibold tracking-[-0.02em] leading-tight break-words">
+      <div className="mt-2 text-[22px] font-semibold tracking-[-0.02em] leading-tight break-words">
         {item.name}
       </div>
 
-      <div className="font-mono text-[10.5px] text-[#a1a1aa] mt-[9px] leading-[1.5]">
+      <div className="font-mono text-[13px] text-[#a1a1aa] mt-[9px] leading-[1.5]">
         make <b className="text-gold font-semibold">{fmtQty(qty, item.unit)}</b> · {fmtMins(active)} hands-on
         {passive > 0 ? ` + ${fmtMins(passive)} ${item.passiveNote || 'rest'}` : ''}
       </div>
@@ -124,7 +124,7 @@ export function NextUpHero({
       {/* Low-stock is advisory, not a blocker — surface the warning but still let the
           cook start (they may have uncounted stock, or be prepping toward a restock). */}
       {blocked && (
-        <div className="flex items-center gap-2 bg-[#18181b] rounded-[10px] px-[13px] py-[11px] mt-3 font-mono text-[10.5px] text-gold">
+        <div className="flex items-center gap-2 bg-[#18181b] rounded-[10px] px-[13px] py-[11px] mt-3 font-mono text-[13px] text-gold">
           <AlertTriangle size={13} className="text-gold" /> {item.blockedReason ?? 'Low stock'}
         </div>
       )}
@@ -137,7 +137,7 @@ export function NextUpHero({
 
       <button
         onClick={() => onOpenRecipe(item)}
-        className="flex items-center justify-center gap-[7px] w-full bg-transparent text-[#e4e4e7] border border-[#3f3f46] rounded-[11px] py-[11px] mt-2 text-[13px] font-medium tracking-[-0.01em] cursor-pointer"
+        className="flex items-center justify-center gap-[7px] w-full bg-transparent text-[#e4e4e7] border border-[#3f3f46] rounded-[11px] py-[11px] mt-2 min-h-[44px] text-[14px] font-medium tracking-[-0.01em] cursor-pointer"
       >
         <BookOpen size={14} className="text-gold" /> Recipe · scale batch
       </button>

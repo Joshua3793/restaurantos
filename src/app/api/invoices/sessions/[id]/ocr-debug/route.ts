@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 // GET /api/invoices/sessions/[id]/ocr-debug
 // Returns raw OCR output stored for each file, plus scan item count.
 // Used to diagnose "0 items found" after processing.
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession('MANAGER') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {

@@ -87,15 +87,44 @@ body {
 }
 
 /* ── Prevent iOS auto-zoom on input focus ──────────────────────────────────── */
+/* iOS zooms into any focused field set under 16px, so small fields are raised
+   to 16px. A field that is already BIG (the 28px recipe name on Recipe Scan)
+   is left alone: CSS can't read an element's own declared size from inside
+   its font-size — max(16px, 1em) resolves 1em against the PARENT, so with
+   !important it would still shrink that 28px field to ~16px. Big fields are
+   recognised instead by a base (unprefixed — "md:text-[36px]" doesn't count)
+   Tailwind size class of 18px and up. */
 @supports (-webkit-touch-callout: none) {
-  input[type="text"],
-  input[type="number"],
-  input[type="email"],
-  input[type="password"],
-  input[type="date"],
-  input[type="search"],
-  textarea,
-  select { font-size: 16px !important; }
+  :is(input[type="text"],
+      input[type="number"],
+      input[type="email"],
+      input[type="password"],
+      input[type="date"],
+      input[type="search"],
+      textarea,
+      select):not([class^="text-lg"], [class*=" text-lg"],
+       [class^="text-xl"], [class*=" text-xl"],
+       [class^="text-2xl"], [class*=" text-2xl"],
+       [class^="text-3xl"], [class*=" text-3xl"],
+       [class^="text-4xl"], [class*=" text-4xl"],
+       [class^="text-[2"], [class*=" text-[2"],
+       [class^="text-[3"], [class*=" text-[3"],
+       [class^="text-[4"], [class*=" text-[4"]) { font-size: 16px !important; }
+
+  /* Phones (below md): every field, typed or not — a bare <input> (prep,
+     recipe, waste, count searches) was missed by the list above and zoomed. */
+  @media (max-width: 767.98px) {
+    :is(input:not([type="checkbox"], [type="radio"], [type="range"]),
+        textarea,
+        select):not([class^="text-lg"], [class*=" text-lg"],
+       [class^="text-xl"], [class*=" text-xl"],
+       [class^="text-2xl"], [class*=" text-2xl"],
+       [class^="text-3xl"], [class*=" text-3xl"],
+       [class^="text-4xl"], [class*=" text-4xl"],
+       [class^="text-[2"], [class*=" text-[2"],
+       [class^="text-[3"], [class*=" text-[3"],
+       [class^="text-[4"], [class*=" text-[4"]) { font-size: 16px !important; }
+  }
 }
 
 /* ── Invoice image viewer — plate highlight (Tag style: soft tint + bracket) ──── */

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   IcX,
   IcCheck,
@@ -62,6 +62,98 @@ function fmt(n: number): string {
   else if (v >= 10) s = (Math.round(v * 10) / 10).toString()
   else s = (Math.round(v * 100) / 100).toString()
   return s.replace(/\.0+$/, '')
+}
+
+// ── Phone helpers (module scope) ───────────────────────────────────
+
+const isPhone = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+
+// "Ingredients, batch & stock" during a job: open by default on a phone, and the
+// cook's last choice is remembered on the device. Desktop keeps today's fold.
+const SHOW_MORE_KEY = 'prep.drawer.showIngredients'
+function readShowMore(): boolean {
+  if (!isPhone()) return false
+  try {
+    const v = window.localStorage.getItem(SHOW_MORE_KEY)
+    return v == null ? true : v === '1'
+  } catch {
+    return true
+  }
+}
+function writeShowMore(v: boolean) {
+  if (!isPhone()) return
+  try { window.localStorage.setItem(SHOW_MORE_KEY, v ? '1' : '0') } catch { /* private mode */ }
+}
+
+// Swipe down on the drawer's header to close it (phones only). The header
+// holds no scrolled list, so a downward drag there is never a scroll.
+// A release past the threshold carries on DOWN off the screen (never snaps
+// back up first); once it is off, the panel is parked at its normal closed
+// spot without a transition, so the next open slides in as usual.
+const CLOSE_DRAG_PX = 90
+const SLIDE_MS = 300
+type SwipePhase = 'idle' | 'drag' | 'closing' | 'parked'
+function useSwipeDownToClose(open: boolean, onClose: () => void) {
+  const start = useRef<{ x: number; y: number } | null>(null)
+  const dragging = useRef(false)
+  const [dy, setDy] = useState(0)
+  const [phase, setPhase] = useState<SwipePhase>('idle')
+  const reset = () => { start.current = null; dragging.current = false; setDy(0); setPhase('idle') }
+  // Off the screen -> park (no transition). Reopened -> back to normal.
+  useEffect(() => {
+    if (phase !== 'closing') return
+    const t = setTimeout(() => setPhase('parked'), SLIDE_MS + 20)
+    return () => clearTimeout(t)
+  }, [phase])
+  useEffect(() => {
+    if (open && phase === 'parked') { setDy(0); setPhase('idle') }
+  }, [open, phase])
+  const handlers = {
+    onTouchStart: (e: React.TouchEvent) => {
+      if (!isPhone() || e.touches.length !== 1) return
+      // React bubbles touches out of portals (the ⋯ sheet): only real header touches count.
+      const t = e.target as HTMLElement
+      if (!e.currentTarget.contains(t)) return
+      // Never hijack a drag that starts inside something already scrolled.
+      for (let n: HTMLElement | null = t; n && n !== e.currentTarget; n = n.parentElement) {
+        if (n.scrollTop > 0) return
+      }
+      start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      dragging.current = false
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      const s = start.current
+      if (!s) return
+      const ddy = e.touches[0].clientY - s.y
+      const ddx = e.touches[0].clientX - s.x
+      // Decide once: a mostly-downward move past 8px is a drag; anything else lets go.
+      if (!dragging.current) {
+        if (Math.abs(ddy) < 8 && Math.abs(ddx) < 8) return
+        if (ddy <= 0 || Math.abs(ddx) > Math.abs(ddy)) { start.current = null; return }
+        dragging.current = true
+        setPhase('drag')
+      }
+      setDy(Math.max(0, ddy))
+    },
+    onTouchEnd: () => {
+      if (dragging.current && dy > CLOSE_DRAG_PX) {
+        start.current = null
+        dragging.current = false
+        setPhase('closing')   // keep the offset; the style animates on down from it
+        onClose()
+      } else {
+        reset()
+      }
+    },
+    onTouchCancel: () => reset(),
+  }
+  const style: React.CSSProperties | undefined =
+    phase === 'drag' && dy > 0 ? { transform: `translateY(${dy}px)`, transition: 'none' }
+    : phase === 'closing' ? { transform: 'translateY(100%)', transition: `transform ${SLIDE_MS}ms ease-out` }
+    // Only while still closed: the render that reopens it must slide in normally.
+    : phase === 'parked' && !open ? { transition: 'none' }
+    : undefined
+  return { style, handlers }
 }
 
 // ── Sub-components (module scope) ──────────────────────────────────
@@ -188,7 +280,9 @@ export default function PrepDrawer({
   const liveNow = Math.max(nowMs, Date.now())
   const cook = onStep ? cookState(item, liveNow) : null
   const [showMore, setShowMore] = useState(false)
-  useEffect(() => { setShowMore(false) }, [item?.id])
+  useEffect(() => { setShowMore(readShowMore()) }, [item?.id])
+  const toggleShowMore = () => setShowMore(m => { writeShowMore(!m); return !m })
+  const swipe = useSwipeDownToClose(open, onClose)
 
   const status: PrepStatus = item?.todayLog?.status ?? 'NOT_STARTED'
   const stateKey = PREP_STATE_META[status].key as StateKey
@@ -228,16 +322,25 @@ export default function PrepDrawer({
         className={`fixed top-0 right-0 bottom-0 z-50 w-full max-w-[100vw] sm:max-w-[580px] bg-bg border-l border-line-2 shadow-2xl flex flex-col overflow-hidden transition-transform duration-300 ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
+        // Follows the thumb while the header is dragged down, and slides on
+        // down when let go past the line (phones only).
+        style={swipe.style}
       >
         {item && (
           <>
             {/* HEAD */}
-            <div className="px-[22px] py-[18px] bg-paper border-b border-line flex items-start gap-3.5" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}>
+            <div
+              {...swipe.handlers}
+              className="relative px-[22px] py-[18px] bg-paper border-b border-line flex items-start gap-3.5 max-md:touch-none"
+              style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 18px)' }}
+            >
+              {/* grab handle — says "pull me down" on a phone */}
+              <span aria-hidden="true" className="md:hidden absolute left-1/2 -translate-x-1/2 w-10 h-1 rounded-full bg-line-2" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 6px)' }} />
               <button
                 type="button"
                 aria-label="Close"
                 onClick={onClose}
-                className="w-8 h-8 rounded-lg border border-line grid place-items-center text-ink-2 hover:border-ink-3 shrink-0"
+                className="w-11 h-11 md:w-8 md:h-8 rounded-lg border border-line grid place-items-center text-ink-2 hover:border-ink-3 shrink-0"
               >
                 <IcX size={15} />
               </button>
@@ -312,11 +415,12 @@ export default function PrepDrawer({
                   <CookModeBlock state={cook} nowMs={liveNow} />
                   <button
                     type="button"
-                    onClick={() => setShowMore(m => !m)}
-                    className="mt-4 w-full flex justify-between items-center bg-paper border border-line rounded-[12px] px-4 py-3 cursor-pointer"
+                    onClick={toggleShowMore}
+                    aria-expanded={showMore}
+                    className="mt-4 w-full flex justify-between items-center bg-paper border border-line rounded-[12px] px-4 py-3 max-md:min-h-[48px] cursor-pointer"
                   >
-                    <span className="text-[13.5px] font-semibold">Ingredients, batch &amp; stock</span>
-                    <span className="font-mono text-[10.5px] text-ink-3">{showMore ? 'HIDE' : 'SHOW'}</span>
+                    <span className="text-[13.5px] max-md:text-[15px] font-semibold">Ingredients, batch &amp; stock</span>
+                    <span className="font-mono text-[10.5px] max-md:text-[12px] text-ink-3">{showMore ? 'HIDE' : 'SHOW'}</span>
                   </button>
                 </div>
               )}
@@ -430,6 +534,17 @@ export default function PrepDrawer({
                 </div>
               </div>
               </>)}
+
+              {/* Phones: a plain way back at the end of the read, so a cook never has
+                  to reach for the corner ×. Not in the footer — that holds the job's
+                  own buttons. */}
+              <button
+                type="button"
+                onClick={onClose}
+                className="md:hidden mt-1 w-full h-12 rounded-[11px] border border-line bg-paper text-[15px] font-semibold text-ink-2 inline-flex items-center justify-center gap-2 active:bg-bg-2"
+              >
+                <span aria-hidden="true">←</span> Back to list
+              </button>
             </div>
 
             {/* FOOTER */}

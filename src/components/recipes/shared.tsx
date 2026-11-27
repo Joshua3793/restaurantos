@@ -420,11 +420,13 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
           )
         })()}
 
+        {/* Phones hide the on/off switch: it sits by the name and is easy to hit by
+            accident. It stays in the recipe editor and on desktop. */}
         {onToggle && (
           <button
             onClick={e => { e.stopPropagation(); onToggle() }}
             title={recipe.isActive ? 'Deactivate' : 'Activate'}
-            className={`relative inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-ink' : 'bg-line-2'}`}
+            className={`relative hidden md:inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-ink' : 'bg-line-2'}`}
           >
             <span className={`pointer-events-none inline-block h-[14px] w-[14px] transform rounded-full bg-white shadow ring-0 transition duration-200 ${recipe.isActive ? 'translate-x-[12px]' : 'translate-x-0'}`} />
           </button>

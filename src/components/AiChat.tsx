@@ -101,6 +101,13 @@ function ThinkingDots() {
   )
 }
 
+// Phones have no floating chat button (it covered row buttons — prep "Next",
+// temps "Log"); the More drawer opens the chat through this event instead.
+const OPEN_EVENT = 'controla:open-chat'
+export function openAiChat() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_EVENT))
+}
+
 export function AiChat() {
   const pathname = usePathname()
   const { activeRcId, activeRc } = useRc()
@@ -115,6 +122,12 @@ export function AiChat() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const onOpen = () => setOpen(true)
+    window.addEventListener(OPEN_EVENT, onOpen)
+    return () => window.removeEventListener(OPEN_EVENT, onOpen)
+  }, [])
 
   useEffect(() => {
     if (open) {
@@ -249,10 +262,10 @@ export function AiChat() {
   if (isAuthRoute(pathname)) return null
 
   return (
-    <div className={`fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px)+0.75rem)] right-4 sm:bottom-6 sm:right-6 z-[55] ${isAnyDrawerOpen ? 'hidden' : ''}`}>
-      {/* Chat panel */}
+    <div className={`fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px)+0.75rem)] right-4 md:bottom-6 md:right-6 z-[55] ${isAnyDrawerOpen ? 'hidden' : ''}`}>
+      {/* Chat panel — on phones it sits right above the tab bar (no button under it) */}
       {open && (
-        <div className="absolute bottom-16 right-0 w-[calc(100vw-32px)] sm:w-96 max-h-[70vh] sm:max-h-[600px] bg-white rounded-2xl shadow-2xl border border-line flex flex-col overflow-hidden">
+        <div className="absolute bottom-0 md:bottom-16 right-0 w-[calc(100vw-32px)] sm:w-96 max-h-[70vh] sm:max-h-[600px] bg-white rounded-2xl shadow-2xl border border-line flex flex-col overflow-hidden">
           {/* Header */}
           <div className="shrink-0 bg-gradient-to-r from-blue to-blue px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -415,10 +428,10 @@ export function AiChat() {
         </div>
       )}
 
-      {/* Toggle button */}
+      {/* Toggle button — desktop only; phones open the chat from More */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-[52px] h-[52px] rounded-full shadow-lg flex items-center justify-center bg-ink hover:bg-ink-2 hover:shadow-xl transition-all"
+        className="hidden md:flex w-[52px] h-[52px] rounded-full shadow-lg items-center justify-center bg-ink hover:bg-ink-2 hover:shadow-xl transition-all"
         aria-label={open ? 'Close CONTROLA chat' : 'Open CONTROLA chat'}
       >
         {open ? (

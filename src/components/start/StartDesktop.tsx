@@ -10,7 +10,7 @@ import { DESKTOP_TOP, itemMeta, stationsDone, tagRows, topRows, type PassRow } f
 import { SubNav } from '@/components/layout/SubNav'
 import { PageHead } from '@/components/layout/PageHead'
 import { useStartData, type StartData } from './useStartData'
-import { greetingFor, crumbDate, personName } from './parts'
+import { greetingFor, crumbDate, personName, firstNameOf } from './parts'
 import {
   Lede, LastNight, PassItemDialog, StationTileWide, VALUE_TONE,
   ReportButton, numberRows, useInboxCount, usePassItem,
@@ -26,7 +26,7 @@ import {
 export function StartDesktop() {
   const { user } = useUser()
   const d = useStartData()
-  const firstName = user?.name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? 'there'
+  const firstName = firstNameOf(user?.name)
   const now = new Date()
   const items = d.inbox?.items ?? []
   const { rows: top, more, nowCount: nowN } = topRows(items, DESKTOP_TOP)
@@ -46,7 +46,7 @@ export function StartDesktop() {
       <div className="p-4 md:p-6 md:px-8 max-w-[1240px] mx-auto w-full">
         <PageHead
           crumbs={<><Clock size={12} /> PASS · {crumbDate(now)}{d.rcName && <> · {d.rcName.toUpperCase()}</>}</>}
-          title={<>Good {greetingFor(now)}, <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em>.</>}
+          title={<>Good {greetingFor(now)}{firstName && <>, <em className="font-fraunces italic font-medium text-gold-2">{firstName}</em></>}.</>}
           sub={
             <span className="flex flex-col items-start gap-2.5">
               <span className="text-[15px] text-ink-2">

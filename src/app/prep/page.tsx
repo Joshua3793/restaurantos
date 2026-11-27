@@ -1863,9 +1863,9 @@ export default function PrepPage() {
             {/* Refresh / Sync / Settings collapse into a ⋯ menu; gold + stays primary */}
             <div className="relative">
               <button onClick={() => setShowHeaderMenu(v => !v)}
-                className="p-2 rounded-lg border border-line text-ink-2 active:bg-bg-2"
-                title="More actions" aria-haspopup="menu" aria-expanded={showHeaderMenu}>
-                <MoreHorizontal size={16} className={generating ? 'text-gold' : ''} />
+                className="w-11 h-11 grid place-items-center rounded-lg border border-line text-ink-2 active:bg-bg-2"
+                title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded={showHeaderMenu}>
+                <MoreHorizontal size={18} className={generating ? 'text-gold' : ''} />
               </button>
               {showHeaderMenu && (
                 <>
@@ -1888,11 +1888,11 @@ export default function PrepPage() {
         </div>
 
         {/* Mobile view tabs */}
-        <div className="flex bg-bg-2 border border-line rounded-xl p-1 mt-2.5 gap-0.5">
+        <div className="flex bg-bg-2 border border-line rounded-xl p-[3px] mt-2.5 gap-0.5">
           {(['today', 'smartprep', 'history'] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
-              className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1 ${viewMode === m ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
-              {m === 'today' ? <>To Do {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className="font-mono bg-gold text-ink text-[9px] font-bold px-1.5 py-0.5 rounded-full">{shiftSummary.total - shiftSummary.resolved}</span>}</> : m === 'smartprep' ? <>Smart Prep {toMake > 0 && <span className="font-mono bg-red text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full">{toMake}</span>}</> : <><History size={12} /> History</>}
+              className={`flex-1 min-h-[44px] text-[14px] font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${viewMode === m ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
+              {m === 'today' ? <>To Do {(shiftSummary.total - shiftSummary.resolved) > 0 && <span className="font-mono bg-gold text-ink text-[11px] font-bold px-1.5 py-0.5 rounded-full">{shiftSummary.total - shiftSummary.resolved}</span>}</> : m === 'smartprep' ? <>Smart Prep {toMake > 0 && <span className="font-mono bg-red text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full">{toMake}</span>}</> : <><History size={14} /> History</>}
             </button>
           ))}
         </div>
@@ -1904,15 +1904,17 @@ export default function PrepPage() {
               <button
                 onClick={() => setShowMobileSearch(v => { if (v) setSearch(''); return !v })}
                 title="Search"
-                className={`shrink-0 p-2 rounded-[9px] border transition-colors ${showMobileSearch || search ? 'border-ink bg-ink text-paper' : 'border-line text-ink-2 active:bg-bg-2'}`}>
-                <Search size={15} />
+                aria-label="Search"
+                className={`shrink-0 w-11 h-11 grid place-items-center rounded-[9px] border transition-colors ${showMobileSearch || search ? 'border-ink bg-ink text-paper' : 'border-line text-ink-2 active:bg-bg-2'}`}>
+                <Search size={17} />
               </button>
               <button
                 onClick={() => setShowMobileFilters(v => !v)}
                 title="Filter"
-                className={`shrink-0 p-2 rounded-[9px] border inline-flex items-center gap-1 transition-colors ${showMobileFilters || activeFilterCount > 0 ? 'border-gold bg-gold-soft text-gold-2' : 'border-line text-ink-2 active:bg-bg-2'}`}>
-                <SlidersHorizontal size={15} />
-                {activeFilterCount > 0 && <span className="font-mono text-[10px] font-bold">{activeFilterCount}</span>}
+                aria-label="Filter"
+                className={`shrink-0 min-w-[44px] h-11 px-2.5 rounded-[9px] border inline-flex items-center justify-center gap-1 transition-colors ${showMobileFilters || activeFilterCount > 0 ? 'border-gold bg-gold-soft text-gold-2' : 'border-line text-ink-2 active:bg-bg-2'}`}>
+                <SlidersHorizontal size={17} />
+                {activeFilterCount > 0 && <span className="font-mono text-[12px] font-bold">{activeFilterCount}</span>}
               </button>
             </div>
 

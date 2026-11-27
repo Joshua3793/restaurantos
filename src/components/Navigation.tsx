@@ -3,7 +3,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useState, Suspense, useEffect } from 'react'
-import { X, LogOut, ChevronRight, Wifi, WifiOff, Lock, Menu } from 'lucide-react'
+import { X, LogOut, ChevronRight, Wifi, WifiOff, Lock, Menu, Sparkles, CloudUpload } from 'lucide-react'
 import { isAuthRoute } from '@/lib/chrome-routes'
 import { MobileTabBar } from '@/components/mobile/MobileTabBar'
 import { QuickAddSheet } from '@/components/mobile/QuickAddSheet'
@@ -15,6 +15,14 @@ import { canAccess } from '@/lib/route-access'
 import { atLeast } from '@/lib/roles'
 import { subscribeInboxCount } from '@/lib/inbox-count-feed'
 import { moreBadgeTotal } from '@/lib/bell'
+import { openAiChat } from '@/components/AiChat'
+import { countWaitingToSend } from '@/lib/pending-count'
+
+// Pages that are a desk job: on a phone's More drawer they move to a small
+// "On a computer" group at the bottom, for anyone who can open at least one
+// of them (a Lead gets Sales; a cook can open none, so never sees the group).
+// Matched on the RESOLVED href, so a cook's Tip payouts (/tips/me) stays.
+const DESK_HREFS = new Set(['/reports', '/variance', '/sales', '/tips', '/setup', '/setup/suppliers', '/setup/revenue-centers'])
 
 export function Navigation() {
   return (
@@ -75,14 +83,27 @@ function NavigationInner() {
     return () => window.removeEventListener('keydown', onKey)
   }, [navOpen])
 
+  // Things on this phone still waiting to reach the server (every offline
+  // queue). Re-read when the drawer opens and when the signal comes or goes.
+  const [waiting, setWaiting] = useState(0)
   useEffect(() => {
-    const on = () => setIsOffline(false)
-    const off = () => setIsOffline(true)
+    const recount = () => { countWaitingToSend().then(setWaiting).catch(() => {}) }
+    const on = () => { setIsOffline(false); recount() }
+    const off = () => { setIsOffline(true); recount() }
     setIsOffline(typeof navigator !== 'undefined' && !navigator.onLine)
     window.addEventListener('online', on)
     window.addEventListener('offline', off)
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
+  // While the drawer is open, re-count every 5s so the pill drains as the
+  // queues send (no online/offline event fires for that).
+  useEffect(() => {
+    if (!moreOpen) return
+    const recount = () => { countWaitingToSend().then(setWaiting).catch(() => {}) }
+    recount()
+    const t = setInterval(recount, 5_000)
+    return () => clearInterval(t)
+  }, [moreOpen])
   const [inboxCounts, setInboxCounts] = useState({ invoicesReview: 0, priceAlerts: 0, inbox: 0 })
   const { activeRcId, ready } = useRc()
   const { role } = useUser()
@@ -151,6 +172,22 @@ function NavigationInner() {
     }
     window.location.assign('/')
   }
+
+  // Phone More drawer: only pages this role can open (no dimmed links into the
+  // no-access page). Desk-only pages collect in "On a computer" at the bottom,
+  // shown when this role can open at least one of them (locked ones are already
+  // filtered out). Item hrefs here are the RESOLVED destination.
+  const drawerGroups: { label: string; items: NavItem[] }[] = (() => {
+    const open = (items: NavItem[]) =>
+      items.map(it => ({ ...it, href: destOf(it) })).filter(it => !isLocked(it.href))
+    const all = [...navGroups, { label: 'SETUP', items: setupItems }].map(g => ({ label: g.label, items: open(g.items) }))
+    const phone = all
+      .map(g => ({ label: g.label, items: g.items.filter(it => !DESK_HREFS.has(it.href)) }))
+      .filter(g => g.items.length > 0)
+    const desk = all.flatMap(g => g.items.filter(it => DESK_HREFS.has(it.href)))
+    if (desk.length > 0 && role != null) phone.push({ label: 'On a computer', items: desk })
+    return phone
+  })()
 
   // No app chrome on auth/standalone routes — same gate as CostChromeGate.
   // Rendering the sidebar on /login not only looked wrong, it prefetched every
@@ -326,12 +363,27 @@ function NavigationInner() {
                   {role ? `${role[0]}${role.slice(1).toLowerCase()}` : 'Staff'} · <TenantName />
                 </div>
               </div>
-              <span className={`font-mono text-[10px] px-2 py-1 rounded-full inline-flex items-center gap-1 shrink-0 ${isOffline ? 'bg-red-soft text-red-text' : 'bg-green-soft text-green-text'}`}>
-                {isOffline ? <WifiOff size={11} /> : <Wifi size={11} />} {isOffline ? 'Offline' : 'Synced'}
+              <span className={`font-mono text-[10px] px-2 py-1 rounded-full inline-flex items-center gap-1 shrink-0 ${isOffline ? 'bg-red-soft text-red-text' : waiting > 0 ? 'bg-gold-soft text-gold-2' : 'bg-green-soft text-green-text'}`}>
+                {isOffline ? <WifiOff size={11} /> : waiting > 0 ? <CloudUpload size={11} /> : <Wifi size={11} />}{' '}
+                {isOffline
+                  ? (waiting > 0 ? `Offline · ${waiting} waiting` : 'Offline')
+                  : waiting > 0 ? `${waiting} waiting to send` : 'Synced'}
               </span>
             </div>
 
-            {[...navGroups, { label: 'SETUP', items: setupItems }].map(group => {
+            {/* Ask Controla — phones have no floating chat button */}
+            <button
+              onClick={() => { setMoreOpen(false); openAiChat() }}
+              className="w-full flex items-center gap-3 bg-paper border border-line rounded-xl px-3 py-2.5 text-left hover:bg-bg-2 transition-colors"
+            >
+              <span className="grid place-items-center w-9 h-9 rounded-[10px] shrink-0 bg-ink">
+                <Sparkles size={17} color="#d97706" />
+              </span>
+              <span className="flex-1 text-[14px] text-ink-2 font-medium">Ask Controla</span>
+              <ChevronRight size={16} className="text-ink-4 shrink-0" />
+            </button>
+
+            {drawerGroups.map(group => {
               return (
                 <div key={group.label}>
                   <p className="font-mono text-[10px] text-ink-4 uppercase tracking-[0.06em] mb-2 px-1">
@@ -341,29 +393,25 @@ function NavigationInner() {
                     {group.items.map((item, i) => {
                       const active = isActive(item)
                       const badge  = getBadge(item.badgeKey)
-                      const href = destOf(item)
-                      const locked = isLocked(href)
+                      const href = item.href // already resolved in drawerGroups
                       const { label, icon: Icon } = item
                       return (
                         <Link
                           key={`drawer-${href}-${label}`}
                           href={href}
-                          prefetch={locked ? false : undefined}
                           onClick={() => setMoreOpen(false)}
-                          className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${i > 0 ? 'border-t border-line' : ''} ${active ? 'bg-gold-soft/50' : 'hover:bg-bg-2'} ${locked ? 'opacity-45' : ''}`}
+                          className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${i > 0 ? 'border-t border-line' : ''} ${active ? 'bg-gold-soft/50' : 'hover:bg-bg-2'}`}
                         >
                           <span className={`grid place-items-center w-9 h-9 rounded-[10px] shrink-0 ${active ? 'bg-ink text-gold' : 'bg-bg-2 text-ink-2'}`}>
                             <Icon size={17} color={active ? '#d97706' : '#27272a'} />
                           </span>
                           <span className={`flex-1 text-[14px] ${active ? 'text-ink font-semibold' : 'text-ink-2 font-medium'}`}>{label}</span>
-                          {!locked && badge > 0 && (
+                          {badge > 0 && (
                             <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gold text-ink min-w-[18px] text-center leading-none">
                               {badge > 99 ? '99+' : badge}
                             </span>
                           )}
-                          {locked
-                            ? <Lock size={15} className="text-ink-4 shrink-0" />
-                            : <ChevronRight size={16} className="text-ink-4 shrink-0" />}
+                          <ChevronRight size={16} className="text-ink-4 shrink-0" />
                         </Link>
                       )
                     })}
