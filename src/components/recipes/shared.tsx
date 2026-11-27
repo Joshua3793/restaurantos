@@ -813,13 +813,18 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
 
   return (
     <div className={`border-t border-line ${needsQty ? 'bg-gold-soft/40' : ''}`}>
-      <div className={`grid grid-cols-12 gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group ${isCustom ? 'italic text-ink-4' : ''}`}>
-        <div className="col-span-1 flex flex-col items-center">
+      {/* Phone (< sm): two lines — arrows | name … pencil/bin on top, then
+          % · qty · unit · cost under the name. The one-line 12-column layout
+          left the name a 3-letter sliver ("Kos her…") on a phone. `order`
+          moves the pencil/bin up beside the name; sm:order-none restores the
+          desktop line. */}
+      <div className={`grid grid-cols-12 gap-x-2 gap-y-1.5 sm:gap-2 px-3 py-2.5 items-center hover:bg-bg/60 group ${isCustom ? 'italic text-ink-4' : ''}`}>
+        <div className="col-span-1 row-span-2 sm:row-span-1 flex flex-col items-center self-start sm:self-auto pt-0.5 sm:pt-0">
           <button onClick={onMoveUp} disabled={!canMoveUp} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronUp size={13} /></button>
           <button onClick={onMoveDown} disabled={!canMoveDown} className="text-ink-4 hover:text-ink-2 disabled:opacity-0 leading-none transition-colors"><ChevronDown size={13} /></button>
         </div>
 
-        <div className="col-span-3 flex items-center gap-1.5 min-w-0">
+        <div className="col-span-9 sm:col-span-3 order-1 sm:order-none flex items-center gap-1.5 min-w-0">
           <button
             onClick={onSetBase}
             title={isBase ? "Remove baker's % reference" : "Set as 100% reference for baker's percentages"}
@@ -841,13 +846,13 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
             {ing.ingredientType === 'inventory' && ing.inventoryItemId && onInventoryClick ? (
               <button
                 onClick={() => onInventoryClick(ing.inventoryItemId!)}
-                className="text-[13px] text-ink line-clamp-2 break-words leading-snug text-left hover:text-gold-2 hover:underline underline-offset-2 transition-colors"
+                className="text-[14px] sm:text-[13px] font-medium sm:font-normal text-ink line-clamp-2 break-words leading-snug text-left hover:text-gold-2 hover:underline underline-offset-2 transition-colors"
                 title="Open inventory item"
               >
                 {ing.ingredientName}
               </button>
             ) : (
-              <span className="text-[13px] text-ink line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
+              <span className="text-[14px] sm:text-[13px] font-medium sm:font-normal text-ink line-clamp-2 break-words leading-snug">{ing.ingredientName}</span>
             )}
             {ing.ingredientType === 'recipe' && (
               <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-gold-2 bg-green-soft px-1.5 py-0.5 rounded-[4px]">Recipe</span>
@@ -877,7 +882,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           </div>
         </div>
 
-        <div className="col-span-1 text-center">
+        <div className="col-span-2 sm:col-span-1 order-3 sm:order-none text-center">
           {baseIsSet ? (
             <div className="flex flex-col items-center gap-0.5">
               {isBase ? (
@@ -906,7 +911,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           )}
         </div>
 
-        <div className="col-span-2 text-right">
+        <div className="col-span-3 sm:col-span-2 order-3 sm:order-none text-right">
           {editingQty ? (
             <input type="number" value={qty} onChange={e => setQty(e.target.value)} onBlur={saveQty}
               onKeyDown={e => e.key === 'Enter' && saveQty()}
@@ -918,7 +923,7 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           )}
         </div>
 
-        <div className="col-span-2">
+        <div className="col-span-3 sm:col-span-2 order-3 sm:order-none">
           {isCustom ? (
             <input
               value={unit}
@@ -941,13 +946,13 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           )}
         </div>
 
-        <div className="col-span-2 text-right font-mono text-[13px] font-medium text-ink">
+        <div className="col-span-3 sm:col-span-2 order-3 sm:order-none text-right font-mono text-[13px] font-medium text-ink">
           {isCustom ? (
             <span className="text-ink-4 not-italic text-[11px]">—</span>
           ) : (
             <>
               {showLastPriceTag && (
-                <span className="mr-1.5 text-[10px] text-ink-4">last price</span>
+                <span className="block sm:inline sm:mr-1.5 text-[10px] leading-tight text-ink-4">last price</span>
               )}
               {ing.dimensionConflict && <UnitMismatchPill ing={ing} />}
               {formatCurrency(displayCost)}
@@ -955,15 +960,15 @@ const IngredientRow = memo(function IngredientRow({ ing, scaleFactor, canMoveUp,
           )}
         </div>
 
-        <div className="col-span-1 flex items-center justify-end gap-1">
+        <div className="col-span-2 sm:col-span-1 order-2 sm:order-none flex items-center justify-end gap-3 sm:gap-1">
           <button
             onClick={() => setSubstituting(s => !s)}
             title="Substitute ingredient"
-            className={`transition-colors ${substituting ? 'text-blue' : 'text-ink-4 hover:text-blue'}`}
+            className={`transition-colors p-1.5 -m-1.5 sm:p-0 sm:m-0 ${substituting ? 'text-blue' : 'text-ink-4 hover:text-blue'}`}
           >
-            <Pencil size={12} />
+            <Pencil size={14} className="sm:w-3 sm:h-3" />
           </button>
-          <button onClick={() => onDelete(ing.id)} className="text-ink-4 hover:text-red"><Trash2 size={12} /></button>
+          <button onClick={() => onDelete(ing.id)} className="text-ink-4 hover:text-red p-1.5 -m-1.5 sm:p-0 sm:m-0"><Trash2 size={14} className="sm:w-3 sm:h-3" /></button>
         </div>
       </div>
 
@@ -2004,7 +2009,7 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
             )}
             <RecipeDimensionWarning count={recipe.dimensionConflicts ?? 0} className="mb-2" />
             <div className="border border-line rounded-t-xl overflow-hidden">
-              <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-bg text-xs font-medium text-ink-3">
+              <div className="hidden sm:grid grid-cols-12 gap-2 px-3 py-2 bg-bg text-xs font-medium text-ink-3">
                 <div className="col-span-4">Ingredient</div>
                 <div className="col-span-1 text-center" title={baseIsSet && baseIngName ? `Baker's % relative to ${baseIngName}` : 'Baker\'s %'}>%</div>
                 <div className="col-span-2 text-right">Qty</div>
