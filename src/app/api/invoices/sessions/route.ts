@@ -4,6 +4,10 @@ import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { deleteSession, RollbackRefused, type DeleteSessionResult } from '@/lib/invoice/rollback-load'
 import { UPLOAD_NEVER_FINISHED } from '@/lib/invoices/inbox-items'
+import { Prisma } from '@prisma/client'
+
+/** A client-minted session id: a canonical UUID (crypto.randomUUID shape). */
+const CLIENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 // The bulk DELETE below runs `deleteSession` (and its 30s-headroom rollback
 // transaction, `TX_OPTIONS` in rollback-load.ts) once per id in the list — past
@@ -115,7 +119,20 @@ export async function POST(req: NextRequest) {
     throw e
   }
 
-  const { supplierName, supplierId, revenueCenterId } = await req.json().catch(() => ({}))
+  const { supplierName, supplierId, revenueCenterId, id } = await req.json().catch(() => ({}))
+
+  // Optional id the phone minted before asking (useNativeScan): a create whose
+  // reply was lost is asked for again with the SAME id, so a retry finds the
+  // first session instead of leaving it behind as an empty "Uploading" row.
+  let clientId: string | undefined
+  if (id !== undefined && id !== null) {
+    if (typeof id !== 'string' || !CLIENT_ID_RE.test(id)) {
+      return NextResponse.json({ error: 'id must be a UUID' }, { status: 400 })
+    }
+    clientId = id.toLowerCase()
+    const existing = await prisma.invoiceSession.findUnique({ where: { id: clientId } })
+    if (existing) return NextResponse.json(existing, { status: 200 })
+  }
 
   // Every invoice gets an RC so it is always visible to per-RC reporting.
   // Sidebar filtering is view-only and must NOT drive the invoice's RC, so we
@@ -137,14 +154,24 @@ export async function POST(req: NextRequest) {
     throw e
   }
 
-  const session = await prisma.invoiceSession.create({
-    data: {
-      status: 'UPLOADING',
-      supplierName: supplierName || null,
-      supplierId: supplierId || null,
-      revenueCenterId: rcId,
-    },
-  })
-
-  return NextResponse.json(session, { status: 201 })
+  try {
+    const session = await prisma.invoiceSession.create({
+      data: {
+        ...(clientId ? { id: clientId } : {}),
+        status: 'UPLOADING',
+        supplierName: supplierName || null,
+        supplierId: supplierId || null,
+        revenueCenterId: rcId,
+      },
+    })
+    return NextResponse.json(session, { status: 201 })
+  } catch (e) {
+    // Two copies of the same request raced (a timed-out try and its retry):
+    // the loser hands back the winner's session.
+    if (clientId && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const existing = await prisma.invoiceSession.findUnique({ where: { id: clientId } })
+      if (existing) return NextResponse.json(existing, { status: 200 })
+    }
+    throw e
+  }
 }

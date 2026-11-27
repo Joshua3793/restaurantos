@@ -269,12 +269,19 @@ export function BulkActionBar({ count, onDeactivate, onDelete, onClear }: {
   )
 }
 
+/** Phone width (below md), checked at tap time: phones open a recipe read-only first. */
+export function isPhoneWidth(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+}
+
 // ─── RecipeCard ───────────────────────────────────────────────────────────────
 export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, isSelected, onSelect }: {
   recipe: Recipe
   onOpen: () => void
-  onToggle: () => void
-  onDuplicate: () => void
+  /** Omitted for cooks (read-only): no on/off switch. */
+  onToggle?: () => void
+  /** Omitted for cooks (read-only): no Duplicate in the ⋯ menu. */
+  onDuplicate?: () => void
   onDelete?: () => void
   isSelected?: boolean
   onSelect?: () => void
@@ -413,13 +420,15 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
           )
         })()}
 
-        <button
-          onClick={e => { e.stopPropagation(); onToggle() }}
-          title={recipe.isActive ? 'Deactivate' : 'Activate'}
-          className={`relative inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-ink' : 'bg-line-2'}`}
-        >
-          <span className={`pointer-events-none inline-block h-[14px] w-[14px] transform rounded-full bg-white shadow ring-0 transition duration-200 ${recipe.isActive ? 'translate-x-[12px]' : 'translate-x-0'}`} />
-        </button>
+        {onToggle && (
+          <button
+            onClick={e => { e.stopPropagation(); onToggle() }}
+            title={recipe.isActive ? 'Deactivate' : 'Activate'}
+            className={`relative inline-flex w-[30px] h-[18px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${recipe.isActive ? 'bg-ink' : 'bg-line-2'}`}
+          >
+            <span className={`pointer-events-none inline-block h-[14px] w-[14px] transform rounded-full bg-white shadow ring-0 transition duration-200 ${recipe.isActive ? 'translate-x-[12px]' : 'translate-x-0'}`} />
+          </button>
+        )}
 
         {/* Print Card — always visible */}
         <button
@@ -431,12 +440,14 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
         </button>
       </div>
 
-      {/* ── More menu (Duplicate + Delete only) ── */}
-      <div className="relative shrink-0" ref={moreRef} onClick={e => e.stopPropagation()}>
-        <button ref={moreButtonRef} onClick={openMore} className="p-1.5 rounded-[7px] text-ink-4 hover:text-ink hover:bg-bg-2 transition-colors">
-          <MoreHorizontal size={14} />
-        </button>
-      </div>
+      {/* ── More menu (Duplicate + Delete only) — none when the row is read-only ── */}
+      {(onDuplicate || onDelete) && (
+        <div className="relative shrink-0" ref={moreRef} onClick={e => e.stopPropagation()}>
+          <button ref={moreButtonRef} onClick={openMore} className="p-1.5 rounded-[7px] text-ink-4 hover:text-ink hover:bg-bg-2 transition-colors">
+            <MoreHorizontal size={14} />
+          </button>
+        </div>
+      )}
       {showMore && menuPos && typeof document !== 'undefined' && createPortal(
         <div
           ref={moreRef}
@@ -444,12 +455,14 @@ export function RecipeCard({ recipe, onOpen, onToggle, onDuplicate, onDelete, is
           className="bg-paper rounded-[10px] shadow-lg border border-line py-1 w-36"
           onClick={e => e.stopPropagation()}
         >
-          <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-[13px] text-left text-ink-2 hover:bg-bg-2 flex items-center gap-2">
-            <Copy size={13} /> Duplicate
-          </button>
+          {onDuplicate && (
+            <button onClick={() => { onDuplicate(); setShowMore(false) }} className="w-full px-3 py-2 text-[13px] text-left text-ink-2 hover:bg-bg-2 flex items-center gap-2">
+              <Copy size={13} /> Duplicate
+            </button>
+          )}
           {onDelete && (
             <>
-              <div className="border-t border-line my-1" />
+              {onDuplicate && <div className="border-t border-line my-1" />}
               {confirmDelete ? (
                 <div className="px-3 py-2">
                   <p className="text-[11px] text-ink-3 mb-2">Delete permanently?</p>

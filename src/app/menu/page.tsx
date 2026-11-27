@@ -2,7 +2,8 @@
 import { useEffect, useState, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { X, UtensilsCrossed, Search, Check, Download, SlidersHorizontal } from 'lucide-react'
-import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar } from '@/components/recipes/shared'
+import { RecipeCard, RecipePanel, CategoryManager, BulkActionBar, isPhoneWidth } from '@/components/recipes/shared'
+import { RecipeViewModal } from '@/components/prep/RecipeViewModal'
 import type { Recipe, RecipeCategory } from '@/components/recipes/shared'
 import { MENU_YIELD_UNITS } from '@/lib/uom'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -10,6 +11,8 @@ import { setScopeParams } from '@/lib/scope-params'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
 import { getVocab } from '@/lib/rc-vocab'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 
 export default function MenuPage() {
   return (
@@ -25,6 +28,9 @@ function MenuPageInner() {
   // Type-driven cost label: RC type → "Food cost %" / "Pour cost %"; Location/all → "Cost %".
   const costPctLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'Cost %'
   const { setDrawerOpen } = useDrawer()
+  // Changing a dish is LEAD+ (the API enforces it); cooks only read.
+  const { role } = useUser()
+  const canEdit = role != null && atLeast(role, 'LEAD')
   const [recipes, setRecipes]             = useState<Recipe[]>([])
   // False until the first list response lands — the skeleton shows instead of "No dishes yet".
   const [loaded, setLoaded]               = useState(false)
@@ -39,6 +45,9 @@ function MenuPageInner() {
   const [sortMode, setSortMode]           = useState<'az' | 'cost' | 'foodcost'>('az')
   const [viewMode, setViewMode]           = useState<'list' | 'grid'>('list')
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
+  // Read-only view: every phone tap, and cooks on any screen.
+  const [viewRecipeId, setViewRecipeId]   = useState<string | null>(null)
+  const [viewChecked, setViewChecked]     = useState<Set<string>>(new Set())
   const [showNewForm, setShowNewForm]     = useState(false)
   const [showCatManager, setShowCatManager] = useState(false)
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set())
@@ -95,10 +104,25 @@ function MenuPageInner() {
   useEffect(() => { loadCategories() }, [loadCategories])
   useEffect(() => { loadRecipes() }, [loadRecipes])
 
+  // Cooks never get the editor — a deep link (/menu?item=…) opens the read-only view.
   useEffect(() => {
-    setDrawerOpen(selectedRecipeId !== null)
+    if (role == null || canEdit || !selectedRecipeId) return
+    setViewChecked(new Set())
+    setViewRecipeId(selectedRecipeId)
+    setSelectedRecipeId(null)
+  }, [role, canEdit, selectedRecipeId])
+
+  useEffect(() => {
+    setDrawerOpen(selectedRecipeId !== null && canEdit)
     return () => setDrawerOpen(false)
-  }, [selectedRecipeId, setDrawerOpen])
+  }, [selectedRecipeId, canEdit, setDrawerOpen])
+
+  // Row tap: phones (and cooks) see the dish first; leads on a desktop go straight to the editor.
+  const openRecipe = (id: string) => {
+    if (canEdit && !isPhoneWidth()) { setSelectedRecipeId(id); return }
+    setViewChecked(new Set())
+    setViewRecipeId(id)
+  }
 
   const typeCats = categories.filter(c => c.type === type).sort((a, b) => a.sortOrder - b.sortOrder)
 
@@ -206,13 +230,15 @@ function MenuPageInner() {
           <UtensilsCrossed size={14} />
           Menu
         </button>
-        <button
-          onClick={() => setShowCatManager(true)}
-          className="flex items-center gap-2 px-4 text-[13.5px] font-medium text-ink-3 hover:text-ink border-b-2 border-transparent transition-colors tracking-[-0.005em]"
-        >
-          <SlidersHorizontal size={13} />
-          Categories
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowCatManager(true)}
+            className="flex items-center gap-2 px-4 text-[13.5px] font-medium text-ink-3 hover:text-ink border-b-2 border-transparent transition-colors tracking-[-0.005em]"
+          >
+            <SlidersHorizontal size={13} />
+            Categories
+          </button>
+        )}
         <div className="ml-auto flex items-center">
           <span className="font-mono text-[10.5px] text-ink-3 bg-bg-2 border border-line rounded-[6px] px-2 py-0.5">⌘ K</span>
         </div>
@@ -239,21 +265,25 @@ function MenuPageInner() {
             <Download size={13} className="text-ink-3" />
             Export
           </button>
-          <button
-            onClick={() => setShowCatManager(true)}
-            className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors"
-          >
-            <SlidersHorizontal size={13} className="text-ink-3" />
-            Edit categories
-          </button>
-          <button
-            onClick={() => setShowNewForm(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors"
-          >
-            <span className="text-gold font-semibold">+</span>
-            <span className="hidden sm:inline">New dish</span>
-            <span className="sm:hidden">New</span>
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowCatManager(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-[9px] text-[13px] font-medium text-ink-2 bg-paper border border-line hover:border-ink-3 transition-colors"
+            >
+              <SlidersHorizontal size={13} className="text-ink-3" />
+              Edit categories
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => setShowNewForm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium text-paper bg-ink hover:bg-ink-2 transition-colors"
+            >
+              <span className="text-gold font-semibold">+</span>
+              <span className="hidden sm:inline">New dish</span>
+              <span className="sm:hidden">New</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -333,7 +363,10 @@ function MenuPageInner() {
         <p className="font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase">
           {displayRecipes.length} {displayRecipes.length === 1 ? 'dish' : 'dishes'} · {sortMode === 'az' ? 'A–Z' : sortMode === 'cost' ? 'Cost' : costPctLabel.replace(/ %$/, '')}
           {activeCatId && <> · {typeCats.find(c => c.id === activeCatId)?.name}</>}
-          {!activeCatId && <> · click any row to edit</>}
+          {!activeCatId && <>
+            <span className="md:hidden"> · tap a dish to view it</span>
+            <span className="hidden md:inline"> · {canEdit ? 'click any row to edit' : 'click any row to view'}</span>
+          </>}
         </p>
         <label className="flex items-center gap-2 font-mono text-[10.5px] text-ink-3 tracking-[0.04em] uppercase cursor-pointer select-none">
           <input
@@ -350,7 +383,7 @@ function MenuPageInner() {
       <div className="flex-1 pb-20 md:pb-4">
 
         {/* New dish form */}
-        {showNewForm && (
+        {showNewForm && canEdit && (
           <div className="bg-paper rounded-xl border border-line p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-[15px] text-ink tracking-[-0.02em]">New menu dish</h3>
@@ -457,7 +490,7 @@ function MenuPageInner() {
             <p className="text-ink-3 text-[13px]">
               {searchInput ? `No dishes match "${searchInput}"` : 'No dishes yet'}
             </p>
-            {!searchInput && (
+            {!searchInput && canEdit && (
               <button onClick={() => setShowNewForm(true)} className="mt-3 font-mono text-[11px] text-gold-2 hover:text-gold">
                 Create your first dish →
               </button>
@@ -467,21 +500,23 @@ function MenuPageInner() {
           <div className="bg-paper rounded-xl border border-line overflow-hidden">
             <div className="flex items-center gap-3 px-4 py-2.5 bg-bg-2 border-b border-line font-mono text-[10.5px] uppercase tracking-[0.04em] text-ink-3">
               {/* Select-all checkbox */}
-              <button
-                onClick={handleSelectAll}
-                className={`shrink-0 w-4 h-4 rounded-[4px] border-[1.5px] flex items-center justify-center transition-colors ${
-                  allVisibleSelected
-                    ? 'border-ink bg-ink'
-                    : selectedIds.size > 0
-                    ? 'border-ink bg-bg-2'
-                    : 'border-line-2 hover:border-ink-3 bg-paper'
-                }`}
-              >
-                {allVisibleSelected && <Check size={10} className="text-paper" strokeWidth={3} />}
-                {!allVisibleSelected && selectedIds.size > 0 && (
-                  <span className="w-1.5 h-0.5 bg-ink rounded-full" />
-                )}
-              </button>
+              {canEdit && (
+                <button
+                  onClick={handleSelectAll}
+                  className={`shrink-0 w-4 h-4 rounded-[4px] border-[1.5px] flex items-center justify-center transition-colors ${
+                    allVisibleSelected
+                      ? 'border-ink bg-ink'
+                      : selectedIds.size > 0
+                      ? 'border-ink bg-bg-2'
+                      : 'border-line-2 hover:border-ink-3 bg-paper'
+                  }`}
+                >
+                  {allVisibleSelected && <Check size={10} className="text-paper" strokeWidth={3} />}
+                  {!allVisibleSelected && selectedIds.size > 0 && (
+                    <span className="w-1.5 h-0.5 bg-ink rounded-full" />
+                  )}
+                </button>
+              )}
               <span className="flex-1">Name</span>
               <span className="hidden sm:block pr-20">Base cost · Price · {costPctLabel}</span>
             </div>
@@ -489,12 +524,12 @@ function MenuPageInner() {
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
-                onOpen={() => setSelectedRecipeId(recipe.id)}
-                onToggle={() => handleToggle(recipe.id)}
-                onDuplicate={() => handleDuplicate(recipe)}
-                onDelete={() => handleDelete(recipe.id)}
+                onOpen={() => openRecipe(recipe.id)}
+                onToggle={canEdit ? () => handleToggle(recipe.id) : undefined}
+                onDuplicate={canEdit ? () => handleDuplicate(recipe) : undefined}
+                onDelete={canEdit ? () => handleDelete(recipe.id) : undefined}
                 isSelected={selectedIds.has(recipe.id)}
-                onSelect={() => handleSelect(recipe.id)}
+                onSelect={canEdit ? () => handleSelect(recipe.id) : undefined}
               />
             ))}
           </div>
@@ -564,7 +599,7 @@ function MenuPageInner() {
       )}
 
       {/* Recipe Detail Panel */}
-      {selectedRecipeId && (
+      {selectedRecipeId && canEdit && (
         <RecipePanel
           recipeId={selectedRecipeId}
           categories={categories}
@@ -573,8 +608,20 @@ function MenuPageInner() {
         />
       )}
 
+      {/* Read-only view — phones first, cooks always */}
+      {viewRecipeId && (
+        <RecipeViewModal
+          recipeId={viewRecipeId}
+          recipeName={recipes.find(r => r.id === viewRecipeId)?.name ?? ''}
+          checkedIngredients={viewChecked}
+          onToggleIngredient={id => setViewChecked(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })}
+          onClose={() => setViewRecipeId(null)}
+          onEdit={canEdit ? () => { setSelectedRecipeId(viewRecipeId); setViewRecipeId(null) } : undefined}
+        />
+      )}
+
       {/* Category Manager Modal */}
-      {showCatManager && (
+      {showCatManager && canEdit && (
         <CategoryManager
           type={type}
           categories={categories}

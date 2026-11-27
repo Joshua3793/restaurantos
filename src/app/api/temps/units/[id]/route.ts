@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 const num = (v: unknown) => (v == null ? null : Number(v))
 
 // ── PATCH /api/temps/units/[id] ───────────────────────────────────────────────
-// Edit name and/or safe range. Pass null (or '') for a one-sided limit.
+// Edit name and/or safe range. Pass null (or '') for a one-sided limit. MANAGER+.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
+    await requireSession('MANAGER')
     const body = await req.json()
     const data: Record<string, unknown> = {}
 
@@ -36,21 +38,24 @@ export async function PATCH(
       sortOrder: unit.sortOrder,
     })
   } catch (err) {
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[temps/units PATCH]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
 // ── DELETE /api/temps/units/[id] ──────────────────────────────────────────────
-// Soft delete — readings stay in the History record.
+// Soft delete — readings stay in the History record. MANAGER+.
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   try {
+    await requireSession('MANAGER')
     await prisma.tempUnit.update({ where: { id: params.id }, data: { isActive: false } })
     return NextResponse.json({ ok: true })
   } catch (err) {
+    if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.status })
     console.error('[temps/units DELETE]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

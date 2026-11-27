@@ -7,7 +7,9 @@ export interface CountMutation {
   ts:        number
   sessionId: string
   lineId:    string
-  type:      'count' | 'skip' | 'uom'
+  // 'clear' = reset the line to uncounted ("Clear count"). Shares the count/skip
+  // dedupe key, so a later count supersedes a queued clear and vice versa.
+  type:      'count' | 'skip' | 'uom' | 'clear'
   qty?:      number
   entries?:  { unit: string; qty: number }[]   // mixed-unit count (authoritative when present)
   carried?:  boolean                            // "Same as last" — record unchanged, zero variance
@@ -60,7 +62,7 @@ export function loadCountQueue(): CountMutation[] {
 }
 
 /**
- * Drop any queued count/skip for a line, leaving 'uom' mutations alone.
+ * Drop any queued count/skip/clear for a line, leaving 'uom' mutations alone.
  * Used when a unit change invalidates an already-recorded count: without this the
  * superseded count would still flush and re-count the line under the new unit.
  * Returns the resulting queue length so callers can resync their pending badge.
@@ -136,6 +138,9 @@ export async function flushCountQueue(): Promise<{ synced: number; failed: numbe
         body: JSON.stringify(
           m.type === 'skip'
             ? { skipped: true }
+            : m.type === 'clear'
+              // `skipped: false` is this API's "reset to uncounted" verb.
+              ? { skipped: false }
             : m.type === 'uom'
               // `skipped: false` is this API's existing "reset to uncounted" verb
               // (see clearLine / unskipLine) — it drops the qty and keeps the unit.

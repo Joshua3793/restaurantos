@@ -8,6 +8,7 @@ import { InboxViewV2 } from '@/components/invoices/InboxViewV2'
 import { InboxSubNav } from '@/components/invoices/InboxSubNav'
 import { MobileInbox } from '@/components/invoices/mobile/MobileInbox'
 import { DiscardBatchDialog } from '@/components/invoices/DiscardBatchDialog'
+import { PendingScansBanner } from '@/components/invoices/PendingScansBanner'
 import { Signal, batchNoun } from '@/lib/invoices/inbox-items'
 import { PageHead } from '@/components/layout/PageHead'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
@@ -146,7 +147,10 @@ export default function InvoicesPage() {
     fetchSessions()
   }, [fetchSessions])
 
-  const { triggerScan, submitPages, isScanning, scanError, clearError } = useNativeScan({
+  const {
+    triggerScan, submitPages, isScanning, progress, scanError, clearError,
+    pending, retrying, retryProgress, retryPending, discardPending,
+  } = useNativeScan({
     activeRcId,
     onComplete: handleScanComplete,
     onGrouping: setGroupingSessionId,
@@ -340,6 +344,15 @@ export default function InvoicesPage() {
         </div>
       )}
 
+      {/* Scans saved on this phone that have not reached the server yet. */}
+      <PendingScansBanner
+        pending={pending}
+        sending={retrying}
+        progress={retryProgress}
+        onSendNow={() => { retryPending(true) }}
+        onDiscard={discardPending}
+      />
+
       {/* ── Mobile: unified inbox feed ── */}
       <div className="block sm:hidden">
         <MobileInbox
@@ -350,6 +363,7 @@ export default function InvoicesPage() {
           onScanClick={handleScanClick}
           onSignalAct={handleSignalAct}
           onDiscardBatch={requestDiscard}
+          onRetry={handleRetry}
         />
       </div>
 
@@ -425,7 +439,7 @@ export default function InvoicesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl px-8 py-6 flex flex-col items-center gap-3 shadow-xl">
             <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm font-semibold text-ink-2">Processing scan…</p>
+            <p className="text-sm font-semibold text-ink-2">{progress ?? 'Getting pages ready…'}</p>
           </div>
         </div>
       )}

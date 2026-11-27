@@ -6,7 +6,7 @@ import { requireSession, AuthError } from '@/lib/auth'
 export const dynamic = 'force-dynamic'
 
 export async function PATCH(_req: NextRequest, { params }: { params: { id: string } }) {
-  try { await requireSession() }
+  try { await requireSession('LEAD') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

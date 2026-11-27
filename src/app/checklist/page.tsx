@@ -9,7 +9,9 @@ import { useUser } from '@/contexts/UserContext'
 import { useToast } from '@/components/Toast'
 import { atLeast } from '@/lib/roles'
 import { defaultPhase, type Phase } from '@/lib/checklists/rules'
-import type { LineAction } from '@/lib/checklists/apply-line'
+import { applyLine, type LineAction } from '@/lib/checklists/apply-line'
+import { discardQueuedFor, enqueueLine, flushLineQueue, hasQueued, loadLineQueue, waitingFromOthers } from '@/components/checklists/line-queue'
+import { OthersWaiting } from '@/components/checklists/OthersWaiting'
 import type { CookView } from '@/lib/checklists/cook-view'
 import type { LineView, RunView } from '@/lib/checklists/runs'
 import { StationPicker } from '@/components/checklists/StationPicker'
@@ -32,14 +34,20 @@ import { lineOrder, type ListFilter } from '@/lib/checklists/list-layout'
 // and sign-off under it, and the keyboard walks the list (↑ ↓ Space F 0–9).
 
 const POLL_MS = 30_000
+// A save that hangs this long counts as no signal (it stays queued), so a stuck
+// request never holds the screen's refresh back.
+const CALL_TIMEOUT_MS = 15_000
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string; status: number }
 
 async function call<T>(url: string, init?: RequestInit): Promise<Result<T>> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), CALL_TIMEOUT_MS)
   try {
     const res = await fetch(url, {
       cache: 'no-store',
       ...init,
+      signal: ctl.signal,
       headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     })
     const data = await res.json().catch(() => null)
@@ -47,6 +55,8 @@ async function call<T>(url: string, init?: RequestInit): Promise<Result<T>> {
     return { ok: true, data: data as T }
   } catch {
     return { ok: false, status: 0, error: 'No connection — try again.' }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -70,6 +80,35 @@ function replaceLine(view: CookView, line: LineView): CookView {
   const fix = (r: RunView): RunView =>
     r.id === line.runId ? { ...r, lines: r.lines.map(l => (l.id === line.id ? line : l)) } : r
   return { ...view, mine: view.mine.map(fix), shared: view.shared ? fix(view.shared) : null }
+}
+
+/** The line as the server will save it — the same pure rule the route runs. */
+function answered(line: LineView, action: LineAction, who: { id: string; name: string }, at: Date): LineView | { error: string } {
+  const r = applyLine({ answer: line.answer, safeMin: line.safeMin, safeMax: line.safeMax }, action, who, at)
+  if ('error' in r) return { error: r.error }
+  const d = r.data
+  return {
+    ...line,
+    status: d.status, value: d.value,
+    doneById: d.doneById, doneByName: d.doneByName, doneAt: d.doneAt ? d.doneAt.toISOString() : null,
+    flagReason: d.flagReason, flagNote: d.flagNote,
+    resolvedById: null, resolvedByName: null, resolvedAt: null,
+  }
+}
+
+/** Paint this cook's answers still waiting on the phone over a freshly loaded list. */
+function withQueued(view: CookView, who: { id: string; name: string }): CookView {
+  const queued = loadLineQueue().filter(e => e.userId === who.id)
+  if (queued.length === 0) return view
+  const lines = new Map([...view.mine, ...(view.shared ? [view.shared] : [])].flatMap(r => r.lines).map(l => [l.id, l]))
+  let out = view
+  for (const e of queued) {
+    const line = lines.get(e.lineId)
+    if (!line) continue
+    const next = answered(line, e.action, who, new Date(e.takenAt))
+    if (!('error' in next)) out = replaceLine(out, next)
+  }
+  return out
 }
 
 function replaceRun(view: CookView, run: RunView): CookView {
@@ -125,6 +164,19 @@ function ChecklistScreen() {
 
   const showError = useCallback((msg: string) => toast.show({ type: 'error', title: msg }), [toast])
 
+  // Who is answering — a ref so load/flush read it without re-subscribing.
+  const whoRef = useRef({ id: '', name: '' })
+  whoRef.current = { id: user?.id ?? '', name: user?.name ?? user?.email ?? '' }
+  // This cook's answers saved on the phone with no signal (line-queue.ts).
+  const [queuedCount, setQueuedCount] = useState(0)
+  // Other cooks' answers left on this (shared) phone: they only send under their own sign-in.
+  const [othersQueued, setOthersQueued] = useState<ReturnType<typeof waitingFromOthers>>([])
+  const refreshQueued = useCallback(() => {
+    const uid = whoRef.current.id
+    setQueuedCount(uid ? loadLineQueue().filter(e => e.userId === uid).length : 0)
+    setOthersQueued(uid ? waitingFromOthers(uid) : [])
+  }, [])
+
   useEffect(() => {
     call<{ cook: { name?: string | null; homeStation: string | null } | null }>('/api/prep/me').then(r => {
       if (r.ok) {
@@ -151,7 +203,7 @@ function ChecklistScreen() {
     if (!paramPhase && !pinnedPhase.current) pinnedPhase.current = r.data.phase
     if (inflight.current > 0 || seq !== mutSeq.current) return
     setLoadError(null)
-    setView(r.data)
+    setView(whoRef.current.id ? withQueued(r.data, whoRef.current) : r.data)
     setViewFor(myKey)
   }, [activeRcId, paramPhase, paramStation])
 
@@ -188,6 +240,50 @@ function ChecklistScreen() {
     try { return await fn() } finally { inflight.current--; mutSeq.current++ }
   }
 
+  // Send the answers waiting on this phone: on load, on reconnect, when the page
+  // comes back into view, and with the poll. Wrapped in mutate() so a poll in
+  // flight can't paint the pre-send state back over them.
+  const flushingRef = useRef(false)
+  const flush = useCallback(async () => {
+    const uid = whoRef.current.id
+    if (!uid || flushingRef.current) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) { refreshQueued(); return }
+    if (!loadLineQueue().some(e => e.userId === uid)) { refreshQueued(); return }
+    flushingRef.current = true
+    try {
+      mutSeq.current++
+      inflight.current++
+      let res: Awaited<ReturnType<typeof flushLineQueue<LineView>>>
+      try {
+        res = await flushLineQueue<LineView>(uid, (id, body) =>
+          call<{ line: LineView }>(`/api/checklists/lines/${id}`, { method: 'PUT', body: JSON.stringify(body) }))
+      } finally { inflight.current--; mutSeq.current++ }
+      refreshQueued()
+      if (res.rejected > 0) {
+        showError(`${res.rejected} ${res.rejected === 1 ? 'answer' : 'answers'} saved on this phone could not be saved — check the list.`)
+      }
+      if (res.sent.length > 0 || res.rejected > 0) load()
+    } finally {
+      flushingRef.current = false
+    }
+  }, [load, refreshQueued, showError])
+
+  const userId = user?.id ?? ''
+  useEffect(() => {
+    if (!userId) return
+    flush()
+    const onOnline = () => { flush() }
+    const onVis = () => { if (document.visibilityState === 'visible') flush() }
+    const id = setInterval(() => { if (document.visibilityState === 'visible') flush() }, POLL_MS)
+    window.addEventListener('online', onOnline)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('online', onOnline)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [userId, flush])
+
   const setBusy = (id: string, on: boolean) => {
     if (on) busyRef.current.add(id)
     else busyRef.current.delete(id)
@@ -214,19 +310,40 @@ function ChecklistScreen() {
   }
 
   const myName = user?.name ?? user?.email ?? ''
+  // The name another cook sees on this phone if this answer is left waiting (never a full email).
+  const queueName = cookName?.trim() || user?.name?.trim() || (user?.email ?? '').split('@')[0]
 
-  // A TICK tap flips at once and rolls back with a toast if the save fails.
+  /** True when this answer should wait on the phone instead of going now. */
+  const mustQueue = (lineId: string) =>
+    (typeof navigator !== 'undefined' && navigator.onLine === false) || hasQueued(lineId)
+
+  /** Keep the answer on screen and save it on the phone; it sends when signal is back. */
+  const queueAnswer = (lineId: string, action: LineAction, at: Date) => {
+    if (!user?.id) return false
+    enqueueLine({ lineId, action, takenAt: at.toISOString(), userId: user.id, userName: queueName })
+    refreshQueued()
+    // A job already waiting: send in order behind it, now if there is signal.
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) void flush()
+    return true
+  }
+
+  // A TICK tap flips at once. No signal: it stays ticked and waits on the phone.
+  // A server refusal rolls back with a toast.
   const tapLine = async (line: RowLine) => {
     if (busyRef.current.has(line.id)) return
     if (line.answer !== 'TICK' || line.status === 'FLAGGED') { setSheetLineId(line.id); return }
     const tick = line.status === 'TODO'
+    const action: LineAction = { action: tick ? 'tick' : 'untick' }
+    const at = new Date()
     const before: LineView = line
     const optimistic: LineView = tick
-      ? { ...line, status: 'DONE', value: null, doneByName: myName, doneById: user?.id ?? null, doneAt: new Date().toISOString(), flagReason: null, flagNote: null }
+      ? { ...line, status: 'DONE', value: null, doneByName: myName, doneById: user?.id ?? null, doneAt: at.toISOString(), flagReason: null, flagNote: null }
       : { ...line, status: 'TODO', value: null, doneByName: null, doneById: null, doneAt: null, flagReason: null, flagNote: null }
     setView(v => (v ? replaceLine(v, optimistic) : v))
-    const r = await putLine(line, { action: tick ? 'tick' : 'untick' })
+    if (mustQueue(line.id) && queueAnswer(line.id, action, at)) return
+    const r = await putLine(line, action)
     if (r.ok) setView(v => (v ? replaceLine(v, r.data.line) : v))
+    else if (r.status === 0 && queueAnswer(line.id, action, at)) { /* kept on screen, waiting to send */ }
     else {
       setView(v => (v ? replaceLine(v, before) : v))
       showError(r.error)
@@ -235,8 +352,21 @@ function ChecklistScreen() {
 
   const sheetAction = async (line: RowLine, action: LineAction): Promise<boolean> => {
     if (busyRef.current.has(line.id)) return false
+    const at = new Date()
+    const offlineLine = () => {
+      const next = answered(line, action, { id: user?.id ?? '', name: myName }, at)
+      if ('error' in next) { showError(next.error); return false }
+      if (!queueAnswer(line.id, action, at)) return false
+      setView(v => (v ? replaceLine(v, next) : v))
+      return true
+    }
+    if (mustQueue(line.id)) return offlineLine()
     const r = await putLine(line, action)
-    if (!r.ok) { showError(r.error); return false }
+    if (!r.ok) {
+      if (r.status === 0) return offlineLine()   // never reached the server
+      showError(r.error)
+      return false
+    }
     setView(v => (v ? replaceLine(v, r.data.line) : v))
     return true
   }
@@ -481,6 +611,20 @@ function ChecklistScreen() {
             : <>{phase === 'OPEN' ? 'Morning' : 'Close down'}, <em className="font-fraunces italic font-medium text-gold-2">{name}</em>.</>}
         </h1>
         {lede && <p className="m-0 text-[15px] leading-[1.45] text-ink-2">{lede}</p>}
+        {queuedCount > 0 && (
+          <p role="status" className="m-0 font-mono text-[11px] text-gold-2">
+            {queuedCount} waiting to send · saved on this phone
+          </p>
+        )}
+        {othersQueued.map(o => (
+          <OthersWaiting
+            key={o.userId}
+            name={o.name}
+            count={o.count}
+            canDiscard={canReopen}
+            onDiscard={() => { discardQueuedFor(o.userId); refreshQueued() }}
+          />
+        ))}
         {(visiting || visitRefused) && (
           <div className="flex flex-wrap gap-2">
             <Link

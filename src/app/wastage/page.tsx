@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import { formatCurrency, formatDate, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
+import { formatCurrency, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
+import { prepDayKey, prepDaysAgo, displayDayKey } from '@/lib/prep-day'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
@@ -151,6 +152,21 @@ function ItemPicker({
   )
 }
 
+// Wastage is dated by the restaurant's (Pacific) day, stored as a UTC-midnight
+// marker (src/lib/prep-day.ts). Defaults come from the Pacific clock — the old
+// `toISOString()` default was the UTC day, so after ~4–5pm waste was dated tomorrow.
+const todayKey = () => prepDayKey()
+const weekAgoKey = () => prepDaysAgo(7).toISOString().slice(0, 10)
+
+// A marker read through the browser's clock walks back a day (Nov 27 → "Nov 26"),
+// so resolve the day first, then format it as that calendar day.
+function dayOf(date: string): Date {
+  return new Date(`${displayDayKey(new Date(date))}T12:00:00.000Z`)
+}
+function formatDay(date: string): string {
+  return dayOf(date).toLocaleDateString('en-CA', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 const REASON_COLORS: Record<string, string> = {
   SPOILAGE:       'bg-red-soft text-red-text',
   OVERPRODUCTION: 'bg-gold-soft text-gold-2',
@@ -168,8 +184,8 @@ export default function WastagePage() {
   const [logs, setLogs] = useState<WastageLog[]>([])
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [reasonFilter, setReasonFilter] = useState('')
-  const [startDate, setStartDate] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10) })
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [startDate, setStartDate] = useState(weekAgoKey)
+  const [endDate, setEndDate] = useState(todayKey)
   const [showAdd, setShowAdd] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -178,9 +194,8 @@ export default function WastagePage() {
     qtyWasted: '',
     unit: 'g',
     reason: 'UNKNOWN',
-    loggedBy: '',
     notes: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: todayKey(),
   })
 
   const fetchLogs = useCallback(() => {
@@ -222,7 +237,7 @@ export default function WastagePage() {
       }
       await fetchLogs()
       setShowAdd(false)
-      setForm({ inventoryItemId: '', qtyWasted: '', unit: 'g', reason: 'UNKNOWN', loggedBy: '', notes: '', date: new Date().toISOString().slice(0, 10) })
+      setForm({ inventoryItemId: '', qtyWasted: '', unit: 'g', reason: 'UNKNOWN', notes: '', date: todayKey() })
     } finally {
       setSaving(false)
     }
@@ -253,12 +268,12 @@ export default function WastagePage() {
   const byWeek = (() => {
     const buckets: Record<string, number> = {}
     logs.forEach(l => {
-      const d = new Date(l.date)
-      // Snap to Monday of that week
-      const day = d.getDay()
+      const d = dayOf(l.date)
+      // Snap to Monday of that week (UTC maths on the resolved calendar day)
+      const day = d.getUTCDay()
       const diff = (day === 0 ? -6 : 1 - day)
-      d.setDate(d.getDate() + diff)
-      const key = d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+      d.setUTCDate(d.getUTCDate() + diff)
+      const key = d.toLocaleDateString('en-CA', { timeZone: 'UTC', month: 'short', day: 'numeric' })
       buckets[key] = (buckets[key] ?? 0) + parseFloat(String(l.costImpact))
     })
     return Object.entries(buckets)
@@ -348,7 +363,7 @@ export default function WastagePage() {
             <tbody className="divide-y divide-line">
               {logs.map(log => (
                 <tr key={log.id} className="hover:bg-bg">
-                  <td className="px-4 py-3 text-ink-3 whitespace-nowrap">{formatDate(log.date)}</td>
+                  <td className="px-4 py-3 text-ink-3 whitespace-nowrap">{formatDay(log.date)}</td>
                   <td className="px-4 py-3 font-medium text-ink-2">{log.inventoryItem.itemName}</td>
                   <td className="px-4 py-3 hidden sm:table-cell">
                     <CategoryBadge category={log.inventoryItem.category} />
@@ -431,25 +446,15 @@ export default function WastagePage() {
                   {WASTAGE_REASONS.map(r => <option key={r}>{r}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={form.date}
-                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-ink-3 mb-1">Logged By</label>
-                  <input
-                    value={form.loggedBy}
-                    onChange={e => setForm(f => ({ ...f, loggedBy: e.target.value }))}
-                    placeholder="Name"
-                    className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-                  />
-                </div>
+              {/* No "Logged by" box — the server records whoever is signed in. */}
+              <div>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-ink-3 mb-1">Notes</label>

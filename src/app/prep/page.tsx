@@ -932,33 +932,61 @@ export default function PrepPage() {
     }))
     markSaving(item.id, true)
 
+    // A claim is a planner draft field (`assignedTo`), so offline it rides the
+    // same queue as every other draft edit: `draft_edit` replays it through the
+    // log upsert / PUT exactly like the online path below. Neither route
+    // LEAD-gates `assignedTo` — cooks claim their own.
+    const queueClaim = (logId: string | null | undefined) => {
+      enqueueMutation({
+        type: 'draft_edit',
+        itemId: item.id,
+        logId: logId && !logId.startsWith('_opt_') ? logId : null,
+        revenueCenterId: item.revenueCenterId ?? activeRcId,
+        patch: { assignedTo: cookId },
+      })
+      setPendingCount(n => n + 1)
+    }
+
     if (!navigator.onLine) {
-      // Claims aren't part of the offline mutation queue — best-effort online only.
+      queueClaim(item.todayLog?.id)
       markSaving(item.id, false)
       return
     }
 
     const prevOp = opChains.current.get(item.id) ?? Promise.resolve()
     const runOp = prevOp.catch(() => {}).then(async () => {
+      let logId = item.todayLog?.id
+      // Same rule as handleStatusChange: a write the server never answered goes
+      // on the queue; a refusal is a real answer — say so and reload.
+      const keepForRetry = () => {
+        queueClaim(logId)
+        setActionError('No connection to the server — saved on this device, it will send by itself.')
+      }
+      const refused = async (res: Response) => {
+        const body = await res.json().catch(() => null)
+        setActionError(body?.error ? `Not saved: ${body.error}` : 'Assign failed — try again.')
+        load()
+      }
       try {
-        let logId = item.todayLog?.id
         if (!logId || logId.startsWith('_opt_')) {
-          const log = await fetch('/api/prep/logs', {
+          const res = await fetch('/api/prep/logs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ prepItemId: item.id, revenueCenterId: item.revenueCenterId ?? activeRcId }),
-          }).then(r => r.json())
+          })
+          if (!res.ok) return isTransientStatus(res.status) ? keepForRetry() : refused(res)
+          const log = await res.json()
           logId = log.id
           setItems(prev => prev.map(i => (i.id === item.id && i.todayLog ? { ...i, todayLog: { ...i.todayLog, id: log.id } } : i)))
         }
-        await fetch(`/api/prep/logs/${logId}`, {
+        const res = await fetch(`/api/prep/logs/${logId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ assignedTo: cookId }),
         })
+        if (!res.ok) return isTransientStatus(res.status) ? keepForRetry() : refused(res)
       } catch {
-        setActionError('Assign failed — try again.')
-        load()
+        keepForRetry()   // never reached the server
       }
     })
     opChains.current.set(item.id, runOp)

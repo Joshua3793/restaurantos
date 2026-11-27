@@ -25,6 +25,10 @@ const GROUP_ICON_CLASS: Record<TempGroupKey, string> = {
 
 export interface TempDesktopProps {
   units: TempUnit[]
+  /** MANAGER+: add / rename / re-range / delete units, the "Read" auto-fill. */
+  canManage: boolean
+  /** LEAD+: remove a reading. */
+  canRemove: boolean
   metrics: TempDayMetrics
   handlers: TempHandlers
   today: string
@@ -95,27 +99,31 @@ export function TempDesktop(p: TempDesktopProps) {
         </div>
         <div className="flex gap-2 items-center shrink-0">
           {/* Export lives in the History view only — the log page doesn't export. */}
-          <button
-            onClick={p.onBackfill}
-            disabled={p.backfilling}
-            title="Fill random readings for every unit, from its last logged day through today"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium border border-line bg-paper text-ink-2 hover:border-ink-3 disabled:opacity-50 disabled:cursor-wait"
-          >
-            <Wand2 size={13} className="text-gold-2" /> {p.backfilling ? 'Reading…' : 'Read'}
-          </button>
-          <button
-            onClick={() => p.setAddOpen(!p.addOpen)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium bg-ink text-paper border border-ink hover:bg-[#18181b]"
-          >
-            <span className="text-gold font-semibold">+</span> Add unit
-          </button>
+          {p.canManage && (
+            <>
+              <button
+                onClick={p.onBackfill}
+                disabled={p.backfilling}
+                title="Fill random readings for every unit, from its last logged day through today"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium border border-line bg-paper text-ink-2 hover:border-ink-3 disabled:opacity-50 disabled:cursor-wait"
+              >
+                <Wand2 size={13} className="text-gold-2" /> {p.backfilling ? 'Reading…' : 'Read'}
+              </button>
+              <button
+                onClick={() => p.setAddOpen(!p.addOpen)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[9px] text-[13px] font-medium bg-ink text-paper border border-ink hover:bg-[#18181b]"
+              >
+                <span className="text-gold font-semibold">+</span> Add unit
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {p.addOpen && <AddUnitBar handlers={handlers} rcLabel={p.rcLabel} onDone={() => p.setAddOpen(false)} />}
+      {p.canManage && p.addOpen && <AddUnitBar handlers={handlers} rcLabel={p.rcLabel} onDone={() => p.setAddOpen(false)} />}
 
       {view === 'today' ? (
-        <TodayView units={units} metrics={m} handlers={handlers} ringColor={ringColor} />
+        <TodayView units={units} metrics={m} handlers={handlers} ringColor={ringColor} canManage={p.canManage} canRemove={p.canRemove} />
       ) : (
         <HistoryView {...p} />
       )}
@@ -167,8 +175,8 @@ function SubToggle({ active, onClick, children }: { active: boolean; onClick: ()
 
 // ── today view ────────────────────────────────────────────────────────────────
 function TodayView({
-  units, metrics, handlers, ringColor,
-}: { units: TempUnit[]; metrics: TempDayMetrics; handlers: TempHandlers; ringColor: string }) {
+  units, metrics, handlers, ringColor, canManage, canRemove,
+}: { units: TempUnit[]; metrics: TempDayMetrics; handlers: TempHandlers; ringColor: string; canManage: boolean; canRemove: boolean }) {
   const m = metrics
   return (
     <>
@@ -206,7 +214,7 @@ function TodayView({
                       No units yet — add one to start logging.
                     </div>
                   ) : (
-                    us.map(u => <DesktopUnitRow key={u.id} u={u} handlers={handlers} />)
+                    us.map(u => <DesktopUnitRow key={u.id} u={u} handlers={handlers} canManage={canManage} canRemove={canRemove} />)
                   )}
                 </div>
               </div>
@@ -325,7 +333,7 @@ function RailCard({ title, count, children }: { title: string; count: number; ch
 }
 
 // ── one desktop unit row (inline editable + log control) ──────────────────────
-function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }) {
+function DesktopUnitRow({ u, handlers, canManage, canRemove }: { u: TempUnit; handlers: TempHandlers; canManage: boolean; canRemove: boolean }) {
   const readings = u.readings ?? []
   const st = unitStatus(u, readings)
   const [temp, setTemp] = useState('')
@@ -334,10 +342,17 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
   const [min, setMin] = useState(u.safeMin == null ? '' : String(u.safeMin))
   const [max, setMax] = useState(u.safeMax == null ? '' : String(u.safeMax))
 
-  const doLog = () => {
+  const [saving, setSaving] = useState(false)
+  // In-page confirms (no window.confirm — the app shell has none).
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [confirmUnit, setConfirmUnit] = useState(false)
+  const doLog = async () => {
     const raw = temp.trim()
-    if (raw === '' || Number.isNaN(Number(raw))) return
-    handlers.logReading(u.id, Number(raw), time || nowHM())
+    if (saving || raw === '' || Number.isNaN(Number(raw))) return
+    setSaving(true)
+    const r = await handlers.logReading(u.id, Number(raw), time || nowHM())
+    setSaving(false)
+    if (r.status === 'error') return   // the page toasts why; keep the number to fix
     setTemp('')
     setTime(nowHM())
   }
@@ -371,6 +386,7 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
           onChange={e => setName(e.target.value)}
           onBlur={commitName}
           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+          readOnly={!canManage}
           aria-label="Unit name"
           className="text-[14.5px] font-semibold tracking-[-0.015em] text-ink bg-transparent border border-transparent rounded-md px-[7px] -mx-[7px] w-[190px] outline-none hover:border-line focus:border-ink-3 focus:bg-bg"
         />
@@ -378,26 +394,34 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
           <span className="uppercase tracking-[0.03em] text-ink-4">Safe</span>
           <input
             value={min} type="number" step="0.1" placeholder="min" aria-label="Minimum safe temp"
-            onChange={e => setMin(e.target.value)} onBlur={commitRange}
+            onChange={e => setMin(e.target.value)} onBlur={commitRange} disabled={!canManage}
             className="font-mono text-[12px] font-semibold border border-line bg-bg rounded-md py-1 px-[5px] w-12 text-center text-ink-2 outline-none focus:border-ink-3 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
           />
           <span>–</span>
           <input
             value={max} type="number" step="0.1" placeholder="max" aria-label="Maximum safe temp"
-            onChange={e => setMax(e.target.value)} onBlur={commitRange}
+            onChange={e => setMax(e.target.value)} onBlur={commitRange} disabled={!canManage}
             className="font-mono text-[12px] font-semibold border border-line bg-bg rounded-md py-1 px-[5px] w-12 text-center text-ink-2 outline-none focus:border-ink-3 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
           />
           <span>°C</span>
         </div>
         <span className="flex-1" />
         {statusBadge}
-        <button
-          onClick={() => { if (confirm(`Delete "${u.name}"? Its readings stay in History.`)) handlers.deleteUnit(u.id) }}
-          aria-label="Delete unit"
-          className="w-7 h-7 rounded-[7px] grid place-items-center text-ink-4 hover:bg-red-soft hover:text-red-text shrink-0"
-        >
-          <Trash2 size={14} />
-        </button>
+        {canManage && (confirmUnit ? (
+          <span className="inline-flex items-center gap-1.5 font-mono text-[11px] shrink-0">
+            <span className="text-red-text font-semibold">Delete unit? Readings stay in History.</span>
+            <button onClick={() => { setConfirmUnit(false); handlers.deleteUnit(u.id) }} className="px-2 py-1 rounded-md bg-red text-white font-semibold">Delete</button>
+            <button onClick={() => setConfirmUnit(false)} className="px-2 py-1 rounded-md border border-line text-ink-2">Keep</button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmUnit(true)}
+            aria-label="Delete unit"
+            className="w-7 h-7 rounded-[7px] grid place-items-center text-ink-4 hover:bg-red-soft hover:text-red-text shrink-0"
+          >
+            <Trash2 size={14} />
+          </button>
+        ))}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-dashed border-line">
@@ -417,13 +441,22 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
                 <span className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-green' : 'bg-red'}`} />
                 <span className={ok ? 'text-green-text/70' : 'text-red-text/70'}>{r.time}</span>
                 <span className="font-semibold">{fmtTemp(r.temp)}°</span>
-                <button
-                  onClick={() => handlers.removeReading(r.id, u.id)}
-                  className="opacity-0 group-hover:opacity-100 grid place-items-center hover:text-red-text"
-                  aria-label="Remove reading"
-                >
-                  <X size={11} />
-                </button>
+                {r.pending && <span className="text-[9.5px] uppercase opacity-70" title="Saved on this device — sends when signal is back">waiting</span>}
+                {canRemove && (confirmId === r.id ? (
+                  <>
+                    <span className="font-semibold">Delete?</span>
+                    <button onClick={() => { setConfirmId(null); handlers.removeReading(r.id, u.id) }} className="px-1.5 rounded bg-red text-white font-semibold">Yes</button>
+                    <button onClick={() => setConfirmId(null)} className="px-1.5 rounded border border-line text-ink-2 bg-paper">No</button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(r.id)}
+                    className="opacity-0 group-hover:opacity-100 grid place-items-center hover:text-red-text"
+                    aria-label="Remove reading"
+                  >
+                    <X size={11} />
+                  </button>
+                ))}
               </span>
             )
           })
@@ -442,7 +475,7 @@ function DesktopUnitRow({ u, handlers }: { u: TempUnit; handlers: TempHandlers }
             onChange={e => setTime(e.target.value)}
             className="font-mono text-[11px] text-ink-3 bg-transparent outline-none w-[82px] border-l border-line pl-[7px]"
           />
-          <button onClick={doLog} className="font-mono text-[11px] font-semibold bg-ink text-paper rounded-[7px] py-1.5 px-[11px] inline-flex items-center gap-1.5 hover:bg-ink-2">
+          <button onClick={doLog} disabled={saving} className="disabled:opacity-60 font-mono text-[11px] font-semibold bg-ink text-paper rounded-[7px] py-1.5 px-[11px] inline-flex items-center gap-1.5 hover:bg-ink-2">
             <Plus size={11} /> Log
           </button>
         </span>

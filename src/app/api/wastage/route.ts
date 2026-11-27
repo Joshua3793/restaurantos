@@ -5,6 +5,10 @@ import { itemCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
+import { prepDayFrom, prepDayRange } from '@/lib/prep-day'
+import { displayName } from '@/lib/checklists/who'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   let user
@@ -24,8 +28,10 @@ export async function GET(req: NextRequest) {
   const logs = await prisma.wastageLog.findMany({
     where: {
       AND: [
-        startDate ? { date: { gte: new Date(startDate) } } : {},
-        endDate   ? { date: { lte: new Date(endDate) } }  : {},
+        startDate ? { date: { gte: prepDayFrom(startDate) } }   : {},
+        // Through the END of the end day (a bare `lte` marker dropped anything
+        // stored later that day).
+        endDate   ? { date: { lt: prepDayRange(endDate).lt } } : {},
         itemId    ? { inventoryItemId: itemId }            : {},
         reason    ? { reason }                             : {},
         scopeWhere,
@@ -46,7 +52,9 @@ async function handlePOST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { inventoryItemId, qtyWasted, unit, reason, loggedBy, notes, date } = body
+  // `loggedBy` in the body is ignored: the signed-in person is who logged it (a
+  // blank typed box used to save "System").
+  const { inventoryItemId, qtyWasted, unit, reason, notes, date } = body
 
   const revenueCenterId: string | null = body.revenueCenterId ?? null
   if (!revenueCenterId) {
@@ -74,12 +82,16 @@ async function handlePOST(req: NextRequest) {
   const log = await prisma.wastageLog.create({
     data: {
       inventoryItemId,
-      date:            date ? new Date(date) : new Date(),
+      // The restaurant's (Pacific) day as a UTC-midnight marker — the same
+      // convention as PrepLog.logDate (src/lib/prep-day.ts). A bare 'YYYY-MM-DD'
+      // stays that day; missing → today in Pacific, not UTC (`new Date()` rolled
+      // the day over at ~4–5pm, so evening waste landed on tomorrow).
+      date:            prepDayFrom(date),
       qtyWasted:       parseFloat(qtyWasted),
       unit,
       reason:          reason || 'UNKNOWN',
       costImpact,
-      loggedBy:        loggedBy || 'System',
+      loggedBy:        await displayName(user),
       notes,
       revenueCenterId,
     },

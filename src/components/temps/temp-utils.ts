@@ -9,6 +9,8 @@ export interface TempReading {
   id: string
   time: string // 'HH:MM'
   temp: number
+  /** Logged on this phone with no signal; still waiting to send (temp-queue.ts). */
+  pending?: boolean
 }
 
 export interface TempUnit {
@@ -145,8 +147,14 @@ export function computeDayMetrics(units: TempUnit[]): TempDayMetrics {
 }
 
 // Handlers the page wires to the API; both renderers call these.
+/** How a Log tap ended: on the server, on this phone waiting for signal, or refused. */
+export type LogResult =
+  | { status: 'saved' }
+  | { status: 'queued' }
+  | { status: 'error'; error: string }
+
 export interface TempHandlers {
-  logReading: (uid: string, temp: number, time: string) => void | Promise<void>
+  logReading: (uid: string, temp: number, time: string) => Promise<LogResult>
   removeReading: (id: string, uid: string) => void | Promise<void>
   addUnit: (u: { name: string; type: TempType; safeMin: number | null; safeMax: number | null }) => void | Promise<void>
   updateUnit: (id: string, patch: { name?: string; safeMin?: number | null; safeMax?: number | null }) => void | Promise<void>

@@ -236,12 +236,30 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 // The load, the gate, the plan and the transaction all live in
 // `deleteSession` — shared verbatim with the bulk DELETE and the `delete-plan`
 // preview, so what the preview promises is what this does.
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   let user
   try { user = await requireSession() }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e
+  }
+
+  // ?ifUnstarted=1 — the phone clearing a session IT created that never got a
+  // page (useNativeScan). One guarded statement, so it can never take an
+  // invoice that has pages, lines, a sort or a copy, whatever happened since
+  // the phone last looked: anything else is refused (409) and left alone.
+  if (new URL(req.url).searchParams.get('ifUnstarted') === '1') {
+    const { count } = await prisma.invoiceSession.deleteMany({
+      where: {
+        id: params.id, status: 'UPLOADING', parentSessionId: null,
+        files: { none: {} }, scanItems: { none: {} }, clones: { none: {} },
+      },
+    })
+    if (count > 0) return NextResponse.json({ deleted: true })
+    const exists = await prisma.invoiceSession.findUnique({ where: { id: params.id }, select: { id: true } })
+    return exists
+      ? NextResponse.json({ error: 'The invoice has started — left as it is' }, { status: 409 })
+      : NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   try {
