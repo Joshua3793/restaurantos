@@ -129,6 +129,12 @@ export async function listPendingScans(): Promise<PendingScan[]> {
   }
 }
 
+/** How many scans are waiting, without loading their page bytes. 0 when IndexedDB is unavailable. */
+export async function countPendingScans(): Promise<number> {
+  try { return (await run<number>('readonly', s => s.count())) ?? 0 }
+  catch { return 0 }
+}
+
 export async function removePendingScan(id: string): Promise<void> {
   await run('readwrite', s => s.delete(id))
 }

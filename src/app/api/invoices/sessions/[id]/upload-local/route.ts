@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 // POST /api/invoices/sessions/[id]/upload-local
 // Local-dev fallback: accepts multipart form data and stores files as base64 data URIs.
 // Used automatically when UPLOADTHING_TOKEN is not configured.
 // In production, UploadThing CDN is used instead via /upload.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   const session = await prisma.invoiceSession.findUnique({ where: { id: params.id } })
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 

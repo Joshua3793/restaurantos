@@ -19,39 +19,41 @@ const CORE_RIGHT = [
 ]
 const CORE_HREFS = [...CORE_LEFT, ...CORE_RIGHT].map(t => t.href)
 
+// Module scope: defined inside the bar it remounted every render.
+function Tab({ href, label, Icon, on }: { href: string; label: string; Icon: LucideIcon; on: boolean }) {
+  return (
+    <Link href={href} className="flex flex-col items-center gap-1" style={{ color: on ? '#09090b' : '#71717a' }}>
+      <Icon size={22} strokeWidth={on ? 2.2 : 1.9} color={on ? '#09090b' : '#a1a1aa'} />
+      <span className="text-[11px] leading-none" style={{ fontWeight: on ? 600 : 500 }}>{label}</span>
+    </Link>
+  )
+}
+
 export function MobileTabBar({ onAdd, onMore, moreBadge = 0 }: { onAdd: () => void; onMore: () => void; moreBadge?: number }) {
   const pathname = usePathname() ?? ''
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
   const moreActive = !CORE_HREFS.some(isActive)
 
-  const Tab = ({ href, label, Icon }: { href: string; label: string; Icon: LucideIcon }) => {
-    const on = isActive(href)
-    return (
-      <Link href={href} className="flex flex-col items-center gap-1" style={{ color: on ? '#09090b' : '#71717a' }}>
-        <Icon size={22} strokeWidth={on ? 2.2 : 1.9} color={on ? '#09090b' : '#a1a1aa'} />
-        <span className="text-[9.5px]" style={{ fontWeight: on ? 600 : 500 }}>{label}</span>
-      </Link>
-    )
-  }
-
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 grid grid-cols-5 pt-2.5 pb-safe border-t border-line"
-      style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(18px) saturate(180%)', WebkitBackdropFilter: 'blur(18px) saturate(180%)' }}
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 grid grid-cols-5 pt-2.5 border-t border-line bg-paper"
+      // Solid, no backdrop blur (blur on a fixed full-width bar freezes iOS).
+      // At least 8px under the labels on phones with no home-indicator inset.
+      style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
     >
-      {CORE_LEFT.map(t => <Tab key={t.href} href={t.href} label={t.label} Icon={t.icon} />)}
+      {CORE_LEFT.map(t => <Tab key={t.href} href={t.href} label={t.label} Icon={t.icon} on={isActive(t.href)} />)}
       <div className="flex justify-center">
         <button onClick={onAdd} aria-label="Quick add" className="grid place-items-center w-[52px] h-[52px] rounded-2xl -mt-[18px] bg-ink border-[3px] border-white shadow-lg">
           <Plus size={24} color="#d97706" strokeWidth={2.6} />
         </button>
       </div>
-      {CORE_RIGHT.map(t => <Tab key={t.href} href={t.href} label={t.label} Icon={t.icon} />)}
+      {CORE_RIGHT.map(t => <Tab key={t.href} href={t.href} label={t.label} Icon={t.icon} on={isActive(t.href)} />)}
       <button onClick={onMore} className="relative flex flex-col items-center gap-1" style={{ color: moreActive ? '#09090b' : '#71717a' }}>
         <span className="relative">
           <Grid2x2 size={22} strokeWidth={moreActive ? 2.2 : 1.9} color={moreActive ? '#09090b' : '#a1a1aa'} />
           {moreBadge > 0 && !moreActive && <span className="absolute -top-[3px] -right-[4px] w-[7px] h-[7px] bg-gold rounded-full border-[1.5px] border-white" />}
         </span>
-        <span className="text-[9.5px]" style={{ fontWeight: moreActive ? 600 : 500 }}>More</span>
+        <span className="text-[11px] leading-none" style={{ fontWeight: moreActive ? 600 : 500 }}>More</span>
       </button>
     </nav>
   )

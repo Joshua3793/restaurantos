@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 // POST /api/invoices/sessions/[id]/upload
 // Accepts JSON: { files: [{ url, fileName, fileType }] }
 // Called after UploadThing completes client-side upload and returns CDN URLs.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   const session = await prisma.invoiceSession.findUnique({ where: { id: params.id } })
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 

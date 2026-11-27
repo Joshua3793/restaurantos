@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import fs from 'fs'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 import { extractInvoiceFromImages, extractInvoiceFromPdf, extractInvoiceFromCsv, quickExtractMeta, normalizePageRotation } from '@/lib/invoice-ocr'
 import { matchLineItems } from '@/lib/invoice-matcher'
 import { matchSupplierByName } from '@/lib/supplier-matcher'
@@ -10,6 +11,8 @@ import { canonicalSupplierName } from '@/lib/supplier-offers'
 import { loadBuffer } from '@/lib/invoice-files'
 import { UPLOAD_NEVER_FINISHED } from '@/lib/invoices/inbox-items'
 import type { OcrResult } from '@/lib/invoice-ocr'
+
+export const dynamic = 'force-dynamic'
 
 function hasAnthropicKey(): boolean {
   if (process.env.ANTHROPIC_API_KEY) return true
@@ -25,6 +28,11 @@ export const maxDuration = 300
 
 // POST /api/invoices/sessions/[id]/process
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   const session = await prisma.invoiceSession.findUnique({
     where: { id: params.id },
     include: {
@@ -467,6 +475,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
 // ── DELETE /api/invoices/sessions/[id]/process — cancel processing ─────────
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession() }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   try {
     await prisma.invoiceFile.updateMany({
       where: { sessionId: params.id, ocrStatus: 'PROCESSING' },

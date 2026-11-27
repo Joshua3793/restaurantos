@@ -116,7 +116,8 @@ function IngRow({ ing, factor, checked, onToggle, onOpenSubRecipe, pct, isBasePc
             checked ? 'text-ink-4 line-through' : 'text-gold-2 hover:underline'
           }`}
         >
-          <span className="truncate">{ing.itemName}</span>
+          {/* Phones wrap long names ("Roasted Garlic Confit Oil") instead of cutting them. */}
+          <span className="truncate max-md:whitespace-normal max-md:break-words">{ing.itemName}</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
             <path d="M7 17 17 7M8 7h9v9" />
           </svg>
@@ -125,7 +126,7 @@ function IngRow({ ing, factor, checked, onToggle, onOpenSubRecipe, pct, isBasePc
         <button
           type="button"
           onClick={onToggle}
-          className={`flex-1 min-w-0 text-left text-sm font-medium truncate ${
+          className={`flex-1 min-w-0 text-left text-sm font-medium truncate max-md:whitespace-normal max-md:break-words ${
             checked ? 'text-ink-4 line-through' : 'text-ink'
           }`}
         >
@@ -428,7 +429,7 @@ export default function PrepRecipeSection({
             onClick={() => onMakeQtyChange(stepFactor(factor, -1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
             disabled={sliderValue <= SLIDER_MIN}
             aria-label="Decrease batch by a quarter"
-            className="w-9 h-9 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-11 h-11 md:w-9 md:h-9 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Minus size={15} />
           </button>
@@ -449,7 +450,7 @@ export default function PrepRecipeSection({
             onClick={() => onMakeQtyChange(stepFactor(factor, 1, SLIDER_MIN, SLIDER_MAX) * baseInUnit)}
             disabled={sliderValue >= SLIDER_MAX}
             aria-label="Increase batch by a quarter"
-            className="w-9 h-9 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-11 h-11 md:w-9 md:h-9 shrink-0 rounded-full border border-[#fed7aa] bg-paper grid place-items-center text-gold-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus size={15} />
           </button>

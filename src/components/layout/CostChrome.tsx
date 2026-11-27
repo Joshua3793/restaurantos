@@ -85,10 +85,12 @@ export function CostChrome({ onSpine = true, desktopOnly = false }: { onSpine?: 
   // The number is unchanged — this is the WTD purchases ÷ sales ratio.
   const costLabel = activeKind === 'rc' ? getVocab(activeRc?.type).costPctLabel : 'COGS %'
 
-  // Mobile shows this bar ONLY to carry the KPIs (brand/RC/bell are md:-only),
-  // so below MANAGER it collapses entirely rather than leaving an empty band.
+  // Hidden on phones (below md) for everyone: Today's numbers card already
+  // shows these figures, and the explanations can't be opened on a phone.
+  // `desktopOnly` is now the phone default; kept so callers still compile.
+  void desktopOnly
   return (
-    <div className={`${(showKpis && !desktopOnly) ? 'flex' : 'hidden'} md:flex md:fixed md:top-0 md:inset-x-0 md:z-50 md:h-11 bg-ink text-paper px-4 md:pl-14 md:pr-8 lg:pl-8 py-[10px] md:py-0 items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto lg:overflow-visible`}>
+    <div className={`hidden md:flex md:fixed md:top-0 md:inset-x-0 md:z-50 md:h-11 bg-ink text-paper px-4 md:pl-14 md:pr-8 lg:pl-8 py-[10px] md:py-0 items-center gap-4 md:gap-6 border-b border-ink overflow-x-auto lg:overflow-visible`}>
       {/* Brand — detached from the collapsible nav so it stays pinned in the top bar (desktop) */}
       <Link
         href="/"

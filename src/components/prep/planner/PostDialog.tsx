@@ -144,7 +144,8 @@ export function PostDialog({ all, onList, cooks, crewIds, ctx, nowMin, reposting
           </section>
         </div>
 
-        <div className="shrink-0 flex flex-col sm:flex-row-reverse gap-2 px-5 py-4 border-t border-line">
+        {/* Bottom padding clears the phone's home bar (0 on desktop). */}
+        <div className="shrink-0 flex flex-col sm:flex-row-reverse gap-2 px-5 py-4 border-t border-line" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)' }}>
           <button type="button" onClick={() => onConfirm(dues)}
             className="inline-flex items-center justify-center gap-2 bg-ink text-paper rounded-[11px] px-[18px] min-h-[48px] text-[14.5px] font-semibold">
             <Check size={15} className="text-gold" /> {label}

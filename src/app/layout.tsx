@@ -30,7 +30,9 @@ export const metadata: Metadata = {
   description: 'Restaurant Management System for Fergie\'s Kitchen',
   appleWebApp: {
     title: 'Controla OS',
-    statusBarStyle: 'black-translucent',
+    // 'default' = dark clock/battery on a solid bar. 'black-translucent' drew
+    // them white over the white phone top bar (unreadable).
+    statusBarStyle: 'default',
     capable: true,
   },
   icons: {

@@ -1,5 +1,5 @@
 'use client'
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Flame, Thermometer, TrendingUp, FileText, ClipboardList, ClipboardCheck } from 'lucide-react'
 import type { NeedItem, NeedKind } from '@/lib/start-page'
 import { fmtDurationWords } from '@/lib/start-page'
@@ -18,6 +18,45 @@ export const NEED_ICON: Record<NeedKind, typeof Flame> = {
 export function greetingFor(d: Date): 'morning' | 'afternoon' | 'evening' {
   const h = d.getHours()
   return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'
+}
+
+/**
+ * The first name for the greeting: the first candidate that is a real name
+ * (the linked crew member, then the login's name). An email is never a name —
+ * "Morning, joshua37ca" read like a robot — so with no name the greeting is
+ * just "Morning." (null here).
+ */
+export function firstNameOf(...candidates: (string | null | undefined)[]): string | null {
+  for (const c of candidates) {
+    const t = c?.trim()
+    if (!t || t.includes('@')) continue
+    const first = t.split(/\s+/)[0]
+    if (first) return first
+  }
+  return null
+}
+
+/**
+ * The linked crew member's name (Cook.userId → /api/prep/me), for pages that
+ * do not already load it. undefined while loading, null when not linked.
+ */
+export function useCookName(): string | null | undefined {
+  const [name, setName] = useState<string | null | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/prep/me', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(v => { if (!cancelled) setName(v?.cook?.name ?? null) })
+      .catch(() => { if (!cancelled) setName(null) })
+    return () => { cancelled = true }
+  }, [])
+  return name
+}
+
+/** "Morning" / "Afternoon" / "Evening" — the short phone greeting word. */
+export function greetingWord(d: Date): string {
+  const g = greetingFor(d)
+  return g === 'morning' ? 'Morning' : g === 'afternoon' ? 'Afternoon' : 'Evening'
 }
 
 export function crumbDate(d: Date): string {

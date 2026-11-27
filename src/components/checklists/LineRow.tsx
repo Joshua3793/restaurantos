@@ -207,19 +207,27 @@ export function LineRow({
           {done && <Check size={16} strokeWidth={3} aria-hidden />}
           {flagged && '!'}
         </span>
-        <span className="flex-1 min-w-0 flex flex-col gap-[3px]">
-          <span className={`text-[15px] leading-[1.3] tracking-[-0.01em] ${title}`}>{line.title}</span>
-          {sub && <span className={`font-mono text-[10.5px] leading-[1.4] truncate ${subTone}`}>{sub}</span>}
-        </span>
-        {shared && <Pill>KITCHEN</Pill>}
-        {blockerPill}
-        {flagged && <Pill tone="red">FLAGGED</Pill>}
-        <DuePill line={line} />
-        {!isTick && line.status === 'TODO' && !locked && (
-          <span className="font-mono text-[11px] font-medium px-[11px] py-[7px] rounded-full border border-line-2 text-ink whitespace-nowrap">
-            Log {unitOf(line) || 'it'}
+        {/* Phones: the pills sit on their own line under the job, so the job
+            text gets the full width (beside them it wrapped one word a line).
+            md+ keeps them inline at the right. empty:hidden drops the pill row
+            when a job has none. */}
+        <span className="flex-1 min-w-0 flex flex-col gap-1.5 md:flex-row md:items-center md:gap-3">
+          <span className="flex-1 min-w-0 flex flex-col gap-[3px]">
+            <span className={`text-[15px] leading-[1.3] tracking-[-0.01em] ${title}`}>{line.title}</span>
+            {sub && <span className={`font-mono text-[10.5px] leading-[1.4] truncate ${subTone}`}>{sub}</span>}
           </span>
-        )}
+          <span className="flex flex-wrap items-center gap-1.5 md:flex-nowrap md:flex-none md:gap-3 empty:hidden">
+            {shared && <Pill>KITCHEN</Pill>}
+            {blockerPill}
+            {flagged && <Pill tone="red">FLAGGED</Pill>}
+            <DuePill line={line} />
+            {!isTick && line.status === 'TODO' && !locked && (
+              <span className="font-mono text-[11px] font-medium px-[11px] py-[7px] rounded-full border border-line-2 text-ink whitespace-nowrap">
+                Log {unitOf(line) || 'it'}
+              </span>
+            )}
+          </span>
+        </span>
       </button>
       {isTick && !locked && (
         <button

@@ -215,8 +215,8 @@ export function JobCardMobile(props: JobCardProps & { onClaim?: (item: PrepItemR
     <div className={`border rounded-[14px] px-3.5 py-[13px] ${cardSurface(row)}`}>
       <div className="flex items-start gap-2.5">
         <div onClick={() => onOpenRecipe(item)} className="flex-1 min-w-0 cursor-pointer">
-          <div className="text-[15px] font-semibold tracking-[-0.015em] leading-tight break-words">{item.name}</div>
-          <div className="flex items-center gap-2 flex-wrap font-mono text-[10.5px] text-ink-2 mt-1">
+          <div className="text-[16px] font-semibold tracking-[-0.015em] leading-tight break-words">{item.name}</div>
+          <div className="flex items-center gap-2 flex-wrap font-mono text-[12px] text-ink-2 mt-1">
             <span>{v.qtyLine}</span>
             {showStation && item.station && <span>{item.station}</span>}
             <span onClick={e => e.stopPropagation()}>
@@ -225,14 +225,14 @@ export function JobCardMobile(props: JobCardProps & { onClaim?: (item: PrepItemR
           </div>
         </div>
         <div className="text-right shrink-0">
-          <div className={`font-mono text-[13px] font-semibold leading-tight ${v.clockCls}`}>{v.clock}</div>
-          <div className={`font-mono text-[9.5px] mt-0.5 ${v.subCls}`}>{v.clockSub}</div>
+          <div className={`font-mono text-[14px] font-semibold leading-tight ${v.clockCls}`}>{v.clock}</div>
+          <div className={`font-mono text-[12px] mt-0.5 ${v.subCls}`}>{v.clockSub}</div>
         </div>
         <JobMenu entries={menuEntries(props)} size={44} />
       </div>
       {v.stepLabel && (
-        <div className="text-[13px] text-ink-2 mt-2 leading-snug">
-          <span className="font-mono text-[10.5px] font-semibold uppercase text-ink-2 mr-1.5">{v.stepLabel}</span>
+        <div className="text-[14px] text-ink-2 mt-2 leading-snug">
+          <span className="font-mono text-[12px] font-semibold uppercase text-ink-2 mr-1.5">{v.stepLabel}</span>
           {v.stepText}
         </div>
       )}
@@ -242,9 +242,9 @@ export function JobCardMobile(props: JobCardProps & { onClaim?: (item: PrepItemR
         <button
           type="button"
           onClick={() => onOpenRecipe(item)}
-          className="mt-2.5 font-mono text-[10.5px] text-blue-text border-b border-dashed border-current bg-transparent cursor-pointer"
+          className="mt-2.5 min-h-[44px] text-left font-mono text-[12px] text-blue-text bg-transparent cursor-pointer"
         >
-          You get a chime when it is time · open to move on early
+          <span className="border-b border-dashed border-current">You get a chime when it is time · open to move on early</span>
         </button>
       ) : (
         <div className="mt-3">

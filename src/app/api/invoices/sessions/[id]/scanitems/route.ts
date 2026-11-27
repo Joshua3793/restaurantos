@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireSession, AuthError } from '@/lib/auth'
 import { PRICING_SELECT } from '@/lib/item-model'
 import { listedPrice, withLastCost } from '@/lib/cost-basis'
 
+export const dynamic = 'force-dynamic'
+
 // POST /api/invoices/sessions/[id]/scanitems — manually add a line item
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  try { await requireSession('LEAD') }
+  catch (e) {
+    if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
   const body = await req.json()
 
   const session = await prisma.invoiceSession.findUnique({ where: { id: params.id }, select: { id: true, status: true } })

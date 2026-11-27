@@ -21,7 +21,7 @@ export default function TodayPage() {
 
   if (loading) {
     return (
-      <div className="px-4 pb-28 md:px-0 md:pb-0">
+      <div>
         <div className="pt-10 font-mono text-[11px] text-ink-3">Loading…</div>
       </div>
     )
@@ -32,7 +32,9 @@ export default function TodayPage() {
   const isLead = role != null && atLeast(role, 'LEAD')
   return (
     // Replaces MScreen, which is md:hidden and shared with mobile-only screens.
-    // On desktop the padding comes from AppShell, so it is cleared at md+.
+    // The side gutter and the tab-bar clearance come from AppShell (p-4 + pb-20
+    // on phones), the same as every other page — no padding of its own here,
+    // or Today sat 32px in from each edge with a tall empty strip at the end.
     //
     // Managers keep md:hidden: the effect above bounces them to /pass, but it
     // only runs after first paint, and / -> /today -> /pass is their normal
@@ -41,7 +43,7 @@ export default function TodayPage() {
     //
     // A LEAD has no desktop Pass: they get the phone Pass in a narrow column.
     <div
-      className={`min-h-screen bg-bg text-ink px-4 pb-28 md:min-h-0 md:px-0 md:pb-0 ${
+      className={`bg-bg text-ink ${
         isManager ? 'md:hidden' : isLead ? 'md:max-w-[640px] md:mx-auto md:w-full' : ''
       }`}
     >

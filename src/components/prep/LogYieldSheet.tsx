@@ -46,7 +46,7 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
     <button
       type="button"
       onClick={onClick}
-      className={`h-8 px-3 rounded-[10px] border font-mono text-[10.5px] font-bold uppercase tracking-[0.04em] whitespace-nowrap ${
+      className={`h-11 md:h-8 px-3.5 md:px-3 rounded-[10px] border font-mono text-[12px] md:text-[10.5px] font-bold uppercase tracking-[0.04em] whitespace-nowrap ${
         active ? 'bg-ink text-gold border-ink' : 'bg-transparent text-ink-3 border-line'
       }`}
     >
@@ -62,7 +62,7 @@ function StepButton({ label, onClick, disabled }: { label: '−' | '+'; onClick:
       aria-label={label === '−' ? 'Quarter batch less' : 'Quarter batch more'}
       disabled={disabled}
       onClick={onClick}
-      className={`w-10 h-10 rounded-[10px] bg-bg-2 border border-line grid place-items-center text-[18px] font-mono leading-none ${
+      className={`w-11 h-11 md:w-10 md:h-10 rounded-[10px] bg-bg-2 border border-line grid place-items-center text-[18px] font-mono leading-none ${
         disabled ? 'text-ink-4 cursor-not-allowed' : 'text-ink-2'
       }`}
     >
@@ -84,7 +84,9 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
     const q = yieldPrefill(target.item, target.cookAlongQty)
     setQty(q)
     setText(qtyText(q))
-    // Batch items start on the slider; unit-only items in the field.
+    // Batch items start on the slider; unit-only items in the field. Not on a
+    // touch screen: the keyboard would pop up and cover the confirm button.
+    if (window.matchMedia('(pointer: coarse)').matches) return
     const t = setTimeout(() => (batchYield(target.item) != null ? sliderRef : unitRef).current?.focus(), 0)
     return () => clearTimeout(t)
   }, [target?.item.id, target?.cookAlongQty])
@@ -164,13 +166,13 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
           </span>
           <div className="flex-1 min-w-0">
             <div className="text-[16px] font-semibold tracking-[-0.02em] leading-tight truncate">{item.name}</div>
-            <div className="font-mono text-[11px] text-ink-3 mt-0.5">{plannedLabel}</div>
+            <div className="font-mono text-[12px] md:text-[11px] text-ink-3 mt-0.5">{plannedLabel}</div>
           </div>
           <button
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="w-8 h-8 rounded-lg border border-line grid place-items-center text-ink-2 shrink-0"
+            className="w-11 h-11 md:w-8 md:h-8 rounded-lg border border-line grid place-items-center text-ink-2 shrink-0"
           >
             <IcX size={15} />
           </button>
@@ -206,14 +208,14 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
                   focus-visible:ring-2 focus-visible:ring-offset-2"
               />
             </div>
-            <div className="flex justify-between font-mono text-[9.5px] text-ink-4 -mt-1 px-0.5">
+            <div className="flex justify-between font-mono text-[12px] md:text-[9.5px] text-ink-4 -mt-1 px-0.5">
               <span>0</span><span>5</span><span>10</span>
             </div>
           </div>
         )}
 
         {/* unit row */}
-        <label className="font-mono text-[10px] uppercase tracking-[0.03em] text-ink-3">
+        <label className="font-mono text-[12px] md:text-[10px] uppercase tracking-[0.03em] text-ink-3">
           {hasBatch ? `Or in ${item.unit}` : `How much did you make (${item.unit})`}
         </label>
         <div className="relative mt-1.5">
@@ -244,7 +246,7 @@ export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
         </div>
 
         {/* outcome + confirm */}
-        <div className="font-mono text-[11px] text-ink-3 mt-4">{outcome}</div>
+        <div className="font-mono text-[12px] md:text-[11px] text-ink-3 mt-4">{outcome}</div>
         <button
           type="button"
           disabled={!canSubmit}
