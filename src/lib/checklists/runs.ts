@@ -121,6 +121,8 @@ export type LineView = {
   doneAt: string | null
   flagReason: 'BROKEN' | 'RAN_OUT' | 'OUT_OF_RANGE' | 'OTHER' | null
   flagNote: string | null
+  /** Photo the cook attached to a manual flag, or null. */
+  flagPhotoUrl: string | null
   resolvedById: string | null
   resolvedByName: string | null
   /** ISO string, or null */
@@ -182,6 +184,7 @@ export function toRunView(run: RunRow): RunView {
       doneAt: iso(l.doneAt),
       flagReason: l.flagReason,
       flagNote: l.flagNote,
+      flagPhotoUrl: l.flagPhotoUrl,
       resolvedById: l.resolvedById,
       resolvedByName: l.resolvedByName,
       resolvedAt: iso(l.resolvedAt),

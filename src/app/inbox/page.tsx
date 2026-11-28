@@ -239,6 +239,7 @@ function Inbox() {
     loadFailed: detailFailed,
     onRetry: () => { if (selected) loadDetail(selected.id) },
     limited: !!detail?.limited,
+    photoUrl: detail?.item.photoUrl ?? null,
     tags,
     canRetag: allowed,
     busy,

@@ -92,6 +92,20 @@ describe('PUT /api/inventory/[id] — R1 allow-list', () => {
     expect(res.status).toBe(200)
     expect(Object.keys(update.mock.calls[0][0].data).sort()).toEqual(['barcode', 'itemName', 'lastUpdated'])
   })
+
+  it('moving to another storage area clears the shelf position', async () => {
+    ITEM = { ...BASE_ITEM, storageAreaId: 'walkin' } as typeof ITEM
+    const res = await item.PUT(putReq({ storageAreaId: 'dry', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(res.status).toBe(200)
+    expect(update.mock.calls[0][0].data).toMatchObject({ storageAreaId: 'dry', shelfOrder: null })
+  })
+
+  it('sending back the same storage area keeps the shelf position', async () => {
+    ITEM = { ...BASE_ITEM, storageAreaId: 'walkin' } as typeof ITEM
+    const res = await item.PUT(putReq({ storageAreaId: 'walkin', expectedLastUpdated: NOW.toISOString() }), ctx)
+    expect(res.status).toBe(200)
+    expect('shelfOrder' in update.mock.calls[0][0].data).toBe(false)
+  })
 })
 
 describe('R8 — two people editing', () => {

@@ -8,6 +8,7 @@ import { inRange, parseReading, type Phase } from '@/lib/checklists/rules'
 import { lastTimeLabel } from '@/lib/checklists/format'
 import type { LastReading } from '@/lib/checklists/history-types'
 import { Pill, firstName, fmtReading, rangeText, unitOf, type RowLine } from './LineRow'
+import { PhotoField } from '@/components/photos/PhotoField'
 
 // "Log a number or flag a problem" for one job: LineEditor holds the controls;
 // LineSheet is the phone's bottom sheet around it, and the desktop job panel
@@ -71,6 +72,10 @@ export function LineEditor({
     manualFlag && line.flagReason && line.flagReason !== 'OUT_OF_RANGE' ? line.flagReason : null,
   )
   const [note, setNote] = useState(manualFlag ? line.flagNote ?? '' : '')
+  // Optional photo of the problem. Uploaded before the flag is sent; the flag only
+  // carries a link that already uploaded (so a queued, no-signal flag replays it as is).
+  const [photoUrl, setPhotoUrl] = useState<string | null>(manualFlag ? line.flagPhotoUrl ?? null : null)
+  const [photoBusy, setPhotoBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   // What this job read last time. Shown for readings only; silent while loading, when
   // there is none, and when the request fails — it is a hint, never a blocker.
@@ -233,13 +238,14 @@ export function LineEditor({
                   aria-label="Note for the manager"
                   className="border border-line-2 rounded-[9px] px-3 py-2.5 text-[14px] leading-[1.45] text-ink resize-none outline-none focus:border-ink-3"
                 />
+                <PhotoField value={photoUrl} onChange={setPhotoUrl} onBusyChange={setPhotoBusy} disabled={busy} />
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => run({ action: 'flag', reason, note: note.trim() || undefined })}
+                  disabled={busy || photoBusy}
+                  onClick={() => run({ action: 'flag', reason, note: note.trim() || undefined, photoUrl: photoUrl ?? undefined })}
                   className="h-[50px] rounded-xl bg-red text-white text-[14px] font-medium disabled:opacity-60"
                 >
-                  Flag it · {REASONS.find(r => r.key === reason)?.label.replace('…', '')}
+                  {photoBusy ? 'Sending photo…' : <>Flag it · {REASONS.find(r => r.key === reason)?.label.replace('…', '')}</>}
                 </button>
               </>
             )}

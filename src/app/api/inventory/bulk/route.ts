@@ -45,9 +45,23 @@ async function handlePOST(req: NextRequest) {
       case 'deactivate':
         await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { isActive: false } })
         break
-      case 'setStorageArea':
-        await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { storageAreaId: value } })
+      case 'setStorageArea': {
+        // Only items actually changing area are written, and they lose their
+        // shelf position (it belongs to the old area's walk order). Items
+        // already in that area keep theirs. SQL `<>` skips NULLs, so an item
+        // with no area is matched explicitly.
+        const area: string | null = value || null
+        await prisma.inventoryItem.updateMany({
+          where: {
+            id: { in: ids },
+            ...(area
+              ? { OR: [{ storageAreaId: null }, { storageAreaId: { not: area } }] }
+              : { storageAreaId: { not: null } }),
+          },
+          data: { storageAreaId: area, shelfOrder: null },
+        })
         break
+      }
       case 'setCategory':
         await prisma.inventoryItem.updateMany({ where: { id: { in: ids } }, data: { category: value } })
         break

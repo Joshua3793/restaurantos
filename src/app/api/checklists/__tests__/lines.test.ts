@@ -135,6 +135,27 @@ describe('PUT /api/checklists/lines/[id]', () => {
     })
   })
 
+  it('a flag saves its uploaded photo on the job', async () => {
+    await call({ action: 'flag', reason: 'BROKEN', note: 'probe dead', photoUrl: 'https://abc.ufs.sh/f/k1' })
+    expect(lineUpdate.mock.calls[0][0]).toMatchObject({
+      data: { status: 'FLAGGED', flagReason: 'BROKEN', flagNote: 'probe dead', flagPhotoUrl: 'https://abc.ufs.sh/f/k1' },
+    })
+  })
+
+  it('a photo link that is not an UploadThing file is dropped; the flag still saves', async () => {
+    for (const photoUrl of ['https://evil.com/f/k1', 'http://utfs.io/f/k1', 'x'.repeat(3000), 42]) {
+      lineUpdate.mockClear()
+      const res = await call({ action: 'flag', reason: 'BROKEN', photoUrl })
+      expect(res.status).toBe(200)
+      expect(lineUpdate.mock.calls[0][0]).toMatchObject({ data: { status: 'FLAGGED', flagPhotoUrl: null } })
+    }
+  })
+
+  it('clearing the flag (untick) clears its photo', async () => {
+    await call({ action: 'untick' })
+    expect(lineUpdate.mock.calls[0][0]).toMatchObject({ data: { status: 'TODO', flagReason: null, flagNote: null, flagPhotoUrl: null } })
+  })
+
   it('an out-of-range TEMP raises a Food safety item with the reading', async () => {
     lineFindUnique.mockResolvedValue(baseLine({ answer: 'TEMP', safeMin: 0, safeMax: 4, tempUnitId: 'u1', unit: '°C' }))
     await call({ action: 'value', raw: '9' })

@@ -18,6 +18,7 @@ import { rankItems } from '@/components/wastage/search'
 import { LogWasteSheet } from '@/components/wastage/LogWasteSheet'
 import { useAppRefresh } from '@/lib/app-refresh'
 import { WasteCard } from '@/components/wastage/WasteCard'
+import { PhotoThumb } from '@/components/photos/PhotoField'
 import { UndoToast, type WasteToast } from '@/components/wastage/UndoToast'
 import type { WasteLogRow, WasteDraft, SaveResult } from '@/components/wastage/types'
 import { Plus, X, AlertTriangle, Search, Check, Trash2 } from 'lucide-react'
@@ -513,7 +514,12 @@ export default function WastagePage() {
               {logs.map(log => (
                 <tr key={log.id} className="hover:bg-bg">
                   <td className="px-4 py-3 text-ink-3 whitespace-nowrap">{formatDay(log.date)}</td>
-                  <td className="px-4 py-3 font-medium text-ink-2">{log.inventoryItem.itemName}</td>
+                  <td className="px-4 py-3 font-medium text-ink-2">
+                    <span className="inline-flex items-center gap-2">
+                      {log.inventoryItem.itemName}
+                      {log.photoUrl && <PhotoThumb url={log.photoUrl} size={28} label={`Photo of the ${log.inventoryItem.itemName} waste`} />}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 hidden sm:table-cell">
                     <CategoryBadge category={log.inventoryItem.category} />
                   </td>

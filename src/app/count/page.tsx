@@ -31,6 +31,10 @@ import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
 import { useBackDismiss } from '@/lib/back-stack'
 import { useAppRefresh } from '@/lib/app-refresh'
+import { compareShelfOrder } from '@/lib/count-shelf-order'
+import { ShelfOrderSheet } from '@/components/count/ShelfOrderSheet'
+import { ScanItemFlow, type ScannedItem } from '@/components/scan/ScanItemFlow'
+import { ScanButton } from '@/components/scan/ScanButton'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +50,7 @@ interface InventoryItemRef {
   location: string | null
   storageArea: { id: string; name: string } | null
   parLevel?: number | null         // from StockAllocation for the session's RC
+  shelfOrder?: number | null       // position on its area's shelf walk (null = not placed)
   lastCountQty?: number | null     // last verified count, in baseUnit
 }
 
@@ -406,6 +411,7 @@ export default function CountPage() {
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped' | 'nomovement'>('all')
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
+  const [showShelfOrder, setShowShelfOrder] = useState(false)
   // Phone count sheet: a stray backdrop tap with an unsaved number keeps the sheet
   // open and flags this instead of throwing the number away.
   const [sheetNudge,    setSheetNudge]    = useState(false)
@@ -463,6 +469,8 @@ export default function CountPage() {
   const seesMoney = role != null && atLeast(role as Parameters<typeof atLeast>[0], 'MANAGER')
   // "Add item" creates a new priced inventory item — POST /api/inventory is MANAGER+.
   const canAddItem = role != null && canEditItems(role as Parameters<typeof canEditItems>[0])
+  // Arranging an area's shelf walk is LEAD+ (the API enforces the same).
+  const canShelfOrder = role != null && atLeast(role as Parameters<typeof atLeast>[0], 'LEAD')
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
   // "Who's counting" starts as the signed-in person — editable, never forced.
   const knownName = user?.name || user?.email?.split('@')[0] || ''
@@ -659,6 +667,8 @@ export default function CountPage() {
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
   }, [active?.lines])
 
+  // Shelf walk = the list follows the shelves instead of category groups.
+  const shelfWalk = !!locFilter || !!active?.areaFilter
   const filteredLines = useMemo(() => {
     const lines = active?.lines ?? []
     const q = searchQuery.trim().toLowerCase()
@@ -671,19 +681,26 @@ export default function CountPage() {
       if (statusFilter === 'nomovement') { if (!l.noMovement || l.countedQty !== null || l.skipped) return false }
       if (q && !l.inventoryItem.itemName.toLowerCase().includes(q) && !l.inventoryItem.category.toLowerCase().includes(q)) return false
       return true
-    }).sort((a, b) => a.sortOrder - b.sortOrder)
-  }, [active?.lines, catFilter, locFilter, statusFilter, searchQuery])
+    }).sort(shelfWalk
+      // Counting one area (area filter, or an area count): walk the shelves —
+      // area → shelf position → name, read live so a walk set mid-count applies.
+      ? (a, b) => compareShelfOrder(
+          { areaName: a.inventoryItem.storageArea?.name, shelfOrder: a.inventoryItem.shelfOrder, name: a.inventoryItem.itemName },
+          { areaName: b.inventoryItem.storageArea?.name, shelfOrder: b.inventoryItem.shelfOrder, name: b.inventoryItem.itemName },
+        )
+      : (a, b) => a.sortOrder - b.sortOrder)
+  }, [active?.lines, catFilter, locFilter, statusFilter, searchQuery, shelfWalk])
 
   const grouped = useMemo(() => {
     // Flatten when searching so all matches appear together
-    if (catFilter || searchQuery.trim()) return null
+    if (catFilter || searchQuery.trim() || shelfWalk) return null
     return filteredLines.reduce((acc, l) => {
       const cat = l.inventoryItem.category
       if (!acc[cat]) acc[cat] = []
       acc[cat].push(l)
       return acc
     }, {} as Record<string, Line[]>)
-  }, [filteredLines, catFilter, searchQuery])
+  }, [filteredLines, catFilter, searchQuery, shelfWalk])
 
   // Which renderer is on screen (the page splits at `md`); null = both, first render.
   const isDesktop = useMediaQuery('(min-width: 768px)')
@@ -1128,23 +1145,41 @@ export default function CountPage() {
     } catch { queueClear() }
   }
 
+  /** Jumps to the count line for an item. False when the item isn't on this count. */
+  const revealItemLine = useCallback((itemId: string): boolean => {
+    const line = (active?.lines ?? []).find(l => l.inventoryItemId === itemId)
+    if (!line) return false
+    setSearchQuery('')
+    // The line exists but a category / area / status filter hides it: clear
+    // them so the scanned item actually shows.
+    // (Search is cleared above, so check the filters alone.)
+    const hiddenByFilter =
+      (catFilter && line.inventoryItem.category !== catFilter) ||
+      (locFilter && line.inventoryItem.storageArea?.id !== locFilter) ||
+      (statusFilter !== 'all' && !filteredLines.some(l => l.id === line.id))
+    if (hiddenByFilter) { setCatFilter(null); setLocFilter(null); setStatusFilter('all') }
+    setRevealId(line.id)
+    setTimeout(() => {
+      cardRefs.current[`${cardPrefix()}${line.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+    return true
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.lines, filteredLines, catFilter, locFilter, statusFilter, setSearchQuery, isDesktop])
+
   const handleScan = useCallback(async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
     const res = await fetch(`/api/inventory/search?barcode=${encodeURIComponent(trimmed)}`)
     const results: { id: string }[] = await res.json()
-    if (results.length === 1) {
-      const line = (active?.lines ?? []).find(l => l.inventoryItemId === results[0].id)
-      if (line) {
-        setSearchQuery('')
-        setRevealId(line.id)
-        setTimeout(() => {
-          cardRefs.current[`${cardPrefix()}${line.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }, 50)
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.lines, setSearchQuery, isDesktop])
+    if (results.length === 1) revealItemLine(results[0].id)
+  }, [revealItemLine])
+
+  // Camera scan (phones): found → jump to the line; unknown codes get linked
+  // to an item inside the scan flow first.
+  const [scanOpen, setScanOpen] = useState(false)
+  const onScannedItem = useCallback((item: ScannedItem) => {
+    if (!revealItemLine(item.id)) setToast(`Not on this count: ${item.itemName}`)
+  }, [revealItemLine])
 
   const openAddItem = async () => {
     const [cats, sups, areas] = await Promise.all([
@@ -2869,7 +2904,8 @@ export default function CountPage() {
     )
 
     const searchBox = (
-      <div className="relative max-w-lg">
+      <div className="flex items-center gap-2 max-w-lg">
+      <div className="relative flex-1 min-w-0">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
         <input
           type="text"
@@ -2885,6 +2921,8 @@ export default function CountPage() {
           </button>
         )}
       </div>
+      <ScanButton onClick={() => setScanOpen(true)} label="Scan a barcode to find the item" className="md:w-9 md:h-9" />
+      </div>
     )
     // Area filter is only useful on a full count — an area count is already one area.
     const showAreaChip = !active.areaFilter && locations.length > 1
@@ -2893,6 +2931,7 @@ export default function CountPage() {
     return (
       <div>
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+        <ScanItemFlow open={scanOpen} onClose={() => setScanOpen(false)} onItem={onScannedItem} title="Scan to count" />
 
         {editingItemId && (
           <InventoryItemDrawer
@@ -3205,6 +3244,12 @@ export default function CountPage() {
                   {sidebarNavBtn(locFilter === null, () => setLocFilter(null), 'All locations')}
                   {locations.map(loc => sidebarNavBtn(locFilter === loc.id, () => setLocFilter(locFilter === loc.id ? null : loc.id), loc.name, loc.id))}
                 </div>
+                {canShelfOrder && (
+                  <button onClick={() => setShowShelfOrder(true)}
+                    className="mt-1.5 w-full font-mono text-[11px] text-ink-3 hover:text-ink-2 py-1.5 border border-line rounded-[8px] transition-colors">
+                    Shelf order
+                  </button>
+                )}
               </div>
             )}
 
@@ -3252,6 +3297,12 @@ export default function CountPage() {
                 {locName ?? 'Area'} <ChevronDown size={13} className={locFilter ? 'text-paper/60' : 'text-ink-4'} />
               </button>
             )}
+            {canShelfOrder && locations.length > 0 && (
+              <button onClick={() => setShowShelfOrder(true)}
+                className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12.5px] font-medium border whitespace-nowrap transition-colors bg-paper text-ink-2 border-line">
+                Shelf order
+              </button>
+            )}
             {(() => {
               const allDone = (active.lines ?? []).filter(l => l.countedQty !== null || l.skipped).length
               return (
@@ -3284,6 +3335,26 @@ export default function CountPage() {
             </button>
           </div>
         </div>
+
+        {/* ── Shelf order sheet (LEAD+): arrange an area's shelf walk ───────── */}
+        {showShelfOrder && (
+          <ShelfOrderSheet
+            open={showShelfOrder}
+            onClose={() => setShowShelfOrder(false)}
+            areas={locations}
+            initialAreaId={locFilter ?? locations[0]?.id ?? null}
+            onSaved={(areaId, order) => {
+              // Re-sort the open count at once — the list reads shelfOrder live.
+              setActive(prev => prev && prev.lines ? {
+                ...prev,
+                lines: prev.lines.map(l => l.inventoryItem.storageArea?.id === areaId && order.has(l.inventoryItemId)
+                  ? { ...l, inventoryItem: { ...l.inventoryItem, shelfOrder: order.get(l.inventoryItemId)! } }
+                  : l),
+              } : prev)
+              setToast('Shelf order saved.')
+            }}
+          />
+        )}
 
         {/* ── Mobile filter bottom sheet ──────────────────────────────────────── */}
         {showCountFilterSheet && (

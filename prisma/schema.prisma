@@ -159,6 +159,8 @@ model InventoryItem {
   lastCountQty       Decimal?
   allergens          String[]                 @default([])
   barcode            String?
+  // Position on its storage area's shelf walk (count order). Null = not placed yet (sorts after, A–Z).
+  shelfOrder         Int?
   // Set ⇒ this row is a TOMBSTONE absorbed into another item (src/lib/item-merge.ts).
   // A tombstone is also isActive=false, so every isActive filter already hides it.
   mergedIntoId       String?
@@ -446,6 +448,7 @@ model WastageLog {
   costImpact      Decimal        @default(0)
   loggedBy        String         @default("System")
   notes           String?
+  photoUrl        String?        // optional photo of the waste (UploadThing CDN URL)
   revenueCenterId String
   inventoryItem   InventoryItem  @relation(fields: [inventoryItemId], references: [id])
   revenueCenter   RevenueCenter  @relation("WastageRC", fields: [revenueCenterId], references: [id])
@@ -1364,6 +1367,7 @@ model ChecklistRunLine {
   doneAt         DateTime?
   flagReason     ChecklistFlagReason?
   flagNote       String?
+  flagPhotoUrl   String?              // optional photo when flagged (e.g. broken equipment)
   resolvedById   String?
   resolvedByName String?
   resolvedAt     DateTime?

@@ -93,7 +93,7 @@ function answered(line: LineView, action: LineAction, who: { id: string; name: s
     ...line,
     status: d.status, value: d.value,
     doneById: d.doneById, doneByName: d.doneByName, doneAt: d.doneAt ? d.doneAt.toISOString() : null,
-    flagReason: d.flagReason, flagNote: d.flagNote,
+    flagReason: d.flagReason, flagNote: d.flagNote, flagPhotoUrl: d.flagPhotoUrl,
     resolvedById: null, resolvedByName: null, resolvedAt: null,
   }
 }
@@ -341,8 +341,8 @@ function ChecklistScreen() {
     const at = new Date()
     const before: LineView = line
     const optimistic: LineView = tick
-      ? { ...line, status: 'DONE', value: null, doneByName: myName, doneById: user?.id ?? null, doneAt: at.toISOString(), flagReason: null, flagNote: null }
-      : { ...line, status: 'TODO', value: null, doneByName: null, doneById: null, doneAt: null, flagReason: null, flagNote: null }
+      ? { ...line, status: 'DONE', value: null, doneByName: myName, doneById: user?.id ?? null, doneAt: at.toISOString(), flagReason: null, flagNote: null, flagPhotoUrl: null }
+      : { ...line, status: 'TODO', value: null, doneByName: null, doneById: null, doneAt: null, flagReason: null, flagNote: null, flagPhotoUrl: null }
     setView(v => (v ? replaceLine(v, optimistic) : v))
     if (mustQueue(line.id) && queueAnswer(line.id, action, at)) return
     const r = await putLine(line, action)

@@ -11,6 +11,8 @@ export interface WasteLogRow {
   costImpact: number | string | null
   loggedBy: string
   notes: string | null
+  /** Optional photo (an UploadThing file link), or null. */
+  photoUrl?: string | null
   /** This viewer may delete it (their own, within 24 h — or MANAGER+). */
   canDelete?: boolean
 }
@@ -22,6 +24,8 @@ export interface WasteDraft {
   reason: string
   notes: string
   date?: string
+  /** Only a photo that already uploaded; null/absent = none. */
+  photoUrl?: string | null
 }
 
 /** What a save hands back to the form: the saved row, or the reason it failed. */

@@ -94,7 +94,7 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
     where: { id: params.id },
     select: {
       id: true, itemName: true, allergens: true, countUnit: true, mergedIntoId: true, lastUpdated: true,
-      dimension: true, baseUnit: true, packChain: true, pricing: true,
+      storageAreaId: true, dimension: true, baseUnit: true, packChain: true, pricing: true,
       eachMeasureQty: true, eachMeasureUnit: true, densityGPerMl: true,
       recipe: { select: { id: true, name: true } },
     },
@@ -187,7 +187,12 @@ async function handlePUT(req: NextRequest, { params }: { params: { id: string } 
   for (const k of ['itemName', 'category', 'isActive', 'isStocked', 'allergens', 'barcode', 'countUnit'] as const) {
     if (k in body) (data as Record<string, unknown>)[k] = body[k]
   }
-  if ('storageAreaId' in body) data.storageAreaId = body.storageAreaId || null
+  if ('storageAreaId' in body) {
+    data.storageAreaId = body.storageAreaId || null
+    // A shelf position belongs to its storage area: moving the item elsewhere
+    // drops it to the end of the new area's walk order.
+    if ((body.storageAreaId || null) !== (before.storageAreaId ?? null)) data.shelfOrder = null
+  }
   // Count↔weight bridge ("1 each = N g/ml", valid in either direction) and the
   // weight↔volume density bridge. Neither changes the item's dimension, chain
   // or stock.

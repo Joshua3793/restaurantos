@@ -75,6 +75,22 @@ describe('POST /api/wastage', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it('saves an uploaded photo link; no photo saves null', async () => {
+    await post({ photoUrl: 'https://abc.ufs.sh/f/k1' })
+    expect(create.mock.calls[0][0].data.photoUrl).toBe('https://abc.ufs.sh/f/k1')
+    await post({})
+    expect(create.mock.calls[1][0].data.photoUrl).toBeNull()
+  })
+
+  it('drops a photo link that is not an UploadThing file — the entry still saves', async () => {
+    for (const photoUrl of ['https://evil.com/f/k1', 'http://utfs.io/f/k1', `https://utfs.io/f/${'a'.repeat(2100)}`, 7]) {
+      create.mockClear()
+      const res = await post({ photoUrl })
+      expect(res.status).toBe(201)
+      expect(create.mock.calls[0][0].data.photoUrl).toBeNull()
+    }
+  })
+
   it('sends a cook the saved entry without its cost; a manager gets the cost', async () => {
     const staff = await (await post({})).json()
     expect(staff.costImpact).toBeNull()

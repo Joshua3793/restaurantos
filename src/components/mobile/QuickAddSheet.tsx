@@ -1,18 +1,21 @@
 'use client'
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Flame, Camera, Thermometer, Flag, ClipboardList, ChevronRight } from 'lucide-react'
+import { Flame, Camera, Thermometer, Flag, ClipboardList, ChevronRight, ScanBarcode } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { canAccess } from '@/lib/route-access'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
 import { useBackDismiss } from '@/lib/back-stack'
+import { ScanItemFlow } from '@/components/scan/ScanItemFlow'
 
 // Window events the ＋ sheet fires when the job's page is ALREADY open: a
 // same-route router.push doesn't remount the page, so its ?param check never
 // re-runs. The page listens for these instead.
 export const QUICKADD_WASTE = 'quickadd:waste'
 export const QUICKADD_INVOICE = 'quickadd:invoice'
+/** detail: { id } — open that item's drawer on the already-open inventory page. */
+export const QUICKADD_ITEM = 'quickadd:item'
 
 // Center-＋ launcher. Each action lands on the job itself, not a list:
 // waste opens the Log form (?new=1), capture starts the scanner (?capture=1),
@@ -24,6 +27,8 @@ const ACTIONS = [
   { id: 'capture', label: 'Capture invoice',  sub: 'Photo → line items',     icon: Camera,        href: '/invoices?capture=1', event: QUICKADD_INVOICE, danger: false },
   { id: 'temps',   label: 'Log temps',        sub: 'Fridges, freezers, hot', icon: Thermometer,   href: '/temps',             event: null,             danger: false },
   { id: 'report',  label: 'Report something', sub: 'Broken, low, unsafe',    icon: Flag,          href: null,                 event: null,             danger: false },
+  // Opens the camera here; the item it finds opens on /inventory (its drawer).
+  { id: 'scan',    label: 'Scan an item',     sub: 'Barcode → the item',     icon: ScanBarcode,   href: '/inventory',         event: null,             danger: false },
   { id: 'count',   label: 'Start a count',    sub: 'Jump to a storage area', icon: ClipboardList, href: '/count',             event: null,             danger: false },
 ] as const
 type Action = (typeof ACTIONS)[number]
@@ -34,18 +39,31 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
   const { role } = useUser()
   const { activeKind, activeRcId } = useRc()
   const [reportOpen, setReportOpen] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
   useBackDismiss(open, onClose)
   const report = (
-    <ReportSheet
-      open={reportOpen}
-      onClose={() => setReportOpen(false)}
-      rcId={activeKind === 'rc' ? activeRcId : null}
-    />
+    <>
+      <ReportSheet
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        rcId={activeKind === 'rc' ? activeRcId : null}
+      />
+      <ScanItemFlow
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        title="Scan an item"
+        onItem={it => {
+          if (pathname === '/inventory') window.dispatchEvent(new CustomEvent(QUICKADD_ITEM, { detail: { id: it.id } }))
+          else router.push(`/inventory?item=${encodeURIComponent(it.id)}`)
+        }}
+      />
+    </>
   )
   if (!open) return report
   const run = (a: Action) => {
     onClose()
     if (!a.href) { setReportOpen(true); return }
+    if (a.id === 'scan') { setScanOpen(true); return }
     if (a.event && a.href.split('?')[0] === pathname) window.dispatchEvent(new CustomEvent(a.event))
     else router.push(a.href)
   }

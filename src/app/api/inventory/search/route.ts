@@ -81,6 +81,8 @@ export async function GET(req: NextRequest) {
       itemName: true,
       ...PRICING_SELECT,
       category: true,
+      // The barcode-link picker warns before replacing an item's existing code.
+      barcode: true,
       // Usage counts for the "used in N recipes" banner copy and the item-merge
       // picker (Task 10) — only selected when asked for, so the default response
       // shape (every other caller) is untouched.

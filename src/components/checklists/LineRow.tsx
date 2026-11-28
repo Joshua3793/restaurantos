@@ -2,6 +2,7 @@
 import { useRef } from 'react'
 import { Check, MoreHorizontal } from 'lucide-react'
 import type { LineView } from '@/lib/checklists/runs'
+import { PhotoThumb } from '@/components/photos/PhotoField'
 import { dueText, isPastDue, pacificHHMM, type Phase } from '@/lib/checklists/rules'
 
 // One job on the cook's list. TICK rows tick on tap (optimistic, in the page);
@@ -108,6 +109,10 @@ export function LineRow({
   const flagged = line.status === 'FLAGGED'
   const urgent = line.isBlocker && line.status === 'TODO'
   const sub = subLine(line)
+  // The photo a cook attached to the flag: a small thumb beside the row, opens full size.
+  const photo = flagged && line.flagPhotoUrl
+    ? <PhotoThumb url={line.flagPhotoUrl} size={32} label={`Photo of the problem with ${line.title}`} />
+    : null
   const blockerPill = urgent ? <Pill tone="red">{phase === 'CLOSE' ? 'BEFORE YOU LEAVE' : 'BEFORE DOORS'}</Pill> : null
 
   const clearTimer = () => {
@@ -185,6 +190,7 @@ export function LineRow({
             )}
           </span>
         </button>
+        {photo && <span className="flex-none pr-2">{photo}</span>}
       </div>
     )
   }
@@ -229,6 +235,7 @@ export function LineRow({
           </span>
         </span>
       </button>
+      {photo}
       {isTick && !locked && (
         <button
           type="button"
