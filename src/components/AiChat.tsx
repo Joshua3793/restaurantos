@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useBackDismiss } from '@/lib/back-stack'
 import { usePathname } from 'next/navigation'
 import { MessageCircle, X, Sparkles, Send, History, Trash2, ChevronLeft, Plus } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -117,6 +118,8 @@ export function AiChat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState<'chat' | 'history'>('chat')
+  // Phone back: history → chat, then close the panel.
+  useBackDismiss(open, () => { if (view === 'history') setView('chat'); else setOpen(false) })
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)

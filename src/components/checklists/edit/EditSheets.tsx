@@ -4,11 +4,13 @@ import { Check } from 'lucide-react'
 import { STATION_COLORS, NAME_MAX } from '@/lib/checklists/item-input'
 import { chipName, phaseCount, type CategoryTree, type EditStation } from '@/lib/checklists/edit-format'
 import type { Phase } from '@/lib/checklists/rules'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // Bottom sheets for the checklist editor: the shell every sheet shares, plus the
 // station, category and "Copy from…" sheets. The item sheet lives in ItemSheet.tsx.
 
 export function Sheet({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
+  useBackDismiss(true, onClose)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)

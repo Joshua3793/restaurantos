@@ -13,6 +13,8 @@ import { useReportRange } from '@/lib/report-range'
 import { LocationDashboard } from '@/components/locations/LocationDashboard'
 import { InfoDot } from './report-components'
 import { PROVENANCE } from '@/lib/report-provenance'
+import { shareServerExport } from '@/lib/share-file'
+import { useToast } from '@/components/Toast'
 
 interface ChromeData {
   foodCostPct: number | null
@@ -48,6 +50,7 @@ interface RecipeDriftRow {
 
 export default function ReportsPage() {
   const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
+  const { show: showToast } = useToast()
   const [chrome, setChrome] = useState<ChromeData | null>(null)
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [recipes, setRecipes] = useState<Array<{ id: string; name: string; menuPrice: number | null; totalCost: number }>>([])
@@ -132,6 +135,7 @@ export default function ReportsPage() {
         </div>
         <a
           href={`/api/reports/export?${analyticsParams(range, { activeKind, activeRcId, activeRc, activeLocationId })}`}
+          onClick={e => { if (shareServerExport(e.currentTarget.href, 'reports.xlsx', () => showToast({ type: 'error', title: 'Could not export — try again' }))) e.preventDefault() }}
           className="shrink-0 inline-flex items-center justify-center gap-1.5 h-[42px] px-4 rounded-[12px] bg-ink text-paper font-mono text-[11px] hover:bg-ink-2 transition-colors"
           title="Download an Excel workbook of every report for the selected scope and date range"
         >

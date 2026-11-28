@@ -1,28 +1,64 @@
 PODS:
   - Capacitor (5.7.8):
     - CapacitorCordova
+  - CapacitorApp (5.0.8):
+    - Capacitor
+  - CapacitorCommunityKeepAwake (4.0.0):
+    - Capacitor
   - CapacitorCordova (5.7.8)
   - CapacitorDocumentScanner (2.0.0):
+    - Capacitor
+  - CapacitorFilesystem (5.2.2):
+    - Capacitor
+  - CapacitorLocalNotifications (5.0.8):
+    - Capacitor
+  - CapacitorShare (5.0.8):
+    - Capacitor
+  - CapacitorStatusBar (5.0.8):
     - Capacitor
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorCommunityKeepAwake (from `../../node_modules/@capacitor-community/keep-awake`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - CapacitorDocumentScanner (from `../../node_modules/capacitor-document-scanner`)
+  - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
+  - "CapacitorLocalNotifications (from `../../node_modules/@capacitor/local-notifications`)"
+  - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
+  - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
 
 EXTERNAL SOURCES:
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
+  CapacitorApp:
+    :path: "../../node_modules/@capacitor/app"
+  CapacitorCommunityKeepAwake:
+    :path: "../../node_modules/@capacitor-community/keep-awake"
   CapacitorCordova:
     :path: "../../node_modules/@capacitor/ios"
   CapacitorDocumentScanner:
     :path: "../../node_modules/capacitor-document-scanner"
+  CapacitorFilesystem:
+    :path: "../../node_modules/@capacitor/filesystem"
+  CapacitorLocalNotifications:
+    :path: "../../node_modules/@capacitor/local-notifications"
+  CapacitorShare:
+    :path: "../../node_modules/@capacitor/share"
+  CapacitorStatusBar:
+    :path: "../../node_modules/@capacitor/status-bar"
 
 SPEC CHECKSUMS:
   Capacitor: 9686e5711b48a1aa84671ede795d0175848abcba
+  CapacitorApp: 8026f7ce1ac72780258d05a90c07deb5c724c0fa
+  CapacitorCommunityKeepAwake: 6106b37df55fd4f06e47a2af701ce0dd6ffae1ba
   CapacitorCordova: 31ab98dca2ddcee051027a1afe7e8c85c82f7297
   CapacitorDocumentScanner: c0cb73d9081ca6abecbe19920d0fc49485c3d202
+  CapacitorFilesystem: afe2c055f1e379385c80eafdece32751926b2910
+  CapacitorLocalNotifications: 73765422be07829b2d0a4c7c22a77ea2252ca210
+  CapacitorShare: 0a43832a9e09fca9ada569ee1856de75d54c61bf
+  CapacitorStatusBar: 8e0a8f213504695505dc8c4f808dffbe03aa0e0f
 
-PODFILE CHECKSUM: e93c9cca737f2d2bfd7f7300051083ae46d3e990
+PODFILE CHECKSUM: b44995b46038a567318ac4058c9e74ef051dbea2
 
 COCOAPODS: 1.16.2

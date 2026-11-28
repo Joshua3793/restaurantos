@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# iOS build output (xcodebuild -derivedDataPath ios/build) and CocoaPods
+ios/build/
+ios/DerivedData/
+ios/App/build/
+ios/App/Pods/
+# Podfile.lock stays tracked.
+
+# Android build output
+android/build/
+android/app/build/
+android/.gradle/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+
+# Binaries
+*.ipa
+*.apk
+*.aab
+*.xcarchive

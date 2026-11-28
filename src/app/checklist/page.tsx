@@ -24,6 +24,8 @@ import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 import type { RowLine } from '@/components/checklists/LineRow'
 import { JobPanel } from '@/components/checklists/JobPanel'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { useAppRefresh } from '@/lib/app-refresh'
+import { useBackDismiss } from '@/lib/back-stack'
 import { lineOrder, type ListFilter } from '@/lib/checklists/list-layout'
 
 // /checklist — the cook's opening / closing list for their station(s).
@@ -222,6 +224,8 @@ function ChecklistScreen() {
     document.addEventListener('visibilitychange', onVis)
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
   }, [ready, activeRcId, load])
+  useAppRefresh(() => { load() })
+  useBackDismiss(pickerOpen, () => setPickerOpen(false))
 
   useEffect(() => {
     // A lead with no pick lands on the whole-kitchen list instead (it gates the close).

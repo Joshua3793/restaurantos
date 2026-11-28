@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
+import { useBackDismiss } from '@/lib/back-stack'
 import type { LineAction } from '@/lib/checklists/apply-line'
 import { NOTE_MAX } from '@/lib/checklists/apply-line'
 import { inRange, parseReading, type Phase } from '@/lib/checklists/rules'
@@ -274,6 +275,7 @@ export function LineSheet({
   onClose: () => void
   onAction: (line: RowLine, action: LineAction) => Promise<boolean>
 }) {
+  useBackDismiss(true, onClose)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)

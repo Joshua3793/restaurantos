@@ -23,6 +23,8 @@ import { setScopeParams } from '@/lib/scope-params'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
 import { rcHex } from '@/lib/rc-colors'
 import { useDrawer } from '@/contexts/DrawerContext'
+import { useAppRefresh } from '@/lib/app-refresh'
+import { shareServerExport } from '@/lib/share-file'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { AllergenBadges, AllergenToggles, BulkAllergenModal } from '@/components/AllergenBadges'
 import { InventoryImportModal } from '@/components/inventory/InventoryImportModal'
@@ -364,6 +366,7 @@ function InventoryPageInner() {
   }
 
   useEffect(() => { fetchItems() }, [fetchItems])
+  useAppRefresh(fetchItems)
 
   const deepLinkItemId = useRef<string | null>(null)
   // Deep-link: ?item=id opens that item's drawer; ?orderList=1 opens the order list
@@ -1007,7 +1010,7 @@ function InventoryPageInner() {
           )}
           {canExport && (
             <button
-              onClick={() => { window.location.href = exportHref() }}
+              onClick={() => { const url = exportHref(); if (!shareServerExport(url, 'inventory.xlsx', () => showToast({ type: 'error', title: 'Could not export — try again' }))) window.location.href = url }}
               className="flex items-center gap-[7px] border border-line bg-paper text-ink-2 px-3.5 py-[9px] rounded-[9px] text-[13px] font-medium hover:border-ink-3 transition-colors"
             >
               <Download size={13} className="text-ink-3" /> {stockInHand ? 'Export Stock in Hand' : 'Export'}

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect } from 'react'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // Mobile bottom sheet — matches the app's pattern (fixed overlay, slide-up
 // panel, md:hidden so it never shows on desktop). Locks body scroll while open.
@@ -14,6 +15,7 @@ export function Sheet({
   title?: string
   children: React.ReactNode
 }) {
+  useBackDismiss(open, onClose)
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow

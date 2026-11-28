@@ -4,6 +4,7 @@ import { ArrowRight, Check } from 'lucide-react'
 import type { StationCard } from '@/lib/checklists/cook-view'
 import type { Phase } from '@/lib/checklists/rules'
 import { firstName } from './LineRow'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // "Where are you today?" — the bottom sheet a cook uses to pick one station,
 // or two when covering. Opens by itself when the cook has not picked yet.
@@ -59,6 +60,7 @@ export function StationPicker({
     return usual ? [usual.id] : []
   })
   const [busy, setBusy] = useState(false)
+  useBackDismiss(true, onClose)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }

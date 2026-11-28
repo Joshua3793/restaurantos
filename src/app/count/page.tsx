@@ -29,6 +29,8 @@ import { atLeast } from '@/lib/roles'
 import { canEditItems } from '@/lib/inventory-redact'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { ListSkeleton } from '@/components/ui/ListSkeleton'
+import { useBackDismiss } from '@/lib/back-stack'
+import { useAppRefresh } from '@/lib/app-refresh'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -480,8 +482,10 @@ export default function CountPage() {
     if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     const params = new URLSearchParams()
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
-    const data = await fetch(`/api/count/sessions?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
-    setSessions(Array.isArray(data) ? data : [])
+    // No signal or a bad answer keeps the list already on screen.
+    const data = await fetch(`/api/count/sessions?${params}`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null)
+    if (Array.isArray(data)) setSessions(data)
     setSessionsLoaded(true)
   }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
@@ -503,12 +507,16 @@ export default function CountPage() {
     if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
     const params = new URLSearchParams()
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
-    const data = await fetch(`/api/count/areas?${params}`, { cache: 'no-store' }).then(r => r.json()).catch(() => [])
-    setCountAreas(Array.isArray(data) ? data : [])
+    const data = await fetch(`/api/count/areas?${params}`, { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null)
+    if (Array.isArray(data)) setCountAreas(data)
     setAreasLoaded(true)
   }, [activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { loadSessions(); loadCountAreas() }, [loadSessions, loadCountAreas])
+  // Pull-down / app back in front: the count list only — an open count keeps
+  // the numbers being typed (it already polls its own lines).
+  useAppRefresh(() => { loadSessions(); loadCountAreas() })
   useEffect(() => {
     fetch('/api/storage-areas').then(r => r.json()).then(d => {
       if (Array.isArray(d)) setStorageAreas(d)
@@ -680,6 +688,14 @@ export default function CountPage() {
   // Which renderer is on screen (the page splits at `md`); null = both, first render.
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const cardPrefix = () => (isDesktop === false ? 'm-' : 'd-')
+  // Phone back: the filter sheet, then the line sheet — which, like a stray
+  // backdrop tap, holds an unsaved number and nudges instead of dropping it.
+  useBackDismiss(showCountFilterSheet, () => setShowCountFilterSheet(false))
+  useBackDismiss(openId !== null && isDesktop === false, () => {
+    const line = active?.lines?.find(l => l.id === openId)
+    if (line && sheetIsDirty(line, inputQty, extraEntries)) { setSheetNudge(true); return }
+    setOpenId(null)
+  })
   // How many lines are drawn: grows as the list scrolls, starts over when the
   // filters change. `revealId` keeps a line the app jumps to (auto-advance, a
   // barcode scan) drawn even when it sits past the budget.

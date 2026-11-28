@@ -8,6 +8,7 @@ import {
   type InboxAction, type InboxEvent, type InboxItem,
 } from './format'
 import { TagDot } from './TagChips'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // One Inbox item: tag (retag) + severity, what it is, what happened, a note,
 // and what to do about it. The same content is the phone's bottom sheet and
@@ -223,6 +224,7 @@ export function ItemDetail(p: ItemDetailProps & { variant: 'sheet' | 'pane' }) {
 
 /** Phone: the item as a bottom sheet over the list. */
 export function ItemSheet({ onClose, ...p }: ItemDetailProps & { onClose: () => void }) {
+  useBackDismiss(true, onClose)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)

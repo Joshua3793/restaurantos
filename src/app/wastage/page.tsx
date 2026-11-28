@@ -16,6 +16,7 @@ import { ALL_REASONS, reasonLabel } from '@/components/wastage/reasons'
 import { wasteUnits, wasteCost, fmtWasteQty, type WasteItem } from '@/components/wastage/units'
 import { rankItems } from '@/components/wastage/search'
 import { LogWasteSheet } from '@/components/wastage/LogWasteSheet'
+import { useAppRefresh } from '@/lib/app-refresh'
 import { WasteCard } from '@/components/wastage/WasteCard'
 import { UndoToast, type WasteToast } from '@/components/wastage/UndoToast'
 import type { WasteLogRow, WasteDraft, SaveResult } from '@/components/wastage/types'
@@ -232,12 +233,15 @@ export default function WastagePage() {
     if (startDate) params.set('startDate', startDate)
     if (endDate) params.set('endDate', endDate)
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
+    // No signal or a bad answer keeps the list already on screen.
     return fetch(`/api/wastage?${params}`)
-      .then(r => (r.ok ? r.json() : []))
-      .then(rows => setLogs(Array.isArray(rows) ? rows : []))
+      .then(r => (r.ok ? r.json() : null))
+      .then(rows => { if (Array.isArray(rows)) setLogs(rows) })
+      .catch(() => {})
   }, [reasonFilter, startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
+  useAppRefresh(() => { void fetchLogs() })
   useEffect(() => {
     fetch('/api/inventory').then(r => (r.ok ? r.json() : [])).then(rows => setInventoryItems(Array.isArray(rows) ? rows : []))
   }, [])

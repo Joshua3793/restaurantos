@@ -6,6 +6,7 @@ import { atLeast } from '@/lib/roles'
 import { setScopeParams } from '@/lib/scope-params'
 import { serviceStatus, type RcService, type ServiceStatus } from '@/lib/service-hours'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import { useAppRefresh } from '@/lib/app-refresh'
 import { ymd } from '@/components/temps/temp-utils'
 import { defaultPhase, type Phase } from '@/lib/checklists/rules'
 import type { TodayView } from '@/lib/checklists/today-types'
@@ -86,6 +87,7 @@ export function useStartData() {
   const [tick, setTick] = useState(0)
   const inboxSeq = useRef(0)
   const reload = useCallback(() => setTick(t => t + 1), [])
+  useAppRefresh(reload)
 
   /** The open Inbox for this kitchen. Only the latest reply lands. */
   const loadInbox = useCallback(async () => {

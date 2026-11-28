@@ -5,6 +5,7 @@ import { formatCurrency } from '@/lib/utils'
 import { PICK_REASONS } from './reasons'
 import { wasteUnits, wasteCost, fmtWasteQty, type WasteItem } from './units'
 import { rankItems } from './search'
+import { useBackDismiss } from '@/lib/back-stack'
 import type { WasteDraft, SaveResult } from './types'
 
 // The phone's Log waste form: a bottom sheet, not the old centred modal. Item →
@@ -45,6 +46,7 @@ export function LogWasteSheet({
   onSave: (draft: WasteDraft) => Promise<SaveResult>
 }) {
   const [f, setF] = useState(EMPTY)
+  useBackDismiss(open, onClose)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)

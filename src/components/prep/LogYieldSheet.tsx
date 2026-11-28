@@ -18,6 +18,7 @@ import { IcCheck, IcX } from '@/components/prep/icons'
 import type { PrepItemRich } from '@/components/prep/types'
 import { batchYield, batchCount, batchesToQty } from '@/lib/prep-plan'
 import { fmtQty } from '@/lib/prep-runsheet'
+import { useBackDismiss } from '@/lib/back-stack'
 import {
   BATCH_MAX, BATCH_STEP, fmtBatches, isCompleteStatus, plannedQty, round2, snapBatches, stepBatches,
   yieldPrefill, yieldStatus, yieldWarning, type YieldStatus,
@@ -74,6 +75,7 @@ function StepButton({ label, onClick, disabled }: { label: '−' | '+'; onClick:
 export default function LogYieldSheet({ target, onClose, onConfirm }: Props) {
   const item = target?.item ?? null
   const [qty, setQty] = useState(0)
+  useBackDismiss(!!target, onClose)
   const [text, setText] = useState('')
   const unitRef = useRef<HTMLInputElement>(null)
   const sliderRef = useRef<HTMLInputElement>(null)

@@ -2,6 +2,7 @@
 // prototypes (desktop `Temp charts` + mobile `m-temp`), adapted to the app's
 // Postgres-backed API. Numbers here are already JS numbers (the API coerces
 // Prisma Decimals before sending), so callers never touch raw Decimals.
+import { shareOrDownload } from '@/lib/share-file'
 
 export type TempType = 'FRIDGE' | 'FREEZER' | 'HOT'
 
@@ -163,7 +164,8 @@ export interface TempHandlers {
 
 // ── CSV / Excel export ───────────────────────────────────────────────────────
 
-// Serialize rows → CSV (RFC-4180 quoting), prepend a UTF-8 BOM, trigger download.
+// Serialize rows → CSV (RFC-4180 quoting), prepend a UTF-8 BOM, then hand it
+// over: the share sheet on a phone, a download elsewhere (src/lib/share-file.ts).
 function downloadCSV(rows: (string | number)[][], filename: string) {
   const csv = rows
     .map(r =>
@@ -175,13 +177,7 @@ function downloadCSV(rows: (string | number)[][], filename: string) {
         .join(','),
     )
     .join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+  void shareOrDownload({ filename, mime: 'text/csv;charset=utf-8', data: '\ufeff' + csv })
 }
 
 // Builds the food-safety record from a flat History reading list and triggers

@@ -5,6 +5,7 @@ import { useToast } from '@/components/Toast'
 import { call } from './api'
 import { pickableTags } from './format'
 import { TagDot } from './TagChips'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // "Report something" — any cook sends the managers a tagged note. A bottom
 // sheet on the phone, centred at 480 px on a desktop. Mockup: ReportSheet.
@@ -57,6 +58,8 @@ export function ReportSheet({ open, onClose, rcId, defaultPlace, onSent }: Repor
   const noteRef = useRef<HTMLTextAreaElement>(null)
   // A typed note survives a stray tap outside or Escape; the Close button always closes.
   const typed = useRef(false)
+  // Back closes it like the backdrop does — not once something has been typed.
+  useBackDismiss(open, () => { if (!typed.current) onClose() })
 
   // Opening starts a clean report.
   useEffect(() => {

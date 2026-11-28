@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { X, UploadCloud, Download, CheckCircle2, AlertCircle, Copy } from 'lucide-react'
 import type { ImportReport } from '@/lib/inventory-import'
+import { shareServerExport } from '@/lib/share-file'
 
 interface Props {
   onClose: () => void
@@ -99,6 +100,7 @@ export function InventoryImportModal({ onClose, onImported }: Props) {
           {step === 'upload' && (
             <div className="space-y-4">
               <a href="/api/inventory/import/template"
+                onClick={e => { if (shareServerExport('/api/inventory/import/template', 'inventory-import-template.xlsx', () => setError('Could not export — try again'))) e.preventDefault() }}
                 className="flex items-center gap-2 text-sm text-gold hover:underline">
                 <Download size={15} /> Download the import template
               </a>

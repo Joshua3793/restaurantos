@@ -14,6 +14,7 @@ import { packLabel, priceLabel, type RemeasureSummary } from '@/lib/remeasure-pl
 import {
   measureWord, bridgePrompt, changeLines, appliedToast, changedAgo, defaultTargetUnit, TARGET_UNITS,
 } from '@/lib/remeasure-copy'
+import { useBackDismiss } from '@/lib/back-stack'
 
 export interface RemeasureItem {
   id: string
@@ -122,6 +123,8 @@ export function RemeasureSheet({ item, onClose, onChanged }: RemeasureSheetProps
   const toast = useToast()
   const titleId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
+  // Back does what the backdrop does.
+  useBackDismiss(true, () => tryClose())
   const today = useMemo(() => {
     const ci = asChainItem({
       dimension: item.dimension, baseUnit: item.baseUnit, packChain: item.packChain, pricing: item.pricing,
