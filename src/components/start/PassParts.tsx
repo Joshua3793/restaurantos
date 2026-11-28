@@ -405,18 +405,15 @@ export function LastNight({ d, now, right, compact = false }: {
 
 // ── numbers (MANAGER) ──────────────────────────────────────────────────────
 
-export type NumberRow = { label: string; value: string; tone?: 'bad' | 'ok' | 'muted'; href?: string }
+export type NumberRow = { key: string; label: string; value: string; tone?: 'bad' | 'ok' | 'muted'; hint?: string; href?: string }
 
-/** Sales, covers, food cost (with its target) and how many items are below par. */
-export function numberRows(d: Pick<StartData, 'yesterday' | 'foodCost' | 'hasOrders' | 'low'>, opts: { foodCost: boolean }): NumberRow[] {
+/** Sales, purchases ÷ sales, count food cost + drift, and how many items are below par (≤ 5 rows). */
+export function numberRows(d: Pick<StartData, 'yesterday' | 'foodCost' | 'countFoodCost' | 'isRc' | 'hasOrders' | 'low'>, opts: { foodCost: boolean }): NumberRow[] {
   const rows: NumberRow[] = scoreRows(d, formatCurrency)
-    .filter(r => r.label !== 'Target' && (opts.foodCost || r.label !== 'Food cost this week'))
-    .map(r => (r.label === 'Food cost this week' && d.foodCost && d.foodCost.pct != null
-      ? { ...r, value: `${r.value} / ${d.foodCost.target.toFixed(1)}%` }
-      : r))
+    .filter(r => opts.foodCost || r.key === 'sales')
   if (d.hasOrders) {
     const n = d.low.top.length + d.low.more
-    rows.push({ label: 'Running low', value: n === 0 ? 'Nothing' : `${n} ${n === 1 ? 'item' : 'items'}`, href: '/inventory' })
+    rows.push({ key: 'low', label: 'Running low', value: n === 0 ? 'Nothing' : `${n} ${n === 1 ? 'item' : 'items'}`, href: '/inventory' })
   }
   return rows
 }

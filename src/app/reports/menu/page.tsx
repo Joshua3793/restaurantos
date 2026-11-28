@@ -7,7 +7,7 @@ import { formatCurrency } from '@/lib/utils'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
-import { InfoDot } from '../report-components'
+import { InfoDot, DesktopDetail } from '../report-components'
 import { PROVENANCE } from '@/lib/report-provenance'
 
 interface Dish {
@@ -48,6 +48,19 @@ export default function MenuEngineeringPage() {
 
       <DateRangePicker value={range} onChange={setRange} />
 
+      {/* Phone: how many dishes sit in each quadrant, then the note. */}
+      <div className="md:hidden grid grid-cols-2 gap-3 mb-3">
+        {groups.map(q => (
+          <div key={q} className="rounded-[12px] border border-line bg-paper p-4">
+            <div className={`font-mono text-[11px] ${QUADRANT_META[q].cls}`}>{QUADRANT_META[q].label}</div>
+            <div className="text-[24px] font-semibold text-ink leading-none mt-2 tabular-nums">
+              {data ? data.dishes.filter(d => d.quadrant === q).length : '—'}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <DesktopDetail className="">
       <div className="grid sm:grid-cols-2 gap-4">
         {groups.map(q => {
           const items = (data?.dishes ?? []).filter(d => d.quadrant === q)
@@ -75,6 +88,7 @@ export default function MenuEngineeringPage() {
           {(data?.dishes ?? []).filter(d => d.quadrant === null).length} dish(es) hidden — no menu price or cost set.
         </div>
       )}
+      </DesktopDetail>
     </div>
   )
 }

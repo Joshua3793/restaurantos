@@ -1,12 +1,15 @@
 'use client'
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronUp, ChevronDown, Minus, Info } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 /**
  * Small ⓘ affordance that reveals a provenance note (how a number is computed:
- * formula · window · scope) on hover or keyboard focus.
+ * formula · window · scope) on hover or keyboard focus — and on tap, since a
+ * phone has no hover: a tap toggles it, a tap anywhere else or a scroll closes it.
+ * The invisible hit area around the 12px icon makes it a ~40px tap target
+ * without moving the layout.
  *
  * The tooltip is rendered in a portal on <body> with fixed positioning, so it
  * escapes the `overflow-hidden` / narrow KPI-card containers that used to crop it.
@@ -23,7 +26,8 @@ export function InfoDot({ text, className = '' }: { text: string; className?: st
     if (!el || typeof window === 'undefined') return
     const r = el.getBoundingClientRect()
     // Center under the icon, then clamp horizontally into the viewport (8px gutter).
-    const left = Math.max(8, Math.min(r.left + r.width / 2 - TIP_W / 2, window.innerWidth - TIP_W - 8))
+    const w = Math.min(TIP_W, window.innerWidth - 16)
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8))
     // Flip above the icon when the bottom half of the viewport is tight.
     const openUp = window.innerHeight - r.bottom < 140
     setBox(openUp
@@ -31,18 +35,36 @@ export function InfoDot({ text, className = '' }: { text: string; className?: st
       : { left, top: r.bottom + 6 })
   }, [])
   const hide = useCallback(() => setBox(null), [])
+  const open = box != null
+
+  // While open: a tap outside the dot, or any scroll (the tip is fixed-positioned), closes it.
+  useEffect(() => {
+    if (!open) return
+    const outside = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) hide() }
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('scroll', hide, true)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      window.removeEventListener('scroll', hide, true)
+    }
+  }, [open, hide])
 
   return (
     <span
       ref={ref}
       className={`relative inline-flex align-middle ${className}`}
-      onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}
+      onPointerEnter={e => { if (e.pointerType === 'mouse') show() }}
+      onPointerLeave={e => { if (e.pointerType === 'mouse') hide() }}
+      onPointerUp={e => { if (e.pointerType !== 'mouse') { if (open) hide(); else show() } }}
+      onClick={e => { e.preventDefault(); e.stopPropagation() }}
+      onFocus={show} onBlur={hide}
     >
-      <Info size={12} tabIndex={0}
-        className="text-ink-4 hover:text-ink-2 focus:text-ink-2 cursor-help shrink-0 outline-none" />
+      <span aria-hidden className="absolute -inset-[14px]" />
+      <Info size={12} tabIndex={0} aria-label="How this number is worked out"
+        className="relative text-ink-4 hover:text-ink-2 focus:text-ink-2 cursor-help shrink-0 outline-none" />
       {box && typeof document !== 'undefined' && createPortal(
         <span role="tooltip"
-          style={{ position: 'fixed', left: box.left, top: box.top, bottom: box.bottom, width: TIP_W }}
+          style={{ position: 'fixed', left: box.left, top: box.top, bottom: box.bottom, width: TIP_W, maxWidth: 'calc(100vw - 16px)' }}
           className="pointer-events-none z-[100] rounded-lg bg-ink text-paper text-[11px] leading-snug
             font-normal normal-case tracking-normal text-left px-2.5 py-2 shadow-xl">
           {text}
@@ -50,6 +72,22 @@ export function InfoDot({ text, className = '' }: { text: string; className?: st
         document.body,
       )}
     </span>
+  )
+}
+
+/**
+ * Phones (below md) get a report's top number cards, then this note instead of
+ * the wide tables and charts. Wrap the desktop-only part; it renders unchanged from md up.
+ */
+export function DesktopDetail({ children, className = 'space-y-6' }: { children: React.ReactNode; className?: string }) {
+  return (
+    <>
+      <div className="md:hidden rounded-xl border border-line bg-bg-2/60 px-4 py-4 text-center">
+        <p className="text-[14px] text-ink-2">Open on a computer for the full report.</p>
+        <p className="text-[12px] text-ink-3 mt-1">The tables and charts need a wider screen.</p>
+      </div>
+      <div className={`hidden md:block ${className}`}>{children}</div>
+    </>
   )
 }
 

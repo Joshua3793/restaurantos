@@ -5,7 +5,7 @@ import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
-import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
+import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState, DesktopDetail } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { getVocab } from '@/lib/rc-vocab'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
@@ -56,6 +56,7 @@ export default function SalesTab() {
         <KpiCard label="Service Days" value={String(summary.totalOrders)} accent="gray" sub="entries logged" info={PROVENANCE.salesServiceDays} />
       </div>
 
+      <DesktopDetail>
       {/* Weekly Revenue Chart */}
       <Card>
         <SectionHeader title="Weekly Revenue" subtitle="Revenue and food sales by week" />
@@ -132,6 +133,7 @@ export default function SalesTab() {
           </div>
         </Card>
       )}
+      </DesktopDetail>
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { DateRangePicker } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
-import { InfoDot } from '../report-components'
+import { InfoDot, DesktopDetail } from '../report-components'
 import { PROVENANCE } from '@/lib/report-provenance'
 
 interface DailySummary {
@@ -121,6 +121,7 @@ export default function PrepTab() {
             ))}
           </div>
 
+          <DesktopDetail>
           {/* Daily completion rate chart */}
           {report.dailySummaries.length > 1 && (
             <div className="bg-white border border-line rounded-xl p-4">
@@ -229,6 +230,7 @@ export default function PrepTab() {
               </div>
             </div>
           )}
+          </DesktopDetail>
         </>
       )}
     </div>

@@ -166,25 +166,25 @@ function SignalCard({ signal, busy, onAct }: {
 
       <div className="flex items-center justify-between gap-2">
         <Link href={signal.verbHref}
-          className="inline-flex items-center gap-1.5 bg-ink text-paper px-3 py-1.5 rounded-[8px] text-[12px] font-medium hover:bg-[#18181b] transition-colors">
+          className="inline-flex items-center gap-1.5 bg-ink text-paper px-3 py-1.5 min-h-[44px] md:min-h-0 rounded-[8px] text-[12px] font-medium hover:bg-[#18181b] transition-colors">
           {signal.verbLabel} →
         </Link>
         <div className="flex items-center gap-1">
           {!isApplied && (
             <button onClick={() => onAct(signal.id, 'apply')} disabled={busy}
-              title="Mark applied"
-              className="w-8 h-8 rounded-md grid place-items-center text-ink-3 hover:text-ink hover:bg-bg-2 disabled:opacity-50 transition-colors">
+              title="Mark applied" aria-label="Mark applied"
+              className="w-11 h-11 md:w-8 md:h-8 rounded-md grid place-items-center text-ink-3 hover:text-ink hover:bg-bg-2 disabled:opacity-50 transition-colors">
               <Check size={14} />
             </button>
           )}
           <button onClick={() => onAct(signal.id, 'snooze')} disabled={busy}
-            title="Snooze 24h"
-            className="w-8 h-8 rounded-md grid place-items-center text-ink-3 hover:text-ink hover:bg-bg-2 disabled:opacity-50 transition-colors">
+            title="Snooze 24h" aria-label="Snooze 24h"
+            className="w-11 h-11 md:w-8 md:h-8 rounded-md grid place-items-center text-ink-3 hover:text-ink hover:bg-bg-2 disabled:opacity-50 transition-colors">
             <Clock size={14} />
           </button>
           <button onClick={() => onAct(signal.id, 'dismiss')} disabled={busy}
-            title="Dismiss"
-            className="w-8 h-8 rounded-md grid place-items-center text-ink-3 hover:text-ink hover:bg-bg-2 disabled:opacity-50 transition-colors">
+            title="Dismiss" aria-label="Dismiss"
+            className="w-11 h-11 md:w-8 md:h-8 rounded-md grid place-items-center text-ink-3 hover:text-ink hover:bg-bg-2 disabled:opacity-50 transition-colors">
             <X size={14} />
           </button>
         </div>

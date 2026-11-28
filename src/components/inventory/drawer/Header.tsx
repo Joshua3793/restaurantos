@@ -10,7 +10,9 @@ import { displayStock, type InventoryItem, type ItemChainForm } from './types'
 
 // ─── Sticky header: name, storage area, actions ──────────────────────────────
 
-const EDIT_BUTTON = 'flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors'
+// `hidden sm:flex`: editing is a computer job — on a phone the drawer opens on
+// At a glance, which says so.
+const EDIT_BUTTON = 'hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors'
 
 export function Header({
   item, editMode, nameValue, onNameChange, saving, onSave, onCancel,
@@ -71,9 +73,10 @@ export function Header({
               aria-label="Count"
               disabled={!activeRc}
               title={activeRc ? `Quick count (${activeRc.name})` : 'Pick a revenue center to quick-count'}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              // Phones count from At a glance's full-width button instead.
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <ClipboardCheck size={12} /><span className="hidden sm:inline">Count</span>
+              <ClipboardCheck size={12} />Count
             </button>
             {/* Merge a duplicate into this one (MANAGER+, non-PREP only).
                 canMerge default-denies while role is loading and for
@@ -83,7 +86,7 @@ export function Header({
               <button
                 onClick={onMerge}
                 title="Merge a duplicate item into this one"
-                className="flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-line text-[12px] font-medium text-ink-2 rounded-[8px] hover:border-ink-3 transition-colors"
               >
                 <GitMerge size={12} /> Merge
               </button>
@@ -96,16 +99,16 @@ export function Header({
                 title={`Edit the recipe ${item.recipe.name}`}
                 className={EDIT_BUTTON}
               >
-                <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
+                <Pencil size={12} /> Edit
               </Link>
             ) : canEdit && (
               <button onClick={onEdit} aria-label="Edit" title="Edit" className={EDIT_BUTTON}>
-                <Pencil size={12} /><span className="hidden sm:inline">Edit</span>
+                <Pencil size={12} /> Edit
               </button>
             )}
           </>
         )}
-        <button onClick={onClose} aria-label="Close" className="w-8 h-8 grid place-items-center rounded-[8px] border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors bg-paper"><X size={16} /></button>
+        <button onClick={onClose} aria-label="Close" className="w-11 h-11 sm:w-8 sm:h-8 grid place-items-center rounded-[8px] border border-line text-ink-3 hover:border-ink-4 hover:text-ink-2 transition-colors bg-paper"><X size={16} /></button>
       </div>
     </div>
   )

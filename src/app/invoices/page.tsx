@@ -11,7 +11,9 @@ import { InboxSubNav } from '@/components/invoices/InboxSubNav'
 import { MobileInbox } from '@/components/invoices/mobile/MobileInbox'
 import { DiscardBatchDialog } from '@/components/invoices/DiscardBatchDialog'
 import { PendingScansBanner } from '@/components/invoices/PendingScansBanner'
-import { Signal, batchNoun } from '@/lib/invoices/inbox-items'
+import { Signal, batchNoun, isStillReading, STILL_READING_NOTE } from '@/lib/invoices/inbox-items'
+import { QuickCheckSheet } from '@/components/invoices/mobile/QuickCheckSheet'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { PageHead } from '@/components/layout/PageHead'
 import { SessionSummary, SessionStatus } from '@/components/invoices/types'
 import { useRc } from '@/contexts/RevenueCenterContext'
@@ -57,6 +59,15 @@ export default function InvoicesPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [signals, setSignals] = useState<Signal[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  // Phones (below 768px) open an invoice on the quick check first; the full
+  // review drawer is one tap further. Desktop opens the drawer as before.
+  const isPhone = useMediaQuery('(max-width: 767px)')
+  const [quickCheckId, setQuickCheckId] = useState<string | null>(null)
+  // The quick check is phone-only (md:hidden) but locks page scroll while open: if
+  // the screen widens past the phone size it would vanish and leave the page
+  // stuck, so close it (which also releases the lock).
+  useEffect(() => { if (isPhone === false) setQuickCheckId(null) }, [isPhone])
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [groupingSessionId, setGroupingSessionId] = useState<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
   const [showWebScanner, setShowWebScanner] = useState(false)
@@ -87,9 +98,9 @@ export default function InvoicesPage() {
   const prevStatusesRef = useRef<Map<string, SessionStatus>>(new Map())
 
   useEffect(() => {
-    setDrawerOpen(selectedSessionId !== null)
+    setDrawerOpen(selectedSessionId !== null || quickCheckId !== null)
     return () => setDrawerOpen(false)
-  }, [selectedSessionId, setDrawerOpen])
+  }, [selectedSessionId, quickCheckId, setDrawerOpen])
 
   const fetchSessions = useCallback(async () => {
     if (!scopeReady) return   // wait for the scope, or this fires an unscoped load first
@@ -112,7 +123,7 @@ export default function InvoicesPage() {
             supplierName: s.supplierName,
             invoiceNumber: s.invoiceNumber,
             actionLabel: 'Review',
-            onAction: () => setSelectedSessionId(sid),
+            onAction: () => openSessionRef.current(sid),
           })
         }
         if (prev.get(s.id) === 'APPROVING' && s.status === 'APPROVED') {
@@ -134,6 +145,7 @@ export default function InvoicesPage() {
       prevStatusesRef.current = next
 
       setSessions(data)
+      setSessionsLoaded(true)
       // Mobile inbox also surfaces signals (prices / variance / exceptions).
       fetch('/api/signals', { cache: 'no-store' })
         .then(r => r.ok ? r.json() : null)
@@ -172,13 +184,20 @@ export default function InvoicesPage() {
   // read-only banner explains, no scanner.
   const router = useRouter()
   const [captureWanted, setCaptureWanted] = useState(false)
+  // ?session=<id> (see below) is read here too: both one-shot params are stripped
+  // together with ONE replace, so neither survives the other's cleanup.
+  const [sessionWanted, setSessionWanted] = useState<string | null>(null)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    if (params.get('capture') !== '1') return
+    const capture = params.get('capture') === '1'
+    const id = params.get('session')
+    if (!capture && !id) return
     params.delete('capture')
+    params.delete('session')
     const qs = params.toString()
     router.replace(qs ? `/invoices?${qs}` : '/invoices', { scroll: false })
-    setCaptureWanted(true)
+    if (capture) setCaptureWanted(true)
+    if (id) setSessionWanted(id)
   }, [router])
   useEffect(() => {
     const want = () => setCaptureWanted(true)
@@ -204,12 +223,35 @@ export default function InvoicesPage() {
   fetchRef.current    = fetchSessions
   sessionsRef.current = sessions
 
-  // GROUPING sessions resume the confirm-grouping screen; everything else opens the drawer.
+  // GROUPING sessions resume the confirm-grouping screen; everything else opens
+  // the drawer — on a phone, the quick check first. On a phone an invoice the
+  // scanner is still reading has no lines yet, so it never opens (the card
+  // shows its own note; anything else — a link, a notification — gets a toast).
   const handleOpenSession = useCallback((id: string) => {
     const s = sessionsRef.current.find(x => x.id === id)
-    if (s?.status === 'GROUPING') setGroupingSessionId(id)
-    else setSelectedSessionId(id)
-  }, [])
+    if (s?.status === 'GROUPING') { setGroupingSessionId(id); return }
+    if (isPhone) {
+      if (s && isStillReading(s) && s.files.length > 0) {
+        toast.show({ type: 'info', title: 'Reading invoice…', message: STILL_READING_NOTE })
+        return
+      }
+      setQuickCheckId(id)
+      return
+    }
+    setSelectedSessionId(id)
+  }, [isPhone, toast])
+  const openSessionRef = useRef(handleOpenSession)
+  openSessionRef.current = handleOpenSession
+
+  // Exceptions page "Match" links land here with ?session=<id>: the param is
+  // dropped by the ?capture effect above (replace, so Back / refresh can't reopen
+  // it), then that invoice opens once the list and the screen size are known —
+  // the review on desktop, the quick check on a phone.
+  useEffect(() => {
+    if (!sessionWanted || !sessionsLoaded || isPhone === null) return
+    setSessionWanted(null)
+    handleOpenSession(sessionWanted)
+  }, [sessionWanted, sessionsLoaded, isPhone, handleOpenSession])
 
   // Depend on the transient FLAG (not the sessions array) so the timer is only
   // rescheduled when the cadence should actually change — the fast poll engages
@@ -366,7 +408,7 @@ export default function InvoicesPage() {
 
   return (
     <>
-    <div className="hidden sm:block"><InboxSubNav /></div>
+    <div className="hidden md:block"><InboxSubNav /></div>
     <div className="p-4 md:p-6 md:px-8 max-w-7xl mx-auto w-full">
 
       {isReadOnly && (
@@ -385,7 +427,7 @@ export default function InvoicesPage() {
       />
 
       {/* ── Mobile: unified inbox feed ── */}
-      <div className="block sm:hidden">
+      <div className="block md:hidden">
         <MobileInbox
           sessions={sessions}
           signals={signals}
@@ -399,7 +441,7 @@ export default function InvoicesPage() {
       </div>
 
       {/* ── Desktop: existing V2 (unchanged) ── */}
-      <div className="hidden sm:block">
+      <div className="hidden md:block">
       <PageHead
         crumbs={<><Mail size={12} /> INBOX / INVOICES</>}
         title="Invoices"
@@ -474,6 +516,11 @@ export default function InvoicesPage() {
           </div>
         </div>
       )}
+      <QuickCheckSheet
+        sessionId={quickCheckId}
+        onClose={() => setQuickCheckId(null)}
+        onOpenFull={id => { setQuickCheckId(null); setSelectedSessionId(id) }}
+      />
       <InvoiceDrawer
         sessionId={selectedSessionId}
         onClose={() => setSelectedSessionId(null)}

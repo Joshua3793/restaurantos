@@ -34,6 +34,7 @@ interface OrdersResponse {
 interface Raw {
   prep: StartPrepItem[]
   foodCost: { pct: number | null; target: number } | null
+  countFoodCost: CountFoodCost | null
   yesterday: { netSales: number; covers: number } | null
   lastClose: LastClose | null
   orders: OrdersResponse | null
@@ -41,8 +42,20 @@ interface Raw {
   handovers: HandoverNote[]
 }
 
+/**
+ * True food cost from the last two finalized counts (GET /api/insights/food-cost-variance,
+ * MANAGER+, whole business — the route takes no kitchen filter). `actualPct` is
+ * COGS ÷ food sales; `driftPts`/`driftDollars` are actual minus theoretical
+ * (what the recipes say the sales should have cost). The same figures /variance shows.
+ */
+export interface CountFoodCost {
+  actualPct: number | null
+  driftPts: number | null
+  driftDollars: number | null
+}
+
 const EMPTY: Raw = {
-  prep: [], foodCost: null, yesterday: null, lastClose: null, orders: null, stations: [], handovers: [],
+  prep: [], foodCost: null, countFoodCost: null, yesterday: null, lastClose: null, orders: null, stations: [], handovers: [],
 }
 
 const getJson = (url: string) =>
@@ -156,6 +169,25 @@ export function useStartData() {
     return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', tick) }
   }, [ready, userLoading, activeKind, activeRcId, activeRc, activeLocationId, tick, isManager, isLead, rcOnly, phase, loadInbox])
 
+  // Count-period food cost: one heavy, business-wide query that only changes when a
+  // count is finalized — load it once per visit (and on reload), not every minute.
+  // Not keyed on the kitchen: the route has no kitchen filter, so switching kitchen
+  // must not re-run it.
+  useEffect(() => {
+    if (!ready || userLoading) return
+    if (!isManager) { setRaw(r => ({ ...r, countFoodCost: null })); return }
+    let cancelled = false
+    const num = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v))
+    getJson('/api/insights/food-cost-variance').then(v => {
+      if (cancelled) return
+      const value: CountFoodCost | null = v && !v.needsCounts
+        ? { actualPct: num(v.actualFoodCostPct), driftPts: num(v.variancePctPoints), driftDollars: num(v.varianceDollars) }
+        : null
+      setRaw(r => ({ ...r, countFoodCost: value }))
+    })
+    return () => { cancelled = true }
+  }, [ready, userLoading, isManager, tick])
+
   const services = useMemo<RcService[]>(
     () => (activeKind === 'rc' ? ((activeRc?.services ?? []) as RcService[]) : []),
     [activeKind, activeRc],
@@ -194,6 +226,7 @@ export function useStartData() {
     lastClose: raw.lastClose,
     yesterday: raw.yesterday,
     foodCost: raw.foodCost,
+    countFoodCost: raw.countFoodCost,
     rcId: rcOnly,
     isRc: rcOnly != null,
     rcName: activeKind === 'rc' ? activeRc?.name ?? null : null,

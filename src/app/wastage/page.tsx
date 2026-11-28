@@ -2,65 +2,40 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
+import type { Role } from '@prisma/client'
 import { QUICKADD_WASTE } from '@/components/mobile/QuickAddSheet'
-import { formatCurrency, WASTAGE_REASONS, compatibleCountUnits } from '@/lib/utils'
+import { MScreen, MPageHead, MSectionLabel } from '@/components/mobile/kit'
+import { formatCurrency } from '@/lib/utils'
 import { prepDayKey, prepDaysAgo, displayDayKey } from '@/lib/prep-day'
+import { atLeast } from '@/lib/roles'
 import { CategoryBadge } from '@/components/CategoryBadge'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
 import { setScopeParams } from '@/lib/scope-params'
-import { Plus, X, AlertTriangle, Search, Check } from 'lucide-react'
+import { ALL_REASONS, reasonLabel } from '@/components/wastage/reasons'
+import { wasteUnits, wasteCost, fmtWasteQty, type WasteItem } from '@/components/wastage/units'
+import { rankItems } from '@/components/wastage/search'
+import { LogWasteSheet } from '@/components/wastage/LogWasteSheet'
+import { WasteCard } from '@/components/wastage/WasteCard'
+import { UndoToast, type WasteToast } from '@/components/wastage/UndoToast'
+import type { WasteLogRow, WasteDraft, SaveResult } from '@/components/wastage/types'
+import { Plus, X, AlertTriangle, Search, Check, Trash2 } from 'lucide-react'
 
 // Lazy-load recharts — only renders when there are logs to display
 const WastageCharts = dynamic(() => import('@/components/wastage/WastageCharts'), { ssr: false, loading: () => null })
 
-interface WastageLog {
-  id: string
-  date: string
-  inventoryItemId: string
-  inventoryItem: { itemName: string; category: string; baseUnit: string }
-  qtyWasted: number
-  unit: string
-  reason: string
-  costImpact: number
-  loggedBy: string
-  notes: string | null
-}
-
-interface InventoryItem {
-  id: string
-  itemName: string
-  baseUnit: string
-  pricePerBaseUnit: number
-}
-
-// Fuzzy score mirroring the server-side matcher in /api/inventory/search — kept
-// client-side here so the wastage picker can search the full loaded list
-// (including PREP items, which that endpoint deliberately excludes).
-function fuzzyScore(query: string, target: string): number {
-  const q = query.toLowerCase().trim()
-  const t = target.toLowerCase().trim()
-  if (!q) return 100
-  if (t === q) return 100
-  if (t.includes(q)) return 90
-  const qWords = q.split(/\s+/).filter(Boolean)
-  const tWords = t.split(/[\s\-/]+/).filter(Boolean)
-  const allMatch = qWords.every(qw => tWords.some(tw => tw.startsWith(qw) || tw.includes(qw)))
-  if (allMatch) return 80
-  const matched = qWords.filter(qw => tWords.some(tw => tw.startsWith(qw) || tw.includes(qw)))
-  const ratio = matched.length / qWords.length
-  return ratio >= 0.5 ? Math.round(40 + ratio * 40) : 0
-}
-
-// Searchable item selector — replaces the plain <select>. Type to fuzzy-match
-// against the loaded inventory list; ↑↓ to move, ⏎ to pick.
+// Searchable item selector (desktop) — type to fuzzy-match against the loaded
+// inventory list; ↑↓ to move, ⏎ to pick. Prices only when the viewer sees money.
 function ItemPicker({
   items,
   value,
   onSelect,
+  showPrice,
 }: {
-  items: InventoryItem[]
+  items: WasteItem[]
   value: string
-  onSelect: (item: InventoryItem) => void
+  onSelect: (item: WasteItem | null) => void
+  showPrice: boolean
 }) {
   const selected = items.find(i => i.id === value) ?? null
   const [query, setQuery] = useState('')
@@ -78,18 +53,9 @@ function ItemPicker({
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
-  const results = (() => {
-    const q = query.trim()
-    if (!q) return items.slice(0, 8)
-    return items
-      .map(item => ({ item, score: fuzzyScore(q, item.itemName) }))
-      .filter(r => r.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8)
-      .map(r => r.item)
-  })()
+  const results = rankItems(items, query, 8)
 
-  const pick = (item: InventoryItem) => {
+  const pick = (item: WasteItem) => {
     onSelect(item)
     setQuery('')
     setOpen(false)
@@ -118,7 +84,7 @@ function ItemPicker({
         {selected && !open && (
           <button
             type="button"
-            onClick={() => { onSelect({ id: '', itemName: '', baseUnit: 'g', pricePerBaseUnit: 0 }); setQuery(''); setOpen(true) }}
+            onClick={() => { onSelect(null); setQuery(''); setOpen(true) }}
             className="text-ink-4 hover:text-ink-2 shrink-0"
             aria-label="Clear selected item"
           >
@@ -142,7 +108,10 @@ function ItemPicker({
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-ink truncate">{item.itemName}</div>
-                  <div className="text-xs text-ink-3 tabular-nums">{formatCurrency(parseFloat(String(item.pricePerBaseUnit)))}/{item.baseUnit}</div>
+                  {/* Staff used to see "$0.00/g" here (their prices are nulled) — now nothing. */}
+                  {showPrice && item.pricePerBaseUnit != null && (
+                    <div className="text-xs text-ink-3 tabular-nums">{formatCurrency(Number(item.pricePerBaseUnit))}/{item.baseUnit}</div>
+                  )}
                 </div>
                 {item.id === value && <Check size={14} className="text-gold shrink-0" />}
               </button>
@@ -151,6 +120,38 @@ function ItemPicker({
         </div>
       )}
     </div>
+  )
+}
+
+// Desktop row delete: inline confirm, no window.confirm.
+function DeleteCell({ log, onDelete }: { log: WasteLogRow; onDelete: (id: string) => Promise<boolean> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  if (!log.canDelete) return null
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        aria-label={`Delete ${log.inventoryItem.itemName}`}
+        className="p-1.5 rounded text-ink-4 hover:text-red hover:bg-red-soft"
+      >
+        <Trash2 size={14} />
+      </button>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <button type="button" disabled={busy} onClick={() => setConfirming(false)} className="px-2 py-1 rounded border border-line text-xs text-ink-2">Keep</button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => { setBusy(true); const ok = await onDelete(log.id); setBusy(false); if (!ok) setConfirming(false) }}
+        className="px-2 py-1 rounded bg-red text-white text-xs font-semibold disabled:opacity-60"
+      >
+        {busy ? '…' : 'Delete'}
+      </button>
+    </span>
   )
 }
 
@@ -168,6 +169,9 @@ function dayOf(date: string): Date {
 function formatDay(date: string): string {
   return dayOf(date).toLocaleDateString('en-CA', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric' })
 }
+function formatWeekday(date: string): string {
+  return dayOf(date).toLocaleDateString('en-CA', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' })
+}
 
 const REASON_COLORS: Record<string, string> = {
   SPOILAGE:       'bg-red-soft text-red-text',
@@ -175,20 +179,29 @@ const REASON_COLORS: Record<string, string> = {
   PREP_TRIM:      'bg-yellow-100 text-yellow-700',
   BURNT:          'bg-bg-2 text-ink-2',
   DROPPED:        'bg-gold/15 text-gold',
+  COMP:           'bg-blue-soft text-blue-text',
   EXPIRED:        'bg-blue-soft text-blue-text',
   STAFF_MEAL:     'bg-green-soft text-green-text',
   UNKNOWN:        'bg-bg-2 text-ink-3',
 }
 
+const RC_MISSING = 'Pick one kitchen (not "All") at the top to log waste.'
+const EMPTY_FORM = { inventoryItemId: '', qtyWasted: '', unit: 'g', reason: '', notes: '', date: todayKey() }
+const sumCost = (rows: WasteLogRow[]) => rows.reduce((s, l) => s + Number(l.costImpact ?? 0), 0)
 
 export default function WastagePage() {
   const { activeRcId, activeRc, activeKind, activeLocationId, ready: scopeReady } = useRc()
-  const [logs, setLogs] = useState<WastageLog[]>([])
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
+  const { role } = useUser()
+  // Waste dollars are MANAGER+ (the API nulls them below that, too).
+  const seesMoney = role ? atLeast(role as Role, 'MANAGER') : false
+  const [logs, setLogs] = useState<WasteLogRow[]>([])
+  const [inventoryItems, setInventoryItems] = useState<WasteItem[]>([])
   const [reasonFilter, setReasonFilter] = useState('')
   const [startDate, setStartDate] = useState(weekAgoKey)
   const [endDate, setEndDate] = useState(todayKey)
   const [showAdd, setShowAdd] = useState(false)
+  const [phoneView, setPhoneView] = useState<'today' | 'week'>('today')
+  const [toast, setToast] = useState<WasteToast | null>(null)
   const router = useRouter()
   // ＋ "Log waste" from another page lands here with ?new=1: drop the param
   // first (replace, so the ?new=1 history entry is gone and Back / refresh
@@ -210,14 +223,7 @@ export default function WastagePage() {
   }, [])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    inventoryItemId: '',
-    qtyWasted: '',
-    unit: 'g',
-    reason: 'UNKNOWN',
-    notes: '',
-    date: todayKey(),
-  })
+  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, date: todayKey() }))
 
   const fetchLogs = useCallback(() => {
     if (!scopeReady) return Promise.resolve()   // wait for the scope, or this fires an unscoped load first
@@ -226,59 +232,106 @@ export default function WastagePage() {
     if (startDate) params.set('startDate', startDate)
     if (endDate) params.set('endDate', endDate)
     setScopeParams(params, { activeKind, activeRcId, activeRc, activeLocationId })
-    return fetch(`/api/wastage?${params}`).then(r => r.json()).then(setLogs)
+    return fetch(`/api/wastage?${params}`)
+      .then(r => (r.ok ? r.json() : []))
+      .then(rows => setLogs(Array.isArray(rows) ? rows : []))
   }, [reasonFilter, startDate, endDate, activeRcId, activeRc, activeKind, activeLocationId, scopeReady])
 
   useEffect(() => { fetchLogs() }, [fetchLogs])
   useEffect(() => {
-    fetch('/api/inventory').then(r => r.json()).then(setInventoryItems)
+    fetch('/api/inventory').then(r => (r.ok ? r.json() : [])).then(rows => setInventoryItems(Array.isArray(rows) ? rows : []))
   }, [])
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!activeRcId) {
-      setError('Select a revenue center (not "All") to log wastage.')
-      return
-    }
-    if (!form.inventoryItemId) {
-      setError('Select an item to log wastage.')
-      return
-    }
-    setError(null)
-    setSaving(true)
+  const closeAdd = useCallback(() => setShowAdd(false), [])
+  const dismissToast = useCallback(() => setToast(null), [])
+
+  // ONE save for both forms. Returns the saved row so the phone sheet can reset
+  // for the next entry; the toast carries its Undo.
+  const saveWaste = useCallback(async (draft: WasteDraft): Promise<SaveResult> => {
+    if (!activeRcId) return { ok: false, error: RC_MISSING }
     try {
       const res = await fetch('/api/wastage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, revenueCenterId: activeRcId }),
+        body: JSON.stringify({ ...draft, revenueCenterId: activeRcId }),
       })
-      if (!res.ok) {
-        setError('Failed to log wastage. Please try again.')
-        return
+      const body = await res.json().catch(() => null)
+      if (!res.ok) return { ok: false, error: body?.error ?? 'That didn’t save. Try again.' }
+      const log = body as WasteLogRow
+      setLogs(prev => [log, ...prev.filter(l => l.id !== log.id)])
+      setToast({ id: Date.now(), text: `Logged ${fmtWasteQty(log.qtyWasted, log.unit)} ${log.inventoryItem.itemName}`, undoId: log.id })
+      fetchLogs()
+      return { ok: true, log }
+    } catch {
+      return { ok: false, error: 'No connection — that didn’t save. Try again.' }
+    }
+  }, [activeRcId, fetchLogs])
+
+  const deleteWaste = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/wastage/${id}`, { method: 'DELETE' })
+      // 404 = already gone (an Undo racing a delete) — same outcome for the list.
+      if (!res.ok && res.status !== 404) {
+        const body = await res.json().catch(() => null)
+        setToast({ id: Date.now(), text: body?.error ?? 'That didn’t delete. Try again.' })
+        return false
       }
-      await fetchLogs()
+      setLogs(prev => prev.filter(l => l.id !== id))
+      fetchLogs()
+      return true
+    } catch {
+      setToast({ id: Date.now(), text: 'No connection — that didn’t delete. Try again.' })
+      return false
+    }
+  }, [fetchLogs])
+
+  const undo = useCallback(async (id: string) => {
+    setToast(null)
+    if (await deleteWaste(id)) setToast({ id: Date.now(), text: 'Undone — that entry is gone.' })
+  }, [deleteWaste])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!activeRcId) { setError(RC_MISSING); return }
+    if (!form.inventoryItemId) { setError('Pick an item.'); return }
+    if (!form.reason) { setError('Pick a reason.'); return }
+    setError(null)
+    setSaving(true)
+    try {
+      const res = await saveWaste(form)
+      if (!res.ok) { setError(res.error); return }
       setShowAdd(false)
-      setForm({ inventoryItemId: '', qtyWasted: '', unit: 'g', reason: 'UNKNOWN', notes: '', date: todayKey() })
+      setForm({ ...EMPTY_FORM, date: todayKey() })
     } finally {
       setSaving(false)
     }
   }
 
-  const totalCost = logs.reduce((sum, l) => sum + parseFloat(String(l.costImpact)), 0)
+  const totalCost = sumCost(logs)
 
-  // Preview cost
-  const selectedItem = inventoryItems.find(i => i.id === form.inventoryItemId)
-  const previewCost = selectedItem && form.qtyWasted
-    ? parseFloat(form.qtyWasted) * parseFloat(String(selectedItem.pricePerBaseUnit))
-    : 0
+  // Preview cost — through the item's units (2 kg = 2,000 g), not qty × $/g.
+  const selectedItem = inventoryItems.find(i => i.id === form.inventoryItemId) ?? null
+  const previewCost = seesMoney ? wasteCost(selectedItem, parseFloat(form.qtyWasted), form.unit) ?? 0 : 0
+
+  // ── Phone lists ────────────────────────────────────────────────────────────
+  const today = todayKey()
+  const todayLogs = logs.filter(l => displayDayKey(new Date(l.date)) === today)
+  const weekDays = (() => {
+    const by = new Map<string, WasteLogRow[]>()
+    for (const l of logs) {
+      const k = displayDayKey(new Date(l.date))
+      by.set(k, [...(by.get(k) ?? []), l])
+    }
+    return [...by.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
+  })()
 
   // ── Charts data ────────────────────────────────────────────────────────────
 
   // Pie: cost by reason
   const byReason = Object.entries(
     logs.reduce((acc, l) => {
-      const r = l.reason
-      acc[r] = (acc[r] ?? 0) + parseFloat(String(l.costImpact))
+      const r = reasonLabel(l.reason)
+      acc[r] = (acc[r] ?? 0) + Number(l.costImpact ?? 0)
       return acc
     }, {} as Record<string, number>)
   )
@@ -295,7 +348,7 @@ export default function WastagePage() {
       const diff = (day === 0 ? -6 : 1 - day)
       d.setUTCDate(d.getUTCDate() + diff)
       const key = d.toLocaleDateString('en-CA', { timeZone: 'UTC', month: 'short', day: 'numeric' })
-      buckets[key] = (buckets[key] ?? 0) + parseFloat(String(l.costImpact))
+      buckets[key] = (buckets[key] ?? 0) + Number(l.costImpact ?? 0)
     })
     return Object.entries(buckets)
       .map(([week, cost]) => ({ week, cost: parseFloat(cost.toFixed(2)) }))
@@ -303,7 +356,73 @@ export default function WastagePage() {
   })()
 
   return (
-    <div className="space-y-4">
+    <>
+      {/* ── Phone ─────────────────────────────────────────────────────────── */}
+      <MScreen>
+        <MPageHead
+          title="Waste"
+          eyebrow={phoneView === 'today' ? 'Today' : 'Last 7 days'}
+          right={
+            <button
+              type="button"
+              onClick={() => setPhoneView(v => (v === 'today' ? 'week' : 'today'))}
+              className="min-h-[44px] px-2 text-[14px] font-medium text-gold-2"
+            >
+              {phoneView === 'today' ? 'Week view' : 'Back to today'}
+            </button>
+          }
+        />
+
+        <button
+          type="button"
+          onClick={() => setShowAdd(true)}
+          className="w-full min-h-[60px] rounded-2xl bg-red text-white text-[18px] font-semibold flex items-center justify-center gap-2 active:opacity-90"
+        >
+          <Plus size={22} /> Log waste
+        </button>
+
+        {phoneView === 'today' ? (
+          <>
+            <MSectionLabel right={seesMoney && todayLogs.length > 0 ? formatCurrency(sumCost(todayLogs)) : undefined}>
+              {`Today · ${todayLogs.length} ${todayLogs.length === 1 ? 'entry' : 'entries'}`}
+            </MSectionLabel>
+            {todayLogs.length === 0 ? (
+              <div className="text-center text-[15px] text-ink-4 py-10">Nothing logged today.</div>
+            ) : (
+              <div className="space-y-2">
+                {todayLogs.map(l => <WasteCard key={l.id} log={l} showMoney={seesMoney} onDelete={deleteWaste} />)}
+              </div>
+            )}
+          </>
+        ) : weekDays.length === 0 ? (
+          <div className="text-center text-[15px] text-ink-4 py-10">Nothing logged this week.</div>
+        ) : (
+          weekDays.map(([key, rows]) => (
+            <div key={key}>
+              <MSectionLabel right={seesMoney ? formatCurrency(sumCost(rows)) : undefined}>
+                {key === today ? 'Today' : formatWeekday(rows[0].date)}
+              </MSectionLabel>
+              <div className="space-y-2">
+                {rows.map(l => <WasteCard key={l.id} log={l} showMoney={seesMoney} onDelete={deleteWaste} />)}
+              </div>
+            </div>
+          ))
+        )}
+      </MScreen>
+
+      <LogWasteSheet
+        open={showAdd}
+        onClose={closeAdd}
+        items={inventoryItems}
+        showMoney={seesMoney}
+        rcError={activeRcId ? null : RC_MISSING}
+        onSave={saveWaste}
+      />
+
+      <UndoToast toast={toast} onUndo={undo} onDismiss={dismissToast} />
+
+      {/* ── Desktop ───────────────────────────────────────────────────────── */}
+      <div className="hidden md:block space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-2xl font-bold text-ink">Wastage Log</h1>
         <button
@@ -314,13 +433,17 @@ export default function WastagePage() {
         </button>
       </div>
 
-      {/* Summary */}
+      {/* Summary — the dollars are MANAGER+ */}
       <div className="bg-red-soft border border-red-soft rounded-xl p-4 flex items-center gap-3">
         <AlertTriangle size={20} className="text-red shrink-0" />
-        <div>
-          <div className="font-semibold text-red-text">Total Wastage Cost (filtered)</div>
-          <div className="text-2xl font-bold text-red-text">{formatCurrency(totalCost)}</div>
-        </div>
+        {seesMoney ? (
+          <div>
+            <div className="font-semibold text-red-text">Total Wastage Cost (filtered)</div>
+            <div className="text-2xl font-bold text-red-text">{formatCurrency(totalCost)}</div>
+          </div>
+        ) : (
+          <div className="font-semibold text-red-text">Waste logged (filtered)</div>
+        )}
         <div className="ml-auto text-right">
           <div className="text-xs text-red">{logs.length} entries</div>
         </div>
@@ -334,7 +457,7 @@ export default function WastagePage() {
           className="border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
         >
           <option value="">All Reasons</option>
-          {WASTAGE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          {ALL_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
         </select>
         <div className="flex items-center gap-2">
           <input
@@ -361,8 +484,8 @@ export default function WastagePage() {
         )}
       </div>
 
-      {/* Charts — only show when there's data, recharts loads lazily */}
-      {logs.length > 0 && (
+      {/* Charts — cost charts, so MANAGER+ only; recharts loads lazily */}
+      {seesMoney && logs.length > 0 && (
         <WastageCharts byReason={byReason} byWeek={byWeek} />
       )}
 
@@ -377,8 +500,9 @@ export default function WastagePage() {
                 <th className="text-left px-4 py-3 font-medium text-ink-3 hidden sm:table-cell">Category</th>
                 <th className="text-right px-4 py-3 font-medium text-ink-3">Qty Wasted</th>
                 <th className="text-left px-4 py-3 font-medium text-ink-3 hidden md:table-cell">Reason</th>
-                <th className="text-right px-4 py-3 font-medium text-ink-3">Cost Impact</th>
+                {seesMoney && <th className="text-right px-4 py-3 font-medium text-ink-3">Cost Impact</th>}
                 <th className="text-left px-4 py-3 font-medium text-ink-3 hidden lg:table-cell">Logged By</th>
+                <th className="w-px px-2 py-3"><span className="sr-only">Delete</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -389,18 +513,21 @@ export default function WastagePage() {
                   <td className="px-4 py-3 hidden sm:table-cell">
                     <CategoryBadge category={log.inventoryItem.category} />
                   </td>
-                  <td className="px-4 py-3 text-right text-ink-2">
-                    {parseFloat(String(log.qtyWasted)).toFixed(1)} {log.unit}
+                  <td className="px-4 py-3 text-right text-ink-2 whitespace-nowrap">
+                    {fmtWasteQty(log.qtyWasted, log.unit)}
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${REASON_COLORS[log.reason] || 'bg-bg-2 text-ink-3'}`}>
-                      {log.reason}
+                      {reasonLabel(log.reason)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-red">
-                    {formatCurrency(parseFloat(String(log.costImpact)))}
-                  </td>
+                  {seesMoney && (
+                    <td className="px-4 py-3 text-right font-semibold text-red">
+                      {formatCurrency(Number(log.costImpact ?? 0))}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-ink-3 hidden lg:table-cell">{log.loggedBy}</td>
+                  <td className="px-2 py-3 text-right"><DeleteCell log={log} onDelete={deleteWaste} /></td>
                 </tr>
               ))}
             </tbody>
@@ -410,11 +537,12 @@ export default function WastagePage() {
           )}
         </div>
       </div>
+      </div>
 
-      {/* Add Wastage Modal */}
+      {/* Add Wastage Modal — desktop only; the phone gets the bottom sheet above. */}
       {showAdd && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="hidden md:flex fixed inset-0 z-50 items-center justify-center p-4"
           onClick={() => setShowAdd(false)}
         >
           <div className="absolute inset-0 bg-black/30" />
@@ -429,7 +557,8 @@ export default function WastagePage() {
                 <ItemPicker
                   items={inventoryItems}
                   value={form.inventoryItemId}
-                  onSelect={item => setForm(f => ({ ...f, inventoryItemId: item.id, unit: item.baseUnit || 'g' }))}
+                  showPrice={seesMoney}
+                  onSelect={item => setForm(f => ({ ...f, inventoryItemId: item?.id ?? '', unit: item?.baseUnit || 'g' }))}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -438,8 +567,11 @@ export default function WastagePage() {
                   <input
                     type="number"
                     required
+                    min="0"
                     value={form.qtyWasted}
                     onChange={e => setForm(f => ({ ...f, qtyWasted: e.target.value }))}
+                    onFocus={e => e.currentTarget.select()}
+                    inputMode="decimal"
                     className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                     step="any"
                   />
@@ -451,20 +583,23 @@ export default function WastagePage() {
                     onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
                     className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white"
                   >
-                    {(compatibleCountUnits(inventoryItems.find(i => i.id === form.inventoryItemId)?.baseUnit ?? 'each')).map(u => (
+                    {/* Only units this item can be booked in (no 'batch' on Butter, no 'case' on Buns). */}
+                    {wasteUnits(selectedItem).map(u => (
                       <option key={u}>{u}</option>
                     ))}
                   </select>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-ink-3 mb-1">Reason</label>
+                <label className="block text-xs font-medium text-ink-3 mb-1">Reason *</label>
                 <select
+                  required
                   value={form.reason}
                   onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
                   className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
                 >
-                  {WASTAGE_REASONS.map(r => <option key={r}>{r}</option>)}
+                  <option value="" disabled>Pick a reason…</option>
+                  {ALL_REASONS.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
                 </select>
               </div>
               {/* No "Logged by" box — the server records whoever is signed in. */}
@@ -495,7 +630,7 @@ export default function WastagePage() {
               {(!activeRcId || error) && (
                 <div className="bg-red-soft text-red-text rounded-lg p-3 text-sm flex items-start gap-2">
                   <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-                  <span>{error ?? 'Select a revenue center (not "All") to log wastage.'}</span>
+                  <span>{error ?? RC_MISSING}</span>
                 </div>
               )}
               <div className="flex gap-2 pt-2">
@@ -518,6 +653,6 @@ export default function WastagePage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

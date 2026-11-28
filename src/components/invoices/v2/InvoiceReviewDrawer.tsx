@@ -13,6 +13,8 @@ import { ActButton, IssueBadge } from './atoms'
 import { ImpactStrip, AlertBanner, ReviewProgress, SectionDivider, type ImpactMetric, type ReviewSegment } from './chrome'
 import { ImageViewerV2, type BBox } from './ImageViewer'
 import { useRc } from '@/contexts/RevenueCenterContext'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
 import { AdoptFormatModal } from './AdoptFormatModal'
 import { ApprovedView } from './ApprovedReport'
@@ -387,6 +389,7 @@ function DrawerFooter({
   newItems,
   supplierLink,
   canApprove,
+  mayApprove,
   disabledReason,
   onApprove,
   onReject,
@@ -396,6 +399,10 @@ function DrawerFooter({
   newItems: number
   supplierLink: boolean
   canApprove: boolean
+  /** The viewer's clearance lets them approve (MANAGER+ — the approve route's own
+   *  gate). Below it the button is replaced by "Ready for manager", so a lead never
+   *  works through an invoice only to be told "Approval failed". */
+  mayApprove: boolean
   disabledReason: string
   onApprove: () => void
   onReject: () => void
@@ -413,7 +420,9 @@ function DrawerFooter({
     >
       <div className="min-w-0">
         <div className="text-[12.5px] text-ink-3 leading-[1.5]">
-          Approve writes <b className="text-ink-2 font-medium">{parts.join(', ')}</b>, and re-costs the recipes that use them.
+          {mayApprove
+            ? <>Approve writes <b className="text-ink-2 font-medium">{parts.join(', ')}</b>, and re-costs the recipes that use them.</>
+            : <>A manager approves this. Approving writes <b className="text-ink-2 font-medium">{parts.join(', ')}</b>.</>}
         </div>
         <div className="font-mono text-[10.5px] text-ink-4 mt-[3px] flex items-center gap-2.5">
           <span className="inline-flex items-center gap-1.5"><span className="w-[5px] h-[5px] rounded-full bg-gold" /> Reversible — re-open any time</span>
@@ -429,6 +438,17 @@ function DrawerFooter({
         >
           Reject invoice
         </button>
+        {!mayApprove ? (
+          <span
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-[18px] py-2.5 text-[13.5px] font-medium rounded-[9px] ${
+              canApprove ? 'bg-green-soft text-green-text' : 'bg-bg-2 text-ink-3'
+            }`}
+            role="status"
+            title={canApprove ? '' : disabledReason}
+          >
+            {canApprove ? <><Check size={14} /> Ready for manager</> : 'A manager approves this'}
+          </span>
+        ) : (
         <button
           type="button"
           onClick={onApprove}
@@ -444,6 +464,7 @@ function DrawerFooter({
           Approve &amp; post
           <span className="hidden sm:inline font-mono text-[9.5px] px-1.5 py-0.5 rounded bg-paper/15 text-bg">⌘ ⏎</span>
         </button>
+        )}
       </div>
     </div>
   )
@@ -465,6 +486,9 @@ export function InvoiceReviewDrawer({
   allSessions?: SessionSummary[]
 }) {
   const { revenueCenters } = useRc()
+  // Approve is MANAGER+ on the server. Default-deny while /api/me is in flight.
+  const { role } = useUser()
+  const mayApprove = role !== null && atLeast(role, 'MANAGER')
 
   // Lock background scroll while the drawer is open — otherwise wheel events over
   // a non-scrolling area of the drawer (PDF pane, header, gaps) chain through to
@@ -1150,7 +1174,7 @@ export function InvoiceReviewDrawer({
       if (e.key === 'Escape') { e.preventDefault(); onClose(); return }
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
-        if (canApprove) handleApprove()
+        if (canApprove && mayApprove) handleApprove()
         return
       }
       if (typing) return
@@ -1171,7 +1195,7 @@ export function InvoiceReviewDrawer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [session, approved, approving, creatingNewForItem, editingInventoryItemId, canApprove, navPrev, navNext, focusLine, onClose]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, approved, approving, creatingNewForItem, editingInventoryItemId, canApprove, mayApprove, navPrev, navNext, focusLine, onClose]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the J/K navigation order in sync with what's actually rendered.
   useEffect(() => {
@@ -1614,6 +1638,7 @@ export function InvoiceReviewDrawer({
                     newItems={newItemsCount}
                     supplierLink={initialAttention.supplier && !!linkedSupplierId}
                     canApprove={canApprove}
+                    mayApprove={mayApprove}
                     disabledReason={disabledReason}
                     onApprove={() => handleApprove()}
                     onReject={handleReject}

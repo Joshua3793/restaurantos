@@ -47,7 +47,7 @@ interface Sale {
   source: string // 'toast' (auto) | 'manual'
 }
 
-type RangeMode = 'week' | 'month' | 'lastMonth' | 'custom'
+type RangeMode = 'yesterday' | 'week' | 'month' | 'lastMonth' | 'custom'
 type SortCol = 'date' | 'revenue' | 'covers' | 'items'
 type SortDir = 'asc' | 'desc'
 
@@ -105,8 +105,14 @@ function lastMonthRange(d: Date): [string, string] {
   return [toISO(s), toISO(e)]
 }
 
+function yesterdayRange(d: Date): [string, string] {
+  const y = new Date(d); y.setDate(y.getDate() - 1); y.setHours(0, 0, 0, 0)
+  return [toISO(y), toISO(y)]
+}
+
 function getRange(mode: RangeMode, customStart: string, customEnd: string): [string, string] {
   const now = new Date()
+  if (mode === 'yesterday')  return yesterdayRange(now)
   if (mode === 'week')       return weekRange(now)
   if (mode === 'month')      return monthRange(now)
   if (mode === 'lastMonth')  return lastMonthRange(now)
@@ -1050,12 +1056,12 @@ export default function SalesPage() {
 
       {/* Date range tabs */}
       <div className="flex items-center gap-2 flex-wrap">
-        {(['week', 'month', 'lastMonth', 'custom'] as RangeMode[]).map(mode => (
+        {(['yesterday', 'week', 'month', 'lastMonth', 'custom'] as RangeMode[]).map(mode => (
           <button key={mode} onClick={() => setRangeMode(mode)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-3 py-1.5 min-h-[44px] md:min-h-0 rounded-lg text-sm font-medium transition-colors ${
               rangeMode === mode ? 'bg-ink text-paper [&_svg]:text-gold' : 'bg-white border border-line text-ink-3 hover:border-line-2'
             }`}>
-            {{ week: 'This Week', month: 'This Month', lastMonth: 'Last Month', custom: 'Custom' }[mode]}
+            {{ yesterday: 'Yesterday', week: 'This Week', month: 'This Month', lastMonth: 'Last Month', custom: 'Custom' }[mode]}
           </button>
         ))}
         {rangeMode === 'custom' && (
@@ -1167,7 +1173,8 @@ export default function SalesPage() {
           <div className="flex gap-4 items-start">
 
             {/* Left panel */}
-            <div className={`${(selectedSale || selectedPeriodKey) ? 'w-[360px] shrink-0' : 'w-full'}`}>
+            {/* On a phone the list keeps the full width; the detail opens as a bottom sheet. */}
+            <div className={`w-full ${(selectedSale || selectedPeriodKey) ? 'md:w-[360px] md:shrink-0' : ''}`}>
 
               {/* Day mode table */}
               {granularity === 'day' && (
@@ -1302,9 +1309,13 @@ export default function SalesPage() {
               )}
             </div>
 
-            {/* Right panel */}
+            {/* Right panel — beside the list from md up; below md a bottom sheet over the page. */}
             {(selectedSale || selectedPeriodKey) && (
-              <div className="flex-1 min-w-0">
+              <div className="fixed inset-0 z-[55] flex items-end md:static md:z-auto md:flex-1 md:min-w-0 md:block">
+                <div className="absolute inset-0 bg-black/40 md:hidden" aria-hidden
+                  onClick={() => { setSelectedSale(null); setSelectedPeriodKey(null) }} />
+                <div role="dialog" aria-modal="true" aria-label="Sales detail"
+                  className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] md:max-h-none md:overflow-visible md:rounded-none md:bg-transparent md:pb-0">
 
                 {/* Day detail */}
                 {selectedSale && (() => {
@@ -1331,11 +1342,11 @@ export default function SalesPage() {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => { setEditSale(sale); setSelectedSale(null) }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 border border-line rounded-lg text-xs text-ink-3 hover:bg-bg">
+                            className="flex items-center gap-1 px-2.5 py-1.5 min-h-[44px] md:min-h-0 border border-line rounded-lg text-xs text-ink-3 hover:bg-bg">
                             <Pencil size={11} /> Edit
                           </button>
                           <button onClick={() => setSelectedSale(null)}
-                            className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={16} /></button>
+                            aria-label="Close" className="p-1.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded-lg hover:bg-bg-2 text-ink-4"><X size={16} /></button>
                         </div>
                       </div>
                       <div className="px-4 py-4 space-y-4">
@@ -1405,7 +1416,7 @@ export default function SalesPage() {
                           </div>
                         </div>
                         <button onClick={() => setSelectedPeriodKey(null)}
-                          className="p-1.5 rounded-lg hover:bg-bg-2 text-ink-4"><X size={16} /></button>
+                          aria-label="Close" className="p-1.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded-lg hover:bg-bg-2 text-ink-4"><X size={16} /></button>
                       </div>
                       <div className="px-4 py-4 space-y-4">
                         {period.totalRevenue > 0 && (
@@ -1462,6 +1473,7 @@ export default function SalesPage() {
                   )
                 })()}
 
+                </div>
               </div>
             )}
           </div>

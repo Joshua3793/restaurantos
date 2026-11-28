@@ -10,9 +10,10 @@ export interface DateRange {
   label: string
 }
 
-type PresetKey = 'thisWeek' | 'lastWeek' | 'thisMonth' | 'last30' | 'thisQuarter' | 'custom'
+type PresetKey = 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'last30' | 'thisQuarter' | 'custom'
 
 const PRESETS: { key: Exclude<PresetKey, 'custom'>; label: string }[] = [
+  { key: 'yesterday',   label: 'Yesterday' },
   { key: 'thisWeek',    label: 'This week' },
   { key: 'lastWeek',    label: 'Last week' },
   { key: 'thisMonth',   label: 'This month' },
@@ -23,6 +24,7 @@ const PRESETS: { key: Exclude<PresetKey, 'custom'>; label: string }[] = [
 /** Compute {from,to,label} for a preset, relative to `now`. */
 export function rangeForPreset(key: Exclude<PresetKey, 'custom'>, now = new Date()): DateRange {
   switch (key) {
+    case 'yesterday':   { const y = new Date(now); y.setDate(y.getDate() - 1); y.setHours(0, 0, 0, 0); return { from: y, to: endOfDay(y), label: 'Yesterday' } }
     case 'thisWeek':    return { from: startOfWeek(now),    to: endOfDay(now), label: 'This week' }
     case 'lastWeek':    { const r = lastWeekRange(now); return { ...r, label: 'Last week' } }
     case 'thisMonth':   return { from: startOfMonth(now),   to: endOfDay(now), label: 'This month' }
@@ -107,7 +109,7 @@ export function DateRangePicker({ value, onChange }: {
           <button
             key={p.key}
             onClick={() => applyPreset(p.key)}
-            className={`font-mono text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+            className={`font-mono text-[11px] px-2.5 py-1 min-h-[44px] md:min-h-0 rounded-full border transition-colors ${
               preset === p.key
                 ? 'bg-ink text-paper border-ink'
                 : 'bg-bg-2 text-ink-2 border-line hover:border-gold'
@@ -124,7 +126,7 @@ export function DateRangePicker({ value, onChange }: {
           value={fromStr}
           max={toStr}
           onChange={e => applyCustom({ from: e.target.value })}
-          className={`font-mono text-[11px] bg-bg-2 border rounded px-2 py-1 text-ink ${invalid ? 'border-red' : 'border-line'}`}
+          className={`font-mono text-[11px] bg-bg-2 border rounded px-2 py-1 min-h-[44px] md:min-h-0 text-ink ${invalid ? 'border-red' : 'border-line'}`}
         />
         <span className="text-ink-3 text-[11px]">→</span>
         <input
@@ -132,7 +134,7 @@ export function DateRangePicker({ value, onChange }: {
           value={toStr}
           min={fromStr}
           onChange={e => applyCustom({ to: e.target.value })}
-          className={`font-mono text-[11px] bg-bg-2 border rounded px-2 py-1 text-ink ${invalid ? 'border-red' : 'border-line'}`}
+          className={`font-mono text-[11px] bg-bg-2 border rounded px-2 py-1 min-h-[44px] md:min-h-0 text-ink ${invalid ? 'border-red' : 'border-line'}`}
         />
         {invalid && <span className="font-mono text-[10.5px] text-red-text">From is after To</span>}
         {!invalid && preset === 'custom' && (

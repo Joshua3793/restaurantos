@@ -12,7 +12,7 @@ import { atLeast } from '@/lib/roles'
 import { seesItemMoney, canEditItems } from '@/lib/inventory-redact'
 import { lastDeliveryDay } from '@/lib/drawer-copy'
 import {
-  Header, HeaderBadges, HeaderFacts, BridgesSection,
+  Header, HeaderBadges, HeaderFacts, AtAGlance, BridgesSection,
   CostLine, StockSection, BoxesSection, HistorySection, ItemEditForm,
   DEFAULT_CHAIN, DEFAULT_PRICING, buildEditForm, chainChanged, chainFromItem, normalizeItem,
   type EditForm, type InventoryItem, type PriceHistoryRow, type StockMovementsResponse,
@@ -27,6 +27,22 @@ interface Props {
   onUpdated?: (updatedItem?: InventoryItem) => void
   zClassName?: string
   initialEditMode?: boolean
+}
+
+/** The item's chain as the cost maths reads it, and its price per base unit. */
+function costInputs(item: InventoryItem) {
+  const c = chainFromItem(item)
+  const ci = {
+    dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain,
+    pricing: c.pricing, countUnit: c.countUnit,
+    // Bridges — without them a bridged RATE (e.g. $/lb on an `each`
+    // item) reads as $0 here even though it prices fine elsewhere.
+    eachMeasure: item.eachMeasureQty != null
+      ? { qty: Number(item.eachMeasureQty), unit: item.eachMeasureUnit ?? 'g' }
+      : null,
+    densityGPerMl: item.densityGPerMl != null ? Number(item.densityGPerMl) : null,
+  }
+  return { c, ci, ppb: pricePerBaseUnit(ci) }
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -334,22 +350,32 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 onRemeasure={() => setRemeasureOpen(true)}
               />
             ) : (
+              <>
+              {/* 1 (phone only) — on hand, price, supplier, where it lives, Count.
+                  Outside the spaced body so it adds no gap on sm+. */}
+              <div className="sm:hidden px-4 pt-4">
+                {(() => {
+                  const { ci, ppb } = costInputs(item)
+                  return (
+                    <AtAGlance
+                      item={item}
+                      ppb={ppb}
+                      baseUnit={ci.baseUnit}
+                      seesMoney={seesMoney}
+                      canEdit={canEdit}
+                      stockMovements={stockMovements}
+                      stockLoading={stockLoading}
+                      activeRc={activeRc}
+                      onCount={() => setShowQuick(true)}
+                    />
+                  )
+                })()}
+              </div>
               <div className="p-4 space-y-4">
                 <HeaderBadges item={item} />
 
                 {(() => {
-                  const c = chainFromItem(item)
-                  const ci = {
-                    dimension: c.dimension, baseUnit: DIMENSION_BASE[c.dimension], packChain: c.chain,
-                    pricing: c.pricing, countUnit: c.countUnit,
-                    // Bridges — without them a bridged RATE (e.g. $/lb on an `each`
-                    // item) reads as $0 here even though it prices fine elsewhere.
-                    eachMeasure: item.eachMeasureQty != null
-                      ? { qty: Number(item.eachMeasureQty), unit: item.eachMeasureUnit ?? 'g' }
-                      : null,
-                    densityGPerMl: item.densityGPerMl != null ? Number(item.densityGPerMl) : null,
-                  }
-                  const ppb = pricePerBaseUnit(ci)
+                  const { c, ci, ppb } = costInputs(item)
                   return (
                     <>
                       {/* 2 — what it costs */}
@@ -390,7 +416,12 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                 })()}
 
                 {/* 5 — how each supplier writes this item on its invoices (W7) — MANAGER+. */}
-                {canEdit && !item.recipe && <SupplierWordingsSection itemId={item.id} refreshKey={mergeTick} />}
+                {/* Editing work — a computer job: not on a phone. */}
+                {canEdit && !item.recipe && (
+                  <div className="hidden sm:block sm:empty:hidden">
+                    <SupplierWordingsSection itemId={item.id} refreshKey={mergeTick} />
+                  </div>
+                )}
 
                 {/* 6 — what is on hand */}
                 <StockSection
@@ -421,6 +452,7 @@ export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = '
                   priceHistory={priceHistory}
                 />
               </div>
+              </>
             )}
 
             {showQuick && (

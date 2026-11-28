@@ -87,21 +87,59 @@ export function Headline({ status, needs }: { status: ServiceStatus; needs: Need
   )
 }
 
-/** Yesterday's sales/covers + this week's food cost vs target. */
-export function scoreRows(d: Pick<StartData, 'yesterday' | 'foodCost'>, fmtMoney: (n: number) => string) {
+export type ScoreRow = {
+  key: 'sales' | 'purchases' | 'foodCost' | 'drift'
+  label: string
+  value: string
+  tone?: 'bad' | 'ok' | 'muted'
+  /** One plain line under the label, for a number that is easy to misread. */
+  hint?: string
+  href?: string
+}
+
+/**
+ * Yesterday's sales (with covers), this week's purchases ÷ sales, and the true
+ * food cost + stock drift from the last two counts.
+ *
+ * The weekly ratio is purchases ÷ sales week-to-date, NOT plate cost: one big
+ * delivery on a Monday sends it past 100%. It used to read "Food cost this week"
+ * and showed 42.6% while Reports said 27.4%, so it now says what it is, carries
+ * no target colour, and the real food cost (last count) sits right under it.
+ */
+export function scoreRows(d: Pick<StartData, 'yesterday' | 'foodCost' | 'countFoodCost' | 'isRc'>, fmtMoney: (n: number) => string): ScoreRow[] {
   const y = d.yesterday
-  const rows: { label: string; value: string; tone?: 'bad' | 'ok' | 'muted' }[] = []
-  if (y) rows.push({ label: 'Sales yesterday', value: fmtMoney(y.netSales) })
-  // 0 covers means Toast sent no guest counts, not an empty room — leave the row out.
-  if (y?.covers) rows.push({ label: 'Covers yesterday', value: String(y.covers) })
+  const rows: ScoreRow[] = []
+  // 0 covers means Toast sent no guest counts, not an empty room — show sales alone.
+  if (y) rows.push({ key: 'sales', label: 'Sales yesterday', value: y.covers ? `${fmtMoney(y.netSales)} · ${y.covers} covers` : fmtMoney(y.netSales) })
   if (d.foodCost) {
-    const { pct, target } = d.foodCost
+    const { pct } = d.foodCost
     rows.push({
-      label: 'Food cost this week',
+      key: 'purchases',
+      label: 'Purchases ÷ sales (this week)',
       value: pct == null ? '—' : `${pct.toFixed(1)}%`,
-      tone: pct == null ? 'muted' : pct > target ? 'bad' : 'ok',
+      tone: pct == null ? 'muted' : undefined,
+      hint: 'What we bought ÷ what we sold. Runs high early in the week.',
     })
-    rows.push({ label: 'Target', value: `${target.toFixed(1)}%`, tone: 'muted' })
+  }
+  const c = d.countFoodCost
+  // The count food cost is whole-business (the route takes no kitchen filter) —
+  // say so when one kitchen is picked, like /variance does.
+  const wholeBusiness = d.isRc ? 'Whole business, not just this kitchen.' : undefined
+  if (c && c.actualPct != null) {
+    const target = d.foodCost?.target
+    rows.push({
+      key: 'foodCost',
+      label: 'Food cost (last count)',
+      value: target != null ? `${c.actualPct.toFixed(1)}% / ${target.toFixed(1)}%` : `${c.actualPct.toFixed(1)}%`,
+      tone: target == null ? undefined : c.actualPct > target ? 'bad' : 'ok',
+      hint: wholeBusiness,
+      href: '/variance',
+    })
+  }
+  if (c && c.driftPts != null) {
+    const pts = `${c.driftPts > 0 ? '+' : c.driftPts < 0 ? '−' : ''}${Math.abs(c.driftPts).toFixed(1)} pts`
+    const money = c.driftDollars != null ? ` · ${c.driftDollars > 0 ? '+' : c.driftDollars < 0 ? '−' : ''}${fmtMoney(Math.abs(c.driftDollars))}` : ''
+    rows.push({ key: 'drift', label: 'Stock drift', value: pts + money, tone: c.driftPts > 0 ? 'bad' : 'ok', hint: wholeBusiness, href: '/variance' })
   }
   return rows
 }

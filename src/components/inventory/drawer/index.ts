@@ -2,6 +2,7 @@
 // loading, edit mode, the sheets and the section order; each file here renders one
 // section from explicit props.
 export { Header, HeaderBadges, HeaderFacts } from './Header'
+export { AtAGlance } from './AtAGlance'
 export { CostLine } from './CostLine'
 export { BoxesSection } from './BoxesSection'
 export { BridgesSection } from './BridgesSection'

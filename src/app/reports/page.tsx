@@ -226,7 +226,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="mt-5 font-mono text-[10.5px] text-ink-3 tracking-wide text-center">
-        Detailed analytics live in the tabs above. <kbd className="bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘R</kbd> refresh.
+        Detailed analytics live in the tabs above.<span className="hidden md:inline"> <kbd className="bg-bg-2 border border-line rounded px-1 py-px text-ink-2">⌘R</kbd> refresh.</span>
       </div>
     </div>
   )
@@ -236,11 +236,11 @@ function HeroCard({ pct, target, label }: { pct: number | null; target: number; 
   const intStr = pct !== null ? Math.floor(pct).toString() : '—'
   const decStr = pct !== null ? `.${(pct % 1).toFixed(1).slice(2)}%` : ''
   return (
-    <div className="bg-ink text-paper rounded-[12px] border border-ink p-5 flex flex-col justify-between min-h-[128px] relative overflow-hidden">
+    <div className="bg-ink text-paper rounded-[12px] border border-ink p-4 sm:p-5 flex flex-col justify-between min-h-[112px] sm:min-h-[128px] relative overflow-hidden min-w-0">
       <div>
         <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase inline-flex items-center gap-1">FOOD COST · {label}<InfoDot text={PROVENANCE.heroFoodCost} /></div>
-        <div className="text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
-          {intStr}<sub className="text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decStr}</sub>
+        <div className="text-[36px] sm:text-[48px] font-semibold tracking-[-0.045em] leading-none mt-2">
+          {intStr}<sub className="text-[18px] sm:text-[22px] font-medium text-gold tracking-[-0.02em] align-baseline">{decStr}</sub>
         </div>
       </div>
       <div className="font-mono text-[11px] text-ink-3 tracking-[0]">
@@ -253,11 +253,11 @@ function HeroCard({ pct, target, label }: { pct: number | null; target: number; 
 
 function Card({ label, value, delta, valueClass = '', info }: { label: string; value: string; delta: React.ReactNode; valueClass?: string; info?: string }) {
   return (
-    <div className="bg-paper border border-line rounded-[12px] p-5 flex flex-col justify-between min-h-[128px] relative">
+    <div className="bg-paper border border-line rounded-[12px] p-4 sm:p-5 flex flex-col justify-between min-h-[112px] sm:min-h-[128px] relative min-w-0">
       <div className="absolute top-0 left-0 w-8 h-0.5 bg-gold" />
       <div>
         <div className="font-mono text-[10.5px] text-ink-3 tracking-[0.01em] uppercase inline-flex items-center gap-1">{label}{info && <InfoDot text={info} />}</div>
-        <div className={`text-[34px] font-semibold tracking-[-0.04em] leading-none mt-2 ${valueClass || 'text-ink'}`}>{value}</div>
+        <div className={`text-[clamp(18px,5.6vw,22px)] sm:text-[34px] font-semibold tracking-[-0.03em] sm:tracking-[-0.04em] leading-none mt-2 tabular-nums whitespace-nowrap ${valueClass || 'text-ink'}`}>{value}</div>
       </div>
       <div className="font-mono text-[11px] text-ink-3 tracking-[0] [&_b]:text-ink [&_b]:font-medium">{delta}</div>
     </div>

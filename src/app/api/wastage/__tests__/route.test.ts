@@ -26,8 +26,9 @@ vi.mock('@/lib/prisma', () => ({
     cook: { findUnique: async () => null },
   },
 }))
+let role = 'STAFF'
 vi.mock('@/lib/auth', () => ({
-  requireSession: async () => ({ id: 'u1', role: 'STAFF', isActive: true, name: 'Sam Lee', email: 'sam@fergies.test' }),
+  requireSession: async () => ({ id: 'u1', role, isActive: true, name: 'Sam Lee', email: 'sam@fergies.test' }),
   AuthError: class extends Error { status = 401 },
 }))
 vi.mock('@/lib/rc-scope', () => ({ scopeWhereFromParams: async () => ({}), assertRcWritable: async () => {} }))
@@ -36,22 +37,57 @@ vi.mock('@/lib/theoretical-cache', () => ({ invalidatesTheoretical: (h: unknown)
 const route = await import('@/app/api/wastage/route')
 
 describe('POST /api/wastage', () => {
-  beforeEach(() => { create.mockClear(); current = ITEM })
+  beforeEach(() => { create.mockClear(); current = ITEM; role = 'STAFF' })
+
+  const post = (body: Record<string, unknown>) => route.POST({ url: 'http://x/api/wastage', json: async () => ({
+    inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILAGE', revenueCenterId: 'rc1', ...body,
+  }) } as unknown as NextRequest)
 
   it('freezes costImpact on the 30-day average, not the last price', async () => {
-    const req = { url: 'http://x/api/wastage', json: async () => ({
-      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1',
-    }) } as unknown as NextRequest
-    const res = await route.POST(req)
+    const res = await post({})
     expect(res.status).toBe(201)
     const data = create.mock.calls[0][0].data
     expect(Number(data.costImpact)).toBeCloseTo(5.0, 6)
   })
 
+  it('books 2 kg as 2,000 g — the unit is converted, not read as grams', async () => {
+    await post({ qtyWasted: '2', unit: 'kg' })
+    expect(Number(create.mock.calls[0][0].data.costImpact)).toBeCloseTo(20.0, 6)
+  })
+
+  it('refuses an entry with no reason picked instead of saving UNKNOWN', async () => {
+    for (const reason of [undefined, '', 'SPOILED']) {
+      const res = await post({ reason })
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/reason/i)
+    }
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('accepts "Other" (UNKNOWN) and the new Comp reason when picked', async () => {
+    expect((await post({ reason: 'UNKNOWN' })).status).toBe(201)
+    expect((await post({ reason: 'COMP' })).status).toBe(201)
+  })
+
+  it('refuses a zero or missing amount', async () => {
+    expect((await post({ qtyWasted: '0' })).status).toBe(400)
+    expect((await post({ qtyWasted: '' })).status).toBe(400)
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('sends a cook the saved entry without its cost; a manager gets the cost', async () => {
+    const staff = await (await post({})).json()
+    expect(staff.costImpact).toBeNull()
+    expect(staff.canDelete).toBe(true)
+    role = 'MANAGER'
+    const mgr = await (await post({})).json()
+    expect(Number(mgr.costImpact)).toBeCloseTo(5.0, 6)
+  })
+
   it('refuses a weight wastage of a per-each item with no bridge instead of costing it $0', async () => {
     current = BUN as unknown as typeof ITEM
     const req = { url: 'http://x/api/wastage', json: async () => ({
-      inventoryItemId: 'bun', qtyWasted: '200', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1',
+      inventoryItemId: 'bun', qtyWasted: '200', unit: 'g', reason: 'SPOILAGE', revenueCenterId: 'rc1',
     }) } as unknown as NextRequest
     const res = await route.POST(req)
     expect(res.status).toBe(400)
@@ -61,7 +97,7 @@ describe('POST /api/wastage', () => {
 
   it('records the signed-in person, never a typed name or "System"', async () => {
     const req = { url: 'http://x/api/wastage', json: async () => ({
-      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1', loggedBy: 'Someone Else',
+      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILAGE', revenueCenterId: 'rc1', loggedBy: 'Someone Else',
     }) } as unknown as NextRequest
     await route.POST(req)
     expect(create.mock.calls[0][0].data.loggedBy).toBe('Sam Lee')
@@ -69,7 +105,7 @@ describe('POST /api/wastage', () => {
 
   it('keeps a picked day as that day, and dates a missing day by Pacific (not UTC)', async () => {
     const mk = (date?: string) => ({ url: 'http://x/api/wastage', json: async () => ({
-      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILED', revenueCenterId: 'rc1', ...(date ? { date } : {}),
+      inventoryItemId: 'i1', qtyWasted: '500', unit: 'g', reason: 'SPOILAGE', revenueCenterId: 'rc1', ...(date ? { date } : {}),
     }) } as unknown as NextRequest)
     await route.POST(mk('2026-11-26'))
     expect((create.mock.calls[0][0].data.date as Date).toISOString()).toBe('2026-11-26T00:00:00.000Z')
