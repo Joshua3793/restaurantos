@@ -32,6 +32,21 @@ export const ourFileRouter = {
       return {}
     })
     .onUploadComplete(async ({ file }) => ({ url: file.ufsUrl })),
+
+  // One optional photo on a waste entry or a flagged checklist job — any signed-in cook.
+  // The client shrinks it first (~1600 px JPEG), so 8 MB is a generous ceiling.
+  photoUploader: f({
+    image: { maxFileSize: '8MB', maxFileCount: 1 },
+  })
+    .middleware(async () => {
+      try { await requireSession() }
+      catch (e) {
+        if (e instanceof AuthError) throw new UploadThingError(e.message)
+        throw e
+      }
+      return {}
+    })
+    .onUploadComplete(async ({ file }) => ({ url: file.ufsUrl })),
 } satisfies FileRouter
 
 export type OurFileRouter = typeof ourFileRouter

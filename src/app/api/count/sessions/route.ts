@@ -7,6 +7,7 @@ import { lastCost, withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { resolveScopedRcIds, scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
+import { sortByShelf } from '@/lib/count-shelf-order'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
     ? areaFilter.split(',').map((s: string) => s.trim()).filter(Boolean)
     : []
 
-  const items = await prisma.inventoryItem.findMany({
+  const unsorted = await prisma.inventoryItem.findMany({
     where: {
       isActive: true,
       isStocked: true,
@@ -104,8 +105,11 @@ export async function POST(req: NextRequest) {
       // (ItemRevenueCenter). An unscoped count (no rcId) keeps the legacy "all items".
       ...(revenueCenterId ? { revenueCenters: { some: { revenueCenterId } } } : {}),
     },
+    include: { storageArea: { select: { name: true } } },
     orderBy: [{ category: 'asc' }, { itemName: 'asc' }],
   })
+  // Lines follow the shelf walk: area → shelfOrder (unplaced last) → name.
+  const items = sortByShelf(unsorted, i => ({ areaName: i.storageArea?.name, shelfOrder: i.shelfOrder, name: i.itemName }))
 
   const itemIds = items.map(i => i.id)
 

@@ -6,7 +6,7 @@ const line = (over: Partial<LineView>): LineView => ({
   id: 'l1', runId: 'r1', itemId: 'i1', categoryName: 'Close', title: 'Grill off', howTo: null, isBlocker: false,
   answer: 'TICK', unit: null, safeMin: null, safeMax: null, tempUnitId: null, dueBy: null, linkId: null, sortOrder: 1,
   status: 'TODO', value: null, doneById: null, doneByName: null, doneAt: null,
-  flagReason: null, flagNote: null, resolvedById: null, resolvedByName: null, resolvedAt: null,
+  flagReason: null, flagNote: null, flagPhotoUrl: null, resolvedById: null, resolvedByName: null, resolvedAt: null,
   ...over,
 })
 

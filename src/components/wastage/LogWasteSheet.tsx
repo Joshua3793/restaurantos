@@ -6,7 +6,10 @@ import { PICK_REASONS } from './reasons'
 import { wasteUnits, wasteCost, fmtWasteQty, type WasteItem } from './units'
 import { rankItems } from './search'
 import { useBackDismiss } from '@/lib/back-stack'
+import { ScanItemFlow, type ScannedItem } from '@/components/scan/ScanItemFlow'
+import { ScanButton } from '@/components/scan/ScanButton'
 import type { WasteDraft, SaveResult } from './types'
+import { PhotoField } from '@/components/photos/PhotoField'
 
 // The phone's Log waste form: a bottom sheet, not the old centred modal. Item →
 // amount + unit → reason (big plain-word buttons, no default) → optional note →
@@ -32,7 +35,7 @@ function useKeyboardInset(active: boolean): number {
 
 const isTouch = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
 
-const EMPTY = { itemId: '', qty: '', unit: '', reason: '', notes: '' }
+const EMPTY = { itemId: '', qty: '', unit: '', reason: '', notes: '', photoUrl: null as string | null }
 
 export function LogWasteSheet({
   open, onClose, items, showMoney, rcError, onSave,
@@ -50,9 +53,14 @@ export function LogWasteSheet({
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // A photo still sending holds Save a moment; a failed one never does.
+  const [photoBusy, setPhotoBusy] = useState(false)
+  // Bumped after each save so the next entry starts with no photo (even a failed one).
+  const [saves, setSaves] = useState(0)
   const searchRef = useRef<HTMLInputElement>(null)
   const qtyRef = useRef<HTMLInputElement>(null)
   const kb = useKeyboardInset(open)
+  const [scanOpen, setScanOpen] = useState(false)
 
   const item = items.find(i => i.id === f.itemId) ?? null
   const units = wasteUnits(item)
@@ -87,21 +95,29 @@ export function LogWasteSheet({
     setTimeout(() => qtyRef.current?.focus(), 0)
   }
 
+  // A scanned barcode picks the item — if this kitchen's waste list has it.
+  const pickScanned = (s: ScannedItem) => {
+    const it = items.find(i => i.id === s.id)
+    if (it) pick(it)
+    else setError(`${s.itemName} isn't on this kitchen's list.`)
+  }
+
   const missing = !item ? 'Pick an item'
     : !(qty > 0) ? 'Enter an amount'
     : !f.reason ? 'Pick a reason'
     : null
-  const canSave = !missing && !rcError && !saving
+  const canSave = !missing && !rcError && !saving && !photoBusy
 
   const save = async () => {
     if (!canSave || !item) return
     setSaving(true)
     setError(null)
-    const res = await onSave({ inventoryItemId: item.id, qtyWasted: String(qty), unit: f.unit, reason: f.reason, notes: f.notes })
+    const res = await onSave({ inventoryItemId: item.id, qtyWasted: String(qty), unit: f.unit, reason: f.reason, notes: f.notes, photoUrl: f.photoUrl })
     setSaving(false)
     if (!res.ok) { setError(res.error); return }
     // Ready for the next one.
     setF(EMPTY)
+    setSaves(n => n + 1)
     setQuery('')
     if (!isTouch()) setTimeout(() => searchRef.current?.focus(), 0)
   }
@@ -161,7 +177,9 @@ export function LogWasteSheet({
                       <X size={16} />
                     </button>
                   )}
+                  <ScanButton onClick={() => setScanOpen(true)} label="Scan the item's barcode" bare className="-mr-2" />
                 </div>
+                <ScanItemFlow open={scanOpen} onClose={() => setScanOpen(false)} onItem={pickScanned} title="Scan the item" />
                 <div className="mt-1.5 border border-line rounded-xl overflow-hidden divide-y divide-line">
                   {results.length === 0 ? (
                     <div className="px-3.5 py-3 text-[14px] text-ink-4">No matching items</div>
@@ -256,6 +274,14 @@ export function LogWasteSheet({
               placeholder={f.reason === 'UNKNOWN' ? 'What happened?' : ''}
               className="w-full border border-line rounded-xl px-3.5 py-3 text-[16px] outline-none focus:ring-2 focus:ring-gold"
             />
+            <div className="mt-2 flex flex-col">
+              <PhotoField
+                key={saves}
+                value={f.photoUrl}
+                onChange={url => setF(p => ({ ...p, photoUrl: url }))}
+                onBusyChange={setPhotoBusy}
+              />
+            </div>
           </div>
 
           {(rcError || error) && (
@@ -277,7 +303,7 @@ export function LogWasteSheet({
             disabled={!canSave}
             className="w-full min-h-[52px] rounded-xl bg-red text-white text-[16px] font-semibold disabled:bg-bg-2 disabled:text-ink-4"
           >
-            {saving ? 'Saving…' : missing ?? `Log ${fmtWasteQty(qty, f.unit)}`}
+            {saving ? 'Saving…' : photoBusy && !missing ? 'Sending photo…' : missing ??`Log ${fmtWasteQty(qty, f.unit)}`}
           </button>
         </div>
       </div>

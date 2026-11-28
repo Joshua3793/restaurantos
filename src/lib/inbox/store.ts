@@ -62,6 +62,8 @@ export type ItemView = ItemLite & {
    * a cook's report. The Pass groups repeats of one family into one line.
    */
   kind: string | null
+  /** A flagged checklist job's photo — only on the one-item read (getItem), never on lists. */
+  photoUrl?: string | null
 }
 
 export type MineView = ItemView & {
@@ -393,8 +395,15 @@ export async function getItem(
     orderBy: { at: 'asc' },
     select: { kind: true, byId: true, byName: true, note: true, at: true },
   })
+  // A flagged job's photo lives on the job, not the Inbox item: read it through.
+  const photoUrl = row.source === 'FLAG' && row.sourceKey?.startsWith(FLAG_KEY_PREFIX)
+    ? (await prisma.checklistRunLine.findUnique({
+        where: { id: row.sourceKey.slice(FLAG_KEY_PREFIX.length) },
+        select: { flagPhotoUrl: true },
+      }))?.flagPhotoUrl ?? null
+    : null
   return {
-    item: { ...toView(row), unread: false },
+    item: { ...toView(row), unread: false, photoUrl },
     events: collapseSeen(events).map(e => ({ kind: e.kind, byName: e.byName, note: e.note, at: iso(e.at)! })),
   }
 }

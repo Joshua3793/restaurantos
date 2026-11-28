@@ -32,6 +32,8 @@ export type TodayFlag = {
   title: string
   reason: 'BROKEN' | 'RAN_OUT' | 'OUT_OF_RANGE' | 'OTHER' | null
   note: string | null
+  /** Photo the cook attached to the flag, or null. */
+  photoUrl: string | null
   value: number | null
   unit: string | null
   byName: string | null

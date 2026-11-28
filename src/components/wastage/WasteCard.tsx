@@ -6,6 +6,7 @@ import { reasonLabel } from './reasons'
 import { fmtWasteQty } from './units'
 import { loggedAtOf, hasLoggedTime } from './logged-at'
 import type { WasteLogRow } from './types'
+import { PhotoThumb } from '@/components/photos/PhotoField'
 
 const TIME = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })
 
@@ -46,6 +47,7 @@ export function WasteCard({
           </div>
           {log.notes && <div className="mt-1.5 text-[13px] text-ink-2 leading-snug">{log.notes}</div>}
         </div>
+        {log.photoUrl && <PhotoThumb url={log.photoUrl} size={40} label={`Photo of the ${log.inventoryItem.itemName} waste`} />}
         {log.canDelete && !confirming && (
           <button
             type="button"

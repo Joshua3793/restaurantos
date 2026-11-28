@@ -140,6 +140,7 @@ export function usePassItem(tags: TagLite[], rcId: string | null, onChanged: () 
     loadFailed: failed,
     onRetry: () => { if (selected) loadDetail(selected.id) },
     limited: !!detail?.limited,
+    photoUrl: detail?.item.photoUrl ?? null,
     tags,
     canRetag: true,
     busy,

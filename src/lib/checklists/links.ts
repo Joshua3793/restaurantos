@@ -38,7 +38,7 @@ export function matchCategory<T extends { id: string; name: string }>(cats: T[],
 
 /** The answer state one line of a shared job passes to its copies. Temps-log ownership is not part of it. */
 export const SHARED_STATE = [
-  'status', 'value', 'doneById', 'doneByName', 'doneAt', 'flagReason', 'flagNote',
+  'status', 'value', 'doneById', 'doneByName', 'doneAt', 'flagReason', 'flagNote', 'flagPhotoUrl',
   'resolvedById', 'resolvedByName', 'resolvedAt',
 ] as const
 

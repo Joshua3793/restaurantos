@@ -34,6 +34,8 @@ export type InboxItem = {
   revenueCenterId: string | null
   /** The app alert's family (`prep`, `price`, …), null for a cook's report. Optional: older callers and tests omit it. */
   kind?: string | null
+  /** A flagged job's photo; only the one-item read sends it. */
+  photoUrl?: string | null
 }
 
 export type InboxEventKind =

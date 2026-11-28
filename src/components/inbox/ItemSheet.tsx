@@ -9,6 +9,7 @@ import {
 } from './format'
 import { TagDot } from './TagChips'
 import { useBackDismiss } from '@/lib/back-stack'
+import { PhotoThumb } from '@/components/photos/PhotoField'
 
 // One Inbox item: tag (retag) + severity, what it is, what happened, a note,
 // and what to do about it. The same content is the phone's bottom sheet and
@@ -34,6 +35,8 @@ export type ItemDetailProps = {
   /** The page adds the typed note: Wait / Mark fixed carry it, Snooze / Reopen save it first. */
   onAct: (action: InboxAction) => void
   now: Date
+  /** A flagged job's photo (arrives with the history), or null. */
+  photoUrl?: string | null
 }
 
 const PILL = 'inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] rounded-full px-[9px] py-[3px]'
@@ -111,6 +114,9 @@ export function ItemDetail(p: ItemDetailProps & { variant: 'sheet' | 'pane' }) {
           <p className="m-0 text-[14px] leading-[1.5] text-ink-2 whitespace-pre-line break-words">
             {item.source === 'REPORT' ? `“${body}”` : body}
           </p>
+        )}
+        {p.photoUrl && !limited && (
+          <span className="self-start -ml-1"><PhotoThumb url={p.photoUrl} size={72} label="Open the photo of the problem" /></span>
         )}
         {origin && <span className="font-mono text-[10.5px] text-ink-3">{origin}</span>}
         {done && (

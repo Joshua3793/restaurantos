@@ -14,6 +14,9 @@ import { CategoryBadge } from '@/components/CategoryBadge'
 import { StockStatus } from '@/components/StockStatus'
 import { RcAllocationPanel } from '@/components/inventory/RcAllocationPanel'
 import { InventoryItemDrawer } from '@/components/inventory/InventoryItemDrawer'
+import { ScanItemFlow } from '@/components/scan/ScanItemFlow'
+import { ScanButton } from '@/components/scan/ScanButton'
+import { QUICKADD_ITEM } from '@/components/mobile/QuickAddSheet'
 import { QuickCountSheet } from '@/components/inventory/QuickCountSheet'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useUser } from '@/contexts/UserContext'
@@ -293,6 +296,18 @@ function InventoryPageInner() {
   const canEdit = role !== null && canEditItems(role)
   const drawerApi = useRef<ItemDrawerApi | null>(null)
   const openItem = useCallback((item: InventoryItem) => drawerApi.current?.open(item.id), [])
+  // Barcode scan (phone search box) → that item's drawer. Quick add's "Scan an
+  // item" lands here too: ?item=<id> on a fresh visit, this event when the page
+  // is already open (a same-route push doesn't remount it).
+  const [scanOpen, setScanOpen] = useState(false)
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id
+      if (id) drawerApi.current?.open(id)
+    }
+    window.addEventListener(QUICKADD_ITEM, on)
+    return () => window.removeEventListener(QUICKADD_ITEM, on)
+  }, [])
   const [quickItem,    setQuickItem]    = useState<InventoryItem | null>(null)
   const [showAdd,      setShowAdd]      = useState(false)
   const [showImport,   setShowImport]   = useState(false)
@@ -973,7 +988,8 @@ function InventoryPageInner() {
         className="sm:hidden sticky z-20 -mx-4 px-4 py-2 bg-bg"
         style={{ top: 'calc(env(safe-area-inset-top, 0px) + 2.5rem)' }}
       >
-        <div className="relative">
+        <div className="flex items-center gap-2">
+        <div className="relative flex-1 min-w-0">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             type="search"
@@ -984,6 +1000,9 @@ function InventoryPageInner() {
             className="w-full h-11 pl-9 pr-3 border border-line rounded-[10px] text-[16px] font-[inherit] bg-paper text-ink focus:outline-none focus:border-ink-3 placeholder:text-ink-3"
           />
         </div>
+        <ScanButton onClick={() => setScanOpen(true)} label="Scan a barcode to open the item" />
+        </div>
+        <ScanItemFlow open={scanOpen} onClose={() => setScanOpen(false)} onItem={it => drawerApi.current?.open(it.id)} title="Scan an item" />
       </div>
 
       {/* Desktop header */}

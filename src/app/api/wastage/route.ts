@@ -8,6 +8,7 @@ import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import { prepDayFrom, prepDayRange } from '@/lib/prep-day'
 import { displayName } from '@/lib/checklists/who'
 import { isWasteReason } from '@/components/wastage/reasons'
+import { cleanPhotoUrl } from '@/lib/photo-url'
 import { seesWasteMoney, redactWasteLog, canDeleteWaste, WASTE_ITEM_SELECT } from './rules'
 
 export const dynamic = 'force-dynamic'
@@ -66,7 +67,7 @@ async function handlePOST(req: NextRequest) {
   const body = await req.json()
   // `loggedBy` in the body is ignored: the signed-in person is who logged it (a
   // blank typed box used to save "System").
-  const { inventoryItemId, qtyWasted, unit, reason, notes, date } = body
+  const { inventoryItemId, qtyWasted, unit, reason, notes, date, photoUrl } = body
 
   // A reason is a pick, never a default: the old form saved UNKNOWN for anyone who
   // didn't touch the dropdown.
@@ -117,6 +118,9 @@ async function handlePOST(req: NextRequest) {
       costImpact,
       loggedBy:        name,
       notes:           typeof notes === 'string' && notes.trim() ? notes.trim() : null,
+      // Optional, and only an UploadThing file link (src/lib/photo-url.ts); anything
+      // else is dropped and the entry saves without it — a photo never blocks a save.
+      photoUrl:        cleanPhotoUrl(photoUrl),
       revenueCenterId,
     },
     include: { inventoryItem: { select: WASTE_ITEM_SELECT } },

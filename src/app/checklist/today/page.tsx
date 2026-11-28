@@ -12,6 +12,7 @@ import type { StationTone } from '@/lib/checklists/station-status'
 import type { TodayFlag, TodayLine, TodayStation, TodayView } from '@/lib/checklists/today-types'
 import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
 import { CloseTheDay } from '@/components/checklists/CloseTheDay'
+import { PhotoThumb } from '@/components/photos/PhotoField'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 // /checklist/today — LEAD+ board: every station's opening / closing progress
@@ -295,6 +296,7 @@ function FlagRow({ f, now, busy, onFix }: { f: TodayFlag; now: Date; busy: boole
             {meta}{f.note ? ` · “${f.note}”` : ''}
           </span>
         </span>
+        {f.photoUrl && <PhotoThumb url={f.photoUrl} size={44} label={`Photo of the problem with ${f.title}`} />}
       </div>
       <div className="px-4 pb-3.5">
         <button

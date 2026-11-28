@@ -4,12 +4,22 @@
 // Non-image files (PDF, CSV) are returned as-is.
 export const compressImageFile = (file: File): Promise<File> => {
   if (!file.type.startsWith('image/') || file.size <= 1 * 1024 * 1024) return Promise.resolve(file)
+  return shrinkToJpeg(file, 2000)
+}
+
+// A photo on a waste entry or a flagged job: always re-encoded (a phone's HEIC or
+// PNG becomes a JPEG) and no wider than `maxDim` px.
+export const compressPhotoFile = (file: File, maxDim = 1600): Promise<File> => {
+  if (!file.type.startsWith('image/')) return Promise.resolve(file)
+  return shrinkToJpeg(file, maxDim)
+}
+
+function shrinkToJpeg(file: File, MAX_DIM: number): Promise<File> {
   return new Promise((resolve) => {
     const img = new window.Image()
     const objectUrl = URL.createObjectURL(file)
     img.onload = () => {
       URL.revokeObjectURL(objectUrl)
-      const MAX_DIM = 2000
       let { width, height } = img
       if (width > MAX_DIM || height > MAX_DIM) {
         const scale = MAX_DIM / Math.max(width, height)

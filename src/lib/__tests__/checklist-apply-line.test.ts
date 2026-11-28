@@ -92,4 +92,22 @@ describe('applyLine', () => {
   it('unknown action is a 400', () => {
     expect(applyLine(tick, { action: 'zap' } as never, who, now)).toEqual({ error: 'Unknown action', status: 400 })
   })
+
+  it('a flag keeps an uploaded photo; a link elsewhere is dropped and the flag still saves', () => {
+    const ok = applyLine(tick, { action: 'flag', reason: 'BROKEN', photoUrl: 'https://abc.ufs.sh/f/k1' }, who, now)
+    expect(ok).toEqual({ data: expect.objectContaining({ status: 'FLAGGED', flagPhotoUrl: 'https://abc.ufs.sh/f/k1' }) })
+    const bad = applyLine(tick, { action: 'flag', reason: 'BROKEN', photoUrl: 'https://evil.com/f/k1' }, who, now)
+    expect(bad).toEqual({ data: expect.objectContaining({ status: 'FLAGGED', flagPhotoUrl: null }) })
+    const none = applyLine(tick, { action: 'flag', reason: 'BROKEN' }, who, now)
+    expect(none).toEqual({ data: expect.objectContaining({ flagPhotoUrl: null }) })
+  })
+
+  it('every other answer clears the photo', () => {
+    for (const r of [
+      applyLine(tick, { action: 'tick' }, who, now),
+      applyLine(tick, { action: 'untick' }, who, now),
+      applyLine(temp, { action: 'value', raw: '9' }, who, now),
+      applyLine(temp, { action: 'value', raw: '2' }, who, now),
+    ]) expect(r).toEqual({ data: expect.objectContaining({ flagPhotoUrl: null }) })
+  })
 })

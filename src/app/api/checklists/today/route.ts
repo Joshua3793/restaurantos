@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
         },
         orderBy: { doneAt: 'desc' },
         select: {
-          id: true, title: true, flagReason: true, flagNote: true, value: true, unit: true,
+          id: true, title: true, flagReason: true, flagNote: true, flagPhotoUrl: true, value: true, unit: true,
           doneByName: true, doneAt: true,
           run: { select: { station: { select: { name: true } } } },
         },
@@ -103,6 +103,7 @@ export async function GET(req: NextRequest) {
       title: f.title,
       reason: f.flagReason,
       note: f.flagNote,
+      photoUrl: f.flagPhotoUrl,
       value: f.value == null ? null : Number(f.value),
       unit: f.unit,
       byName: f.doneByName,

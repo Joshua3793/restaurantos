@@ -26,6 +26,8 @@
     "@uploadthing/react": "^7.3.3",
     "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "^3.5.0",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "exceljs": "^4.4.0",
     "geist": "^1.7.1",
     "lucide-react": "^1.7.0",

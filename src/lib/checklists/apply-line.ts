@@ -1,12 +1,14 @@
 // Pure: decides the new state of one run line from a cook's action.
 // No Prisma, no React. The route turns `data` into a Prisma update.
 import { inRange, parseReading } from './rules'
+import { cleanPhotoUrl } from '@/lib/photo-url'
 
 export type LineAction =
   | { action: 'tick' }
   | { action: 'untick' }
   | { action: 'value'; raw: string }
-  | { action: 'flag'; reason: 'BROKEN' | 'RAN_OUT' | 'OTHER'; note?: string }
+  /** `photoUrl`: an already-uploaded photo of the problem (UploadThing link), optional. */
+  | { action: 'flag'; reason: 'BROKEN' | 'RAN_OUT' | 'OTHER'; note?: string; photoUrl?: string | null }
 
 export type LineInput = {
   answer: 'TICK' | 'NUMBER' | 'TEMP'
@@ -23,6 +25,8 @@ export type LinePatch = {
   doneAt: Date | null
   flagReason: 'BROKEN' | 'RAN_OUT' | 'OUT_OF_RANGE' | 'OTHER' | null
   flagNote: string | null
+  /** Photo of the problem; only a manual flag carries one — every other answer clears it. */
+  flagPhotoUrl: string | null
   resolvedById: null
   resolvedByName: null
   resolvedAt: null
@@ -47,14 +51,14 @@ export function applyLine(
   switch (input?.action) {
     case 'tick':
       if (line.answer !== 'TICK') return { error: 'Enter a reading', status: 400 }
-      return { data: { status: 'DONE', value: null, ...done, flagReason: null, flagNote: null, ...UNRESOLVED } }
+      return { data: { status: 'DONE', value: null, ...done, flagReason: null, flagNote: null, flagPhotoUrl: null, ...UNRESOLVED } }
 
     case 'untick':
       return {
         data: {
           status: 'TODO', value: null,
           doneById: null, doneByName: null, doneAt: null,
-          flagReason: null, flagNote: null, ...UNRESOLVED,
+          flagReason: null, flagNote: null, flagPhotoUrl: null, ...UNRESOLVED,
         },
       }
 
@@ -66,7 +70,7 @@ export function applyLine(
       return {
         data: {
           status: ok ? 'DONE' : 'FLAGGED', value, ...done,
-          flagReason: ok ? null : 'OUT_OF_RANGE', flagNote: null, ...UNRESOLVED,
+          flagReason: ok ? null : 'OUT_OF_RANGE', flagNote: null, flagPhotoUrl: null, ...UNRESOLVED,
         },
       }
     }
@@ -76,7 +80,12 @@ export function applyLine(
       const note = typeof input.note === 'string' ? input.note.trim() : ''
       if (note.length > NOTE_MAX) return { error: `Note is too long (${NOTE_MAX} characters max)`, status: 400 }
       return {
-        data: { status: 'FLAGGED', value: null, ...done, flagReason: input.reason, flagNote: note || null, ...UNRESOLVED },
+        data: {
+          status: 'FLAGGED', value: null, ...done, flagReason: input.reason, flagNote: note || null,
+          // A link that is not an UploadThing file is dropped; the flag still saves.
+          flagPhotoUrl: cleanPhotoUrl(input.photoUrl),
+          ...UNRESOLVED,
+        },
       }
     }
 
