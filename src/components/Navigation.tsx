@@ -17,6 +17,7 @@ import { subscribeInboxCount } from '@/lib/inbox-count-feed'
 import { moreBadgeTotal } from '@/lib/bell'
 import { openAiChat } from '@/components/AiChat'
 import { countWaitingToSend } from '@/lib/pending-count'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // Pages that are a desk job: on a phone's More drawer they move to a small
 // "On a computer" group at the bottom, for anyone who can open at least one
@@ -68,6 +69,7 @@ function NavigationInner() {
   const pathname  = usePathname()
   const [moreOpen, setMoreOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
+  useBackDismiss(moreOpen, () => setMoreOpen(false))
   const [isOffline, setIsOffline] = useState(false)
   // Tablet (md..lg) overlay sidebar: summoned by the hamburger in the top bar,
   // covers content instead of docking. On lg+ the sidebar is permanently docked

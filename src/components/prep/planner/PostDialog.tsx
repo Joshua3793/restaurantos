@@ -15,6 +15,7 @@ import { fmtAmount } from '@/lib/prep-amount'
 import { planChanges, crewCapacity, crewSchedule, parFlag, deadlineInWords } from '@/lib/prep-smart'
 import { capacityText } from './CrewBar'
 import { batchWords } from './PrepRow'
+import { useBackDismiss } from '@/lib/back-stack'
 
 /** What the post stamps on each item's live log: the step deadline the chef saw. */
 export interface PostDue { prepItemId: string; dueTime: string | null }
@@ -51,6 +52,7 @@ export function PostDialog({ all, onList, cooks, crewIds, ctx, nowMin, reposting
   onClose: () => void
   onConfirm: (dues: PostDue[]) => void
 }) {
+  useBackDismiss(true, onClose)
   // The deadline label per row goes to the kitchen as PrepLog.dueTime so the To
   // Do can show what was posted even if the live step moves later.
   const dues: PostDue[] = onList.map(t => ({

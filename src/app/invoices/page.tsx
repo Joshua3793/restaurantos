@@ -23,6 +23,8 @@ import { useNotifications } from '@/contexts/NotificationContext'
 import { useToast } from '@/components/Toast'
 import { isNative } from '@/lib/capacitor'
 import { useNativeScan } from '@/hooks/useNativeScan'
+import { useBackDismiss } from '@/lib/back-stack'
+import { useAppRefresh } from '@/lib/app-refresh'
 
 const InvoiceDrawer = dynamic<{
   sessionId: string | null
@@ -213,6 +215,10 @@ export default function InvoicesPage() {
   }, [captureWanted, scopeReady, scanMode, isReadOnly])
 
   useEffect(() => { fetchSessions() }, [fetchSessions])
+  useAppRefresh(() => { fetchSessions() })
+  // Phone back closes the review drawer, then the quick check under it.
+  useBackDismiss(quickCheckId !== null, () => setQuickCheckId(null))
+  useBackDismiss(selectedSessionId !== null, () => setSelectedSessionId(null))
 
   // Sequential poll via refs so the timer never resets mid-wait.
   // Using refs instead of state deps prevents the interval from being

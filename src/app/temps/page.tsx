@@ -8,6 +8,7 @@ import { setScopeParams } from '@/lib/scope-params'
 import { useUser } from '@/contexts/UserContext'
 import { TempDesktop } from '@/components/temps/TempDesktop'
 import { TempMobile } from '@/components/temps/TempMobile'
+import { useAppRefresh } from '@/lib/app-refresh'
 import {
   computeDayMetrics, exportTempCSV, exportTempByEquipmentCSV, ymd,
   type TempUnit, type TempHandlers, type HistoryReading,
@@ -103,6 +104,7 @@ export default function TempChartsPage() {
     setLoading(true)
     load()
   }, [load])
+  useAppRefresh(() => { load(); if (view === 'history') loadHistory() })
   useEffect(() => {
     const id = setInterval(load, 60_000)
     return () => clearInterval(id)

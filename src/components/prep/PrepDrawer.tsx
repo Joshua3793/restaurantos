@@ -19,6 +19,7 @@ import type { PrepProgress } from '@/lib/prep-progress'
 import { CookModeBlock, CookFooter, cookState } from '@/components/prep/CookMode'
 import { JobMenu } from '@/components/prep/runsheet/step-ui'
 import { useNowMinute } from '@/components/prep/runsheet/useNowMinute'
+import { useBackDismiss } from '@/lib/back-stack'
 
 interface PrepDrawerProps {
   item: PrepItemRich | null
@@ -263,6 +264,7 @@ export default function PrepDrawer({
   onSetPrepEnabled,
 }: PrepDrawerProps) {
   const open = item !== null
+  useBackDismiss(open, onClose)
 
   // Escape closes the drawer.
   useEffect(() => {

@@ -11,6 +11,7 @@ import { computeBakersPercents } from '@/lib/bakers-percent'
 import { parseMethod, legacyToMethod } from '@/lib/recipe-method'
 import { resolveStages } from '@/lib/prep-stages'
 import { MethodView } from '@/components/recipes/MethodView'
+import { useBackDismiss } from '@/lib/back-stack'
 
 interface Ingredient {
   id: string
@@ -57,6 +58,7 @@ export function RecipeViewModal({ recipeId, recipeName, suggestedQty, yieldUnit,
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [loading, setLoading] = useState(true)
   const [scale, setScale] = useState(1)
+  useBackDismiss(true, onClose)
 
   useEffect(() => {
     let cancelled = false

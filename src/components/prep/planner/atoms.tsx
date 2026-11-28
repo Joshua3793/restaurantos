@@ -17,6 +17,7 @@ import {
 import { fmtClock, fmtMins } from '@/lib/prep-runsheet'
 import type { PrepItemRich } from '@/components/prep/types'
 import type { Cook } from '@/components/prep/runsheet/assignee'
+import { useBackDismiss } from '@/lib/back-stack'
 
 export function Popover({ children, onClose, w = 'w-48', align = 'right' }: {
   children: React.ReactNode; onClose: () => void; w?: string; align?: 'left' | 'right'
@@ -40,6 +41,7 @@ export function Popover({ children, onClose, w = 'w-48', align = 'right' }: {
 export function Sheet({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+  useBackDismiss(true, onClose)
   if (!mounted) return null
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-end">

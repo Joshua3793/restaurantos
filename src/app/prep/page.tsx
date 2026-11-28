@@ -34,6 +34,10 @@ import { parseProgress, EMPTY_PROGRESS, type PrepProgress } from '@/lib/prep-pro
 import { resolveStages, parseStageHistory, STAGE_DONE_KEY } from '@/lib/prep-stages'
 import { parseMethod, legacyToMethod, methodTexts } from '@/lib/recipe-method'
 import { prepDayKey } from '@/lib/prep-day'
+import { useAppRefresh } from '@/lib/app-refresh'
+import { useKeepAwake } from '@/lib/wake-lock'
+import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { isNative } from '@/lib/capacitor'
 import { useUser } from '@/contexts/UserContext'
 import { atLeast } from '@/lib/roles'
 import { PlannerDesktop } from '@/components/prep/planner/PlannerDesktop'
@@ -302,6 +306,8 @@ export default function PrepPage() {
   }, [activeRcId])
 
   useEffect(() => { loadPlan() }, [loadPlan])
+  // Pull-down on a phone / the phone app coming back to the front.
+  useAppRefresh(() => { load(true); loadPlan() })
 
   // Who's on today (Smart Prep): the cooks the chef ticked for this kitchen and
   // prep day. Drives the crew capacity line and "won't be ready" warnings; an
@@ -586,6 +592,11 @@ export default function PrepPage() {
   }, [activeRcId, crewDay])
   // The wait-over alarm — ONE per page (both run sheets are mounted at once).
   const alarms = useWaitAlarms(todayItems)
+  // A job on the go keeps the screen on, so the phone does not lock mid-recipe.
+  // Screen stays on only for a phone (or the phone app) — a desktop/iPad on the pass is left alone.
+  const isPhoneWidth = useMediaQuery('(max-width: 767px)')
+  const jobOnTheGo = useMemo(() => todayItems.some(i => i.todayLog?.status === 'IN_PROGRESS'), [todayItems])
+  useKeepAwake(jobOnTheGo && (isPhoneWidth === true || isNative()))
   const svcStatus = useMemo(
     () => activeRc ? serviceStatus(rcServices, nowMin, activeRc.prepLeadMinutes ?? null) : null,
     [activeRc, rcServices, nowMin],

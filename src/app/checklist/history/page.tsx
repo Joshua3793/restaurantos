@@ -12,6 +12,7 @@ import type { HistoryDay, HistoryPeople, HistoryView } from '@/lib/checklists/hi
 import type { LineView } from '@/lib/checklists/runs'
 import { firstName, fmtReading, unitOf } from '@/components/checklists/LineRow'
 import { ChecklistTabs } from '@/components/checklists/ChecklistTabs'
+import { shareOrDownload } from '@/lib/share-file'
 
 // /checklist/history — LEAD+ review of any day's opening and closing lists:
 // who ticked what and when, filtered by person or station, exportable as CSV.
@@ -364,19 +365,16 @@ function ChecklistHistory() {
   const shown = view?.date ?? f.date ?? latest
   const step = (n: number) => update({ date: n > 0 && minusDays(shown, -n) > latest ? latest : minusDays(shown, -n) })
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
     if (!view || view.runs.length === 0) return
     try {
       // The BOM makes Excel read the file as UTF-8, so "°C" survives.
-      const blob = new Blob(['﻿' + historyCsv(view.runs)], { type: 'text/csv;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = csvName(activeRc?.name, view.date)
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      // On a phone this opens the share sheet; elsewhere it downloads.
+      await shareOrDownload({
+        filename: csvName(activeRc?.name, view.date),
+        mime: 'text/csv;charset=utf-8',
+        data: '﻿' + historyCsv(view.runs),
+      })
     } catch {
       toast.show({ type: 'error', title: 'Could not make the file — try again.' })
     }

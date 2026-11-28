@@ -6,6 +6,7 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { UserPlus } from 'lucide-react'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // Matches the shape returned by GET /api/prep/cooks and PrepItemRich.assignedCook.
 export type Cook = {
@@ -113,6 +114,7 @@ export function ClaimPopover({
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  useBackDismiss(true, onClose)
 
   useLayoutEffect(() => {
     const anchor = anchorRef.current

@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { useBackDismiss } from '@/lib/back-stack'
 import { Loader2 } from 'lucide-react'
 import { DIMENSION_BASE, pricePerBaseUnit, type Dimension } from '@/lib/item-model'
 import { SupplierWordingsSection } from './SupplierWordingsSection'
@@ -48,6 +49,7 @@ function costInputs(item: InventoryItem) {
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export function InventoryItemDrawer({ itemId, onClose, onUpdated, zClassName = 'z-50', initialEditMode = false }: Props) {
+  useBackDismiss(!!itemId, onClose)
   const { revenueCenters, activeRc } = useRc()
   const defaultRcId = revenueCenters.find(rc => rc.isDefault)?.id ?? null
   // Default-deny: `role` is null while /api/me is in flight (same pattern as

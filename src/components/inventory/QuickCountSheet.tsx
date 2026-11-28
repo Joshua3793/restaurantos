@@ -4,6 +4,7 @@ import { X, Loader2, Check, Minus, Plus } from 'lucide-react'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { useToast } from '@/components/Toast'
 import { getCountableUoms, convertCountQtyToBase, convertBaseToCountUom, resolveCountUom } from '@/lib/count-uom'
+import { useBackDismiss } from '@/lib/back-stack'
 
 export interface QuickCountItem {
   id: string
@@ -28,6 +29,7 @@ const f = (n: number) => (Number(n) % 1 === 0 ? Number(n).toFixed(0) : Number(n)
 export function QuickCountSheet({ item, onClose, onDone }: Props) {
   const { activeRc } = useRc()
   const toast = useToast()
+  useBackDismiss(true, onClose)
 
   const dims = useMemo(() => ({
     dimension: item.dimension ?? 'COUNT',

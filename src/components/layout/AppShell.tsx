@@ -2,6 +2,8 @@
 import { usePathname } from 'next/navigation'
 import { CostChromeGate } from './CostChromeGate'
 import { isAuthRoute } from '@/lib/chrome-routes'
+import { NativeBridge } from './NativeBridge'
+import { PullToRefresh } from './PullToRefresh'
 
 /**
  * Client wrapper around the page content. Owns one offset:
@@ -19,6 +21,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const chrome = !isAuthRoute(pathname)
   return (
     <>
+      <NativeBridge />
+      {chrome && <PullToRefresh />}
       <main
         className={`${chrome ? 'lg:ml-[240px] md:pt-11 pb-20 md:pb-0 mobile-content-top' : ''} min-h-screen bg-bg flex flex-col`}
       >

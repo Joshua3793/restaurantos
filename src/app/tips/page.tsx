@@ -13,6 +13,7 @@ import { CashTab } from '@/components/tips/CashTab'
 import { ChecksTab } from '@/components/tips/ChecksTab'
 import { ImportTab } from '@/components/tips/ImportTab'
 import { SettingsTab, type LookupOption, type TipSettingsDto } from '@/components/tips/SettingsTab'
+import { shareServerExport } from '@/lib/share-file'
 
 export default function TipsPage() {
   const [payload, setPayload] = useState<TipPeriodPayload | null>(null)
@@ -395,6 +396,7 @@ export default function TipsPage() {
             <>
               <a
                 href={periodId ? `/api/tips/periods/${periodId}/export` : '#'}
+                onClick={e => { if (periodId && shareServerExport(`/api/tips/periods/${periodId}/export`, 'kitchen-tips.csv', () => setError('Could not export — try again'))) e.preventDefault() }}
                 className="inline-flex items-center gap-[7px] px-3.5 py-[9px] rounded border border-line bg-paper text-[13px] font-medium text-ink-2 hover:border-ink-3"
               >
                 <Download size={13} className="text-ink-3" />Export for payroll

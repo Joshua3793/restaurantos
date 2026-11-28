@@ -21,6 +21,7 @@ import { mergeSummaryLines, mergeNotes, UNDO_DISABLED_NOTE } from '@/lib/item-me
 import {
   getCountableUoms, resolveCountUom, countUomFactor, convertBaseToCountUom, type ItemDims,
 } from '@/lib/count-uom'
+import { useBackDismiss } from '@/lib/back-stack'
 
 export interface MergeHit {
   id: string; itemName: string; baseUnit: string
@@ -304,6 +305,8 @@ export function MergeItemSheet({ survivor, rcId, rcName, onClose, onMerged }: Me
     onMerged()
     onClose()
   }
+  // Back does what the backdrop does.
+  useBackDismiss(true, () => (result ? finish() : onClose()))
 
   const setRow = (key: number, patch: Partial<OnHandRow>) =>
     setRows(rs => rs.map(r => (r.key === key ? { ...r, ...patch } : r)))

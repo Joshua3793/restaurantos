@@ -1,6 +1,7 @@
 'use client'
 // ─── Shared types, helpers and components used by both Recipe Book and Menu pages ───
 import { useEffect, useState, useCallback, useRef, memo } from 'react'
+import { useBackDismiss } from '@/lib/back-stack'
 import { createPortal } from 'react-dom'
 import { formatCurrency, formatUnitPrice, formatQtyUnit } from '@/lib/utils'
 import { UOM_GROUPS, convertQty, convertQtyBridged, bridgedUnitGroups, dimensionallyCostable, PREP_YIELD_UNITS, MENU_YIELD_UNITS } from '@/lib/uom'
@@ -1326,6 +1327,8 @@ export function RecipePanel({ recipeId, categories, onClose, onUpdated, revenueC
 }) {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [scaleFactor, setScaleFactor] = useState(1)
+  // Back closes the drawer the same way its own close does (refreshes the list first).
+  useBackDismiss(true, () => handleClose())
   const [customScale, setCustomScale] = useState('')
   const [searchQ, setSearchQ] = useState('')
   const [searchResults, setSearchResults] = useState<IngredientSearchResult[]>([])

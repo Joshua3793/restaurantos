@@ -6,6 +6,7 @@ import { useRc } from '@/contexts/RevenueCenterContext'
 import { rcHex } from '@/lib/rc-colors'
 import { AlertsBell } from '@/components/AlertsBell'
 import { isAuthRoute } from '@/lib/chrome-routes'
+import { useBackDismiss } from '@/lib/back-stack'
 
 export function MobileRcBar() {
   const pathname = usePathname()
@@ -15,6 +16,7 @@ export function MobileRcBar() {
     setActiveRcId, setActiveLocation, setActiveAll,
   } = useRc()
   const [open, setOpen] = useState(false)
+  useBackDismiss(open, () => setOpen(false))
   // Picking a location applies a read-only location lens to the current page.
   const pickLocation = (id: string) => { setActiveLocation(id) }
 

@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { APP_REFRESH_EVENT } from '@/lib/app-refresh'
 import Link from 'next/link'
 import { ArrowRight, ChevronRight, Flag, Hourglass, Thermometer } from 'lucide-react'
 import { useUser } from '@/contexts/UserContext'
@@ -77,7 +78,9 @@ export function CookStart() {
     const tick = () => { if (document.visibilityState === 'visible') load() }
     const id = setInterval(tick, 60_000)
     document.addEventListener('visibilitychange', tick)
-    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', tick) }
+    // Pull-down / the phone app back in front.
+    window.addEventListener(APP_REFRESH_EVENT, load)
+    return () => { cancelled = true; clearInterval(id); document.removeEventListener('visibilitychange', tick); window.removeEventListener(APP_REFRESH_EVENT, load) }
   }, [ready, activeKind, activeRcId, activeRc, activeLocationId, loadMine, attempt])
   const retry = () => { setItemsError(false); setAttempt(a => a + 1) }
   const failed = itemsError && items === null

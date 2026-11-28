@@ -9,10 +9,20 @@
 // Every browser call is guarded: sound blocked before the first tap, no
 // AudioContext, no Notification, private-mode storage — none of it throws; the
 // banner shows regardless.
+//
+// In the phone app the alarm also works on a LOCKED phone: every running wait
+// is handed to the system as a local notification at its ready time (asking
+// for permission the first time a wait starts), and taken back when the wait
+// is stopped, moved on, changed or the job is done. The in-page chime stays.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PrepItemRich } from '@/components/prep/types'
 import { onTheGo, alarmShouldRing, type GoRow } from '@/lib/prep-on-the-go'
-import { nextAction } from '@/lib/prep-steps'
+import { nextAction, type CookItem } from '@/lib/prep-steps'
+import { isNative } from '@/lib/capacitor'
+import {
+  cancelNotifications, notifyPermission, pendingNotificationIds, scheduleNotifications,
+  type LocalNotificationSpec,
+} from '@/lib/native'
 
 const MUTE_KEY = 'prep.alarms.muted'
 const TICK_MS = 15_000
@@ -76,6 +86,51 @@ function notify(row: GoRow<PrepItemRich>) {
   } catch { /* notifications unavailable */ }
 }
 
+// ── Locked-phone alarms (phone app only) ────────────────────────────────────
+
+const NOTIFY_KIND = 'prep-wait'
+
+/** A stable positive 31-bit id for one wait of one job (FNV-1a of log id + step key). */
+export function waitNotificationId(logId: string, stepKey: string): number {
+  let h = 0x811c9dc5
+  const str = `${logId}|${stepKey}`
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return ((h >>> 0) % 2_147_483_646) + 1
+}
+
+/** "Next: Kale" — the next phase's name, else the next step, else logging the yield. */
+function nextWords(seq: CookItem[], pos: number): string {
+  const cur = seq[pos], nxt = seq[pos + 1]
+  if (!nxt) return 'log yield'
+  if (nxt.phase && nxt.phase !== cur?.phase) return nxt.phase
+  return nxt.kind === 'STEP' ? `step ${nxt.number}` : (nxt.phase ?? 'next step')
+}
+
+interface PlannedAlarm extends LocalNotificationSpec { sig: string }
+
+/** One notification per running wait whose clock is known. */
+function plannedAlarms(rows: GoRow<PrepItemRich>[]): PlannedAlarm[] {
+  const out: PlannedAlarm[] = []
+  for (const r of rows) {
+    const logId = r.item.todayLog?.id
+    if (!logId || logId.startsWith('_opt_') || !r.seq || !r.cur || r.cur.kind !== 'WAIT' || !r.clock) continue
+    const title = `${r.item.name}: ${r.cur.phase ?? 'Wait'} is done — next: ${nextWords(r.seq, r.pos)}`
+    const at = new Date(r.clock.readyAtMs)
+    out.push({
+      id: waitNotificationId(logId, r.cur.key),
+      title,
+      body: 'Open the prep To Do to move it on.',
+      at,
+      extra: { kind: NOTIFY_KIND, logId, stepKey: r.cur.key },
+      sig: `${at.getTime()}|${title}`,
+    })
+  }
+  return out
+}
+
 function readMuted(): boolean {
   try { return localStorage.getItem(MUTE_KEY) === '1' } catch { return false }
 }
@@ -93,6 +148,9 @@ export interface WaitAlarms {
 export function useWaitAlarms(items: PrepItemRich[]): WaitAlarms {
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [muted, setMuted] = useState(false)
+  // Nothing rings or asks for alarm permission until the saved mute is read —
+  // a muted cook must never get the lock-screen prompt on page load.
+  const [muteRead, setMuteRead] = useState(false)
   const [canAskNotify, setCanAskNotify] = useState(false)
   const lastRang = useRef(new Map<string, number>())
 
@@ -112,6 +170,7 @@ export function useWaitAlarms(items: PrepItemRich[]): WaitAlarms {
 
   useEffect(() => {
     setMuted(readMuted())
+    setMuteRead(true)
     try { setCanAskNotify(typeof Notification !== 'undefined' && Notification.permission === 'default') } catch { /* none */ }
     const id = setInterval(() => setNowMs(Date.now()), TICK_MS)
     return () => clearInterval(id)
@@ -123,13 +182,50 @@ export function useWaitAlarms(items: PrepItemRich[]): WaitAlarms {
     const live = new Set(due.map(r => r.item.id))
     for (const id of lastRang.current.keys()) if (!live.has(id)) lastRang.current.delete(id)
     const ringing = due.filter(r => r.clock && alarmShouldRing(r.clock.readyAtMs, lastRang.current.get(r.item.id) ?? null, nowMs))
-    if (ringing.length === 0) return
+    if (!muteRead || ringing.length === 0) return
     for (const r of ringing) lastRang.current.set(r.item.id, nowMs)
     if (muted) return
     chime()
     buzz()
     ringing.forEach(notify)
-  }, [due, nowMs, muted])
+  }, [due, nowMs, muted, muteRead])
+
+  // Locked-phone alarms. Keyed on the plan's signature, not the 15 s tick, so
+  // the bridge is only called when a wait actually starts, moves or ends.
+  const planned = useMemo(() => plannedAlarms(onTheGo(items, Date.now())), [items])
+  const plannedKey = useMemo(() => planned.map(a => `${a.id}:${a.sig}`).sort().join(','), [planned])
+  const scheduled = useRef<Map<number, string> | null>(null)   // id → sig handed to the system
+  const syncChain = useRef<Promise<void>>(Promise.resolve())
+  useEffect(() => {
+    if (!isNative() || !muteRead) return
+    // Before the list has loaded there is no plan to compare with — wait, so a
+    // slow first load never wipes alarms that are still right.
+    if (scheduled.current === null && items.length === 0) return
+    const want = muted ? [] : planned
+    syncChain.current = syncChain.current.then(async () => {
+      try {
+        // First pass after a page load: take back whatever an earlier visit
+        // left pending, then schedule the current plan fresh.
+        if (scheduled.current === null) {
+          await cancelNotifications(await pendingNotificationIds(NOTIFY_KIND))
+          scheduled.current = new Map()
+        }
+        const have = scheduled.current
+        const wantById = new Map(want.map(a => [a.id, a]))
+        const stale = [...have.entries()].filter(([id, sig]) => wantById.get(id)?.sig !== sig).map(([id]) => id)
+        await cancelNotifications(stale)
+        stale.forEach(id => have.delete(id))
+        const now = Date.now()
+        const fresh = want.filter(a => !have.has(a.id) && a.at.getTime() > now + 1000)
+        if (fresh.length === 0) return
+        // The first time a wait starts, ask to show alarms on the lock screen.
+        if ((await notifyPermission(true)) !== 'granted') return
+        if (await scheduleNotifications(fresh)) fresh.forEach(a => have.set(a.id, a.sig))
+      } catch { /* the in-page chime still rings */ }
+    })
+    // plannedKey stands in for `planned` (a new array every items change).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plannedKey, muted, muteRead, items.length === 0])
 
   const toggleMuted = useCallback(() => {
     setMuted(m => {

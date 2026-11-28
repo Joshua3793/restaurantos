@@ -6,6 +6,7 @@ import { useUser } from '@/contexts/UserContext'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { canAccess } from '@/lib/route-access'
 import { ReportSheet } from '@/components/inbox/ReportSheet'
+import { useBackDismiss } from '@/lib/back-stack'
 
 // Window events the ＋ sheet fires when the job's page is ALREADY open: a
 // same-route router.push doesn't remount the page, so its ?param check never
@@ -33,6 +34,7 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
   const { role } = useUser()
   const { activeKind, activeRcId } = useRc()
   const [reportOpen, setReportOpen] = useState(false)
+  useBackDismiss(open, onClose)
   const report = (
     <ReportSheet
       open={reportOpen}

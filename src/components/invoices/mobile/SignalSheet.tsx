@@ -1,12 +1,14 @@
 'use client'
 import { X } from 'lucide-react'
 import { InboxItem, Signal } from '@/lib/invoices/inbox-items'
+import { useBackDismiss } from '@/lib/back-stack'
 
 export function SignalSheet({ item, onClose, onAct }: {
   item: InboxItem | null
   onClose: () => void
   onAct: (id: string, action: 'apply' | 'snooze' | 'dismiss') => void
 }) {
+  useBackDismiss(!!item && item.kind === 'signal', onClose)
   if (!item || item.kind !== 'signal') return null
   const sig = item.raw as Signal
   return (
