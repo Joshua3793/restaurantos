@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { formatCurrency } from '@/lib/utils'
-import { SectionHeader, Card, LoadingState, InfoDot } from '../report-components'
+import { SectionHeader, Card, LoadingState, InfoDot, DesktopDetail } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { setScopeParams } from '@/lib/scope-params'
 import { getVocab } from '@/lib/rc-vocab'
@@ -108,10 +108,10 @@ export default function CogsTab() {
 
       {data && (
         <>
-          {/* Formula Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-center">
+          {/* Formula Cards — one per row on a phone, operators only from sm up */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-center">
             <InventoryCard label="Beginning Inventory" bound={data.beginningInventory} rcName={rcName} />
-            <div className="flex items-center justify-center text-2xl font-light text-ink-4">+</div>
+            <div className="hidden sm:flex items-center justify-center text-2xl font-light text-ink-4">+</div>
             <Card className="text-center">
               <div className="text-xs font-medium text-ink-3 mb-1">Purchases</div>
               <div className="text-xl font-bold text-ink-2">{formatCurrency(data.purchases.total)}</div>
@@ -119,7 +119,7 @@ export default function CogsTab() {
             </Card>
             <div className="hidden sm:flex items-center justify-center text-2xl font-light text-ink-4">−</div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-center">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-center">
             <div className="hidden sm:block" />
             <div className="hidden sm:block" />
             <InventoryCard label="Ending Inventory" bound={data.endingInventory} rcName={rcName} />
@@ -132,8 +132,9 @@ export default function CogsTab() {
             </Card>
           </div>
 
-          {/* Category Breakdown */}
+          {/* Category Breakdown — a wide table: desktop only, phones get a note */}
           {data.byCategory?.length > 0 && (
+            <DesktopDetail>
             <Card>
               <SectionHeader title="COGS by Category" />
               <div className="overflow-x-auto">
@@ -159,6 +160,7 @@ export default function CogsTab() {
                 </table>
               </div>
             </Card>
+            </DesktopDetail>
           )}
         </>
       )}

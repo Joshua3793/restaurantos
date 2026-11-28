@@ -5,7 +5,7 @@ import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
-import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState, CAT_COLORS } from '../report-components'
+import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState, CAT_COLORS, DesktopDetail } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
@@ -52,6 +52,7 @@ export default function InventoryTab() {
         <KpiCard label="Price Decreases" value={String(summary.priceDecreases)} accent="green" sub={range.label} info={PROVENANCE.invPriceChanges} />
       </div>
 
+      <DesktopDetail>
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
@@ -186,6 +187,7 @@ export default function InventoryTab() {
           ) : <EmptyState message="No inventory data" />}
         </Card>
       </div>
+      </DesktopDetail>
     </div>
   )
 }

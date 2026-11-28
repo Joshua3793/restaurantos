@@ -4,6 +4,7 @@ import { withLastCost } from '@/lib/cost-basis'
 import { requireSession, AuthError } from '@/lib/auth'
 import { isRcInScope, assertRcWritable } from '@/lib/rc-scope'
 import { seesCountMoney, redactSessionMoney } from '@/lib/count-redact'
+import { atLeast } from '@/lib/roles'
 
 // Mutating handlers must never be statically prerendered — a prerendered
 // route serves GET only and returns 405 for everything else.
@@ -87,7 +88,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     throw e
   }
 
-  const existing = await prisma.countSession.findUnique({ where: { id: params.id }, select: { revenueCenterId: true } })
+  const existing = await prisma.countSession.findUnique({ where: { id: params.id }, select: { revenueCenterId: true, status: true } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // RC scope: a session with no RC (legacy "all items") is left unguarded here,
@@ -102,6 +103,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const body = await req.json()
+  // Reopening an approved count (FINALIZED → anything else) is a manager call: it
+  // un-approves stock the books already use. Every other status move stays open to
+  // any counter — Approve marks the session UPDATING and reverts it to
+  // PENDING_REVIEW on failure through this same route.
+  if (existing.status === 'FINALIZED' && body.status !== undefined && body.status !== 'FINALIZED' && !atLeast(user.role, 'MANAGER')) {
+    return NextResponse.json({ error: 'Only a manager can reopen an approved count.' }, { status: 403 })
+  }
   const data: Record<string, unknown> = {}
   if (body.label       !== undefined) data.label       = body.label
   if (body.countedBy   !== undefined) data.countedBy   = body.countedBy
@@ -111,10 +119,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json(seesCountMoney(user.role) ? updated : redactSessionMoney(updated))
 }
 
-// DELETE /api/count/sessions/:id
+// DELETE /api/count/sessions/:id — MANAGER+ (a count is stock history; cooks count, managers remove)
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   let user
-  try { user = await requireSession() }
+  try { user = await requireSession('MANAGER') }
   catch (e) {
     if (e instanceof AuthError) return NextResponse.json({ error: e.message }, { status: e.status })
     throw e

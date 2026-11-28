@@ -7,8 +7,9 @@ export interface CountMutation {
   ts:        number
   sessionId: string
   lineId:    string
-  // 'clear' = reset the line to uncounted ("Clear count"). Shares the count/skip
-  // dedupe key, so a later count supersedes a queued clear and vice versa.
+  // 'clear' = reset the line to uncounted ("Clear count", and "Count it" undoing a
+  // skip — both send the same `skipped: false`). Shares the count/skip dedupe key,
+  // so a later count supersedes a queued clear and vice versa.
   type:      'count' | 'skip' | 'uom' | 'clear'
   qty?:      number
   entries?:  { unit: string; qty: number }[]   // mixed-unit count (authoritative when present)

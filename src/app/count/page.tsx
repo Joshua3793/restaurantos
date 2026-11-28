@@ -114,6 +114,69 @@ function countsCaption(counts: { total: number; counted: number; carried?: numbe
   return parts.join(' · ')
 }
 
+/**
+ * What the count sheet opens with for a line — and so what "nothing typed yet"
+ * means. Blind count: only a prior counted value when re-editing, never the
+ * expected qty (that biases the cook toward confirming theoretical stock). A line
+ * saved with mixed-unit entries rehydrates its first entry as the primary row and
+ * the rest as extras.
+ */
+function savedEntryOf(line: Line): { qty: number | ''; extras: { qty: number; unit: string }[] } {
+  const saved = Array.isArray(line.entries) ? line.entries : null
+  if (saved && saved.length > 1) {
+    return {
+      qty:    Number(saved[0].qty) || 0,
+      extras: saved.slice(1).map(e => ({ qty: Number(e.qty) || 0, unit: e.unit })),
+    }
+  }
+  return { qty: line.countedQty !== null ? Number(line.countedQty) : '', extras: [] }
+}
+
+/** True when the sheet holds something other than what is saved for the line. */
+function sheetIsDirty(line: Line, inputQty: number | '', extras: { qty: number; unit: string }[]): boolean {
+  const saved = savedEntryOf(line)
+  if (inputQty !== saved.qty) return true
+  if (extras.length !== saved.extras.length) return true
+  return extras.some((e, i) => e.unit !== saved.extras[i].unit || Number(e.qty) !== saved.extras[i].qty)
+}
+
+/**
+ * The visible part of the screen while the iOS keyboard is up. iOS ignores the
+ * layout resize setting: the keyboard slides OVER a `fixed inset-0` sheet and hides
+ * its bottom. The visual viewport is the part still showing, so a sheet pinned to it
+ * keeps its Save bar above the keyboard. null = no visualViewport (desktop, old
+ * browsers) — fall back to plain `inset-0`.
+ */
+function useVisualViewport(enabled: boolean): { top: number; height: number } | null {
+  const [vv, setVv] = useState<{ top: number; height: number } | null>(null)
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined' || !window.visualViewport) { setVv(null); return }
+    const v = window.visualViewport
+    const update = () => setVv({ top: v.offsetTop, height: v.height })
+    update()
+    v.addEventListener('resize', update)
+    v.addEventListener('scroll', update)
+    return () => { v.removeEventListener('resize', update); v.removeEventListener('scroll', update) }
+  }, [enabled])
+  return vv
+}
+
+/** Live height of an element (callback ref + ResizeObserver) — 0 until it mounts. */
+function useElementHeight(): [(el: HTMLElement | null) => void, number] {
+  const [h, setH] = useState(0)
+  const obs = useRef<ResizeObserver | null>(null)
+  const ref = useCallback((el: HTMLElement | null) => {
+    obs.current?.disconnect()
+    obs.current = null
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setH(el.getBoundingClientRect().height))
+    ro.observe(el)
+    obs.current = ro
+    setH(el.getBoundingClientRect().height)
+  }, [])
+  return [ref, h]
+}
+
 // ─── Types (storage areas) ────────────────────────────────────────────────────
 
 interface StorageArea { id: string; name: string }
@@ -341,6 +404,15 @@ export default function CountPage() {
   const [locFilter,     setLocFilter]     = useState<string | null>(null)
   const [statusFilter,  setStatusFilter]  = useState<'all' | 'uncounted' | 'counted' | 'skipped' | 'nomovement'>('all')
   const [showCountFilterSheet, setShowCountFilterSheet] = useState(false)
+  // Phone count sheet: a stray backdrop tap with an unsaved number keeps the sheet
+  // open and flags this instead of throwing the number away.
+  const [sheetNudge,    setSheetNudge]    = useState(false)
+  const saveBtnRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => { setSheetNudge(false) }, [openId])
+  // Sheet follows the visible screen (iOS keyboard) — only while a phone sheet is open.
+  const sheetViewport = useVisualViewport(openId !== null)
+  // The phone count header's height, so the search + chips can stick right under it.
+  const [mHeaderRef, mHeaderH] = useElementHeight()
   const [searchQuery,   setSearchQuery]   = useState('')
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
 
@@ -390,6 +462,11 @@ export default function CountPage() {
   // "Add item" creates a new priced inventory item — POST /api/inventory is MANAGER+.
   const canAddItem = role != null && canEditItems(role as Parameters<typeof canEditItems>[0])
   const counterName = user?.name || user?.email?.split('@')[0] || 'You'
+  // "Who's counting" starts as the signed-in person — editable, never forced.
+  const knownName = user?.name || user?.email?.split('@')[0] || ''
+  useEffect(() => {
+    if (view === 'new' && knownName) setForm(f => (f.countedBy ? f : { ...f, countedBy: knownName }))
+  }, [view, knownName])
   const [selectedRcId, setSelectedRcId] = useState<string>('')
 
   useEffect(() => {
@@ -528,21 +605,9 @@ export default function CountPage() {
     const line = active.lines.find(l => l.id === openId)
     if (line) {
       seededFor.current = openId
-      // Blind-count: only show prior counted value when re-editing. Don't pre-fill
-      // with expected qty — that biases the user toward confirming theoretical stock
-      // rather than counting what's actually on the shelf.
-      setInputQty(line.countedQty !== null ? Number(line.countedQty) : '')
-      // Rehydrate mixed-unit rows: if the line was saved with entries, treat the
-      // first entry as the primary (inputQty/selectedUom) and the rest as extras.
-      const saved = Array.isArray((line as { entries?: unknown }).entries)
-        ? ((line as { entries?: { unit: string; qty: number }[] }).entries as { unit: string; qty: number }[])
-        : null
-      if (saved && saved.length > 1) {
-        setInputQty(Number(saved[0].qty) || 0)
-        setExtraEntries(saved.slice(1).map(e => ({ qty: Number(e.qty) || 0, unit: e.unit })))
-      } else {
-        setExtraEntries([])
-      }
+      const saved = savedEntryOf(line)
+      setInputQty(saved.qty)
+      setExtraEntries(saved.extras)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed on open only (see above)
   }, [openId, linesLoaded])
@@ -753,7 +818,31 @@ export default function CountPage() {
     })
   }
 
-  const confirmLine = async (line: Line, qty: number, entries?: { unit: string; qty: number }[], opts?: { carried?: boolean; silent?: boolean }) => {
+  // The next uncounted line AFTER this one in the order the list is drawn, wrapping
+  // to the top. Searching from the current row (not from the top) is what lets the
+  // phone's "Next" step past an item without ping-ponging back to it.
+  const nextUncountedAfter = (lineId: string): Line | null => {
+    const at = orderedLines.findIndex(l => l.id === lineId)
+    const n = orderedLines.length
+    const start = at < 0 ? 0 : at + 1
+    for (let k = 0; k < n; k++) {
+      const l = orderedLines[(start + k) % n]
+      if (l.id !== lineId && l.countedQty === null && !l.skipped) return l
+    }
+    return null
+  }
+
+  const openNextUncounted = (lineId: string) => {
+    const next = nextUncountedAfter(lineId)
+    if (!next) return
+    setRevealId(next.id)   // draw it first if it sits past the drawn lines
+    setTimeout(() => {
+      setOpenId(next.id)
+      cardRefs.current[`${cardPrefix()}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 120)
+  }
+
+  const confirmLine = async (line: Line, qty: number, entries?:{ unit: string; qty: number }[], opts?: { carried?: boolean; silent?: boolean }) => {
     const carried = opts?.carried === true
     // Mixed-unit: when entries provided (>1 row), they're authoritative. We mirror the
     // server's storage choice — countedQty = summed base, selectedUom = baseUnit — so
@@ -776,16 +865,7 @@ export default function CountPage() {
     setActive(prev => ({ ...prev!, lines: prev!.lines!.map(applyCount) }))
     setOpenId(null)
     // Auto-advance to next uncounted
-    if (!opts?.silent) {
-      const next = filteredLines.find(l => l.id !== line.id && l.countedQty === null && !l.skipped)
-      if (next) {
-        setRevealId(next.id)   // draw it first if it sits past the drawn lines
-        setTimeout(() => {
-          setOpenId(next.id)
-          cardRefs.current[`${cardPrefix()}${next.id}`]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }, 120)
-      }
-    }
+    if (!opts?.silent) openNextUncounted(line.id)
     // Durable save — used when offline AND when an online save fails. A PATCH that
     // fails while navigator.onLine is still true (flaky walk-in-cooler wifi never
     // fires the 'offline' event) used to throw and silently drop the count: the
@@ -972,6 +1052,18 @@ export default function CountPage() {
     }))
     setOpenId(line.id)
     setInputQty('')
+    // Durable save — same as clearLine. A bare PATCH with no signal used to leave the
+    // line skipped on the server: if the cook then backed out without counting, the
+    // approve still treated it as skipped. Undo-skip is the same "reset to uncounted"
+    // as Clear count, so it rides the queue as a 'clear'.
+    const unskipOne = (l: Line): Line =>
+      l.id === line.id ? { ...l, skipped: false, countedQty: null, variancePct: null, varianceCost: null, carriedForward: false, entries: null } : l
+    const queueUnskip = () => {
+      enqueueCountMutation({ sessionId: active!.id, lineId: line.id, type: 'clear' })
+      setPendingCount(loadCountQueue().length)
+      if (active) saveCountSessionCache(active.id, { ...active, lines: active.lines!.map(unskipOne) })
+    }
+    if (isOffline) { queueUnskip(); return }
     // Sync the bumped updatedAt from the response — without it the local token goes
     // stale and the very next count on this line 409s (which used to reset the count).
     try {
@@ -981,7 +1073,8 @@ export default function CountPage() {
         body: JSON.stringify({ skipped: false }),
       })
       if (res.ok) syncLineFromResponse(line.id, await res.json().catch(() => null))
-    } catch { /* offline / network — the next count re-asserts skipped:false anyway */ }
+      else queueUnskip()
+    } catch { queueUnskip() }
   }
 
   // Clear a recorded count back to uncounted (PATCH skipped:false resets countedQty server-side).
@@ -1201,11 +1294,11 @@ export default function CountPage() {
     setDeleting(true)
     const id = deleteTarget.id
     setSessions(prev => prev.filter(s => s.id !== id))
-    await fetch(`/api/count/sessions/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/count/sessions/${id}`, { method: 'DELETE' }).catch(() => null)
     setDeleteTarget(null)
     setDeleting(false)
     await loadSessions()
-    setToast('Count session deleted.')
+    setToast(res?.ok ? 'Count session deleted.' : res?.status === 403 ? 'Only a manager can delete a count.' : 'Couldn’t delete — try again.')
   }
 
   const openEditModal = (s: Session) => {
@@ -1229,11 +1322,16 @@ export default function CountPage() {
 
   const handleReopenAndEdit = async (s: Session) => {
     if (s.status === 'FINALIZED') {
-      await fetch(`/api/count/sessions/${s.id}`, {
+      const res = await fetch(`/api/count/sessions/${s.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'IN_PROGRESS' }),
-      })
+      }).catch(() => null)
+      // Refused (below MANAGER) or no signal — don't open an approved count for editing.
+      if (!res?.ok) {
+        setToast(res?.status === 403 ? 'Only a manager can reopen an approved count.' : 'Couldn’t reopen — try again.')
+        return
+      }
       await loadSessions()
     }
     const full = await loadSession(s.id)
@@ -1488,11 +1586,7 @@ export default function CountPage() {
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={showHistory ? 'text-gold' : 'text-ink-3'}><path d="M3 5h18M3 12h18M3 19h12"/></svg>
                       History
                     </button>
-                    <button onClick={() => setShowCountMenu(false)}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-ink-2 active:bg-bg-2" role="menuitem">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-ink-3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                      Export reports
-                    </button>
+                    {/* "Export reports" lived here and did nothing — off the phone until it does. */}
                   </div>
                 </>
               )}
@@ -1591,10 +1685,21 @@ export default function CountPage() {
                 </button>
               )}
               <div className="grid grid-cols-2 gap-2.5">
+                {/* Below MANAGER the value arrives blank (money is redacted) — show the
+                    date as the headline instead of a misleading $0.00. */}
                 <div className="bg-paper border border-line rounded-xl px-3.5 py-2.5">
                   <p className="font-mono text-[9.5px] text-ink-3 tracking-[0.04em] uppercase">Last count</p>
-                  <p className="text-[17px] font-semibold tracking-[-0.02em] text-ink mt-0.5 truncate">{lastFinalized ? formatCurrency(Number(lastFinalized.totalCountedValue)) : '—'}</p>
-                  <p className="font-mono text-[10px] text-ink-3 mt-0.5 truncate">{lastFinalized ? fmtDate(lastFinalized.sessionDate) : 'no counts yet'}</p>
+                  {seesMoney ? (
+                    <>
+                      <p className="text-[17px] font-semibold tracking-[-0.02em] text-ink mt-0.5 truncate">{lastFinalized ? formatCurrency(Number(lastFinalized.totalCountedValue)) : '—'}</p>
+                      <p className="font-mono text-[10px] text-ink-3 mt-0.5 truncate">{lastFinalized ? fmtDate(lastFinalized.sessionDate) : 'no counts yet'}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[17px] font-semibold tracking-[-0.02em] text-ink mt-0.5 truncate">{lastFinalized ? fmtDate(lastFinalized.sessionDate) : '—'}</p>
+                      <p className="font-mono text-[10px] text-ink-3 mt-0.5 truncate">{lastFinalized ? lastFinalized.countedBy : 'no counts yet'}</p>
+                    </>
+                  )}
                 </div>
                 <div className={`rounded-xl px-3.5 py-2.5 border ${isOverdue ? 'bg-[#fffbeb] border-[#fcd34d]' : 'bg-paper border-line'}`}>
                   <p className={`font-mono text-[9.5px] tracking-[0.04em] uppercase ${isOverdue ? 'text-gold-2' : 'text-ink-3'}`}>Next due</p>
@@ -1617,7 +1722,10 @@ export default function CountPage() {
                 </div>
                 <div>
                   <p className="font-mono text-[10.5px] text-ink-4 tracking-[0.01em]">LAST FINALIZED COUNT</p>
-                  {lastFinalized ? (
+                  {/* Below MANAGER the value arrives blank — headline the date, like the phone. */}
+                  {lastFinalized && !seesMoney ? (
+                    <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2">{fmtDate(lastFinalized.sessionDate)}</p>
+                  ) : lastFinalized ? (
                     <p className="text-[42px] font-semibold tracking-[-0.045em] leading-none mt-2">
                       {formatCurrency(Number(lastFinalized.totalCountedValue)).replace(/(\.\d+)$/, '')}
                       <sub className="text-[20px] font-medium text-gold align-baseline ml-0.5 tracking-[-0.02em]">
@@ -1630,7 +1738,7 @@ export default function CountPage() {
                 </div>
                 <p className="font-mono text-[11px] text-ink-4 mt-2">
                   {lastFinalized
-                    ? `${fmtDate(lastFinalized.sessionDate)} · ${lastFinalized.countedBy} · ${lastFinalized.counts ? countsCaption(lastFinalized.counts) : ''}`
+                    ? `${seesMoney ? `${fmtDate(lastFinalized.sessionDate)} · ` : ''}${lastFinalized.countedBy} · ${lastFinalized.counts ? countsCaption(lastFinalized.counts) : ''}`
                     : 'No finalized count yet'}
                 </p>
               </div>
@@ -1723,13 +1831,14 @@ export default function CountPage() {
                             <span className={`w-2 h-2 rounded-full shrink-0 ${active ? 'bg-blue' : stale ? 'bg-red' : 'bg-green'}`} />
                             <span className="text-[15px] font-semibold text-ink truncate tracking-[-0.01em]">{a.name}</span>
                           </div>
-                          <span className="font-mono text-[12.5px] text-ink-2 shrink-0">{formatCurrency(a.onHandValue)}</span>
+                          {/* area value + drift are money — managers only (as on the phone) */}
+                          {seesMoney && <span className="font-mono text-[12.5px] text-ink-2 shrink-0">{formatCurrency(a.onHandValue)}</span>}
                         </div>
                         <div className="font-mono text-[11px] text-ink-3 leading-relaxed">
                           {a.itemCount} items · {active
                             ? <span className="text-gold-2 font-medium">in progress</span>
                             : days === null ? 'never counted' : <>last {lastLabel}{stale ? ' · stale' : ''}</>}
-                          {!active && a.drift >= 1 && <span className="text-red-text"> · drift ~${Math.round(a.drift).toLocaleString()}</span>}
+                          {seesMoney && !active && a.drift >= 1 && <span className="text-red-text"> · drift ~${Math.round(a.drift).toLocaleString()}</span>}
                         </div>
                         <span className={`font-mono text-[11px] font-medium mt-auto pt-1 ${active ? 'text-gold-2' : 'text-ink-2'}`}>
                           {active ? 'Resume →' : startingArea === a.id ? 'Starting…' : 'Count ›'}
@@ -1808,8 +1917,9 @@ export default function CountPage() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="font-mono text-[12px] text-ink-2">{formatCurrency(a.onHandValue)}</div>
-                        {!active && a.drift >= 1 && (
+                        {/* area value + drift are money — managers only */}
+                        {seesMoney && <div className="font-mono text-[12px] text-ink-2">{formatCurrency(a.onHandValue)}</div>}
+                        {seesMoney && !active && a.drift >= 1 && (
                           <div className="font-mono text-[10px] text-red-text mt-0.5">drift ~${Math.round(a.drift).toLocaleString()}</div>
                         )}
                         {active
@@ -1896,14 +2006,19 @@ export default function CountPage() {
                               className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-ink-2 hover:bg-bg-2 border-b border-line">
                               <Pencil size={13} /> Edit metadata
                             </button>
-                            <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); handleReopenAndEdit(s) }}
-                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-ink-2 hover:bg-bg-2 border-b border-line">
-                              <ClipboardList size={13} /> {s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
-                            </button>
-                            <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); setDeleteTarget(s) }}
-                              className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-red hover:bg-red-soft">
-                              <Trash2 size={13} /> Delete
-                            </button>
+                            {/* Reopening an approved count and deleting one are manager calls (the server says so too). */}
+                            {(s.status !== 'FINALIZED' || seesMoney) && (
+                              <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); handleReopenAndEdit(s) }}
+                                className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-ink-2 hover:bg-bg-2 border-b border-line">
+                                <ClipboardList size={13} /> {s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
+                              </button>
+                            )}
+                            {seesMoney && (
+                              <button onClick={e => { e.stopPropagation(); setSessionMenuId(null); setDeleteTarget(s) }}
+                                className="flex items-center gap-2 w-full px-4 py-3 text-[13px] text-red hover:bg-red-soft">
+                                <Trash2 size={13} /> Delete
+                              </button>
+                            )}
                           </div>
                         </>
                       )}
@@ -2030,15 +2145,19 @@ export default function CountPage() {
                           className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-colors">
                           <Pencil size={13} />
                         </button>
-                        <button onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
-                          title={s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
-                          className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-colors">
-                          <ClipboardList size={13} />
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} title="Delete"
-                          className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-colors">
-                          <Trash2 size={13} />
-                        </button>
+                        {(s.status !== 'FINALIZED' || seesMoney) && (
+                          <button onClick={e => { e.stopPropagation(); handleReopenAndEdit(s) }}
+                            title={s.status === 'FINALIZED' ? 'Reopen & edit' : 'Edit counts'}
+                            className="p-1.5 rounded-lg text-ink-4 hover:text-ink-2 hover:bg-bg-2 transition-colors">
+                            <ClipboardList size={13} />
+                          </button>
+                        )}
+                        {seesMoney && (
+                          <button onClick={e => { e.stopPropagation(); setDeleteTarget(s) }} title="Delete"
+                            className="p-1.5 rounded-lg text-ink-4 hover:text-red hover:bg-red-soft transition-colors">
+                            <Trash2 size={13} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
@@ -2179,7 +2298,8 @@ export default function CountPage() {
       const inputBase = dHasExtras
         ? countEntriesToBase(dAllEntries, line.inventoryItem)
         : convertCountQtyToBase(Number(inputQty) || 0, line.selectedUom, line.inventoryItem)
-      const liveVar = isOpen && Number(line.expectedQty) > 0
+      // Blind count below MANAGER (every screen): no expected, no gap, no variance tint.
+      const liveVar = isOpen && seesMoney && Number(line.expectedQty) > 0
         ? ((inputBase - Number(line.expectedQty)) / Number(line.expectedQty)) * 100
         : null
       // A row says only what its section doesn't: the category when the list is
@@ -2187,7 +2307,7 @@ export default function CountPage() {
       // the storage area unless the list is already filtered to one.
       const showCat = searchQuery.trim() !== ''
       const showLoc = !locFilter && !!locLabel
-      const reliable = hasReliableVariance(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
+      const reliable = seesMoney && hasReliableVariance(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
       const expectedInUom = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, line.inventoryItem)
 
       if (isSkipped) return (
@@ -2459,8 +2579,28 @@ export default function CountPage() {
       const expectedDisplay = convertBaseToCountUom(Number(line.expectedQty), line.selectedUom, item)
       const lastDisplay = item.lastCountQty != null ? convertBaseToCountUom(Number(item.lastCountQty), line.selectedUom, item) : null
       const reliable = hasReliableVariance(Number(line.expectedQty), line.selectedUom, item)
-      const bigVar = reliable && isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
-      const rowGap = isCounted && reliable ? countGap(Number(line.countedQty), expectedDisplay, line.selectedUom) : null
+      // Blind count below MANAGER: a cook never sees what the system expects — not the
+      // number, not the gap to it, not a "big variance" tint — so they count the shelf
+      // instead of matching a target. Managers keep all of it.
+      const showsExpected = seesMoney && reliable
+      const bigVar = showsExpected && isCounted && line.variancePct !== null && Math.abs(Number(line.variancePct)) > LARGE_VARIANCE_PCT
+      const rowGap = isCounted && showsExpected ? countGap(Number(line.countedQty), expectedDisplay, line.selectedUom) : null
+      const nextLine = isOpen ? nextUncountedAfter(line.id) : null
+      // Backdrop tap: close only when nothing unsaved is in the sheet; otherwise keep
+      // it open, shake the Save button and say what to do.
+      // Returns true when it held the sheet open (unsaved number) — Next uses it too.
+      const nudgeIfUnsaved = (): boolean => {
+        if (!sheetIsDirty(line, inputQty, extraEntries)) return false
+        setSheetNudge(true)
+        saveBtnRef.current?.animate?.(
+          [{ transform: 'translateX(0)' }, { transform: 'translateX(-8px)' }, { transform: 'translateX(8px)' },
+           { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }],
+          { duration: 380, easing: 'ease-in-out' },
+        )
+        return true
+      }
+      const onBackdrop = () => { if (!nudgeIfUnsaved()) setOpenId(null) }
+      const saveNow = () => confirmLine(line, effectiveQty, mHasExtras ? [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries] : undefined)
       const dotColor = isSkipped ? 'bg-ink-4' : isCounted ? (bigVar ? 'bg-gold' : 'bg-green') : 'bg-ink-4'
       const rowBg = isSkipped ? 'bg-bg-2 border-line opacity-60'
         : isCounted ? (bigVar ? 'bg-gold-soft border-gold-soft' : 'bg-green-soft border-[#86efac]')
@@ -2503,7 +2643,7 @@ export default function CountPage() {
             {isSkipped ? (
               <span role="button" tabIndex={0}
                 onClick={e => { e.stopPropagation(); unskipLine(line) }}
-                className="font-mono text-[11px] text-gold font-medium px-2 py-1 rounded-[6px] active:bg-gold-soft shrink-0">Count it</span>
+                className="font-mono text-[11px] text-gold font-medium px-3 min-h-[44px] -my-2 inline-flex items-center rounded-[6px] active:bg-gold-soft shrink-0">Count it</span>
             ) : isCounted ? (
               <div className="text-right shrink-0">
                 <div className="text-sm font-semibold text-ink tabular-nums leading-tight">
@@ -2523,19 +2663,22 @@ export default function CountPage() {
           </div>
 
           {isOpen && (
-            <div className="fixed inset-0 z-[60] flex items-end md:hidden" onClick={() => setOpenId(null)}>
+            <div className="fixed inset-x-0 top-0 h-[100dvh] z-[60] flex items-end md:hidden" onClick={onBackdrop}
+              // Pinned to the visible screen so the iOS keyboard never covers the Save bar.
+              style={sheetViewport ? { top: sheetViewport.top, height: sheetViewport.height } : undefined}>
               <div className="absolute inset-0 bg-black/40" />
-              <div className="relative w-full bg-paper rounded-t-2xl px-4 pb-8 pt-2 shadow-xl animate-[slide-up_.25s_ease] max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="relative w-full bg-paper rounded-t-2xl px-4 pt-2 shadow-xl animate-[slide-up_.25s_ease] max-h-[90%] overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
                 <div className="w-9 h-1 bg-line rounded-full mx-auto mb-3" />
                 <div className="flex items-start gap-3 mb-1">
                   <div className="flex-1 min-w-0">
                     <div className="text-[17px] font-semibold text-ink break-words tracking-[-0.02em]">{item.itemName}</div>
                     {/* where it lives, the last count and what's expected — stated once, up top */}
                     <div className="font-mono text-[11px] text-ink-3 mt-0.5">
-                      {[locLabel, lastDisplay != null ? `last ${fmtCount(lastDisplay)} ${line.selectedUom}` : null, reliable ? `expected ${fmtCount(expectedDisplay)}` : null].filter(Boolean).join(' · ')}
+                      {[locLabel, lastDisplay != null ? `last ${fmtCount(lastDisplay)} ${line.selectedUom}` : null, showsExpected ? `expected ${fmtCount(expectedDisplay)}` : null].filter(Boolean).join(' · ')}
                     </div>
                   </div>
-                  <button onClick={() => setOpenId(null)} className="p-1 -mr-1 text-ink-4 shrink-0"><X size={18} /></button>
+                  {/* Close = an explicit "throw this away", unlike a stray backdrop tap. */}
+                  <button onClick={() => setOpenId(null)} aria-label="Close" className="w-11 h-11 -mr-2 -mt-1 grid place-items-center text-ink-4 shrink-0"><X size={18} /></button>
                 </div>
 
                 {/* Unit tabs */}
@@ -2543,7 +2686,7 @@ export default function CountPage() {
                   <div className="flex bg-bg-2 border border-line rounded-[10px] p-1 gap-0.5 mt-3 overflow-x-auto [&::-webkit-scrollbar]:hidden">
                     {unitLabels.map(label => (
                       <button key={label} onClick={() => { if (label !== line.selectedUom) changeUom(line, label) }}
-                        className={`flex-1 min-w-[56px] py-1.5 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
+                        className={`flex-1 min-w-[56px] min-h-[44px] px-2 text-[13px] font-medium rounded-[7px] transition-colors whitespace-nowrap ${line.selectedUom === label ? 'bg-paper shadow-[0_1px_2px_rgba(0,0,0,0.04)] text-ink' : 'text-ink-3'}`}>
                         {uomDisplay(label)}
                       </button>
                     ))}
@@ -2555,7 +2698,12 @@ export default function CountPage() {
                 <div className="flex items-center gap-3">
                   <button onClick={() => setInputQty(v => Math.max(0, Math.round(((Number(v) || 0) - 1) * 100) / 100))}
                     className="w-[60px] h-[60px] rounded-2xl bg-bg-2 border border-line grid place-items-center shrink-0 active:bg-line" aria-label="Subtract 1"><Minus size={26} className="text-ink-2" /></button>
-                  <input type="number" value={inputQty} onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
+                  {/* decimal keypad (no letters, has the point); select-on-focus so a
+                      re-count types over the old number instead of appending to it */}
+                  <input type="number" inputMode="decimal" value={inputQty} onChange={e => setInputQty(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
+                    onFocus={e => e.target.select()}
+                    enterKeyHint="done"
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveNow() } }}
                     className="flex-1 min-w-0 h-[60px] text-center text-[40px] font-semibold tracking-[-0.03em] border-2 border-gold rounded-2xl focus:outline-none text-ink" min={0} step={0.1} />
                   <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 1) * 100) / 100)}
                     className="w-[60px] h-[60px] rounded-2xl bg-gold-soft border border-gold/40 grid place-items-center shrink-0 active:bg-gold/25" aria-label="Add 1"><Plus size={26} strokeWidth={2.4} className="text-gold-2" /></button>
@@ -2566,6 +2714,30 @@ export default function CountPage() {
                     className="flex-1 h-10 rounded-xl bg-bg-2 border border-line flex items-center justify-center gap-1 active:bg-line text-ink-3" aria-label="Subtract 0.1"><Minus size={16} /><span className="text-[13px] font-medium">0.1</span></button>
                   <button onClick={() => setInputQty(v => Math.round(((Number(v) || 0) + 0.1) * 100) / 100)}
                     className="flex-1 h-10 rounded-xl bg-bg-2 border border-line flex items-center justify-center gap-1 active:bg-line text-ink-3" aria-label="Add 0.1"><Plus size={16} /><span className="text-[13px] font-medium">0.1</span></button>
+                </div>
+
+                {/* Save bar — right under the number, and sticky to the bottom of the
+                    sheet so it stays on screen above the keyboard. */}
+                <div className="sticky bottom-0 z-10 -mx-4 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] mt-1 bg-paper">
+                  {sheetNudge && (
+                    <div className="flex items-center justify-between gap-2 mb-2 px-3 py-2 rounded-[10px] bg-gold-soft text-gold-2 text-[12.5px] font-medium" role="status">
+                      <span>Not saved yet. Tap Save or Cancel.</span>
+                      <button onClick={() => setOpenId(null)} className="min-h-[44px] -my-2 px-3 -mr-2 font-semibold underline underline-offset-2">Cancel</button>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    {nextLine && (
+                      <button onClick={() => { if (nudgeIfUnsaved()) return; setOpenId(null); openNextUncounted(line.id) }}
+                        title="Leave this one uncounted and go to the next"
+                        className="h-12 px-4 border border-line rounded-[12px] text-[13px] font-medium text-ink-2 inline-flex items-center gap-1 shrink-0 active:bg-bg-2">
+                        Next <ChevronRight size={15} className="text-ink-4" />
+                      </button>
+                    )}
+                    <button ref={saveBtnRef} onClick={saveNow}
+                      className={`flex-1 h-12 bg-ink text-paper rounded-[12px] font-semibold text-[15px] flex items-center justify-center gap-2 ${sheetNudge ? 'ring-2 ring-gold ring-offset-2' : ''}`}>
+                      <Check size={17} className="text-gold" /> {nextLine ? 'Save & next' : 'Save'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Mixed-unit entry — PRIMARY: a row per unit on the shelf. */}
@@ -2592,7 +2764,7 @@ export default function CountPage() {
                 {(() => {
                   const typed = inputQty !== '' || mHasExtras
                   const counted = mHasExtras ? convertBaseToCountUom(effBase, line.selectedUom, item) : effectiveQty
-                  const gap = typed && reliable ? countGap(counted, expectedDisplay, line.selectedUom) : null
+                  const gap = typed && showsExpected ? countGap(counted, expectedDisplay, line.selectedUom) : null
                   const livePpb = Number(item.pricePerBaseUnit ?? line.priceAtCount)
                   const varCost = (effBase - Number(line.expectedQty)) * livePpb
                   const value   = effBase * livePpb
@@ -2629,17 +2801,13 @@ export default function CountPage() {
                     <Copy size={17} /> Same as last
                   </button>
                 )}
-                <button onClick={() => confirmLine(line, effectiveQty, mHasExtras ? [{ qty: effectiveQty, unit: line.selectedUom }, ...extraEntries] : undefined)}
-                  className="w-full h-12 bg-ink text-paper rounded-[12px] font-semibold text-[15px] flex items-center justify-center gap-2 mt-4">
-                  <Check size={17} className="text-gold" /> Save count
-                </button>
-                <div className="flex gap-2 mt-2">
+                <div className="flex gap-2 mt-4 pb-[max(24px,env(safe-area-inset-bottom))]">
                   {isCounted ? (
-                    <button onClick={() => clearLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-2 font-medium">Clear count</button>
+                    <button onClick={() => clearLine(line)} className="flex-1 h-11 border border-line rounded-[10px] text-[12.5px] text-ink-2 font-medium">Clear count</button>
                   ) : (
-                    <button onClick={() => confirmLine(line, 0)} className="flex-1 h-10 border border-gold-soft bg-gold-soft text-gold-2 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
+                    <button onClick={() => confirmLine(line, 0)} className="flex-1 h-11 border border-gold-soft bg-gold-soft text-gold-2 rounded-[10px] text-[12.5px] font-semibold">Out of stock</button>
                   )}
-                  <button onClick={() => skipLine(line)} className="flex-1 h-10 border border-line rounded-[10px] text-[12.5px] text-ink-3 font-medium inline-flex items-center justify-center gap-1.5"><SkipForward size={13} /> Skip</button>
+                  <button onClick={() => skipLine(line)} className="flex-1 h-11 border border-line rounded-[10px] text-[12.5px] text-ink-3 font-medium inline-flex items-center justify-center gap-1.5"><SkipForward size={13} /> Skip</button>
                 </div>
               </div>
             </div>
@@ -2684,6 +2852,28 @@ export default function CountPage() {
       </button>
     )
 
+    const searchBox = (
+      <div className="relative max-w-lg">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search items…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleScan(searchQuery) }}
+          className="w-full pl-8 pr-8 py-2 text-[13px] text-ink bg-bg-2 border border-line rounded-[9px] placeholder:text-ink-4 focus:outline-none focus:border-ink-3 focus:bg-paper transition-colors"
+        />
+        {searchQuery && (
+          <button onClick={() => setSearchQuery('')} aria-label="Clear search" className="absolute right-0 top-1/2 -translate-y-1/2 w-9 h-9 grid place-items-center text-ink-4 hover:text-ink-2">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+    )
+    // Area filter is only useful on a full count — an area count is already one area.
+    const showAreaChip = !active.areaFilter && locations.length > 1
+    const locName = locFilter ? locations.find(l => l.id === locFilter)?.name : null
+
     return (
       <div>
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
@@ -2702,9 +2892,9 @@ export default function CountPage() {
         )}
 
         {/* ── Mobile header — area · category + live progress ────────────────── */}
-        <div className="md:hidden sticky top-0 z-20 bg-paper border-b border-line -mx-4 px-4 pt-2.5 pb-2">
-          <div className="flex items-center gap-1.5">
-            <button onClick={backFromCount} className="-ml-1 p-1 text-ink-3 active:text-ink"><ArrowLeft size={20} /></button>
+        <div ref={mHeaderRef} className="md:hidden sticky top-0 z-20 bg-paper border-b border-line -mx-4 px-4 pt-1 pb-2">
+          <div className="flex items-center gap-0.5">
+            <button onClick={backFromCount} aria-label="Back" className="-ml-3 w-11 h-11 grid place-items-center text-ink-3 active:text-ink shrink-0"><ArrowLeft size={20} /></button>
             <div className="flex-1 min-w-0">
               <span className="text-[14px] font-semibold text-ink tracking-[-0.01em] truncate block">
                 {active.label}{catFilter && <span className="text-ink-3 font-normal"> · {catFilter}</span>}
@@ -2717,11 +2907,11 @@ export default function CountPage() {
             ) : offlineSyncing ? (
               <RefreshCw size={14} className="text-gold-2 animate-spin shrink-0" />
             ) : null}
-            <button onClick={handleSync} disabled={syncing} title="Sync" className="p-1.5 text-ink-3 active:text-ink shrink-0 disabled:opacity-50">
+            <button onClick={handleSync} disabled={syncing} title="Sync" aria-label="Sync" className="w-11 h-11 grid place-items-center text-ink-3 active:text-ink shrink-0 disabled:opacity-50">
               <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
             </button>
             {canAddItem && (
-              <button onClick={openAddItem} title="Add item" className="p-1.5 text-ink-3 active:text-ink shrink-0">
+              <button onClick={openAddItem} title="Add item" aria-label="Add item" className="-mr-3 w-11 h-11 grid place-items-center text-ink-3 active:text-ink shrink-0">
                 <Plus size={16} />
               </button>
             )}
@@ -2906,24 +3096,9 @@ export default function CountPage() {
           </div>
         )}
 
-        {/* ── Search bar ─────────────────────────────────────────────────────── */}
-        <div className="md:sticky md:top-[57px] z-10 bg-paper border-b border-line py-2 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8">
-          <div className="relative max-w-lg">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search items…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleScan(searchQuery) }}
-              className="w-full pl-8 pr-8 py-2 text-[13px] text-ink bg-bg-2 border border-line rounded-[9px] placeholder:text-ink-4 focus:outline-none focus:border-ink-3 focus:bg-paper transition-colors"
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-4 hover:text-ink-2">
-                <X size={14} />
-              </button>
-            )}
-          </div>
+        {/* ── Search bar (desktop; phones draw the same box in their sticky filter block) ── */}
+        <div className="hidden md:block md:sticky md:top-[57px] z-10 bg-paper border-b border-line py-2 -mx-8 px-8">
+          {searchBox}
         </div>
 
         {/* ── No-movement (zero-velocity) filter ─────────────────────────────── */}
@@ -3050,9 +3225,17 @@ export default function CountPage() {
         {/* ════════════════════════════════════════
             MOBILE LAYOUT
         ════════════════════════════════════════ */}
-        {/* ── Mobile: category chips + uncounted toggle ──────────────────────── */}
-        <div className="md:hidden">
+        {/* ── Mobile: search + category chips + uncounted toggle — sticky under the header ── */}
+        <div className="md:hidden sticky z-10 bg-paper border-b border-line -mx-4 sm:-mx-6 px-4 sm:px-6 pt-2"
+          style={{ top: mHeaderH }}>
+          {searchBox}
           <div className="flex gap-1.5 overflow-x-auto pt-2 pb-1 -mx-4 px-4 [&::-webkit-scrollbar]:hidden">
+            {showAreaChip && (
+              <button onClick={() => setShowCountFilterSheet(true)}
+                className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12.5px] font-medium border whitespace-nowrap transition-colors ${locFilter ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink-2 border-line'}`}>
+                {locName ?? 'Area'} <ChevronDown size={13} className={locFilter ? 'text-paper/60' : 'text-ink-4'} />
+              </button>
+            )}
             {(() => {
               const allDone = (active.lines ?? []).filter(l => l.countedQty !== null || l.skipped).length
               return (
@@ -3077,7 +3260,7 @@ export default function CountPage() {
               {filteredLines.length} items{catFilter ? ` · ${catFilter}` : ''}
             </span>
             <button onClick={() => setStatusFilter(statusFilter === 'uncounted' ? 'all' : 'uncounted')}
-              className="inline-flex items-center gap-1.5 font-mono text-[11px] text-ink-2 active:opacity-70">
+              className="inline-flex items-center gap-1.5 min-h-[44px] -my-2 px-2 -mr-2 font-mono text-[11px] text-ink-2 active:opacity-70">
               <span className={`w-3.5 h-3.5 rounded-full border grid place-items-center transition-colors ${statusFilter === 'uncounted' ? 'bg-gold border-gold' : 'border-line bg-paper'}`}>
                 {statusFilter === 'uncounted' && <Check size={9} className="text-white" />}
               </span>
@@ -3098,7 +3281,7 @@ export default function CountPage() {
               <div className="w-9 h-1 bg-line rounded-full mx-auto mb-4" />
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-[15px] text-ink tracking-[-0.02em]">Filter</h3>
-                <button onClick={() => setShowCountFilterSheet(false)}><X size={18} className="text-ink-4" /></button>
+                <button onClick={() => setShowCountFilterSheet(false)} aria-label="Close" className="w-11 h-11 -mr-3 grid place-items-center"><X size={18} className="text-ink-4" /></button>
               </div>
               <div className="space-y-4">
                 <div>
@@ -3226,7 +3409,8 @@ export default function CountPage() {
       const base = convertCountQtyToBase(Number(l.countedQty), l.selectedUom, l.inventoryItem)
       return (base - Number(l.expectedQty)) * linePrice(l)
     }
-    const flagged      = lines.filter(l =>
+    // Blind count below MANAGER: no variance, no flags on the review either.
+    const flagged      = !seesMoney ? [] : lines.filter(l =>
       l.variancePct !== null &&
       hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem) &&
       Math.abs(Number(l.variancePct)) > LARGE_VARIANCE_PCT
@@ -3247,7 +3431,7 @@ export default function CountPage() {
         invValue:    base * linePrice(l),
         variancePct: Number(l.variancePct ?? 0),
         costImpact:  lineVarCost(l),
-        reliable:    hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem),
+        reliable:    seesMoney && hasReliableVariance(Number(l.expectedQty), l.selectedUom, l.inventoryItem),
       }
     })
     const reviewCats = Array.from(new Set(rows.map(r => r.category))).sort()
@@ -3260,17 +3444,22 @@ export default function CountPage() {
       if (reviewBucket === 'short'   && !(r.costImpact < 0)) return false
       return true
     })
-    const sortOpt = REVIEW_SORT_OPTIONS.find(o => o.key === reviewSort) ?? REVIEW_SORT_OPTIONS[5]
+    // Below MANAGER only the non-money, non-variance sorts exist.
+    const sortOptions = seesMoney ? REVIEW_SORT_OPTIONS : REVIEW_SORT_OPTIONS.filter(o => o.key === 'name' || o.key === 'category' || o.key === 'counted')
+    const sortKey: ReviewSortKey = sortOptions.some(o => o.key === reviewSort) ? reviewSort : 'name'
+    const sortOpt = sortOptions.find(o => o.key === sortKey) ?? REVIEW_SORT_OPTIONS[5]
     const sortedRows = [...filtered].sort((a, b) => {
       let cmp: number
-      if (!sortOpt.numeric) cmp = String(a[reviewSort]).localeCompare(String(b[reviewSort]))
+      if (!sortOpt.numeric) cmp = String(a[sortKey]).localeCompare(String(b[sortKey]))
       else {
-        const av = sortOpt.magnitude ? Math.abs(Number(a[reviewSort])) : Number(a[reviewSort])
-        const bv = sortOpt.magnitude ? Math.abs(Number(b[reviewSort])) : Number(b[reviewSort])
+        const av = sortOpt.magnitude ? Math.abs(Number(a[sortKey])) : Number(a[sortKey])
+        const bv = sortOpt.magnitude ? Math.abs(Number(b[sortKey])) : Number(b[sortKey])
         cmp = av - bv
       }
       return reviewDir === 'asc' ? cmp : -cmp
     })
+    // Desktop table: money + variance columns are managers only (blind count).
+    const reviewCols = seesMoney ? 'grid-cols-[1fr_120px_90px_100px_64px_100px]' : 'grid-cols-[1fr_120px_90px]'
     const filteredValue = filtered.reduce((s, r) => s + r.invValue, 0)
     const filtersActive = !!(q || reviewCat || reviewBucket !== 'all')
     const toggleSort = (k: ReviewSortKey) => {
@@ -3305,8 +3494,9 @@ export default function CountPage() {
         <div className="flex md:hidden gap-2 mb-4">
           {[
             { val: countedLines.length.toString(),   label: 'Counted',  cls: 'bg-bg-2 text-ink'   },
-            { val: flagged.length.toString(),         label: 'Flagged',  cls: flagged.length > 0 ? 'bg-gold-soft text-gold-2' : 'bg-bg-2 text-ink-3' },
-            { val: formatCurrency(totalValue),        label: 'Value',    cls: 'bg-gold-soft text-gold-2' },
+            ...(seesMoney ? [{ val: flagged.length.toString(), label: 'Flagged', cls: flagged.length > 0 ? 'bg-gold-soft text-gold-2' : 'bg-bg-2 text-ink-3' }] : []),
+            // money is manager information — below MANAGER it arrives blank and read $0.00
+            ...(seesMoney ? [{ val: formatCurrency(totalValue), label: 'Value', cls: 'bg-gold-soft text-gold-2' }] : []),
           ].map(s => (
             <div key={s.label} className={`flex-1 rounded-xl py-2 px-3 text-center ${s.cls}`}>
               <div className="text-base font-semibold leading-tight">{s.val}</div>
@@ -3316,14 +3506,16 @@ export default function CountPage() {
         </div>
 
         {/* Stats — desktop */}
-        <div className="hidden sm:grid grid-cols-3 gap-3 mb-6">
+        <div className={`hidden sm:grid ${seesMoney ? 'grid-cols-3' : 'grid-cols-1'} gap-3 mb-6`}>
           {[
             {
               val: countedLines.length.toString(),
               label: `Items counted${carriedCount > 0 ? ` · ${carriedCount} same as last` : ''}${blankCount > 0 ? ` · ${blankCount} not counted` : ''}`,
             },
-            { val: flagged.length.toString(), label: `Flagged (>${LARGE_VARIANCE_PCT}%)`, warn: flagged.length > 0 },
-            { val: formatCurrency(totalValue), label: 'Counted value' },
+            ...(seesMoney ? [
+              { val: flagged.length.toString(), label: `Flagged (>${LARGE_VARIANCE_PCT}%)`, warn: flagged.length > 0 },
+              { val: formatCurrency(totalValue), label: 'Counted value' },
+            ] : []),
           ].map(s => (
             <div key={s.label} className="bg-paper border border-line rounded-xl p-4 text-center">
               <div className={`text-2xl font-semibold tracking-[-0.03em] ${(s as {warn?: boolean}).warn ? 'text-gold' : 'text-ink'}`}>{s.val}</div>
@@ -3348,11 +3540,11 @@ export default function CountPage() {
               {/* Mobile sort control (desktop sorts via column headers) */}
               <div className="flex md:hidden items-stretch gap-1">
                 <select
-                  value={reviewSort}
+                  value={sortKey}
                   onChange={e => setReviewSort(e.target.value as ReviewSortKey)}
                   className="bg-paper border border-line rounded-[10px] text-[12px] text-ink-2 px-2 focus:outline-none focus:ring-2 focus:ring-gold"
                 >
-                  {REVIEW_SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                  {sortOptions.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
                 </select>
                 <button
                   onClick={() => setReviewDir(d => (d === 'asc' ? 'desc' : 'asc'))}
@@ -3374,13 +3566,14 @@ export default function CountPage() {
             )}
 
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex gap-1.5">
+              {/* Flagged / Over / Short are variance — managers only (blind count). */}
+              <div className={seesMoney ? 'flex gap-1.5' : 'hidden'}>
                 {([['all', 'All'], ['flagged', `Flagged >${LARGE_VARIANCE_PCT}%`], ['over', 'Over'], ['short', 'Short']] as const).map(([k, label]) => (
                   <Pill key={k} active={reviewBucket === k} onClick={() => setReviewBucket(k)}>{label}</Pill>
                 ))}
               </div>
               <span className="font-mono text-[10.5px] text-ink-3 shrink-0">
-                {filtersActive ? `${filtered.length} of ${rows.length}` : `${rows.length} items`} · {formatCurrency(filteredValue)}
+                {filtersActive ? `${filtered.length} of ${rows.length}` : `${rows.length} items`}{seesMoney && <> · {formatCurrency(filteredValue)}</>}
               </span>
             </div>
           </div>
@@ -3412,22 +3605,28 @@ export default function CountPage() {
                       <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Counted</div>
                       <div className="text-sm font-semibold text-ink">{counted.toFixed(1)} {l.selectedUom}</div>
                     </div>
-                    <div className="px-3 py-2">
-                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Inv value</div>
-                      <div className="text-sm text-ink-2">{formatCurrency(invValue)}</div>
-                    </div>
-                    <div className="px-3 py-2 border-t border-line">
-                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Variance</div>
-                      <div className={`text-sm font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
-                        {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
+                    {seesMoney && (
+                      <div className="px-3 py-2">
+                        <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Inv value</div>
+                        <div className="text-sm text-ink-2">{formatCurrency(invValue)}</div>
                       </div>
-                    </div>
-                    <div className="px-3 py-2 border-t border-line">
-                      <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Cost impact</div>
-                      <div className={`text-sm font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
-                        {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
+                    )}
+                    {seesMoney && (
+                      <div className="px-3 py-2 border-t border-line">
+                        <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Variance</div>
+                        <div className={`text-sm font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
+                          {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
+                        </div>
                       </div>
-                    </div>
+                    )}
+                    {seesMoney && (
+                      <div className="px-3 py-2 border-t border-line">
+                        <div className="font-mono text-[9.5px] text-ink-4 uppercase tracking-[0.06em] mb-0.5">Cost impact</div>
+                        <div className={`text-sm font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
+                          {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   </div>
                 </div>
@@ -3439,13 +3638,15 @@ export default function CountPage() {
         {/* Variance table — desktop (sortable) */}
         {rows.length > 0 && (
           <div className="hidden md:block bg-paper rounded-xl border border-line overflow-hidden mb-6">
-            <div className="px-4 py-2.5 border-b border-line grid grid-cols-[1fr_120px_90px_100px_64px_100px] gap-2">
-              <SortHeader label="Item"        col="name"        sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} />
-              <SortHeader label="Category"    col="category"    sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} />
-              <SortHeader label="Counted"     col="counted"     sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
-              <SortHeader label="Inv value"   col="invValue"    sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
-              <SortHeader label="Var %"       col="variancePct" sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
-              <SortHeader label="Cost impact" col="costImpact"  sortKey={reviewSort} dir={reviewDir} onSort={toggleSort} align="right" />
+            <div className={`px-4 py-2.5 border-b border-line grid ${reviewCols} gap-2`}>
+              <SortHeader label="Item"        col="name"        sortKey={sortKey} dir={reviewDir} onSort={toggleSort} />
+              <SortHeader label="Category"    col="category"    sortKey={sortKey} dir={reviewDir} onSort={toggleSort} />
+              <SortHeader label="Counted"     col="counted"     sortKey={sortKey} dir={reviewDir} onSort={toggleSort} align="right" />
+              {seesMoney && <>
+                <SortHeader label="Inv value"   col="invValue"    sortKey={sortKey} dir={reviewDir} onSort={toggleSort} align="right" />
+                <SortHeader label="Var %"       col="variancePct" sortKey={sortKey} dir={reviewDir} onSort={toggleSort} align="right" />
+                <SortHeader label="Cost impact" col="costImpact"  sortKey={sortKey} dir={reviewDir} onSort={toggleSort} align="right" />
+              </>}
             </div>
             {sortedRows.length === 0 ? (
               <Empty />
@@ -3455,7 +3656,7 @@ export default function CountPage() {
                   const large = reliable && Math.abs(vPct) > LARGE_VARIANCE_PCT
                   return (
                     <div key={l.id}
-                      className={`px-4 py-2.5 grid grid-cols-[1fr_120px_90px_100px_64px_100px] gap-2 items-center ${large ? 'bg-gold-soft/40' : ''}`}
+                      className={`px-4 py-2.5 grid ${reviewCols} gap-2 items-center ${large ? 'bg-gold-soft/40' : ''}`}
                     >
                       <div className="min-w-0 flex items-center gap-1.5">
                         {large && <AlertCircle size={12} className="text-gold shrink-0" />}
@@ -3464,13 +3665,15 @@ export default function CountPage() {
                       </div>
                       <span className="font-mono text-[11px] text-ink-3 truncate">{l.inventoryItem.category}</span>
                       <span className="text-right text-[13px] font-medium text-ink">{counted.toFixed(1)} {l.selectedUom}</span>
-                      <span className="text-right text-[13px] text-ink-2">{formatCurrency(invValue)}</span>
-                      <span className={`text-right text-[13px] font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
-                        {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
-                      </span>
-                      <span className={`text-right text-[13px] font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
-                        {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
-                      </span>
+                      {seesMoney && <>
+                        <span className="text-right text-[13px] text-ink-2">{formatCurrency(invValue)}</span>
+                        <span className={`text-right text-[13px] font-semibold ${reliable ? varColor(vPct) : 'text-ink-4'}`}>
+                          {reliable ? `${vPct >= 0 ? '+' : ''}${vPct.toFixed(1)}%` : '—'}
+                        </span>
+                        <span className={`text-right text-[13px] font-semibold ${vCost >= 0 ? 'text-green' : 'text-red'}`}>
+                          {vCost >= 0 ? '+' : ''}{formatCurrency(vCost)}
+                        </span>
+                      </>}
                     </div>
                   )
                 })}

@@ -76,13 +76,18 @@ export function HistorySection({
       )}
 
       {/* Items merged into this one, each with its Undo (the Merge button is in the header). */}
+      {/* Merge and measure undos are computer jobs — not on a phone. */}
       {showMerges && (
-        <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={onMergesChanged} />
+        <div className="hidden sm:block sm:empty:hidden">
+          <MergedItemsRow itemId={item.id} refreshKey={mergeTick} onChanged={onMergesChanged} />
+        </div>
       )}
 
       {/* Measure changes on this item, each with its Undo. */}
       {showMeasures && (
-        <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={onRemeasureChanged} />
+        <div className="hidden sm:block sm:empty:hidden">
+          <RemeasuredRow itemId={item.id} refreshKey={measureTick} onChanged={onRemeasureChanged} />
+        </div>
       )}
     </CollapsibleSection>
   )

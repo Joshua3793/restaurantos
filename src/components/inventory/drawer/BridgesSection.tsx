@@ -58,7 +58,8 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
   // add the missing weight (never on a recipe-made item).
   if (!rule && bridges.length === 0 && (isRecipe || !canEdit)) return null
   return (
-    <CollapsibleSection name="converts" title="How it converts">
+    // Folded on a phone (sm+ is always open): reference, not a counter's job.
+    <CollapsibleSection name="converts" title="How it converts" defaultOpen={false}>
       <div className="bg-paper border border-line rounded-[10px] p-3 space-y-2">
         <PackLines chain={chain} baseUnit={baseUnit} />
         {bridges.length > 0 ? (
@@ -69,17 +70,19 @@ export function BridgesSection({ item, chain, baseUnit, canEdit, onRemeasure, on
           // Only someone who can add the weight is told it is missing.
           <div className={`${rule}text-[12px] text-ink-3 leading-snug`}>
             No weight per each yet — needed only if this item is bought by weight but counted.{' '}
+            <span className="sm:hidden">Edit on a computer to add it.</span>
             <button
               type="button" onClick={onEditBridge}
-              className="text-gold-2 font-medium hover:text-gold underline underline-offset-2"
+              className="hidden sm:inline text-gold-2 font-medium hover:text-gold underline underline-offset-2"
             >
               Add it in Edit
             </button>
           </div>
         )}
       </div>
+      {/* Changing the measure is a computer job — not on a phone. */}
       {canEdit && !isRecipe && (
-        <div className="text-right">
+        <div className="hidden sm:block text-right">
           <button
             type="button" onClick={onRemeasure}
             className="text-[12px] text-ink-3 underline underline-offset-2 hover:text-ink-2"

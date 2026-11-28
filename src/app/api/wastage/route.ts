@@ -7,6 +7,8 @@ import { scopeWhereFromParams, assertRcWritable } from '@/lib/rc-scope'
 import { invalidatesTheoretical } from '@/lib/theoretical-cache'
 import { prepDayFrom, prepDayRange } from '@/lib/prep-day'
 import { displayName } from '@/lib/checklists/who'
+import { isWasteReason } from '@/components/wastage/reasons'
+import { seesWasteMoney, redactWasteLog, canDeleteWaste, WASTE_ITEM_SELECT } from './rules'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,10 +39,20 @@ export async function GET(req: NextRequest) {
         scopeWhere,
       ],
     },
-    include: { inventoryItem: true },
-    orderBy: { date: 'desc' },
+    // Only what the list shows — the whole item row used to ride along, pricing and all.
+    include: { inventoryItem: { select: WASTE_ITEM_SELECT } },
+    // Newest first within a day too (the day marker ties; a cuid id sorts by time).
+    orderBy: [{ date: 'desc' }, { id: 'desc' }],
   })
-  return NextResponse.json(logs)
+  // Below MANAGER the dollars are nulled server-side (src/app/api/wastage/rules.ts);
+  // `canDelete` tells each row's ⋯ whether this viewer may delete it.
+  const money = seesWasteMoney(user.role)
+  const name = await displayName(user)
+  const now = new Date()
+  return NextResponse.json(logs.map(l => {
+    const row = { ...l, canDelete: canDeleteWaste({ role: user.role, name }, l, now) }
+    return money ? row : redactWasteLog(row)
+  }))
 }
 
 async function handlePOST(req: NextRequest) {
@@ -56,6 +68,16 @@ async function handlePOST(req: NextRequest) {
   // blank typed box used to save "System").
   const { inventoryItemId, qtyWasted, unit, reason, notes, date } = body
 
+  // A reason is a pick, never a default: the old form saved UNKNOWN for anyone who
+  // didn't touch the dropdown.
+  if (!isWasteReason(reason)) {
+    return NextResponse.json({ error: 'Pick a reason.' }, { status: 400 })
+  }
+  const qty = parseFloat(qtyWasted)
+  if (!(qty > 0) || typeof unit !== 'string' || !unit) {
+    return NextResponse.json({ error: 'Enter how much was wasted.' }, { status: 400 })
+  }
+
   const revenueCenterId: string | null = body.revenueCenterId ?? null
   if (!revenueCenterId) {
     return NextResponse.json({ error: 'A revenue center must be selected to record this.' }, { status: 400 })
@@ -67,18 +89,20 @@ async function handlePOST(req: NextRequest) {
     throw e
   }
 
-  const item = await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
+  const item = inventoryItemId ? await prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } }) : null
+  if (!item) return NextResponse.json({ error: 'Pick an item.' }, { status: 400 })
   // Wastage is an expense, costed like a recipe line: what a base unit actually
   // cost us lately (30-day average across suppliers), LAST when nothing was bought.
-  const ppbu = item ? (await itemCost(item.id, 'AVG_30D'))?.pricePerBase ?? 0 : 0
-  const conv = item ? movementQtyBase(parseFloat(qtyWasted), unit, item) : null
-  if (conv?.unbridged) {
-    const own = item!.dimension === 'MASS' ? 'g or kg' : item!.dimension === 'VOLUME' ? 'ml or l' : 'each'
-    return NextResponse.json({ error: `${item!.itemName} can't be logged in ${unit} — log it in ${own}` }, { status: 400 })
+  const ppbu = (await itemCost(item.id, 'AVG_30D'))?.pricePerBase ?? 0
+  const conv = movementQtyBase(qty, unit, item)
+  if (conv.unbridged) {
+    const own = item.dimension === 'MASS' ? 'g or kg' : item.dimension === 'VOLUME' ? 'ml or l' : 'each'
+    return NextResponse.json({ error: `${item.itemName} can't be logged in ${unit} — log it in ${own}` }, { status: 400 })
   }
-  const qtyBase = conv ? conv.qtyBase : parseFloat(qtyWasted)
+  const qtyBase = conv.qtyBase
   const costImpact = qtyBase * ppbu
 
+  const name = await displayName(user)
   const log = await prisma.wastageLog.create({
     data: {
       inventoryItemId,
@@ -87,17 +111,19 @@ async function handlePOST(req: NextRequest) {
       // stays that day; missing → today in Pacific, not UTC (`new Date()` rolled
       // the day over at ~4–5pm, so evening waste landed on tomorrow).
       date:            prepDayFrom(date),
-      qtyWasted:       parseFloat(qtyWasted),
+      qtyWasted:       qty,
       unit,
-      reason:          reason || 'UNKNOWN',
+      reason,
       costImpact,
-      loggedBy:        await displayName(user),
-      notes,
+      loggedBy:        name,
+      notes:           typeof notes === 'string' && notes.trim() ? notes.trim() : null,
       revenueCenterId,
     },
-    include: { inventoryItem: true },
+    include: { inventoryItem: { select: WASTE_ITEM_SELECT } },
   })
-  return NextResponse.json(log, { status: 201 })
+  // The person who just logged it may always undo it (inside the 24 h window).
+  const row = { ...log, canDelete: true }
+  return NextResponse.json(seesWasteMoney(user.role) ? row : redactWasteLog(row), { status: 201 })
 }
 
 // Stock-moving writes drop the cached theoretical-stock map (inventory list, cost chrome).

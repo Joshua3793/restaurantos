@@ -1,12 +1,54 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { Upload, Camera, Inbox as InboxIcon } from 'lucide-react'
-import type { SessionSummary } from '@/components/invoices/types'
-import { Signal, toInboxItems, inboxCounts, filterByChip, fmtAge, ChipId, InboxItem } from '@/lib/invoices/inbox-items'
+import { Upload, Camera, Inbox as InboxIcon, Truck } from 'lucide-react'
+import type { SessionSummary, SessionStatus } from '@/components/invoices/types'
+import { Signal, toInboxItems, inboxCounts, filterByChip, fmtAge, ChipId, InboxItem, DEFAULT_CHIP, todaysDeliveries } from '@/lib/invoices/inbox-items'
+import { useUser } from '@/contexts/UserContext'
+import { atLeast } from '@/lib/roles'
+import { formatCurrency } from '@/lib/invoice/formatters'
 import { InboxChips } from './InboxChips'
 import { InboxInvoiceCard } from './InboxInvoiceCard'
 import { InboxSignalCard } from './InboxSignalCard'
 import { SignalSheet } from './SignalSheet'
+
+const DELIVERY_STATUS: Partial<Record<SessionStatus, { label: string; cls: string }>> = {
+  APPROVED:   { label: 'In',               cls: 'bg-green-soft text-green-text' },
+  APPROVING:  { label: 'Going in…',        cls: 'bg-blue-soft text-blue-text' },
+  REVIEW:     { label: 'Waiting',          cls: 'bg-gold-soft text-gold-2' },
+  PROCESSING: { label: 'Reading…',         cls: 'bg-bg-2 text-ink-3' },
+}
+
+/** "Did Sysco go in?" — read-only: who delivered today and where each invoice is. */
+function TodaysDeliveries({ sessions, showMoney }: { sessions: SessionSummary[]; showMoney: boolean }) {
+  return (
+    <section className="pt-2" aria-label="Today's deliveries">
+      <div className="font-mono text-[10px] text-ink-3 uppercase tracking-[0.06em] flex items-center gap-1.5 mb-2">
+        <Truck size={11} /> Today’s deliveries
+      </div>
+      {sessions.length === 0 ? (
+        <p className="text-[13px] text-ink-3 bg-paper border border-line rounded-xl px-3 py-3">No invoices in yet today.</p>
+      ) : (
+        <ul className="bg-paper border border-line rounded-xl divide-y divide-line">
+          {sessions.map(s => {
+            const st = DELIVERY_STATUS[s.status]
+            const total = s.total != null && s.total !== '' ? Number(s.total) : null
+            return (
+              <li key={s.id} className="flex items-center gap-3 px-3 min-h-[48px] py-2">
+                <span className="flex-1 min-w-0 text-[14px] text-ink truncate">
+                  {s.supplierName ?? (s.status === 'PROCESSING' ? 'Reading invoice…' : 'Supplier not read')}
+                </span>
+                {showMoney && total != null && Number.isFinite(total) && (
+                  <span className="font-mono text-[12.5px] text-ink-2 shrink-0">{formatCurrency(total)}</span>
+                )}
+                {st && <span className={`font-mono text-[10px] font-semibold px-2 py-1 rounded-full shrink-0 ${st.cls}`}>{st.label}</span>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
 
 const EMPTY_TEXT: Record<ChipId, string> = {
   all: 'Inbox is empty — nothing needs you.',
@@ -29,7 +71,11 @@ export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick,
   /** Run a failed scan through OCR again (same handler as the desktop history list). */
   onRetry?: (id: string) => void
 }) {
-  const [chip, setChip] = useState<ChipId>('all')
+  const [chip, setChip] = useState<ChipId>(DEFAULT_CHIP)
+  const { role } = useUser()
+  // Default-deny while /api/me is in flight; LEAD+ sees invoice money.
+  const showMoney = role !== null && atLeast(role, 'LEAD')
+  const deliveries = useMemo(() => todaysDeliveries(sessions), [sessions])
   const [sheet, setSheet] = useState<InboxItem | null>(null)
 
   const items = useMemo(() => toInboxItems(sessions, signals), [sessions, signals])
@@ -83,6 +129,8 @@ export function MobileInbox({ sessions, signals, onSelectSession, onUploadClick,
           )}
         </div>
       )}
+
+      <TodaysDeliveries sessions={deliveries} showMoney={showMoney} />
 
       <SignalSheet item={sheet} onClose={() => setSheet(null)} onAct={(id, action) => { onSignalAct(id, action); setSheet(null) }} />
     </div>

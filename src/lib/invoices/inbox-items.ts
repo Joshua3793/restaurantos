@@ -35,8 +35,18 @@ export interface InboxItem {
 }
 
 const STATUS_BADGE: Partial<Record<SessionStatus, string>> = {
-  REVIEW: 'REVIEW', GROUPING: 'Unsorted', PROCESSING: 'OCR…', UPLOADING: 'UPLOAD…', APPROVING: 'APPLYING…', ERROR: 'ERROR',
+  REVIEW: 'REVIEW', GROUPING: 'Unsorted', PROCESSING: 'READING…', UPLOADING: 'UPLOAD…', APPROVING: 'APPLYING…', ERROR: 'ERROR',
 }
+
+/** The scanner is still reading this invoice (or its photos are still arriving):
+ *  there are no lines yet, so the review must not open — it would show an empty
+ *  invoice with an Approve button. */
+export function isStillReading(s: Pick<SessionSummary, 'status'>): boolean {
+  return s.status === 'PROCESSING' || s.status === 'UPLOADING'
+}
+
+/** The note a tap on a still-reading card shows instead of opening the review. */
+export const STILL_READING_NOTE = 'Still reading — it opens here when it’s ready.'
 
 function fmtMoney(n: number): string {
   return '$' + (Math.abs(n) >= 1000 ? Math.round(n).toLocaleString() : n.toFixed(2).replace(/\.00$/, ''))
@@ -123,6 +133,26 @@ function sessionToItem(s: SessionSummary): InboxItem | null {
   if (s.status === 'APPROVED' || s.status === 'REJECTED') return null
   if (s.status === 'GROUPING') return batchToItem(s)
   const isError = s.status === 'ERROR'
+  // While the scanner reads, nothing on the session is known yet — no supplier,
+  // no lines. Say what is happening instead of "Unknown supplier · 0 lines".
+  // (An UPLOADING session with no photos is a dead upload — it keeps the plain
+  // card so its "didn't finish" note and Delete chip still read right.)
+  if (isStillReading(s) && s.files.length > 0) {
+    const pages = s.files.length
+    return {
+      id: `inv-${s.id}`,
+      kind: 'invoice',
+      category: 'invoices',
+      tone: 'gold',
+      icon: 'invoice',
+      title: s.status === 'UPLOADING' ? 'Sending invoice…' : 'Reading invoice…',
+      meta: `${pages} ${pages === 1 ? 'PAGE' : 'PAGES'} · ABOUT 30 SECONDS`,
+      badge: STATUS_BADGE[s.status],
+      needsAction: false,
+      ageMs: Date.now() - new Date(s.createdAt).getTime(),
+      raw: s,
+    }
+  }
   const dateStr = s.invoiceDate
     ? new Date(s.invoiceDate).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
     : ''
@@ -186,21 +216,44 @@ export function toInboxItems(sessions: SessionSummary[], signals: Signal[]): Inb
 }
 
 export type ChipId = 'all' | InboxCategory
+/** The phone inbox opens on Invoices — every invoice, batch and failed scan,
+ *  and nothing else. Recipe and price alerts ("Side Pulled Pork drifted") live
+ *  under their own chips, and All comes last. */
+export const DEFAULT_CHIP: ChipId = 'invoices'
 export const INBOX_CHIPS: { id: ChipId; label: string }[] = [
-  { id: 'all', label: 'All' },
   { id: 'invoices', label: 'Invoices' },
+  { id: 'exceptions', label: 'Exceptions' },
   { id: 'prices', label: 'Prices' },
   { id: 'variance', label: 'Variance' },
-  { id: 'exceptions', label: 'Exceptions' },
+  { id: 'all', label: 'All' },
 ]
 
 export function inboxCounts(items: InboxItem[]): Record<ChipId, number> {
   const c: Record<ChipId, number> = { all: items.length, invoices: 0, prices: 0, variance: 0, exceptions: 0, other: 0 }
-  for (const it of items) c[it.category] = (c[it.category] ?? 0) + 1
+  for (const it of items) {
+    if (it.kind !== 'signal') c.invoices++
+    if (it.category !== 'invoices') c[it.category] = (c[it.category] ?? 0) + 1
+  }
   return c
 }
 
 export function filterByChip(items: InboxItem[], chip: ChipId): InboxItem[] {
   if (chip === 'all') return items
+  // Invoices = every session card (a failed scan included), never an alert.
+  if (chip === 'invoices') return items.filter(it => it.kind !== 'signal')
   return items.filter(it => it.category === chip)
+}
+
+/** "Did Sysco go in?" — today's invoices that are in or on their way in:
+ *  scanned today, or dated today. Batches, failed and rejected scans are left
+ *  out; they are not deliveries yet. Newest first. `now` is the phone's own
+ *  clock, which is the kitchen's day. */
+export function todaysDeliveries(sessions: SessionSummary[], now = new Date()): SessionSummary[] {
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const today = ymd(now)
+  const keep: ReadonlySet<SessionStatus> = new Set<SessionStatus>(['PROCESSING', 'REVIEW', 'APPROVING', 'APPROVED'])
+  return sessions
+    .filter(s => keep.has(s.status) && !s.parentSessionId)
+    .filter(s => ymd(new Date(s.createdAt)) === today || (s.invoiceDate ?? '').slice(0, 10) === today)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 }

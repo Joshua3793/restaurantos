@@ -188,14 +188,17 @@ function Numbers({ d }: { d: StartData }) {
       {rows.map((r, i) => {
         const inner = (
           <>
-            <span className="text-ink-2">{r.label}</span>
-            <span className={`font-mono font-semibold tabular-nums ${VALUE_TONE(r.tone)}`}>{r.value}</span>
+            <span className="min-w-0">
+              <span className="block text-ink-2">{r.label}</span>
+              {r.hint && <span className="block text-[12px] leading-snug text-ink-3 mt-0.5">{r.hint}</span>}
+            </span>
+            <span className={`shrink-0 font-mono font-semibold tabular-nums text-right ${VALUE_TONE(r.tone)}`}>{r.value}</span>
           </>
         )
-        const cls = `flex justify-between items-center min-h-[44px] py-2 text-[14px] ${i > 0 ? 'border-t border-bg-2' : ''}`
+        const cls = `flex justify-between items-center gap-3 min-h-[44px] py-2 text-[14px] ${i > 0 ? 'border-t border-bg-2' : ''}`
         return r.href
-          ? <Link key={r.label} href={r.href} className={cls}>{inner}</Link>
-          : <div key={r.label} className={cls}>{inner}</div>
+          ? <Link key={r.key} href={r.href} className={cls}>{inner}</Link>
+          : <div key={r.key} className={cls}>{inner}</div>
       })}
     </section>
   )

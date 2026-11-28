@@ -5,7 +5,7 @@ import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { formatCurrency, formatPricePerBase } from '@/lib/utils'
-import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState } from '../report-components'
+import { KpiCard, SectionHeader, Card, EmptyState, CustomTooltip, LoadingState, DesktopDetail } from '../report-components'
 import { useRc } from '@/contexts/RevenueCenterContext'
 import { DateRangePicker, analyticsParams } from '@/components/reports/DateRangePicker'
 import { useReportRange } from '@/lib/report-range'
@@ -50,6 +50,7 @@ export default function PurchasingTab() {
         <KpiCard label="Suppliers" value={String(summary.supplierCount)} accent="gray" sub="with approved invoices" info={PROVENANCE.purchBySupplier} />
       </div>
 
+      <DesktopDetail>
       {/* Weekly Spend Chart */}
       <Card>
         <SectionHeader title="Weekly Purchase Spend" subtitle="Approved invoice totals by week" />
@@ -172,6 +173,7 @@ export default function PurchasingTab() {
           </div>
         )
       })()}
+      </DesktopDetail>
     </div>
   )
 }

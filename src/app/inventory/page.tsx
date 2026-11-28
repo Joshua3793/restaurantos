@@ -963,6 +963,26 @@ function InventoryPageInner() {
         )}
       </div>
 
+      {/* Phone search — first thing under the title, pinned under the RC bar
+          (fixed, 2.5rem + safe area) while the list scrolls. Desktop keeps its
+          search in the filter row below. */}
+      <div
+        className="sm:hidden sticky z-20 -mx-4 px-4 py-2 bg-bg"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 2.5rem)' }}
+      >
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search items, suppliers, SKUs…"
+            enterKeyHint="search"
+            className="w-full h-11 pl-9 pr-3 border border-line rounded-[10px] text-[16px] font-[inherit] bg-paper text-ink focus:outline-none focus:border-ink-3 placeholder:text-ink-3"
+          />
+        </div>
+      </div>
+
       {/* Desktop header */}
       <div className="hidden sm:flex items-end justify-between gap-6 flex-wrap">
         <div>
@@ -1232,7 +1252,8 @@ function InventoryPageInner() {
                 key={mode}
                 onClick={() => setSortBy(mode)}
                 title={mode === 'category' ? 'Grouped by category' : 'Flat list'}
-                className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                aria-label={mode === 'category' ? 'Grouped by category' : 'Flat list'}
+                className={`min-w-[44px] min-h-[44px] px-2 rounded-md text-sm font-medium transition-colors ${
                   sortBy === mode ? 'bg-ink text-paper [&_svg]:text-gold shadow-sm' : 'text-ink-3'
                 }`}
               >
@@ -1243,7 +1264,7 @@ function InventoryPageInner() {
           {/* Sort */}
           <button
             onClick={() => setShowMobileSortSheet(true)}
-            className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`flex items-center gap-0.5 min-h-[44px] px-3 rounded-lg text-xs font-semibold border transition-colors ${
               colSort ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-line text-ink-3'
             }`}
           >
@@ -1254,33 +1275,13 @@ function InventoryPageInner() {
           {/* Filter */}
           <button
             onClick={() => setShowMobileFilterSheet(true)}
-            className={`flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`flex items-center gap-0.5 min-h-[44px] px-3 rounded-lg text-xs font-semibold border transition-colors ${
               (catFilter || supplierFilter || areaFilter) ? 'bg-gold/10 border-gold/30 text-gold' : 'bg-white border-line text-ink-3'
             }`}
           >
             ▽ Filter{(catFilter || supplierFilter || areaFilter) ? ' ·' : ''}
           </button>
-          <div className="flex-1" />
-          {/* Import CSV */}
-          {canEdit && (
-          <button
-            onClick={() => setShowImport(true)}
-            title="Import CSV"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
-          >
-            <UploadCloud size={11} /> Import
-          </button>
-          )}
-          {/* Export CSV */}
-          {canExport && (
-            <button
-              onClick={() => { window.location.href = exportHref() }}
-              title={stockInHand ? 'Export Stock in Hand' : 'Export CSV'}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-[8px] font-mono text-[11px] uppercase tracking-[0.04em] border border-line bg-paper text-ink-2 transition-colors hover:border-ink-3"
-            >
-              <Download size={11} /> {stockInHand ? 'Counted' : 'CSV'}
-            </button>
-          )}
+          {/* Import and CSV export are desk jobs — desktop only. */}
         </div>
         {/* Status pills — scrollable */}
         <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
@@ -1383,8 +1384,8 @@ function InventoryPageInner() {
         </button>
       </div>
 
-      {/* Search + Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
+      {/* Search + Filters (desktop — phones search from the pinned box at the top) */}
+      <div className="hidden sm:flex sm:flex-row gap-2">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
